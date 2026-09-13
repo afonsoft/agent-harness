@@ -1,9 +1,9 @@
 ---
-name: execute-tdd-spec
+name: execute-spec
 license: MIT
-description: "Test-driven development using the approved SPEC SDD as the source of truth. Reads `.specs/SPEC-{YYYYMMDD}-{feature}.md`, turns requirements and acceptance criteria into red-green-refactor vertical slices. Use when the user asks to execute, run or implement from an approved SPEC. User-facing questions and recommendations must be in Portuguese (pt-BR). Part of the afonsoft/skills collection."
+description: "Use when the user asks to implement an approved SPEC SDD using test-driven development."
 metadata:
-  version: "1.1.1"
+  version: "1.3.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
@@ -48,7 +48,7 @@ Load `.specs/SPEC-{YYYYMMDD}-{feature}.md` and identify:
 - Section 7 — task plan and validation strategy.
 - Section 3 — files to create or modify.
 
-If the SPEC is not approved, stop and invoke `/grill-me-with-spec`.
+If the SPEC is not approved, stop and invoke `/write-specs`.
 
 ### 2. Slice the work
 
@@ -66,7 +66,7 @@ REFACTOR → Clean duplication, improve names, respect SOLID while green.
 
 ### 4. Test at the public seam
 
-Test behavior through public interfaces (API, function, component), not internal implementation. Tests must survive internal refactors. See [tests.md](tests.md) for examples and [mocking.md](mocking.md) for mock rules.
+Test behavior through public interfaces (API, function, component), not internal implementation. Tests must survive internal refactors. See [references/tests.md](references/tests.md) for examples and [references/mocking.md](references/mocking.md) for mock rules.
 
 ### 5. Mapping to the SPEC
 
@@ -110,7 +110,7 @@ When all slices are green:
 
 - ❌ Writing all tests before any implementation.
 - ❌ Testing private methods or internal state.
-- ❌ Mismatched expectations in mocks (see [mocking.md](mocking.md)).
+- ❌ Mismatched expectations in mocks (see [references/mocking.md](references/mocking.md)).
 - ❌ Refactoring while a test is red.
 - ❌ Skipping the validation strategy from the SPEC.
 
@@ -125,11 +125,11 @@ When all slices are green:
 
 ## References
 
-- `grill-me-with-spec` — for producing the SPEC SDD
+- `write-specs` — for producing the SPEC SDD
 - `qa-analyst` — for the mandatory pre-PR review
 - `diagnose` — when a test fails unexpectedly and the cause is unclear
-- `tests.md` — test examples and patterns
-- `mocking.md` — mocking rules
-- `refactoring.md` — refactoring guidance
-- `deep-modules.md` — deep module design
-- `interface-design.md` — interface design patterns
+- `references/tests.md` — test examples and patterns
+- `references/mocking.md` — mocking rules
+- `references/refactoring.md` — refactoring guidance
+- `references/deep-modules.md` — deep module design
+- `references/interface-design.md` — interface design patterns

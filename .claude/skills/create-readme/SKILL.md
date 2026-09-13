@@ -1,9 +1,9 @@
 ---
 name: create-readme
 license: MIT
-description: Use when generating or updating professional README.md and CHANGELOG.md files for a project. Covers repository analysis, stack detection, badge generation, structure diagrams, and alignment with Keep a Changelog and SemVer standards. Do NOT use for API-reference docs (use dedicated doc tooling), licenses/governance documents, or internal code documentation (use docstrings/JSDoc). Part of the afonsoft/skills collection.
+description: Use when generating or updating a project README.md or CHANGELOG.md.
 metadata:
-  version: "1.1.1"
+  version: "1.2.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
@@ -31,7 +31,7 @@ Transforms a raw repository into a well-documented project by generating profess
 - **API reference docs** — use OpenAPI/Swagger, TypeDoc, Sphinx, or docfx instead.
 - **License files** — copy the appropriate license text directly (MIT, Apache-2.0, etc.).
 - **Internal code documentation** — use docstrings, JSDoc, TSDoc, or XML doc comments.
-- **Architecture diagrams** — use the `drawio-architecture` skill for visual system design.
+- **Architecture diagrams** — use the `drawio-architecture` or `mermaid-architecture` skill for visual and Markdown system design.
 - **Agent harness setup** — use `create-agent-harness` for CLAUDE.md/AGENTS.md and skill scaffolding.
 
 ## Process

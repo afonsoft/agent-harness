@@ -1,9 +1,9 @@
 ---
 name: qa-analyst
 license: MIT
-description: "Use when the user asks for QA analysis, requirement review, test planning, test cases, bug reports, root-cause analysis of defects, or mentions QA, quality assurance, testar essa feature, or revisar. Works in a loop: review requirements, plan tests, create cases, execute, report bugs, and re-validate. User-facing questions and clarifications must be in Portuguese (pt-BR). Part of the afonsoft/skills collection."
+description: "Use when the user asks for QA analysis, test planning, test cases, or root-cause analysis of a defect."
 metadata:
-  version: "1.0.1"
+  version: "1.1.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills

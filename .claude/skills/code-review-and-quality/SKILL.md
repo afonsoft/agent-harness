@@ -1,9 +1,9 @@
 ---
 name: code-review-and-quality
 license: MIT
-description: Use when reviewing code before it merges — your own, another agent's, or a human's. Assesses quality across five axes (correctness, readability, architecture, security, performance) before a change enters the main branch. Do NOT use for writing code, or as a substitute for automated tests/CI; this is a review gate, not an implementation guide. Part of the afonsoft/skills collection.
+description: Use when reviewing code before it merges, whether written by an agent or a human.
 metadata:
-  version: "1.0.2"
+  version: "1.1.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
@@ -167,7 +167,7 @@ Before looking at code, understand the intent:
 - What is the expected behavior change?
 ```
 
-**SonarQube check:** If the repository uses SonarQube (e.g., `sonar-project.properties`, `.sonarrc`, SonarQube step in CI/CD, or any `sonar.*` configuration), stop the review and invoke `/sonarqube-autofix`. That skill will download unresolved issues, classify them by type (`bug`, `code smell`, `security`), and create approved SPEC SDDs. Resume this review only after `/execute-tdd-spec` has implemented the generated SPECs.
+**SonarQube check:** If the repository uses SonarQube (e.g., `sonar-project.properties`, `.sonarrc`, SonarQube step in CI/CD, or any `sonar.*` configuration), stop the review and invoke `/sonarqube-autofix`. That skill will download unresolved issues, classify them by type (`bug`, `code smell`, `security`), and create approved SPEC SDDs. Resume this review only after `/execute-spec` has implemented the generated SPECs.
 
 ### Step 2: Review the Tests First
 

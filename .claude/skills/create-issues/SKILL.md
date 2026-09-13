@@ -1,9 +1,9 @@
 ---
 name: create-issues
 license: MIT
-description: Use when turning plans, specs, PRDs, and Epics into trackable GitHub Issues. Creates stable Epic IDs, direct links, vertical slices, dependencies, and verifiable acceptance criteria using the GitHub CLI (gh). Part of the afonsoft/skills collection.
+description: Use when turning approved plans, specs, PRDs, or Epics into trackable GitHub Issues.
 metadata:
-  version: "1.2.1"
+  version: "1.3.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
@@ -237,5 +237,5 @@ For Epic issues, keep the full SDD structure. For child slice issues, include on
 
 - `gh` CLI docs: https://cli.github.com/manual/
 - `orchestrator` skill for the full agentic workflow
-- `grill-me-with-spec` for producing the `.specs/SPEC-*.md` files
+- `write-specs` for producing the `.specs/SPEC-*.md` files
 - `references/spec-sdd-template.md` — SDD template for issue bodies derived from `.specs/SPEC-*.md` files
