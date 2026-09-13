@@ -1,7 +1,7 @@
 ---
 name: sonarqube-autofix
 license: MIT
-description: Use when analyzing SonarQube issues and creating SPEC SDDs with the proposed fixes. Classifies issues by type (bug, code smell, security) and generates `.specs/SPEC-{YYYYMMDD}-{issue-key}-{type}.md` for `execute-tdd-spec` to implement. Supports Community, Enterprise, and custom SonarQube deployments via environment variables. Do NOT use for general code review without SonarQube (use code-review-and-quality), for whole-repo quality interventions without SonarQube (use quality-test-implementation), or for non-SonarQube static analysis tools. Part of the afonsoft/skills collection.
+description: Use when analyzing SonarQube issues and turning them into SPEC SDDs for TDD implementation.
 metadata:
   version: 2.0.1
   visibility: public
@@ -22,13 +22,13 @@ metadata:
 
 ## Purpose
 
-Analyze issues reported by SonarQube, **regardless of language or framework**, classify them by type, and create approved SPEC SDDs that describe the fixes. The actual implementation of each SPEC is delegated to `/execute-tdd-spec`.
+Analyze issues reported by SonarQube, **regardless of language or framework**, classify them by type, and create approved SPEC SDDs that describe the fixes. The actual implementation of each SPEC is delegated to `/execute-spec`.
 
 The process is:
 1. **Issue analysis** — download and inspect unresolved SonarQube issues.
 2. **Classification** — group issues by type: `bug`, `code smell`, or `security`.
 3. **SPEC generation** — write one SPEC SDD per issue (or per small, related group) using `references/spec-sdd-template.md`.
-4. **Hand-off** — mark each SPEC as `Approved` and invoke `/execute-tdd-spec` to implement the fixes.
+4. **Hand-off** — mark each SPEC as `Approved` and invoke `/execute-spec` to implement the fixes.
 
 ## ⚙️ Environment Variable Configuration
 
@@ -274,9 +274,9 @@ For each issue (or small, related group of the same SonarQube type), create an a
 
 Mark each generated SPEC as `Status: Approved`. Do **not** implement the code in this skill.
 
-### Phase 3.5: Hand off to `/execute-tdd-spec`
+### Phase 3.5: Hand off to `/execute-spec`
 
-After all SPECs are approved, invoke `/execute-tdd-spec` for each one, in the order of the sorted ToDo Board. The implementation skill will follow the red-green-refactor cycle using the generated SPECs as source of truth.
+After all SPECs are approved, invoke `/execute-spec` for each one, in the order of the sorted ToDo Board. The implementation skill will follow the red-green-refactor cycle using the generated SPECs as source of truth.
 
 ### Phase 4: Documentation and Finalization
 

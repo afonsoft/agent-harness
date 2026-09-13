@@ -185,7 +185,7 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 ### Próximos passos
 
-1. Escolher um slice e executar via `execute-tdd-spec` (Fase 4).
+1. Escolher um slice e executar via `execute-spec` (Fase 4).
 2. Revalidar `dotnet build` e `dotnet test` após cada slice.
 3. Ao concluir um Epic, executar QA e revisão (Fase 5).
 

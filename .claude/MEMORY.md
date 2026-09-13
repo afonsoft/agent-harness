@@ -12,6 +12,7 @@
 | 2026-09-10 | Orquestração de agentes CLI: `BackgroundService` + `Channel<T>` + SignalR | Não bloquear threads da UI; streaming por grupo `issueId` | Polling HTTP; `IHostedService` com fila própria |
 | 2026-09-10 | `IAgentLogBroadcaster` em Application.Contracts, implementado no Server | Evitar dependência `Integrations → Server` | Referenciar `IHubContext` direto em Integrations |
 | 2026-09-10 | Skills `afonsoft/skills` instaladas em `.claude/skills` e `.devin/skills` (cópia, `skills-lock.json`) | Plataformas declaradas em CLAUDE.md; evitar 50+ pastas de IDEs | `npx skills add --all` sem filtro |
+| 2026-09-13 | Skills atualizadas via `npx skills update` (cópias reais em `.claude/skills`, lockfile regenerado); slash commands vendorados em `.claude/commands` | Upstream renomeou `grill-me-with-spec`→`write-specs`, `execute-tdd-spec`→`execute-spec` e adicionou `mermaid-architecture` | Symlinks para `.agents/skills` (store gitignored) |
 
 ## Débitos Técnicos
 

@@ -1,15 +1,15 @@
 ---
-name: grill-me-with-spec
+name: write-specs
 license: MIT
-description: Use when the user needs to create or refine a feature SPEC SDD before implementation. Interviews the user in Portuguese, builds a design tree, and writes `.specs/SPEC-{YYYYMMDD}-{feature}.md` following the SDD template. Do NOT use for writing implementation code or after the SPEC is approved. Part of the afonsoft/skills collection.
+description: Use when the user needs to create or refine a feature SPEC SDD before implementation.
 metadata:
-  version: "1.1.1"
+  version: "1.2.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
 ---
 
-# Grill me with SPEC
+# Write SPECs
 
 ## Overview
 
@@ -24,12 +24,12 @@ All questions directed at the user must be in Portuguese. This skill itself and 
 - Before any implementation begins.
 - The existing SPEC is outdated and needs refinement.
 
-- User asks or mentions this skill in English (e.g., "use /grill-me-with-spec", "run grill-me-with-spec").
-- O usuário pede ou menciona esta skill em português (ex.: "use /grill-me-with-spec", "execute grill-me-with-spec").
+- User asks or mentions this skill in English (e.g., "use /write-specs", "run write-specs").
+- O usuário pede ou menciona esta skill em português (ex.: "use /write-specs", "execute write-specs").
 
 ## When NOT to Use
 
-- Do not use for implementation — that is the job of the implementation skill (`/execute-tdd-spec`, etc.).
+- Do not use for implementation — that is the job of the implementation skill (`/execute-spec`, etc.).
 - Do not use when a SPEC already exists and is approved and the user only wants execution.
 - Do not use when the user explicitly refuses to provide requirements.
 

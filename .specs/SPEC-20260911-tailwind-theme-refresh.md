@@ -272,4 +272,4 @@ No new API. The feature consumes the existing settings and skills endpoints.
 
 ## Open Questions / Pending Ambiguity
 
-- N/A. The design tree was settled in the `grill-me-with-spec` interview.
+- N/A. The design tree was settled in the `write-specs` interview.

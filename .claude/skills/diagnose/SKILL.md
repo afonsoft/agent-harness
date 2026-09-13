@@ -1,9 +1,9 @@
 ---
 name: diagnose
 license: MIT
-description: Disciplined diagnosis and re-validation loop for hard bugs and performance regressions. Reproduce, minimise, hypothesise, instrument, fix, and regression-test. Use when the user says diagnose this / debug this, reports a bug, says something is broken/throwing/failing, or describes a performance regression. User-facing questions and findings must be in Portuguese (pt-BR). Part of the afonsoft/skills collection.
+description: Use when the user reports a hard bug, unexpected failure, or performance regression that needs root-cause analysis.
 metadata:
-  version: "1.0.1"
+  version: "1.1.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
@@ -234,7 +234,7 @@ Diagnosis is iterative. After every change, re-run the reproduction. If the bug 
 ## References
 
 - `qa-analyst` — for test planning and bug reporting
-- `grill-me-with-spec` — for producing specs when the bug reveals missing requirements
+- `write-specs` — for producing specs when the bug reveals missing requirements
 - `improve-codebase-architecture` — when the diagnosis reveals structural seams that need deepening
 - `agent-introspection-debugging` — when the failure is the agent session itself (loops, context drift, repeated tool calls)
 - `silent-failure-hunter` — when the code works but misbehaves quietly

@@ -1,9 +1,9 @@
 ---
 name: scaffold-mvp
 license: MIT
-description: Use when starting a new project in an empty repository. Initializes an agile, high-productivity .NET/Blazor/Angular MVP stack with clean engineering boundaries, atomic configurations, and system stability without architectural shortcuts. User-facing questions and recommendations must be in Portuguese (pt-BR). Part of the afonsoft/skills collection.
+description: Use when starting a new .NET/Blazor/Angular MVP project in an empty repository.
 metadata:
-  version: "2.0.1"
+  version: "2.1.1"
   visibility: public
   author: afonsoft
   url: https://github.com/afonsoft/skills
@@ -18,7 +18,7 @@ metadata:
 
 ## Trigger
 
-This skill is activated **only** in brand-new repositories, right after `/grill-me-with-spec` has established the shared language, domain, and an approved SPEC SDD, or when the user explicitly asks for a quick MVP bootstrap.
+This skill is activated **only** in brand-new repositories, right after `/write-specs` has established the shared language, domain, and an approved SPEC SDD, or when the user explicitly asks for a quick MVP bootstrap.
 
 ## Golden Rule (Non-Negotiable)
 
@@ -194,5 +194,5 @@ Then return control to the orchestrator reporting that the ground is ready for f
 ## References
 
 - `create-agent-harness` — for installing the agent harness in the new repo
-- `grill-me-with-spec` — for producing the SPEC SDD that precedes this skill
+- `write-specs` — for producing the SPEC SDD that precedes this skill
 - `create-issues` — for turning Epics into GitHub Issues

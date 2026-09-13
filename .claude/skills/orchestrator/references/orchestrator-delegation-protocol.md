@@ -14,8 +14,8 @@ The Orchestrator assigns autonomy based on **Risk Tier**. Each task is classifie
 | Tier | Risk Level | Examples | Human Approval Required | Typical Skills |
 |------|------------|----------|------------------------|--------------|
 | T1 — Fast Path | Minimal | Docs, formatting, lint fixes, safe refactors, tool setup | No | `code-review-and-quality`, `create-readme`, `diagnose` |
-| T2 — Batch | Medium | Env setup, test coverage improvement, localized performance fixes, structural decisions without breaking changes | No (report at batch end) | `execute-tdd-spec`, `improve-codebase-architecture`, `qa-analyst` |
-| T3 — Strategic | High | Domain model changes, new features, macro architecture, roadmap changes | Yes — initial plan approval | `grill-me-with-spec`, `scaffold-mvp` |
+| T2 — Batch | Medium | Env setup, test coverage improvement, localized performance fixes, structural decisions without breaking changes | No (report at batch end) | `execute-spec`, `improve-codebase-architecture`, `qa-analyst` |
+| T3 — Strategic | High | Domain model changes, new features, macro architecture, roadmap changes | Yes — initial plan approval | `write-specs`, `scaffold-mvp` |
 
 ---
 
@@ -23,7 +23,7 @@ The Orchestrator assigns autonomy based on **Risk Tier**. Each task is classifie
 
 T1 tasks are safe, isolated and reversible.
 
-- **Bypass**: skip global roadmap audit and long `/grill-me-with-spec` sessions. A brief context check is enough.
+- **Bypass**: skip global roadmap audit and long `/write-specs` sessions. A brief context check is enough.
 - **Execute atomically**: plan and run the single change in one go.
 - **Quality gate**: run lint/tests for the affected files.
 - **Logging**: record the action in `orchestrator_stats.md` with result and command summary.
@@ -59,7 +59,7 @@ T2 tasks are medium risk. They can be grouped and run in a batch, but require ro
 - [ ] Scope is bounded and defined in the approved roadmap or SPEC.
 - [ ] No new public API or data model is introduced.
 - [ ] Breaking changes are not expected.
-- [ ] Existing tests cover the affected paths or new tests are added by `/execute-tdd-spec`.
+- [ ] Existing tests cover the affected paths or new tests are added by `/execute-spec`.
 - [ ] Rollback can be done by reverting the batch commit.
 
 If any item is false, escalate to **T3**.
@@ -90,7 +90,7 @@ T3 decisions impact the project domain, architecture or roadmap. Human approval 
 | File count ≤ 3, no logic change, tests pass | T1 | Auto-approve, execute, log |
 | File count 4-10, localized change, bounded scope | T2 | Auto-approve batch, report at end |
 | New feature, API change, data model change | T3 | Pause, present plan, await approval |
-| Ambiguous requirements or unclear scope | T3 | Pause, invoke `/grill-me-with-spec`, await approval |
+| Ambiguous requirements or unclear scope | T3 | Pause, invoke `/write-specs`, await approval |
 | Security or production impact suspected | T3 | Stop, invoke `/qa-analyst` and/or security review, await approval |
 
 ---
@@ -127,14 +127,14 @@ tasks:
   - id: TASK-002
     desc: "Implement domain validator"
     tier: T2
-    skill: /execute-tdd-spec
+    skill: /execute-spec
     depends_on: [TASK-001]
     status: blocked
 
   - id: TASK-003
     desc: "Critical schema change"
     tier: T3
-    skill: /grill-me-with-spec
+    skill: /write-specs
     depends_on: [TASK-002]
     status: blocked
 ```
@@ -161,13 +161,13 @@ The Orchestrator never keeps state only in short-term context.
 | Governance & orchestration | `/orchestrator` | meta |
 | Versioning & PRs | available Git flow, auto if green | T1/T2 |
 | Missing harness | `/create-agent-harness` | T2 |
-| Missing domain language | `/grill-me-with-spec` | T3 |
+| Missing domain language | `/write-specs` | T3 |
 | Degraded architecture | `/improve-codebase-architecture` | T2 |
 | Difficult bug or regression | `/diagnose` | T2 |
-| Untested code | `/execute-tdd-spec` | T2 |
+| Untested code | `/execute-spec` | T2 |
 | QA analysis before PR | `/qa-analyst` | T2 (mandatory gate) |
 | Missing context | gather context autonomously, escalate only when blocked | T3 |
-| Alignment before change | `/grill-me-with-spec` | T3 |
+| Alignment before change | `/write-specs` | T3 |
 | Empty repo needing MVP | `/scaffold-mvp` | T3 |
 
 ---
@@ -256,11 +256,11 @@ After QA gate passes:
 
 | Identified Gap | Delegated Skill | Tier |
 |----------------|-----------------|------|
-| Missing or fragile tests | `/execute-tdd-spec` | T2 |
+| Missing or fragile tests | `/execute-spec` | T2 |
 | QA analysis required pre-PR | `/qa-analyst` | T2 (mandatory) |
 | Degraded/coupled architecture | `/improve-codebase-architecture` | T2 |
 | Bug or regression | `/diagnose` | T2 |
-| Misaligned domain language | `/grill-me-with-spec` | T3 |
+| Misaligned domain language | `/write-specs` | T3 |
 | Empty repo needing agile MVP | `/scaffold-mvp` | T3 |
 | Missing agent harness | `/create-agent-harness` | T2 |
 | Security concern | `/qa-analyst` + security review | T3 |
