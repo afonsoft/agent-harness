@@ -1,14 +1,14 @@
 @inject IAgentOrchestrationService OrchestrationService
 @inject NavigationManager NavigationManager
-@inject ISnackbar Snackbar
+@inject ToastService ToastService
 @implements IAsyncDisposable
 
 <div class="agent-log-tab">
     <div class="agent-log-header">
-        <MudText Typo="Typo.subtitle2">Logs do Agente</MudText>
-        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="CancelAsync">
+        <strong>Logs do Agente</strong>
+        <Button Color="ButtonColor.Danger" Outline="true" Size="ButtonSize.Small" @onclick="CancelAsync">
             Cancelar
-        </MudButton>
+        </Button>
     </div>
 
     <div class="agent-log-console" id="log-console-@IssueId">
@@ -61,7 +61,7 @@
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Erro ao cancelar: {ex.Message}", Severity.Error);
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao cancelar: {ex.Message}"));
         }
     }
 

@@ -12,8 +12,4 @@
     <ProjectReference Include="../Taskboard.Integrations/Taskboard.Integrations.csproj" />
     <ProjectReference Include="../Taskboard.Blazor/Taskboard.Blazor.csproj" />
   </ItemGroup>
-  <Target Name="BuildTailwindCss" BeforeTargets="Build">
-    <Exec Command="npm install" WorkingDirectory="$(MSBuildProjectDirectory)" Condition="!Exists('$(MSBuildProjectDirectory)/node_modules/.package-lock.json')" />
-    <Exec Command="npm run build:css" WorkingDirectory="$(MSBuildProjectDirectory)" />
-  </Target>
 </Project>

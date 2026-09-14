@@ -7,9 +7,9 @@
     <div class="task-meta">
         <span class="task-priority-swatch" style="@GetPrioritySwatchStyle()"></span>
         <span>@GetPriorityLabel()</span>
-        <span class="text-text-muted">|</span>
+        <span class="text-body-secondary">|</span>
         <span>@(Task.Assignee?.Name ?? "—")</span>
-        <span class="text-text-muted">|</span>
+        <span class="text-body-secondary">|</span>
         <span>@(Task.DueDate?.ToString("MM/dd/yyyy") ?? "—")</span>
     </div>
 </div>

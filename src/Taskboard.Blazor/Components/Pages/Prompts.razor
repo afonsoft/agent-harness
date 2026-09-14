@@ -1,13 +1,13 @@
 @page "/prompts/{source}/{name}"
 @attribute [Authorize]
 @inject TaskboardClient Client
-@inject ISnackbar Snackbar
+@inject ToastService ToastService
 @inject IJSRuntime JSRuntime
 
 <PageTitle>Prompt - @(_skill?.Name ?? "...") - Taskboard</PageTitle>
 
-<h1 class="mb-2 text-2xl font-bold text-text">Prompt library</h1>
-<p class="mb-6 text-sm text-text-muted">Copy a skill prompt to use in your agent.</p>
+<h1 class="h4 fw-bold mb-1">Prompt library</h1>
+<p class="small text-body-secondary mb-4">Copy a skill prompt to use in your agent.</p>
 
 @if (_skill is null)
 {
@@ -23,43 +23,47 @@
 else
 {
     <div class="card">
-        <div class="mb-4 flex items-start justify-between gap-4">
+        <div class="card-body">
+            <div class="mb-4 d-flex align-items-start justify-content-between gap-3">
+                <div>
+                    <h2 class="h4 fw-bold">@_skill.Name</h2>
+                    <p class="small text-body-secondary mb-0">@_skill.Description</p>
+                </div>
+                <Button Color="ButtonColor.Primary" Class="flex-shrink-0" @onclick="CopyToClipboardAsync">
+                    <Icon Name="IconName.Clipboard" class="me-2" />Copy prompt
+                </Button>
+            </div>
+
+            @if (_skill.Tools.Any())
+            {
+                <div class="mb-4 d-flex flex-wrap gap-2">
+                    @foreach (var tool in _skill.Tools)
+                    {
+                        <span class="badge text-bg-secondary">@tool</span>
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_skill.References))
+            {
+                <div class="mb-4">
+                    <h3 class="h6 fw-semibold mb-2">References</h3>
+                    <pre class="code-block">@_skill.References</pre>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_skill.Scripts))
+            {
+                <div class="mb-4">
+                    <h3 class="h6 fw-semibold mb-2">Scripts</h3>
+                    <pre class="code-block">@_skill.Scripts</pre>
+                </div>
+            }
+
             <div>
-                <h2 class="text-2xl font-bold text-text">@_skill.Name</h2>
-                <p class="text-sm text-text-muted">@_skill.Description</p>
+                <h3 class="h6 fw-semibold mb-2">Full content</h3>
+                <pre class="code-block">@_skill.Content</pre>
             </div>
-            <button type="button" class="btn-primary shrink-0" @onclick="CopyToClipboardAsync">Copy prompt</button>
-        </div>
-
-        @if (_skill.Tools.Any())
-        {
-            <div class="mb-6 flex flex-wrap gap-2">
-                @foreach (var tool in _skill.Tools)
-                {
-                    <span class="badge">@tool</span>
-                }
-            </div>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(_skill.References))
-        {
-            <div class="mb-6">
-                <h3 class="mb-2 text-lg font-semibold text-text">References</h3>
-                <pre class="code-block">@_skill.References</pre>
-            </div>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(_skill.Scripts))
-        {
-            <div class="mb-6">
-                <h3 class="mb-2 text-lg font-semibold text-text">Scripts</h3>
-                <pre class="code-block">@_skill.Scripts</pre>
-            </div>
-        }
-
-        <div>
-            <h3 class="mb-2 text-lg font-semibold text-text">Full content</h3>
-            <pre class="code-block">@_skill.Content</pre>
         </div>
     </div>
 }
@@ -85,6 +89,6 @@ else
         }
 
         await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _skill.Content);
-        Snackbar.Add("Prompt copied to clipboard", Severity.Success);
+        ToastService.Notify(new(ToastType.Success, "Prompt copied to clipboard"));
     }
 }

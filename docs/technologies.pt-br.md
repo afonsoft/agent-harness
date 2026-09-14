@@ -12,7 +12,7 @@
 | MCP SDK | ModelContextProtocol | latest stable for .NET |
 | Testes | xUnit + Shouldly + NSubstitute | latest stable |
 | Frontend | Blazor Server | .NET 10 |
-| Componentes de UI | MudBlazor | 9.9.0 |
+| Componentes de UI | Blazor.Bootstrap | 4.0.0 |
 | Tempo real | ASP.NET Core SignalR | 10.0 |
 | Cliente da API do GitHub | Octokit | 14.0.0 |
 | Provedores de IA | OpenAI / Claude / Azure OpenAI (abstração) | — |

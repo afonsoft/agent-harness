@@ -2,13 +2,13 @@
 @attribute [Authorize]
 @inject TaskboardClient Client
 @inject NavigationManager Navigation
-@inject ISnackbar Snackbar
+@inject ToastService ToastService
 
 <PageTitle>Settings - Taskboard</PageTitle>
 
 <div class="settings-page">
-    <h1 class="mb-2 text-2xl font-bold text-text">Settings</h1>
-    <p class="mb-6 text-sm text-text-muted">Customize your workspace and agents</p>
+    <h1 class="h4 fw-bold mb-1">Settings</h1>
+    <p class="small text-body-secondary mb-4">Customize your workspace and agents</p>
 
     @if (_isLoading)
     {
@@ -16,80 +16,92 @@
     }
     else if (_errorMessage is not null)
     {
-        <div class="alert mb-6">@_errorMessage</div>
+        <div class="alert alert-danger mb-4">@_errorMessage</div>
     }
     else
     {
-        <div class="card p-4 md:p-6">
-            <div class="form-section">
-                <h2 class="form-section-title">Appearance</h2>
-                <label class="form-label" for="theme-toggle">Theme</label>
-                <div class="setting-row">
-                    <div>
-                        <div class="text-text">Dark mode</div>
-                        <p class="form-helper">Use the dark color theme across the app.</p>
+        <div class="card">
+            <div class="card-body p-4">
+                <div class="form-section">
+                    <h2 class="form-section-title">Appearance</h2>
+                    <div class="setting-row">
+                        <div>
+                            <div>Dark mode</div>
+                            <p class="small text-body-secondary mb-0">Use the dark color theme across the app.</p>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input id="theme-toggle" type="checkbox" role="switch" class="form-check-input" @bind="_isDark" />
+                            <label class="form-check-label visually-hidden" for="theme-toggle">Dark mode</label>
+                        </div>
                     </div>
-                    <input id="theme-toggle" type="checkbox" class="toggle" @bind="_isDark" />
                 </div>
-            </div>
 
-            <div class="form-section">
-                <h2 class="form-section-title">Integrations</h2>
-                <label class="form-label" for="github-token">GitHub token</label>
-                <p class="form-helper">Paste a personal access token with repo scope.</p>
-                <div class="setting-row-input">
-                    <input id="github-token" type="@_tokenInputType" class="input" @bind="_gitHubToken" placeholder="ghp_…" />
-                    <button type="button" class="btn-secondary whitespace-nowrap" @onclick="ToggleTokenVisibility">@_tokenToggleLabel</button>
+                <div class="form-section">
+                    <h2 class="form-section-title">Integrations</h2>
+                    <label class="form-label" for="github-token">GitHub token</label>
+                    <p class="small text-body-secondary">Paste a personal access token with repo scope.</p>
+                    <div class="setting-row-input">
+                        <input id="github-token" type="@_tokenInputType" class="form-control" @bind="_gitHubToken" placeholder="ghp_…" />
+                        <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="ToggleTokenVisibility">@_tokenToggleLabel</button>
+                    </div>
                 </div>
-            </div>
 
-            <div class="form-section">
-                <h2 class="form-section-title">Security</h2>
-                <label class="form-label" for="current-password">Change password</label>
-                <div class="grid gap-4 mt-3 md:grid-cols-3">
-                    <input id="current-password" type="password" class="input" @bind="_currentPassword" placeholder="Current password" />
-                    <input type="password" class="input" @bind="_newPassword" placeholder="New password" />
-                    <input type="password" class="input" @bind="_confirmPassword" placeholder="Confirm new password" />
+                <div class="form-section">
+                    <h2 class="form-section-title">Security</h2>
+                    <label class="form-label" for="current-password">Change password</label>
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4">
+                            <input id="current-password" type="password" class="form-control" @bind="_currentPassword" placeholder="Current password" />
+                        </div>
+                        <div class="col-md-4">
+                            <input type="password" class="form-control" @bind="_newPassword" placeholder="New password" aria-label="New password" />
+                        </div>
+                        <div class="col-md-4">
+                            <input type="password" class="form-control" @bind="_confirmPassword" placeholder="Confirm new password" aria-label="Confirm new password" />
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_passwordError))
+                    {
+                        <p class="mt-2 small text-danger">@_passwordError</p>
+                    }
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="ChangePasswordAsync">Change password</button>
+                    </div>
                 </div>
-                @if (!string.IsNullOrWhiteSpace(_passwordError))
-                {
-                    <p class="mt-2 text-sm text-danger">@_passwordError</p>
-                }
-                <div class="mt-4">
-                    <button type="button" class="btn-secondary" @onclick="ChangePasswordAsync">Change password</button>
-                </div>
-            </div>
 
-            <div class="form-section">
-                <h2 class="form-section-title">Agents</h2>
-                @if (!_agents.Any())
-                {
-                    <EmptyState Message="No agents discovered." />
-                }
-                else
-                {
-                    <div>
-                        @foreach (var agent in _agents)
-                        {
-                            <div class="setting-row" @key="agent.Type">
-                                <div>
-                                    <div class="text-text font-medium">@agent.Name</div>
-                                    @if (!string.IsNullOrWhiteSpace(agent.Description))
-                                    {
-                                        <div class="text-text-muted text-sm">@agent.Description</div>
-                                    }
-                                    <div class="text-text-muted text-xs">@agent.Type@(string.IsNullOrWhiteSpace(agent.Version) ? "" : $" · v{agent.Version}")</div>
+                <div class="form-section">
+                    <h2 class="form-section-title">Agents</h2>
+                    @if (!_agents.Any())
+                    {
+                        <EmptyState Message="No agents discovered." />
+                    }
+                    else
+                    {
+                        <div>
+                            @foreach (var agent in _agents)
+                            {
+                                <div class="setting-row" @key="agent.Type">
+                                    <div>
+                                        <div class="fw-medium">@agent.Name</div>
+                                        @if (!string.IsNullOrWhiteSpace(agent.Description))
+                                        {
+                                            <div class="small text-body-secondary">@agent.Description</div>
+                                        }
+                                        <div class="small text-body-secondary">@agent.Type@(string.IsNullOrWhiteSpace(agent.Version) ? "" : $" · v{agent.Version}")</div>
+                                    </div>
+                                    <div class="form-check form-switch mb-0">
+                                        <input type="checkbox" role="switch" class="form-check-input" checked="@_enabledState[agent.Type]" @onchange="e => ToggleAgent(agent.Type, (bool)e.Value!)" aria-label="Enable @agent.Name" />
+                                    </div>
                                 </div>
-                                <input type="checkbox" class="toggle" checked="@_enabledState[agent.Type]" @onchange="e => ToggleAgent(agent.Type, (bool)e.Value!)" />
-                            </div>
-                        }
-                    </div>
-                }
+                            }
+                        </div>
+                    }
+                </div>
             </div>
 
             <div class="action-bar">
-                <button type="button" class="btn-secondary" @onclick="ResetAsync">Reset</button>
-                <button type="button" class="btn-primary" @onclick="SaveAsync">Save changes</button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="ResetAsync">Reset</button>
+                <button type="button" class="btn btn-primary" @onclick="SaveAsync">Save changes</button>
             </div>
         </div>
     }
@@ -180,7 +192,7 @@
         try
         {
             await Client.ChangePasswordAsync(new ChangePasswordRequest(_currentPassword, _newPassword));
-            Snackbar.Add("Password changed", Severity.Success);
+            ToastService.Notify(new(ToastType.Success, "Password changed"));
             _currentPassword = _newPassword = _confirmPassword = string.Empty;
         }
         catch (HttpRequestException)
@@ -198,7 +210,7 @@
             _enabledState[type] = value;
         }
         _passwordError = null;
-        Snackbar.Add("Settings reset", Severity.Info);
+        ToastService.Notify(new(ToastType.Info, "Settings reset"));
     }
 
     private async Task SaveAsync()
@@ -208,7 +220,7 @@
             _gitHubToken,
             _enabledState.Where(kv => kv.Value).Select(kv => kv.Key.ToString()).ToList().AsReadOnly());
         await Client.SaveSettingsAsync(request);
-        Snackbar.Add("Settings saved", Severity.Success);
+        ToastService.Notify(new(ToastType.Success, "Settings saved"));
         Navigation.NavigateTo("/settings", forceLoad: true);
     }
 }

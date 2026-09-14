@@ -1,56 +1,58 @@
 @inject IGitHubService GitHubService
-@inject ISnackbar Snackbar
+@inject ToastService ToastService
 
-<MudCard Elevation="1" Class="pa-4 mb-4">
-    <MudText Typo="Typo.h6">GitHub</MudText>
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">GitHub</h5>
 
-    <MudTextField T="string"
-                  Label="Personal Access Token"
-                  @bind-Value="_token"
-                  InputType="InputType.Password"
-                  Adornment="Adornment.End"
-                  AdornmentIcon="@Icons.Material.Filled.Save"
-                  OnAdornmentClick="ApplyTokenAsync"
-                  HelperText="Use a variável de ambiente GITHUB_TOKEN ou informe o token aqui."
-                  Class="mb-2" />
-
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyTokenAsync" Disabled="_isApplyingToken">
-        @if (_isApplyingToken)
-        {
-            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
-        }
-        Aplicar Token
-    </MudButton>
-
-    @if (_repositories is not null)
-    {
-        <MudSelect T="RepositoryDto"
-                   Label="Repositório"
-                   Value="_selectedRepository"
-                   ValueChanged="OnRepositoryChanged"
-                   ToStringFunc="r => r?.FullName ?? string.Empty"
-                   Disabled="_isLoading"
-                   Class="mt-4">
-            @foreach (var repository in _repositories)
-            {
-                <MudSelectItem Value="repository">@repository.FullName</MudSelectItem>
-            }
-        </MudSelect>
-    }
-
-    @if (_isLoading)
-    {
-        <div class="d-flex align-center mt-4">
-            <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" />
-            <MudText>Carregando repositórios...</MudText>
+        <div class="mb-3">
+            <label for="github-token" class="form-label">Personal Access Token</label>
+            <div class="input-group">
+                <input id="github-token" type="password" class="form-control" @bind="_token" />
+                <button type="button" class="btn btn-outline-secondary" @onclick="ApplyTokenAsync" aria-label="Save token">
+                    <Icon Name="IconName.Save" />
+                </button>
+            </div>
+            <div class="form-text">Use a variável de ambiente GITHUB_TOKEN ou informe o token aqui.</div>
         </div>
-    }
 
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
-    {
-        <MudAlert Severity="Severity.Error" Class="mt-4">@_errorMessage</MudAlert>
-    }
-</MudCard>
+        <Button Color="ButtonColor.Primary" @onclick="ApplyTokenAsync" Disabled="_isApplyingToken">
+            @if (_isApplyingToken)
+            {
+                <Spinner Size="SpinnerSize.Small" Class="me-2" />
+            }
+            Aplicar Token
+        </Button>
+
+        @if (_repositories is not null)
+        {
+            <div class="mt-3">
+                <label for="repository-select" class="form-label">Repositório</label>
+                <select id="repository-select" class="form-select" disabled="@_isLoading"
+                        @bind="_selectedRepositoryFullName" @bind:after="OnRepositoryChanged">
+                    <option value="">Selecione um repositório</option>
+                    @foreach (var repository in _repositories)
+                    {
+                        <option value="@repository.FullName">@repository.FullName</option>
+                    }
+                </select>
+            </div>
+        }
+
+        @if (_isLoading)
+        {
+            <div class="d-flex align-items-center mt-3">
+                <Spinner Size="SpinnerSize.Small" Class="me-2" />
+                <span>Carregando repositórios...</span>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_errorMessage))
+        {
+            <div class="alert alert-danger mt-3 mb-0">@_errorMessage</div>
+        }
+    </div>
+</div>
 
 @code {
     private string _token = string.Empty;
@@ -58,7 +60,7 @@
     private bool _isLoading;
     private string? _errorMessage;
     private IReadOnlyList<RepositoryDto>? _repositories;
-    private RepositoryDto? _selectedRepository;
+    private string _selectedRepositoryFullName = string.Empty;
 
     [Parameter]
     public EventCallback<string> OnRepositorySelected { get; set; }
@@ -72,7 +74,7 @@
     {
         if (string.IsNullOrWhiteSpace(_token))
         {
-            Snackbar.Add("Informe um token válido.", Severity.Warning);
+            ToastService.Notify(new(ToastType.Warning, "Informe um token válido."));
             return;
         }
 
@@ -83,12 +85,12 @@
         {
             GitHubService.SetToken(_token);
             await LoadRepositoriesAsync();
-            Snackbar.Add("Token aplicado com sucesso.", Severity.Success);
+            ToastService.Notify(new(ToastType.Success, "Token aplicado com sucesso."));
         }
         catch (Exception ex)
         {
             _errorMessage = $"Erro ao aplicar token: {ex.Message}";
-            Snackbar.Add(_errorMessage, Severity.Error);
+            ToastService.Notify(new(ToastType.Danger, _errorMessage));
         }
         finally
         {
@@ -116,13 +118,11 @@
         }
     }
 
-    private async Task OnRepositoryChanged(RepositoryDto? repository)
+    private async Task OnRepositoryChanged()
     {
-        _selectedRepository = repository;
-
-        if (repository is not null)
+        if (!string.IsNullOrWhiteSpace(_selectedRepositoryFullName))
         {
-            await OnRepositorySelected.InvokeAsync(repository.FullName);
+            await OnRepositorySelected.InvokeAsync(_selectedRepositoryFullName);
         }
     }
 }

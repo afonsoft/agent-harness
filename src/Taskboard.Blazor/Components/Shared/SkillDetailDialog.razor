@@ -1,77 +1,58 @@
 @using Taskboard.Application.Contracts.Skills
 
-<MudDialog>
-    <DialogContent>
-        @if (_skill is null)
-        {
-            <Loading Message="Loading skill..." />
-        }
-        else
-        {
-            <div class="mb-4">
-                <div class="flex items-start justify-between gap-3 mb-2">
-                    <h2 class="text-xl font-bold text-text">@_skill.Name</h2>
-                    <span class="source-badge @GetSourceBadgeClass(_skill.Source)">@_skill.Source</span>
-                </div>
-                <p class="text-sm text-text-muted mb-1">@_skill.Description</p>
-                <p class="text-xs text-text-muted font-mono" title="@_skill.Path">@_skill.Path</p>
-            </div>
+@if (Skill is null)
+{
+    <Loading Message="Loading skill..." />
+}
+else
+{
+    <div class="mb-4">
+        <div class="d-flex align-items-start justify-content-between gap-3 mb-2">
+            <h2 class="h5 fw-bold mb-0">@Skill.Name</h2>
+            <span class="source-badge @GetSourceBadgeClass(Skill.Source)">@Skill.Source</span>
+        </div>
+        <p class="small text-body-secondary mb-1">@Skill.Description</p>
+        <p class="small text-body-secondary font-monospace mb-0" title="@Skill.Path">@Skill.Path</p>
+    </div>
 
-            @if (_skill.Tools.Any())
-            {
-                <div class="mb-4">
-                    <h3 class="text-sm font-semibold text-text mb-2">Tools</h3>
-                    <div class="flex flex-wrap gap-2">
-                        @foreach (var tool in _skill.Tools)
-                        {
-                            <span class="badge">@tool</span>
-                        }
-                    </div>
-                </div>
-            }
-
-            @if (!string.IsNullOrWhiteSpace(_skill.References))
-            {
-                <div class="mb-4">
-                    <h3 class="text-sm font-semibold text-text mb-2">References</h3>
-                    <div class="code-block text-sm">@_skill.References</div>
-                </div>
-            }
-
-            @if (!string.IsNullOrWhiteSpace(_skill.Scripts))
-            {
-                <div class="mb-4">
-                    <h3 class="text-sm font-semibold text-text mb-2">Scripts</h3>
-                    <div class="code-block text-sm">@_skill.Scripts</div>
-                </div>
-            }
-
-            <div>
-                <h3 class="text-sm font-semibold text-text mb-2">Content</h3>
-                <div class="code-block text-sm max-h-64 overflow-y-auto">@_skill.Content</div>
-            </div>
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Close" Color="Color.Primary">Close</MudButton>
-    </DialogActions>
-</MudDialog>
-
-@code {
-    [CascadingParameter]
-    public IMudDialogInstance MudDialog { get; set; } = default!;
-
-    [Parameter]
-    public SkillDetailDto Skill { get; set; } = default!;
-
-    private SkillDetailDto? _skill;
-
-    protected override void OnInitialized()
+    @if (Skill.Tools.Any())
     {
-        _skill = Skill;
+        <div class="mb-4">
+            <h3 class="h6 fw-semibold mb-2">Tools</h3>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var tool in Skill.Tools)
+                {
+                    <span class="badge text-bg-secondary">@tool</span>
+                }
+            </div>
+        </div>
     }
 
-    private void Close() => MudDialog.Close();
+    @if (!string.IsNullOrWhiteSpace(Skill.References))
+    {
+        <div class="mb-4">
+            <h3 class="h6 fw-semibold mb-2">References</h3>
+            <div class="code-block small">@Skill.References</div>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Skill.Scripts))
+    {
+        <div class="mb-4">
+            <h3 class="h6 fw-semibold mb-2">Scripts</h3>
+            <div class="code-block small">@Skill.Scripts</div>
+        </div>
+    }
+
+    <div>
+        <h3 class="h6 fw-semibold mb-2">Content</h3>
+        <div class="code-block small overflow-y-auto" style="max-height: 16rem;">@Skill.Content</div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public SkillDetailDto Skill { get; set; } = default!;
 
     private static string GetSourceBadgeClass(string source) => $"source-badge-{source.ToLowerInvariant()}" switch
     {

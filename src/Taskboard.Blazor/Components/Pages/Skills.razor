@@ -1,69 +1,73 @@
 @page "/skills"
 @attribute [Authorize]
 @inject TaskboardClient Client
-@inject IDialogService DialogService
 
 <PageTitle>Skills - Taskboard</PageTitle>
 
-<h1 class="mb-2 text-2xl font-bold text-text">Skills</h1>
-<p class="mb-6 text-sm text-text-muted">Installed agent skills</p>
+<Modal @ref="_skillModal" Size="ModalSize.Large" IsScrollable="true" />
+
+<h1 class="h4 fw-bold mb-1">Skills</h1>
+<p class="small text-body-secondary mb-4">Installed agent skills</p>
 
 <div class="card">
-    <div class="filter-bar">
-        <div>
-            <label for="skills-search" class="sr-only">Search skills</label>
-            <input id="skills-search" type="search" class="input" placeholder="Search by name, description or source" @bind="_search" @oninput="OnSearchInput" />
+    <div class="card-body">
+        <div class="d-flex flex-column gap-3 mb-4">
+            <div>
+                <label for="skills-search" class="visually-hidden">Search skills</label>
+                <input id="skills-search" type="search" class="form-control" placeholder="Search by name, description or source" @bind="_search" @bind:event="oninput" @bind:after="ApplyFilters" />
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="filter-chip @(string.IsNullOrEmpty(_selectedSource) ? "active" : "")" @onclick="() => SelectSource(null)">All</button>
+                @foreach (var source in _sources)
+                {
+                    <button type="button" class="filter-chip @(_selectedSource == source ? "active" : "")" @onclick="() => SelectSource(source)">@source</button>
+                }
+            </div>
         </div>
-        <div class="flex flex-wrap gap-2">
-            <button type="button" class="filter-chip @(string.IsNullOrEmpty(_selectedSource) ? "filter-chip-active" : "")" @onclick="() => SelectSource(null)">All</button>
-            @foreach (var source in _sources)
-            {
-                <button type="button" class="filter-chip @(_selectedSource == source ? "filter-chip-active" : "")" @onclick="() => SelectSource(source)">@source</button>
-            }
-        </div>
-    </div>
 
-    @if (_loading)
-    {
-        <Loading Message="Loading skills..." />
-    }
-    else if (_errorMessage is not null)
-    {
-        <div class="alert mb-4">@_errorMessage</div>
-    }
-    else if (!_filteredSkills.Any())
-    {
-        @if (string.IsNullOrWhiteSpace(_search) && string.IsNullOrWhiteSpace(_selectedSource))
+        @if (_loading)
         {
-            <EmptyState Message="No skills installed." />
+            <Loading Message="Loading skills..." />
+        }
+        else if (_errorMessage is not null)
+        {
+            <div class="alert alert-danger mb-3">@_errorMessage</div>
+        }
+        else if (!_filteredSkills.Any())
+        {
+            @if (string.IsNullOrWhiteSpace(_search) && string.IsNullOrWhiteSpace(_selectedSource))
+            {
+                <EmptyState Message="No skills installed." />
+            }
+            else
+            {
+                <EmptyState Message="No skills match your filters." />
+                <div class="mt-3 text-center">
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ClearFilters">Clear filters</button>
+                </div>
+            }
         }
         else
         {
-            <EmptyState Message="No skills match your filters." />
-            <div class="mt-4 text-center">
-                <button type="button" class="btn-secondary" @onclick="ClearFilters">Clear filters</button>
+            <div class="skill-grid">
+                @foreach (var skill in _filteredSkills)
+                {
+                    <div class="skill-card" tabindex="0" @key="skill.Name" @onclick="() => OpenDetail(skill)" @onkeydown="e => HandleKeyDown(e, skill)">
+                        <div class="skill-card-header">
+                            <h3 class="skill-card-title" title="@skill.Name">@skill.Name</h3>
+                            <span class="source-badge @GetSourceBadgeClass(skill.Source)">@skill.Source</span>
+                        </div>
+                        <p class="skill-card-description">@skill.Description</p>
+                        <p class="skill-card-path" title="@skill.Path">@skill.Path</p>
+                    </div>
+                }
             </div>
         }
-    }
-    else
-    {
-        <div class="skill-grid">
-            @foreach (var skill in _filteredSkills)
-            {
-                <div class="skill-card" tabindex="0" @key="skill.Name" @onclick="() => OpenDetail(skill)" @onkeydown="e => HandleKeyDown(e, skill)">
-                    <div class="skill-card-header">
-                        <h3 class="skill-card-title" title="@skill.Name">@skill.Name</h3>
-                        <span class="source-badge @GetSourceBadgeClass(skill.Source)">@skill.Source</span>
-                    </div>
-                    <p class="skill-card-description">@skill.Description</p>
-                    <p class="skill-card-path" title="@skill.Path">@skill.Path</p>
-                </div>
-            }
-        </div>
-    }
+    </div>
 </div>
 
 @code {
+    private Modal _skillModal = default!;
     private bool _loading = true;
     private string? _errorMessage;
     private string _search = string.Empty;
@@ -88,12 +92,6 @@
         {
             _loading = false;
         }
-    }
-
-    private void OnSearchInput(ChangeEventArgs e)
-    {
-        _search = e.Value?.ToString() ?? string.Empty;
-        ApplyFilters();
     }
 
     private void SelectSource(string? source)
@@ -147,8 +145,12 @@
                 return;
             }
 
-            var parameters = new DialogParameters<SkillDetailDialog> { { x => x.Skill, detail } };
-            await DialogService.ShowAsync<SkillDetailDialog>(skill.Name, parameters);
+            var parameters = new Dictionary<string, object>
+            {
+                { nameof(SkillDetailDialog.Skill), detail }
+            };
+
+            await _skillModal.ShowAsync<SkillDetailDialog>(title: skill.Name, parameters: parameters);
         }
         catch
         {

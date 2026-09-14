@@ -1,8 +1,8 @@
 @page "/"
 @inject TaskboardClient Client
 
-<h1 class="mb-2 text-2xl font-bold text-text">Board</h1>
-<p class="mb-6 text-sm text-text-muted">Drag or browse tasks by status</p>
+<h1 class="h4 fw-bold mb-1">Board</h1>
+<p class="small text-body-secondary mb-4">Drag or browse tasks by status</p>
 
 @if (_isLoading)
 {
@@ -10,7 +10,7 @@
 }
 else if (_errorMessage is not null)
 {
-    <div class="alert">@_errorMessage</div>
+    <div class="alert alert-danger">@_errorMessage</div>
 }
 else if (_project is null)
 {
@@ -40,7 +40,7 @@ else
             <div class="legend mt-1">
                 @foreach (var priority in _priorities)
                 {
-                    <span class="text-text text-xs">
+                    <span class="small">
                         <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(priority)"></span>
                         @priority
                     </span>
@@ -54,7 +54,7 @@ else
         {
             <div class="kanban-column">
                 <div class="kanban-column-header @GetStatusClass(status)">
-                    <h2 class="text-sm font-semibold capitalize">@status</h2>
+                    <h2>@status</h2>
                     <span class="kanban-label">@GetTasks(status).Count()</span>
                 </div>
                 <div class="kanban-column-body" style="max-height: 70vh;">
@@ -73,7 +73,7 @@ else
         }
         <div class="kanban-column">
             <div class="kanban-column-header @GetStatusClass("archived")">
-                <h2 class="text-sm font-semibold capitalize">archived</h2>
+                <h2>archived</h2>
                 <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).Count()</span>
             </div>
             <div class="kanban-column-body" style="max-height: 70vh;">

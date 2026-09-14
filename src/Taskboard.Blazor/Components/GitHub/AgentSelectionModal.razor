@@ -1,61 +1,55 @@
 @inject IAgentOrchestrationService OrchestrationService
-@inject ISnackbar Snackbar
+@inject ToastService ToastService
 
-<MudDialog>
-    <DialogContent>
-        <MudText Typo="Typo.h6" Class="mb-4">Selecionar Agente CLI</MudText>
+<h6 class="mb-3">Selecionar Agente CLI</h6>
 
-        @if (_isLoading)
+@if (_isLoading)
+{
+    <div class="d-flex align-items-center">
+        <Spinner Size="SpinnerSize.Small" Class="me-2" />
+        <span>Detectando agentes...</span>
+    </div>
+}
+else if (_agents is not null)
+{
+    <div class="mb-3">
+        <label for="agent-select" class="form-label">Agente</label>
+        <select id="agent-select" class="form-select" @bind="_selectedAgentType">
+            @foreach (var agent in _agents)
+            {
+                <option value="@agent.Type" disabled="@(agent.Status != AgentStatus.Available)">@agent.Name (@agent.Status)</option>
+            }
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="agent-branch" class="form-label">Branch de trabalho</label>
+        <input id="agent-branch" type="text" class="form-control" @bind="_branch" />
+    </div>
+
+    <div class="mb-3">
+        <label for="agent-scope" class="form-label">Escopo</label>
+        <input id="agent-scope" type="text" class="form-control" @bind="_scope" />
+    </div>
+
+    <div class="mb-3">
+        <label for="agent-instructions" class="form-label">Instruções <span class="text-danger">*</span></label>
+        <textarea id="agent-instructions" class="form-control" rows="5" @bind="_instructions"></textarea>
+        @if (string.IsNullOrWhiteSpace(_instructions))
         {
-            <div class="d-flex align-center">
-                <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mr-2" />
-                <MudText>Detectando agentes...</MudText>
-            </div>
+            <div class="form-text text-danger">As instruções são obrigatórias.</div>
         }
-        else if (_agents is not null)
-        {
-            <MudSelect T="AgentInfo"
-                       Label="Agente"
-                       @bind-Value="_selectedAgent"
-                       ToStringFunc="FormatAgent"
-                       Class="mb-4">
-                @foreach (var agent in _agents)
-                {
-                    <MudSelectItem Value="agent" Disabled="agent.Status != AgentStatus.Available">@agent.Name (@agent.Status)</MudSelectItem>
-                }
-            </MudSelect>
+    </div>
+}
 
-            <MudTextField T="string"
-                          Label="Branch de trabalho"
-                          @bind-Value="_branch"
-                          Class="mb-2" />
-
-            <MudTextField T="string"
-                          Label="Escopo"
-                          @bind-Value="_scope"
-                          Class="mb-2" />
-
-            <MudTextField T="string"
-                          Label="Instruções"
-                          @bind-Value="_instructions"
-                          Lines="5"
-                          Required="true"
-                          RequiredError="As instruções são obrigatórias."
-                          Class="mb-2" />
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Cancel">Cancelar</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Confirm" Disabled="!CanConfirm()">
-            Iniciar Agente
-        </MudButton>
-    </DialogActions>
-</MudDialog>
+<div class="d-flex justify-content-end gap-2 pt-3 border-top">
+    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">Cancelar</Button>
+    <Button Color="ButtonColor.Primary" @onclick="ConfirmAsync" Disabled="!CanConfirm()">
+        Iniciar Agente
+    </Button>
+</div>
 
 @code {
-    [CascadingParameter]
-    public IMudDialogInstance MudDialog { get; set; } = default!;
-
     [Parameter, EditorRequired]
     public IssueDto Issue { get; set; } = default!;
 
@@ -65,12 +59,20 @@
     [Parameter]
     public string? DefaultRepoPath { get; set; }
 
+    [Parameter]
+    public EventCallback<AgentExecutionRequest> OnSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
     private bool _isLoading;
     private IReadOnlyList<AgentInfo>? _agents;
-    private AgentInfo? _selectedAgent;
+    private AgentType _selectedAgentType;
     private string _branch = string.Empty;
     private string _scope = string.Empty;
     private string _instructions = string.Empty;
+
+    private AgentInfo? SelectedAgent => _agents?.FirstOrDefault(a => a.Type == _selectedAgentType);
 
     protected override async Task OnInitializedAsync()
     {
@@ -79,14 +81,18 @@
         try
         {
             _agents = await OrchestrationService.GetAvailableAgentsAsync();
-            _selectedAgent = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            var first = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            if (first is not null)
+            {
+                _selectedAgentType = first.Type;
+            }
             _instructions = string.IsNullOrWhiteSpace(Issue.Body)
                 ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
                 : Issue.Body;
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Erro ao detectar agentes: {ex.Message}", Severity.Error);
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
         }
         finally
         {
@@ -94,15 +100,17 @@
         }
     }
 
-    private static string FormatAgent(AgentInfo? agent) => agent is null ? string.Empty : $"{agent.Name} ({agent.Status})";
-
-    private void Cancel() => MudDialog.Cancel();
-
-    private bool CanConfirm() => _selectedAgent is not null && _selectedAgent.Status == AgentStatus.Available && !string.IsNullOrWhiteSpace(_instructions);
-
-    private void Confirm()
+    private async Task CancelAsync()
     {
-        if (_selectedAgent is null)
+        await OnCancel.InvokeAsync();
+    }
+
+    private bool CanConfirm() => SelectedAgent is not null && SelectedAgent.Status == AgentStatus.Available && !string.IsNullOrWhiteSpace(_instructions);
+
+    private async Task ConfirmAsync()
+    {
+        var agent = SelectedAgent;
+        if (agent is null)
         {
             return;
         }
@@ -115,8 +123,8 @@
             _branch,
             _scope,
             _instructions,
-            _selectedAgent.Type);
+            agent.Type);
 
-        MudDialog.Close(DialogResult.Ok(request));
+        await OnSubmit.InvokeAsync(request);
     }
 }

@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using MudBlazor.Services;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Swagger;
 using Swashbuckle.AspNetCore.SwaggerUI;
@@ -101,7 +100,7 @@ builder.Services.AddHttpClient<TaskboardClient>(client =>
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddMudServices();
+builder.Services.AddBlazorBootstrap();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -1008,6 +1007,7 @@ app.Use(async (context, next) =>
         || path.StartsWith("/_content/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/lib/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/img/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)

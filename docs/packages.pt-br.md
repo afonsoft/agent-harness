@@ -13,7 +13,7 @@
 | `System.CommandLine` | Parsing de CLI |
 | `ModelContextProtocol` | Servidor MCP |
 | `Octokit` | Integração com a API do GitHub |
-| `MudBlazor` | Componentes de UI para Blazor |
+| `Blazor.Bootstrap` | Componentes de UI para Blazor (Bootstrap 5) |
 | `xunit` | Testes unitários |
 | `Shouldly` | Asserções fluentes |
 | `NSubstitute` | Mocks |
