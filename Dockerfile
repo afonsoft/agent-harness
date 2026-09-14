@@ -11,7 +11,7 @@ WORKDIR /app
 
 COPY --from=build /app/publish .
 
-ENV ASPNETCORE_URLS=http://+:47823
+ENV ASPNETCORE_URLS=http://0.0.0.0:47823
 EXPOSE 47823
 
 ENTRYPOINT ["dotnet", "Taskboard.Server.dll"]
