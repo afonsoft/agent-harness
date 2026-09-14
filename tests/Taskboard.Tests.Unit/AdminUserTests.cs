@@ -72,6 +72,37 @@ public class AdminUserTests : IDisposable
     }
 
     [Fact]
+    public void Given_EnvAndConfigSet_When_CreateFromConfiguration_Then_EnvWins()
+    {
+        // SPEC-20260914-env-var-precedence RF-002: TASKBOARD_ADMIN_* env wins over Admin:* config
+        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME", "ops");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>("Admin:Username", "ignored"), new KeyValuePair<string, string?>("Admin:Password", "Ignored123!")])
+            .Build();
+
+        var user = AdminUser.CreateFromConfiguration(configuration, _dataDir);
+
+        user.Username.ShouldBe("ops");
+        user.Validate("Test123!").ShouldBeTrue();
+        user.Validate("Ignored123!").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Given_OnlyConfigSet_When_CreateFromConfiguration_Then_ConfigUsed()
+    {
+        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME", null);
+        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD", null);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>("Admin:Username", "cfgadmin"), new KeyValuePair<string, string?>("Admin:Password", "Cfg123!")])
+            .Build();
+
+        var user = AdminUser.CreateFromConfiguration(configuration, _dataDir);
+
+        user.Username.ShouldBe("cfgadmin");
+        user.Validate("Cfg123!").ShouldBeTrue();
+    }
+
+    [Fact]
     public void Given_AdminUser_When_ValidateEmpty_Then_False()
     {
         var configuration = new ConfigurationBuilder().Build();

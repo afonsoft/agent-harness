@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/{AgentLLM}-20260914-env-var-precedence` |
 | Ticket | `GAP-implementation-env-var-precedence` |
-| Status | `Draft` |
+| Status | `Done` |
 
 ## 1. User Story
 

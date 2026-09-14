@@ -89,12 +89,21 @@ public sealed class AdminUser
             }
         }
 
-        var username = configuration["Admin:Username"]
-                       ?? Environment.GetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME")
-                       ?? "admin";
+        var username = Environment.GetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME");
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            username = configuration["Admin:Username"];
+        }
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            username = "admin";
+        }
 
-        var password = configuration["Admin:Password"]
-                       ?? Environment.GetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD");
+        var password = Environment.GetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD");
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            password = configuration["Admin:Password"];
+        }
 
         string? legacyPasswordFilePath = null;
 
