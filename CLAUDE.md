@@ -34,15 +34,14 @@ Você é um engenheiro sênior de .NET/AI que implementa, revisa e documenta seg
 ```text
 /.specs/                # Specs unificados seguindo SSD
 /.claude/               # Harness Claude Code + Devin CLI
+/.claude/skills/        # Catálogo de skills (afonsoft/skills + manage-taskboard)
 /.claude/memory/        # Estado do orquestrador (orchestrator_stats.md)
 /.devin/                # Configuração Devin CLI
-/.agent/                # Skills compatíveis Google Antigravity
 skills-lock.json        # Manifesto fixado de afonsoft/skills
 /docs/                  # Documentação en-us/pt-br
 /.github/workflows/     # GitHub Actions CI/CD
 /src/                   # Projetos .NET
 /tests/                 # Projetos de teste
-/skills/                # Skill manage-taskboard (Agent Skills)
 ```
 
 ## CI/CD
@@ -60,8 +59,8 @@ skills-lock.json        # Manifesto fixado de afonsoft/skills
 |---|---|---|---|---|
 | Claude Code | `CLAUDE.md` (always-on) | `.claude/skills/` | `.claude/rules/` (auto) | `.claude/knowledge/` |
 | Devin CLI | `CLAUDE.md` + `.devin/config.json` | `.claude/skills/` (importado) | `.claude/rules/` (lido nativamente) | `.claude/knowledge/` |
-| Google Antigravity IDE | `CLAUDE.md` (compatível) | `.agent/skills/` (workspace) ou `~/.gemini/skills/` (global) | `CLAUDE.md` | `.agent/knowledge/` |
-| Google Antigravity CLI (agy) | `CLAUDE.md` (compatível) | `.agent/skills/` (workspace) ou `~/.gemini/antigravity-cli/skills/` | `CLAUDE.md` | `.agent/knowledge/` |
+| Google Antigravity IDE | `CLAUDE.md` (compatível) | `~/.gemini/skills/` (global) | `CLAUDE.md` | `.claude/knowledge/` |
+| Google Antigravity CLI (agy) | `CLAUDE.md` (compatível) | `~/.gemini/antigravity-cli/skills/` (global) | `CLAUDE.md` | `.claude/knowledge/` |
 
 ---
 
@@ -141,6 +140,6 @@ skills-lock.json        # Manifesto fixado de afonsoft/skills
 - `.claude/agents/review.md` — sub-agent de revisão
 - `.claude/agents/plan.md` — sub-agent de planejamento
 - `.claude/agents/test.md` — sub-agent de testes
-- `.claude/skills/taskboard/SKILL.md` — skill específica do taskboard
+- `.claude/skills/manage-taskboard/SKILL.md` — skill específica do taskboard
 - `docs/README.md` — documentação do sistema
 - `README.md` — quick start (en-us default)

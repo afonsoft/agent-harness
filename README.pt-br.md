@@ -102,7 +102,7 @@ Abra `/github-board` para visualizar as issues do GitHub como um board Kanban. A
 - Orquestração de agentes com detecção de CLI e streaming de logs via SignalR.
 - Persistência de `AgentLogMessage` em SQLite via EF Core.
 - Adapter JSON-RPC ACP sobre stdin/stdout para comunicação com agentes.
-- Harness `.devin/` e `.agent/` para Devin CLI e Google Antigravity.
+- Harness `.devin/` para Devin CLI e `~/.gemini/skills/` para Google Antigravity.
 - Refinamento das GitHub Actions com cache, concurrency, permissions, SonarCloud e CodeQL.
 
 ## Ordem de Build
@@ -132,7 +132,7 @@ Veja [`.specs/CAPABILITY-MAP.md`](.specs/CAPABILITY-MAP.md).
 - [`CLAUDE.md`](CLAUDE.md) — Fonte única de verdade para agentes
 - [`.claude/`](.claude/) — Harness para Claude Code / Devin CLI
 - [`.devin/config.json`](.devin/config.json) — Configuração do Devin CLI
-- [`.agent/skills/`](.agent/skills/) — Skills para Google Antigravity (symlink para `.claude/skills/`)
+- `.claude/skills/` — Catálogo de skills (afonsoft/skills + manage-taskboard); Google Antigravity usa `~/.gemini/skills/` (global)
 - [`.claude/memory/orchestrator_stats.md`](.claude/memory/orchestrator_stats.md) — Estado da sessão do orquestrador
 
 O harness de agentes usa skills do [`afonsoft/skills`](https://github.com/afonsoft/skills):
