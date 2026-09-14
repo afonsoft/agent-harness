@@ -1,4 +1,4 @@
-/* Taskboard theme layer on top of Bootstrap 5.3 (data-bs-theme color modes). */
+/* Taskboard theme layer on top of Bootstrap 5.3 (color tokens). */
 
 html, body {
     height: 100%;
@@ -12,10 +12,6 @@ body {
 }
 
 :root {
-    --tb-accent: #776be7;
-    --tb-accent-rgb: 119, 107, 231;
-    --tb-accent-hover: #5a4be2;
-
     --status-not-started-bg: #ffd1dc;
     --status-not-started-text: #1f2937;
     --status-in-progress-bg: #ffeaa7;
@@ -44,64 +40,6 @@ body {
     --priority-none-bg: #f7f7f8;
     --priority-none-border: #e5e7eb;
     --priority-none-text: #1f2937;
-}
-
-[data-bs-theme="dark"] {
-    --status-not-started-bg: #6b3b46;
-    --status-not-started-text: #e2e4e9;
-    --status-in-progress-bg: #6b5b2e;
-    --status-in-progress-text: #e2e4e9;
-    --status-delayed-bg: #2e5c4d;
-    --status-delayed-text: #e2e4e9;
-    --status-on-hold-bg: #4a5054;
-    --status-on-hold-text: #e2e4e9;
-    --status-completed-bg: #4a6b3b;
-    --status-completed-text: #e2e4e9;
-    --status-archived-bg: #3d464d;
-    --status-archived-text: #e2e4e9;
-
-    --priority-urgent-bg: #5c3b36;
-    --priority-urgent-border: #7a4b42;
-    --priority-urgent-text: #e2e4e9;
-    --priority-high-bg: #5c3b3b;
-    --priority-high-border: #7a4b4b;
-    --priority-high-text: #e2e4e9;
-    --priority-medium-bg: #5c4e2e;
-    --priority-medium-border: #7a663e;
-    --priority-medium-text: #e2e4e9;
-    --priority-low-bg: #2e4f4f;
-    --priority-low-border: #3e6b6b;
-    --priority-low-text: #e2e4e9;
-    --priority-none-bg: #1e1e2a;
-    --priority-none-border: #2a2a3a;
-    --priority-none-text: #e2e4e9;
-}
-
-/* Brand accent on Bootstrap primitives */
-
-.btn-primary {
-    --bs-btn-bg: var(--tb-accent);
-    --bs-btn-border-color: var(--tb-accent);
-    --bs-btn-color: #fff;
-    --bs-btn-hover-bg: var(--tb-accent-hover);
-    --bs-btn-hover-border-color: var(--tb-accent-hover);
-    --bs-btn-hover-color: #fff;
-    --bs-btn-active-bg: var(--tb-accent-hover);
-    --bs-btn-active-border-color: var(--tb-accent-hover);
-    --bs-btn-active-color: #fff;
-    --bs-btn-disabled-bg: var(--tb-accent);
-    --bs-btn-disabled-border-color: var(--tb-accent);
-    --bs-btn-focus-shadow-rgb: var(--tb-accent-rgb);
-}
-
-.nav-pills {
-    --bs-nav-pills-link-active-bg: var(--tb-accent);
-}
-
-.form-check-input:checked,
-.form-switch .form-check-input:checked {
-    background-color: var(--tb-accent);
-    border-color: var(--tb-accent);
 }
 
 /* App shell */
@@ -156,8 +94,8 @@ body {
 }
 
 .app-sidebar .nav-link.active {
-    background-color: rgba(var(--tb-accent-rgb), 0.12);
-    color: var(--tb-accent);
+    background-color: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary-text-emphasis);
 }
 
 .app-content {
@@ -266,10 +204,6 @@ body {
     color: inherit;
     background-color: rgba(255, 255, 255, 0.3);
     border-color: transparent;
-}
-
-[data-bs-theme="dark"] .kanban-column-header .kanban-label {
-    background-color: rgba(0, 0, 0, 0.2);
 }
 
 .kanban-column-header.status-not-started { background-color: var(--status-not-started-bg); color: var(--status-not-started-text); }
@@ -498,13 +432,14 @@ body {
 }
 
 .filter-chip.active {
-    background-color: var(--tb-accent);
+    background-color: var(--bs-primary);
     color: #fff;
-    border-color: var(--tb-accent);
+    border-color: var(--bs-primary);
 }
 
 .filter-chip.active:hover {
-    background-color: var(--tb-accent-hover);
+    background-color: var(--bs-primary);
+    filter: brightness(0.9);
 }
 
 /* Skill cards */
@@ -597,24 +532,8 @@ body {
 .source-badge-devin { background-color: #c7d2fe; color: #3730a3; }
 .source-badge-cursor { background-color: #fed7aa; color: #9a3412; }
 .source-badge-opencode { background-color: #bbf7d0; color: #166534; }
-.source-badge-taskboard { background-color: rgba(var(--tb-accent-rgb), 0.15); color: var(--tb-accent-hover); }
+.source-badge-taskboard { background-color: var(--bs-primary-bg-subtle); color: var(--bs-primary-text-emphasis); }
 .source-badge-unknown { background-color: var(--bs-tertiary-bg); color: var(--bs-secondary-color); border: 1px solid var(--bs-border-color); }
-
-[data-bs-theme="dark"] .source-badge-claude { background-color: #4a3058; color: #e9d5ff; }
-[data-bs-theme="dark"] .source-badge-devin { background-color: #2e3655; color: #c7d2fe; }
-[data-bs-theme="dark"] .source-badge-cursor { background-color: #522e1a; color: #fed7aa; }
-[data-bs-theme="dark"] .source-badge-opencode { background-color: #143d28; color: #bbf7d0; }
-[data-bs-theme="dark"] .source-badge-taskboard { background-color: rgba(var(--tb-accent-rgb), 0.15); color: #a69cf3; }
-[data-bs-theme="dark"] .source-badge-unknown { background-color: var(--bs-tertiary-bg); color: var(--bs-secondary-color); }
-
-/* Agent log console */
-
-.agent-log-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.75rem;
-}
 
 .agent-log-console {
     background-color: var(--bs-dark);

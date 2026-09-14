@@ -42,7 +42,7 @@ This SPEC supersedes the styling layer defined in `SPEC-20260911-tailwind-theme-
 - Rewrite `site.css` as a thin layer: `data-bs-theme` overrides for `--bs-*` variables plus the few Taskboard-specific components Bootstrap does not provide (kanban columns, priority/status swatches).
 - Rewrite all 16 `.razor` files (shell + pages + dialogs + shared components) with Bootstrap 5.3 markup and Blazor.Bootstrap components.
 - Modernize the layout: collapsible sidebar (Bootstrap `offcanvas` on `< lg` breakpoints), sticky top bar with page context, Bootstrap Icons replacing inline SVGs, refined kanban visuals (column accent bars, count badges, hover states).
-- Theme: single mechanism — `data-bs-theme="dark" | "light"` on `<html>`, persisted via the existing `/api/settings` contract. Default `dark` on API failure.
+- Theme: light-only default Bootstrap look. `data-bs-theme` dark/light toggle was **removed on 2026-09-13 by user request** — the app ships the standard Bootstrap light theme; `/api/settings` still persists `theme`, always saved as `"light"`.
 - Preserve all behavior: HTML5 drag-and-drop in `KanbanBoard`, `Virtualize` usage, `TaskboardClient` calls, login/logout forms, clipboard interop in `Prompts`.
 
 **Out of scope:**

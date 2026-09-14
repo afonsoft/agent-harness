@@ -23,20 +23,6 @@
         <div class="card">
             <div class="card-body p-4">
                 <div class="form-section">
-                    <h2 class="form-section-title">Appearance</h2>
-                    <div class="setting-row">
-                        <div>
-                            <div>Dark mode</div>
-                            <p class="small text-body-secondary mb-0">Use the dark color theme across the app.</p>
-                        </div>
-                        <div class="form-check form-switch mb-0">
-                            <input id="theme-toggle" type="checkbox" role="switch" class="form-check-input" @bind="_isDark" />
-                            <label class="form-check-label visually-hidden" for="theme-toggle">Dark mode</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-section">
                     <h2 class="form-section-title">Integrations</h2>
                     <label class="form-label" for="github-token">GitHub token</label>
                     <p class="small text-body-secondary">Paste a personal access token with repo scope.</p>
@@ -110,8 +96,6 @@
 @code {
     private bool _isLoading = true;
     private string? _errorMessage;
-    private bool _isDark = true;
-    private bool _originalIsDark = true;
     private string? _gitHubToken;
     private string? _originalGitHubToken;
     private IReadOnlyList<AgentPreferenceDto> _agents = [];
@@ -131,8 +115,6 @@
         try
         {
             var settings = await Client.GetSettingsAsync();
-            _isDark = settings.Theme != "light";
-            _originalIsDark = _isDark;
             _gitHubToken = settings.GitHubToken;
             _originalGitHubToken = _gitHubToken;
             _agents = settings.Agents;
@@ -203,7 +185,6 @@
 
     private void ResetAsync()
     {
-        _isDark = _originalIsDark;
         _gitHubToken = _originalGitHubToken;
         foreach (var (type, value) in _originalEnabledState)
         {
@@ -216,7 +197,7 @@
     private async Task SaveAsync()
     {
         var request = new SaveSettingsRequest(
-            _isDark ? "dark" : "light",
+            "light",
             _gitHubToken,
             _enabledState.Where(kv => kv.Value).Select(kv => kv.Key.ToString()).ToList().AsReadOnly());
         await Client.SaveSettingsAsync(request);
