@@ -5,7 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore" />
-    <Content Include="../../skills/**/*" CopyToOutputDirectory="PreserveNewest" Link="skills/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="../../.claude/skills/manage-taskboard/**/*" CopyToOutputDirectory="PreserveNewest" Link="skills/manage-taskboard/%(RecursiveDir)%(Filename)%(Extension)" />
     <ProjectReference Include="../Taskboard.Application/Taskboard.Application.csproj" />
     <ProjectReference Include="../Taskboard.EntityFrameworkCore/Taskboard.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />

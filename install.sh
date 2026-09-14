@@ -171,7 +171,7 @@ install_skill_for_ide() {
         run rm -rf "$target_dir/manage-taskboard"
     fi
 
-    run cp -R "$REPO_DIR/skills/manage-taskboard" "$target_dir/"
+    run cp -R "$REPO_DIR/.claude/skills/manage-taskboard" "$target_dir/"
 }
 
 install_skills() {
@@ -204,10 +204,6 @@ install_skills() {
     if [ "$INSTALL_VSCODE" = true ]; then
         install_skill_for_ide "VS Code / Copilot" "$HOME/.github/skills"
     fi
-
-    # Instalacao workspace/local como fallback
-    install_skill_for_ide "workspace" "$REPO_DIR/.agents/skills"
-    install_skill_for_ide "workspace (agent)" "$REPO_DIR/.agent/skills"
 }
 
 setup_config() {
