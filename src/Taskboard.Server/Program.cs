@@ -95,7 +95,7 @@ builder.Services.AddHttpClient<TaskboardClient>(client =>
     var baseAddress = serverUrls.Split(';', StringSplitOptions.RemoveEmptyEntries)
         .Select(s => s.Trim())
         .FirstOrDefault() ?? "http://127.0.0.1:47823";
-    client.BaseAddress = new Uri(baseAddress);
+    client.BaseAddress = NormalizeLoopbackBaseAddress(baseAddress);
 });
 
 builder.Services.AddRazorComponents()
@@ -1064,6 +1064,18 @@ app.UseSwaggerUI(options =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// ASPNETCORE_URLS may use wildcard/unspecified bind hosts (+, *, 0.0.0.0,
+// [::]) which are not valid HTTP request targets. Rewrite them to loopback
+// so the self-referencing API client can connect.
+static Uri NormalizeLoopbackBaseAddress(string url)
+{
+    var sanitized = System.Text.RegularExpressions.Regex.Replace(
+        url,
+        @"://(\+|\*|0\.0\.0\.0|\[::0?\])(?=:|/|$)",
+        "://127.0.0.1");
+    return new Uri(sanitized, UriKind.Absolute);
+}
 
 static ServerSentEvent MapDomainEvent(IDomainEvent domainEvent)
 {
