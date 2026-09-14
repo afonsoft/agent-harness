@@ -161,6 +161,19 @@ public class ServerEndpointsTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task Given_ServerRunning_When_GetBlazorWebJs_Then_Returns200()
+    {
+        // Regression: _framework/blazor.web.js must be served as a static web asset
+        // (RequiresAspNetWebAssets in Taskboard.Server.csproj). Without it the
+        // sidebar NavLinks are dead — see SPEC-20260914-blazor-web-assets.
+        var response = await _client.GetAsync("/_framework/blazor.web.js");
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
     public async Task Dado_RequisicaoComAcceptEncodingGzip_Quando_GetProjects_Entao_RetornaConteudoComprimido()
     {
         // Covers FR-006: response compression for dynamic responses
