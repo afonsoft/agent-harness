@@ -161,6 +161,38 @@ public class ServerEndpointsTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task Given_AttachmentUploaded_When_GetTaskAttachments_Then_AttachmentListed()
+    {
+        var createProjectResponse = await _client.PostAsJsonAsync("/api/projects", new { name = "Attachment List Test" });
+        createProjectResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
+        var projectObj = (await createProjectResponse.Content.ReadFromJsonAsync<JsonObject>())!["project"] as JsonObject;
+        var projectId = projectObj!["id"]?.GetValue<string>();
+
+        var taskResponse = await _client.PostAsJsonAsync("/api/tasks", new { projectId, title = "Task for Attachment", status = "todo", priority = "medium" });
+        taskResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
+        var taskObj = (await taskResponse.Content.ReadFromJsonAsync<JsonObject>())!["task"] as JsonObject;
+        var taskId = taskObj!["id"]?.GetValue<string>();
+
+        using var form = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent("hello attachment"u8.ToArray());
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+        form.Add(fileContent, "file", "note.txt");
+        form.Add(new StringContent(taskId!), "taskId");
+        var uploadResponse = await _client.PostAsync("/api/attachments", form);
+        var uploadBody = await uploadResponse.Content.ReadAsStringAsync();
+        uploadResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created, uploadBody);
+
+        var listResponse = await _client.GetAsync($"/api/tasks/{taskId}/attachments");
+
+        listResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        var listed = await listResponse.Content.ReadFromJsonAsync<JsonObject>();
+        var attachments = listed!["attachments"] as JsonArray;
+        attachments.ShouldNotBeNull();
+        attachments!.Count.ShouldBe(1);
+        attachments[0]!["filename"]?.GetValue<string>().ShouldBe("note.txt");
+    }
+
+    [Fact]
     public async Task Given_ServerRunning_When_GetBlazorWebJs_Then_Returns200()
     {
         // Regression: _framework/blazor.web.js must be served as a static web asset
