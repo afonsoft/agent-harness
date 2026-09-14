@@ -39,3 +39,19 @@
 - PR: https://github.com/afonsoft/taskboard-ai/pull/59
 - Epic: https://github.com/afonsoft/taskboard-ai/issues/60
 - Slices: #61 (blazor-web-assets, fixed in PR #59), #62 (env-var-precedence), #63 (stale-spec-status), #64 (login-sidebar), #65 (blazor-feature-parity)
+
+## Execution result (2026-09-14, post-approval)
+
+All slices implemented, tested, merged, and issues closed:
+
+| Slice | Issue | PR | Result |
+| --- | --- | --- | --- |
+| S1 blazor-web-assets | #61 | #59 | MERGED — `RequiresAspNetWebAssets`; regression test added |
+| S2 env-var-precedence | #62 | #66 | MERGED — `TASKBOARD_*`/`TASKBOARD_ADMIN_*` now beat appsettings; conflict tests added |
+| S3 stale-spec-status | #63 | #67 | MERGED — 5 SPECs synced (Done/Deprecated statuses + AC updates) |
+| S4 login-sidebar | #64 | #68 | MERGED — `MinimalLayout` + `@layout` on Login; verified no nav on /login |
+| S5 blazor-feature-parity | #65 | #69 | MERGED — LocalTaskDetailDialog (comments+attachments), board filters, `/gantt`, `/workflow`; added `GET /api/tasks/{id}/attachments`; fixed latent upload bugs (invalid default kind `"file"`→`"attachment"`, antiforgery 400 via `.DisableAntiforgery()`) |
+
+Epic #60 closed. Final state: `dotnet build` 0 warnings; 93 unit + 13 integration tests green.
+
+Known remaining note: `dotnet run` in Production environment serves `_framework/*` from `wwwroot` (published layout) — 500 from source; Development env and `dotnet publish` deployments are unaffected.
