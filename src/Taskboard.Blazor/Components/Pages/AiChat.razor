@@ -1,24 +1,30 @@
 @page "/ai-chat"
 @inject TaskboardClient Client
 
-<h1>AI Chat</h1>
+<h1 class="h4 fw-bold mb-1">AI Chat</h1>
+<p class="small text-body-secondary mb-4">Chat threads and models</p>
 
 @if (_threads is null)
 {
-    <p><em>Loading threads...</em></p>
+    <Loading Message="Loading threads..." />
 }
 else if (!_threads.Any())
 {
-    <p>No threads yet.</p>
+    <EmptyState Message="No threads yet." />
 }
 else
 {
-    <ul class="thread-list">
-        @foreach (var thread in _threads)
-        {
-            <li>@thread.Title <span class="text-muted">(@thread.Model)</span></li>
-        }
-    </ul>
+    <div class="card">
+        <ul class="list-group list-group-flush">
+            @foreach (var thread in _threads)
+            {
+                <li class="list-group-item d-flex align-items-center justify-content-between">
+                    <span>@thread.Title</span>
+                    <span class="badge text-bg-secondary">@thread.Model</span>
+                </li>
+            }
+        </ul>
+    </div>
 }
 
 @code {

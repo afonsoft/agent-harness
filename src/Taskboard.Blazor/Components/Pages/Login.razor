@@ -2,23 +2,25 @@
 
 <PageTitle>Login - Taskboard</PageTitle>
 
-<div class="flex min-h-[80vh] items-center justify-center">
-    <div class="card w-full max-w-sm">
-        <div class="mb-6 text-center">
-            <h1 class="text-2xl font-bold text-text">Taskboard</h1>
-            <p class="mt-1 text-sm text-text-muted">Sign in to continue</p>
+<div class="d-flex align-items-center justify-content-center" style="min-height: 80vh;">
+    <div class="card w-100" style="max-width: 24rem;">
+        <div class="card-body p-4">
+            <div class="mb-4 text-center">
+                <h1 class="h3 fw-bold">Taskboard</h1>
+                <p class="mt-1 small text-body-secondary mb-0">Sign in to continue</p>
+            </div>
+            <form method="post" action="/api/login">
+                <div class="mb-3">
+                    <label for="username" class="form-label">Username</label>
+                    <input id="username" type="text" name="Username" required autofocus class="form-control" placeholder="user" />
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input id="password" type="password" name="Password" required class="form-control" placeholder="••••••••" />
+                </div>
+                <input type="hidden" name="ReturnUrl" value="/" />
+                <button type="submit" class="btn btn-primary w-100">Sign in</button>
+            </form>
         </div>
-        <form method="post" action="/api/login" class="space-y-4">
-            <div>
-                <label for="username" class="mb-1 block text-sm font-medium text-text">Username</label>
-                <input id="username" type="text" name="Username" required autofocus class="input" placeholder="user" />
-            </div>
-            <div>
-                <label for="password" class="mb-1 block text-sm font-medium text-text">Password</label>
-                <input id="password" type="password" name="Password" required class="input" placeholder="••••••••" />
-            </div>
-            <input type="hidden" name="ReturnUrl" value="/" />
-            <button type="submit" class="btn-primary w-full">Sign in</button>
-        </form>
     </div>
 </div>

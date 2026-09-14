@@ -27,7 +27,7 @@ A local-first, AI-native taskboard inspired by `dashi-taskboard`, rewritten in *
 | MCP SDK | ModelContextProtocol | 2.2.0 |
 | Tests | xUnit + Shouldly + NSubstitute | latest stable |
 | Frontend | Blazor Server | .NET 10 |
-| UI Components | MudBlazor | 9.9.0 |
+| UI Components | Blazor.Bootstrap | 4.0.0 |
 | Real-time | ASP.NET Core SignalR | 10.0 |
 | GitHub API Client | Octokit | 14.0.0 |
 | Mediator | MediatR | 12.4.1 |

@@ -1,44 +1,42 @@
 @using System.Globalization
 
-<MudDialog>
-    <DialogContent>
-        <MudTabs Elevation="2" Rounded="true" ApplyEffectsToContainer="true" Class="pa-4">
-            <MudTabPanel Text="Detalhes">
-                <MudText Typo="Typo.h6" Class="mb-2">@Issue?.Title</MudText>
-                <MudText Typo="Typo.body2" Class="mb-2">
+<Tabs EnableFadeEffect="true">
+    <Tab Title="Detalhes" IsActive="true">
+        <Content>
+            <div class="pt-3">
+                <h6 class="mb-2">@Issue?.Title</h6>
+                <p class="small text-body-secondary mb-2">
                     <strong>Repositório:</strong> @RepositoryFullName
-                </MudText>
-                <MudText Typo="Typo.body2" Class="mb-2">
+                </p>
+                <p class="small text-body-secondary mb-2">
                     <strong>Coluna:</strong> @Issue?.Column.ToLabel()
-                </MudText>
+                </p>
                 @if (!string.IsNullOrWhiteSpace(Issue?.Body))
                 {
-                    <MudText Typo="Typo.body1" Class="mt-4">@Issue.Body</MudText>
+                    <p class="mt-3">@Issue.Body</p>
                 }
-                <MudLink Href="@Issue?.HtmlUrl" Target="_blank" Class="mt-4 d-block">Abrir no GitHub</MudLink>
-            </MudTabPanel>
-            <MudTabPanel Text="Logs do Agente">
+                <a href="@Issue?.HtmlUrl" target="_blank" class="d-block mt-3">
+                    <Icon Name="IconName.BoxArrowUpRight" class="me-1" />Abrir no GitHub
+                </a>
+            </div>
+        </Content>
+    </Tab>
+    <Tab Title="Logs do Agente">
+        <Content>
+            <div class="pt-3">
                 @if (Issue is not null)
                 {
                     <TaskLogTab IssueId="@Issue.Id.ToString(CultureInfo.InvariantCulture)" />
                 }
-            </MudTabPanel>
-        </MudTabs>
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="Close">Fechar</MudButton>
-    </DialogActions>
-</MudDialog>
+            </div>
+        </Content>
+    </Tab>
+</Tabs>
 
 @code {
-    [CascadingParameter]
-    public IMudDialogInstance MudDialog { get; set; } = default!;
-
     [Parameter, EditorRequired]
     public IssueDto? Issue { get; set; }
 
     [Parameter, EditorRequired]
     public string RepositoryFullName { get; set; } = string.Empty;
-
-    private void Close() => MudDialog.Close();
 }

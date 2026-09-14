@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using MudBlazor.Services;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Swagger;
 using Swashbuckle.AspNetCore.SwaggerUI;
@@ -96,12 +95,12 @@ builder.Services.AddHttpClient<TaskboardClient>(client =>
     var baseAddress = serverUrls.Split(';', StringSplitOptions.RemoveEmptyEntries)
         .Select(s => s.Trim())
         .FirstOrDefault() ?? "http://127.0.0.1:47823";
-    client.BaseAddress = new Uri(baseAddress);
+    client.BaseAddress = NormalizeLoopbackBaseAddress(baseAddress);
 });
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddMudServices();
+builder.Services.AddBlazorBootstrap();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -1008,6 +1007,7 @@ app.Use(async (context, next) =>
         || path.StartsWith("/_content/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/lib/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/img/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)
         || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
@@ -1064,6 +1064,18 @@ app.UseSwaggerUI(options =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// ASPNETCORE_URLS may use wildcard/unspecified bind hosts (+, *, 0.0.0.0,
+// [::]) which are not valid HTTP request targets. Rewrite them to loopback
+// so the self-referencing API client can connect.
+static Uri NormalizeLoopbackBaseAddress(string url)
+{
+    var sanitized = System.Text.RegularExpressions.Regex.Replace(
+        url,
+        @"://(\+|\*|0\.0\.0\.0|\[::0?\])(?=:|/|$)",
+        "://127.0.0.1");
+    return new Uri(sanitized, UriKind.Absolute);
+}
 
 static ServerSentEvent MapDomainEvent(IDomainEvent domainEvent)
 {

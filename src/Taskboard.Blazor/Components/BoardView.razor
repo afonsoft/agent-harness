@@ -1,8 +1,9 @@
 @page "/"
 @inject TaskboardClient Client
+@inject IGitHubService GitHubService
 
-<h1 class="mb-2 text-2xl font-bold text-text">Board</h1>
-<p class="mb-6 text-sm text-text-muted">Drag or browse tasks by status</p>
+<h1 class="h4 fw-bold mb-1">Board</h1>
+<p class="small text-body-secondary mb-4">Drag or browse tasks by status</p>
 
 @if (_isLoading)
 {
@@ -10,95 +11,140 @@
 }
 else if (_errorMessage is not null)
 {
-    <div class="alert">@_errorMessage</div>
+    <div class="alert alert-danger">@_errorMessage</div>
 }
-else if (_project is null)
+else if (!_projects.Any() && !_repositories.Any())
 {
     <EmptyState Message="No project found." />
 }
 else
 {
+    @if (_repoWarning is not null)
+    {
+        <div class="alert alert-warning">@_repoWarning</div>
+    }
+
     <div class="kanban-board-header">
         <div class="field">
-            <label>Project Name</label>
-            <span class="value">@(_project?.Name ?? "All Projects")</span>
-        </div>
-        <div class="field">
-            <label>Start Date</label>
-            <span class="value">@GetFormattedStartDate()</span>
-        </div>
-        <div class="field">
-            <label>End Date</label>
-            <span class="value">@GetFormattedEndDate()</span>
-        </div>
-        <div class="field">
-            <label>Duration in Days</label>
-            <span class="value">@GetDurationDays()</span>
-        </div>
-        <div class="field legend">
-            <label>Priority Level</label>
-            <div class="legend mt-1">
-                @foreach (var priority in _priorities)
+            <label for="board-selector">Project Name</label>
+            <select id="board-selector" class="form-select form-select-sm" aria-label="Project Name"
+                    @bind="_selection" @bind:after="OnSelectionChangedAsync" disabled="@_isBoardLoading">
+                @if (_projects.Any())
                 {
-                    <span class="text-text text-xs">
-                        <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(priority)"></span>
-                        @priority
-                    </span>
+                    <optgroup label="Projects">
+                        @foreach (var project in _projects)
+                        {
+                            <option value="project:@project.Id">@project.Name</option>
+                        }
+                    </optgroup>
                 }
-            </div>
+                @if (_repositories.Any())
+                {
+                    <optgroup label="GitHub">
+                        @foreach (var repo in _repositories)
+                        {
+                            <option value="repo:@repo.FullName">@repo.FullName</option>
+                        }
+                    </optgroup>
+                }
+            </select>
         </div>
+        @if (_selectedRepo is null && _project is not null)
+        {
+            <div class="field">
+                <label>Start Date</label>
+                <span class="value">@GetFormattedStartDate()</span>
+            </div>
+            <div class="field">
+                <label>End Date</label>
+                <span class="value">@GetFormattedEndDate()</span>
+            </div>
+            <div class="field">
+                <label>Duration in Days</label>
+                <span class="value">@GetDurationDays()</span>
+            </div>
+            <div class="field legend">
+                <label>Priority Level</label>
+                <div class="legend mt-1">
+                    @foreach (var priority in _priorities)
+                    {
+                        <span class="small">
+                            <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(priority)"></span>
+                            @priority
+                        </span>
+                    }
+                </div>
+            </div>
+        }
     </div>
 
-    <div class="kanban-board">
-        @foreach (var status in _statuses)
-        {
+    @if (_selectedRepo is not null)
+    {
+        <KanbanBoard RepositoryFullName="_selectedRepo" />
+    }
+    else if (_isBoardLoading)
+    {
+        <Loading Message="Loading tasks..." />
+    }
+    else
+    {
+        <div class="kanban-board">
+            @foreach (var status in _statuses)
+            {
+                <div class="kanban-column">
+                    <div class="kanban-column-header @GetStatusClass(status)">
+                        <h2>@status</h2>
+                        <span class="kanban-label">@GetTasks(status).Count()</span>
+                    </div>
+                    <div class="kanban-column-body" style="max-height: 70vh;">
+                        @if (GetTasks(status).Any())
+                        {
+                            <Virtualize Items="GetTasks(status).ToList()" ItemSize="80" OverscanCount="5">
+                                <TaskCard Task="context" @key="context.Id" />
+                            </Virtualize>
+                        }
+                        else
+                        {
+                            <EmptyState Message="No tasks" />
+                        }
+                    </div>
+                </div>
+            }
             <div class="kanban-column">
-                <div class="kanban-column-header @GetStatusClass(status)">
-                    <h2 class="text-sm font-semibold capitalize">@status</h2>
-                    <span class="kanban-label">@GetTasks(status).Count()</span>
+                <div class="kanban-column-header @GetStatusClass("archived")">
+                    <h2>archived</h2>
+                    <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).Count()</span>
                 </div>
                 <div class="kanban-column-body" style="max-height: 70vh;">
-                    @if (GetTasks(status).Any())
+                    @{
+                        var archived = _tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).ToList();
+                    }
+                    @if (archived.Any())
                     {
-                        <Virtualize Items="GetTasks(status).ToList()" ItemSize="80" OverscanCount="5">
+                        <Virtualize Items="archived" ItemSize="80" OverscanCount="5">
                             <TaskCard Task="context" @key="context.Id" />
                         </Virtualize>
                     }
                     else
                     {
-                        <EmptyState Message="No tasks" />
+                        <EmptyState Message="No archived tasks" />
                     }
                 </div>
             </div>
-        }
-        <div class="kanban-column">
-            <div class="kanban-column-header @GetStatusClass("archived")">
-                <h2 class="text-sm font-semibold capitalize">archived</h2>
-                <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).Count()</span>
-            </div>
-            <div class="kanban-column-body" style="max-height: 70vh;">
-                @{
-                    var archived = _tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).ToList();
-                }
-                @if (archived.Any())
-                {
-                    <Virtualize Items="archived" ItemSize="80" OverscanCount="5">
-                        <TaskCard Task="context" @key="context.Id" />
-                    </Virtualize>
-                }
-                else
-                {
-                    <EmptyState Message="No archived tasks" />
-                }
-            </div>
         </div>
-    </div>
+    }
 }
 
 @code {
     private bool _isLoading = true;
+    private bool _isBoardLoading;
     private string? _errorMessage;
+    private string? _repoWarning;
+    private List<ProjectDto> _projects = [];
+    private List<RepositoryDto> _repositories = [];
     private ProjectDto? _project;
+    private string? _selectedRepo;
+    private string _selection = string.Empty;
     private List<TaskDto> _tasks = [];
     private readonly string[] _statuses = ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"];
     private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
@@ -108,12 +154,33 @@ else
         try
         {
             var projects = await Client.GetProjectsAsync();
-            _project = projects.FirstOrDefault();
+            _projects = projects.ToList();
+            _project = _projects.FirstOrDefault();
+
+            try
+            {
+                var repositories = await GitHubService.GetRepositoriesAsync();
+                _repositories = repositories.OrderBy(r => r.FullName).ToList();
+            }
+            catch (InvalidOperationException)
+            {
+                // GITHUB_TOKEN not configured; GitHub group stays hidden.
+            }
+            catch (Exception ex)
+            {
+                _repoWarning = $"Could not load GitHub repositories: {ex.Message}";
+            }
 
             if (_project is not null)
             {
+                _selection = $"project:{_project.Id}";
                 var tasks = await Client.GetTasksAsync(_project.Id);
                 _tasks = tasks.ToList();
+            }
+            else if (_repositories.Any())
+            {
+                _selectedRepo = _repositories[0].FullName;
+                _selection = $"repo:{_selectedRepo}";
             }
         }
         catch (Exception ex)
@@ -123,6 +190,42 @@ else
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    private async Task OnSelectionChangedAsync()
+    {
+        if (_selection.StartsWith("repo:", StringComparison.Ordinal))
+        {
+            _selectedRepo = _selection["repo:".Length..];
+            return;
+        }
+
+        _selectedRepo = null;
+        var projectId = _selection.StartsWith("project:", StringComparison.Ordinal)
+            ? _selection["project:".Length..]
+            : _selection;
+
+        _project = _projects.FirstOrDefault(p => p.Id == projectId);
+        if (_project is null)
+        {
+            _tasks = [];
+            return;
+        }
+
+        _isBoardLoading = true;
+        try
+        {
+            var tasks = await Client.GetTasksAsync(_project.Id);
+            _tasks = tasks.ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading tasks: {ex.Message}";
+        }
+        finally
+        {
+            _isBoardLoading = false;
         }
     }
 
