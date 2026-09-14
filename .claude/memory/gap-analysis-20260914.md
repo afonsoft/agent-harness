@@ -36,4 +36,6 @@
 - Branch `feature/devin-20260914-menu-links-gap-analysis`
 - Fix: `src/Taskboard.Server/Taskboard.Server.csproj` (+1 line)
 - Draft SPECs: `SPEC-20260914-blazor-web-assets`, `-env-var-precedence`, `-stale-spec-status`, `-login-sidebar`, `-blazor-feature-parity`
-- Epic + slice issues: see issue links below (recorded after creation).
+- PR: https://github.com/afonsoft/taskboard-ai/pull/59
+- Epic: https://github.com/afonsoft/taskboard-ai/issues/60
+- Slices: #61 (blazor-web-assets, fixed in PR #59), #62 (env-var-precedence), #63 (stale-spec-status), #64 (login-sidebar), #65 (blazor-feature-parity)
