@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/{AgentLLM}-20260914-login-sidebar` |
 | Ticket | `GAP-ux-login-sidebar` |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -54,10 +54,10 @@ src/Taskboard.Blazor/Layout/MinimalLayout.razor        (new, optional)
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** an unauthenticated request to `/login` **when** the page renders **then** no sidebar menu links are present in the HTML.
-- [ ] **Given** an authenticated session **when** visiting `/`, `/settings`, `/skills` etc. **then** the sidebar renders normally.
-- [ ] **Given** the login page **when** it renders **then** it remains visually centered and Bootstrap-styled.
-- [ ] `dotnet build` + `dotnet test` green.
+- [x] **Given** an unauthenticated request to `/login` **when** the page renders **then** no sidebar menu links are present in the HTML.
+- [x] **Given** an authenticated session **when** visiting `/`, `/settings`, `/skills` etc. **then** the sidebar renders normally.
+- [x] **Given** the login page **when** it renders **then** it remains visually centered and Bootstrap-styled.
+- [x] `dotnet build` + `dotnet test` green.
 
 ## 7. Task Plan
 
