@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/{AgentLLM}-20260914-stale-spec-status` |
 | Ticket | `GAP-documentation-stale-specs` |
-| Status | `Draft` |
+| Status | `Done` |
 
 ## 1. User Story
 

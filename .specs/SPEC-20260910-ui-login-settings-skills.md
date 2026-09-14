@@ -11,7 +11,7 @@
 | Repository | afonsoft/taskboard-ai |
 | Suggested branch | `devin/spec-ui-login-settings-skills` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | Done (framework superseded: MudBlazor → Bootstrap 5.3 + Blazor.Bootstrap; dark/light toggle removido por pedido — tema light-only) |
 | Date | 2026-09-10 |
 | Target agent | Devin |
 
@@ -434,13 +434,13 @@ app.MapPut("/api/settings/preferences", async (
 
 ## 19. Acceptance Criteria
 
-- [ ] `Login.razor` usa MudBlazor e suporta dark/light.
-- [ ] `/settings` acessível apenas após login.
-- [ ] Tema persistido em `UserPreference` no SQLite.
-- [ ] Toggle de agentes persistido em `AgentPreference`.
-- [ ] `GITHUB_TOKEN` editável e mascarado.
-- [ ] `/skills` lista skills com nome e descrição.
-- [ ] `dotnet build` e `dotnet test` passam.
+- [x] `Login.razor` usa Bootstrap 5.3 (MudBlazor removido); dark/light toggle removido — tema light-only por decisão de 2026-09-13.
+- [x] `/settings` acessível apenas após login.
+- [x] Tema persistido em `UserPreference` no SQLite (sempre `"light"`).
+- [x] Toggle de agentes persistido em `AgentPreference`.
+- [x] `GITHUB_TOKEN` editável e mascarado (input password + toggle Show/Hide).
+- [x] `/skills` lista skills com nome e descrição.
+- [x] `dotnet build` e `dotnet test` passam.
 
 ---
 

@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/{AgentLLM}-20260914-login-sidebar` |
 | Ticket | `GAP-ux-login-sidebar` |
-| Status | `Draft` |
+| Status | `Approved` |
 
 ## 1. User Story
 
