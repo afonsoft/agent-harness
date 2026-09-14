@@ -1,0 +1,217 @@
+@page "/gantt"
+@attribute [Authorize]
+@inject TaskboardClient Client
+
+<PageTitle>Gantt - Taskboard</PageTitle>
+
+<h1 class="h4 fw-bold mb-1">Gantt</h1>
+<p class="small text-body-secondary mb-4">Timeline de tarefas por projeto</p>
+
+@if (_isLoading)
+{
+    <Loading Message="Carregando projetos..." />
+}
+else if (_errorMessage is not null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else if (!_projects.Any())
+{
+    <EmptyState Message="Nenhum projeto encontrado." />
+}
+else
+{
+    <div class="card">
+        <div class="card-body">
+            <div class="field mb-3" style="max-width: 320px;">
+                <label for="gantt-project">Projeto</label>
+                <select id="gantt-project" class="form-select form-select-sm" aria-label="Projeto"
+                        @bind="_selectedProjectId" @bind:after="OnProjectChangedAsync" disabled="@_isTasksLoading">
+                    @foreach (var project in _projects)
+                    {
+                        <option value="@project.Id">@project.Name</option>
+                    }
+                </select>
+            </div>
+
+            @if (_isTasksLoading)
+            {
+                <Loading Message="Carregando tarefas..." />
+            }
+            else if (!_scheduled.Any() && !_unscheduled.Any())
+            {
+                <EmptyState Message="Nenhuma tarefa neste projeto." />
+            }
+            else
+            {
+                @if (_scheduled.Any())
+                {
+                    <div class="gantt-chart" role="img" aria-label="Timeline de tarefas">
+                        <div class="gantt-header">
+                            <span>@_rangeStart.ToString("dd/MM/yyyy")</span>
+                            <span>@_rangeEnd.ToString("dd/MM/yyyy")</span>
+                        </div>
+                        @foreach (var task in _scheduled)
+                        {
+                            <div class="gantt-row" @key="task.Id">
+                                <div class="gantt-label" title="@task.Title">@task.Identifier — @task.Title</div>
+                                <div class="gantt-track">
+                                    <div class="gantt-bar @GetBarClass(task)"
+                                         style="@GetBarStyle(task)"
+                                         title="@GetBarTitle(task)"></div>
+                                </div>
+                                <div class="gantt-dates small text-body-secondary">@GetBarTitle(task)</div>
+                            </div>
+                        }
+                        @if (GetTodayOffset() is { } todayOffset)
+                        {
+                            <div class="gantt-row gantt-today-row" aria-hidden="true">
+                                <div class="gantt-label"></div>
+                                <div class="gantt-track">
+                                    <div class="gantt-today" style="left: @todayOffset.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)%"
+                                         title="Hoje"></div>
+                                </div>
+                                <div class="gantt-dates small text-body-secondary">Hoje</div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <EmptyState Message="Nenhuma tarefa com datas definidas." />
+                }
+
+                @if (_unscheduled.Any())
+                {
+                    <h2 class="h6 mt-4 mb-2">Sem datas (@_unscheduled.Count)</h2>
+                    <ul class="small text-body-secondary mb-0">
+                        @foreach (var task in _unscheduled.Take(10))
+                        {
+                            <li>@task.Identifier — @task.Title</li>
+                        }
+                        @if (_unscheduled.Count > 10)
+                        {
+                            <li>… e mais @(_unscheduled.Count - 10)</li>
+                        }
+                    </ul>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isLoading = true;
+    private bool _isTasksLoading;
+    private string? _errorMessage;
+    private List<ProjectDto> _projects = [];
+    private string _selectedProjectId = string.Empty;
+    private List<TaskDto> _scheduled = [];
+    private List<TaskDto> _unscheduled = [];
+    private DateTime _rangeStart;
+    private DateTime _rangeEnd = DateTime.Today;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var projects = await Client.GetProjectsAsync();
+            _projects = projects.ToList();
+
+            var first = _projects.FirstOrDefault();
+            if (first is not null)
+            {
+                _selectedProjectId = first.Id;
+                await LoadTasksAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Erro ao carregar projetos: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnProjectChangedAsync()
+    {
+        await LoadTasksAsync();
+    }
+
+    private async Task LoadTasksAsync()
+    {
+        _isTasksLoading = true;
+        try
+        {
+            var tasks = await Client.GetTasksAsync(_selectedProjectId);
+            var active = tasks.Where(t => t.ArchivedAt is null).ToList();
+            _scheduled = active.Where(t => t.StartDate is not null || t.DueDate is not null)
+                .OrderBy(t => GetStart(t))
+                .ToList();
+            _unscheduled = active.Where(t => t.StartDate is null && t.DueDate is null)
+                .OrderBy(t => t.Identifier)
+                .ToList();
+
+            if (_scheduled.Any())
+            {
+                _rangeStart = _scheduled.Min(t => GetStart(t)).Date;
+                _rangeEnd = _scheduled.Max(t => GetEnd(t)).Date;
+                if (_rangeEnd <= _rangeStart)
+                {
+                    _rangeEnd = _rangeStart.AddDays(1);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Erro ao carregar tarefas: {ex.Message}";
+        }
+        finally
+        {
+            _isTasksLoading = false;
+        }
+    }
+
+    private static DateTime GetStart(TaskDto task) => (task.StartDate ?? task.DueDate)!.Value;
+    private static DateTime GetEnd(TaskDto task) => (task.DueDate ?? task.StartDate)!.Value;
+
+    private double GetBarLeft(TaskDto task)
+    {
+        var total = (_rangeEnd - _rangeStart).TotalDays;
+        var offset = (GetStart(task).Date - _rangeStart).TotalDays;
+        return Math.Clamp(offset / total * 100, 0, 100);
+    }
+
+    private double GetBarWidth(TaskDto task)
+    {
+        var total = (_rangeEnd - _rangeStart).TotalDays;
+        var days = Math.Max((GetEnd(task).Date - GetStart(task).Date).TotalDays, 1);
+        return Math.Clamp(days / total * 100, 1, 100 - GetBarLeft(task));
+    }
+
+    private string GetBarStyle(TaskDto task)
+    {
+        var left = GetBarLeft(task).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+        var width = GetBarWidth(task).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+        return $"left: {left}%; width: {width}%";
+    }
+
+    private string GetBarClass(TaskDto task) => $"gantt-bar-{(task.Priority ?? "none").ToLowerInvariant()}";
+
+    private string GetBarTitle(TaskDto task) =>
+        $"{GetStart(task):dd/MM/yyyy} → {GetEnd(task):dd/MM/yyyy}";
+
+    private double? GetTodayOffset()
+    {
+        if (!_scheduled.Any())
+        {
+            return null;
+        }
+
+        var total = (_rangeEnd - _rangeStart).TotalDays;
+        var offset = (DateTime.Today - _rangeStart).TotalDays;
+        return offset >= 0 && offset <= total ? offset / total * 100 : null;
+    }
+}

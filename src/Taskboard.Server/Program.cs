@@ -812,6 +812,16 @@ tasks.MapDelete("{taskId}/comments/{commentId}", async (string taskId, string co
     return Results.NoContent();
 });
 
+tasks.MapGet("{id}/attachments", async (string id, IRepository<Attachment> attachmentRepo, CancellationToken ct) =>
+{
+    var taskAttachments = await attachmentRepo.Query
+        .Where(a => a.TaskId == new TaskId(id))
+        .OrderBy(a => a.CreatedAt)
+        .ToListAsync(ct);
+
+    return Results.Ok(new { attachments = taskAttachments.Select(a => a.ToDto()) });
+});
+
 tasks.MapGet("{id}/activities", async (string id, IRepository<TaskActivity> activityRepo, CancellationToken ct) =>
 {
     var activities = await activityRepo.Query
@@ -882,7 +892,7 @@ attachments.MapPost("", async (
     var file = form.Files.FirstOrDefault();
     var taskId = form["taskId"].FirstOrDefault();
     var commentIdValue = form["commentId"].FirstOrDefault();
-    var kindValue = form["kind"].FirstOrDefault() ?? "file";
+    var kindValue = form["kind"].FirstOrDefault() ?? "attachment";
 
     if (file is null || string.IsNullOrWhiteSpace(taskId))
     {
@@ -928,7 +938,7 @@ attachments.MapPost("", async (
     await events.PublishAsync(new ServerSentEvent("attachment.created", attachment.ToDto()), ct);
 
     return Results.Created($"/api/attachments/{attachment.Id.Value}", new { attachment = attachment.ToDto() });
-});
+}).DisableAntiforgery();
 
 attachments.MapGet("{id}/content", async (string id, IRepository<Attachment> attachmentRepo, CancellationToken ct) =>
 {

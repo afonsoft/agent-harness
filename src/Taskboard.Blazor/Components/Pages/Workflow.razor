@@ -1,0 +1,138 @@
+@page "/workflow"
+@attribute [Authorize]
+@inject TaskboardClient Client
+
+<PageTitle>Workflow - Taskboard</PageTitle>
+
+<h1 class="h4 fw-bold mb-1">Workflow</h1>
+<p class="small text-body-secondary mb-4">Grafos de workflow por projeto (somente leitura)</p>
+
+@if (_isLoading)
+{
+    <Loading Message="Carregando workflows..." />
+}
+else if (_errorMessage is not null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else if (!_workspaces.Any())
+{
+    <EmptyState Message="Nenhum workflow configurado." />
+}
+else
+{
+    @foreach (var workspace in _workspaces)
+    {
+        var graph = ParseGraph(workspace.Workspace);
+        <div class="card mb-3" @key="workspace.ProjectId">
+            <div class="card-header d-flex align-items-center">
+                <h2 class="h6 mb-0">@GetProjectName(workspace.ProjectId)</h2>
+                <span class="small text-body-secondary ms-auto">
+                    Atualizado em @workspace.UpdatedAt.ToString("g")
+                </span>
+            </div>
+            <div class="card-body">
+                @if (graph is null)
+                {
+                    <EmptyState Message="Workflow sem grafo definido." />
+                }
+                else
+                {
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        @for (var i = 0; i < graph.Value.Nodes.Count; i++)
+                        {
+                            var node = graph.Value.Nodes[i];
+                            <span class="badge text-bg-light border px-3 py-2">@node</span>
+                            @if (i < graph.Value.Nodes.Count - 1)
+                            {
+                                <Icon Name="IconName.ArrowRight" class="text-body-secondary" />
+                            }
+                        }
+                    </div>
+                    @if (graph.Value.Edges.Count > 0)
+                    {
+                        <ul class="small text-body-secondary mt-3 mb-0">
+                            @foreach (var edge in graph.Value.Edges)
+                            {
+                                <li>@edge</li>
+                            }
+                        </ul>
+                    }
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _isLoading = true;
+    private string? _errorMessage;
+    private List<WorkflowWorkspaceDto> _workspaces = [];
+    private Dictionary<string, string> _projectNames = new(StringComparer.Ordinal);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var projectsTask = Client.GetProjectsAsync();
+            var workspacesTask = Client.GetWorkflowWorkspacesAsync();
+
+            var projects = await projectsTask;
+            _projectNames = projects.ToDictionary(p => p.Id, p => p.Name, StringComparer.Ordinal);
+            _workspaces = (await workspacesTask).ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Erro ao carregar workflows: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string GetProjectName(string projectId) =>
+        _projectNames.TryGetValue(projectId, out var name) ? name : projectId;
+
+    private static WorkflowGraph? ParseGraph(string workspaceJson)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(workspaceJson);
+            var root = document.RootElement;
+
+            var nodes = new List<string>();
+            if (root.TryGetProperty("nodes", out var nodesElement) && nodesElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var node in nodesElement.EnumerateArray())
+                {
+                    nodes.Add(node.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? node.GetString() ?? "?"
+                        : node.TryGetProperty("id", out var id) ? id.ToString() : node.TryGetProperty("name", out var name) ? name.ToString() : "?");
+                }
+            }
+
+            var edges = new List<string>();
+            foreach (var key in new[] { "edges", "sequences" })
+            {
+                if (root.TryGetProperty(key, out var edgesElement) && edgesElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var edge in edgesElement.EnumerateArray())
+                    {
+                        edges.Add(edge.ValueKind == System.Text.Json.JsonValueKind.String
+                            ? edge.GetString() ?? "?"
+                            : edge.GetRawText());
+                    }
+                }
+            }
+
+            return nodes.Count == 0 && edges.Count == 0 ? null : new WorkflowGraph(nodes, edges);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private readonly record struct WorkflowGraph(IReadOnlyList<string> Nodes, IReadOnlyList<string> Edges);
+}

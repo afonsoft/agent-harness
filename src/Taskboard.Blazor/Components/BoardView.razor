@@ -2,6 +2,8 @@
 @inject TaskboardClient Client
 @inject IGitHubService GitHubService
 
+<Modal @ref="_taskModal" Size="ModalSize.Large" IsScrollable="true" />
+
 <h1 class="h4 fw-bold mb-1">Board</h1>
 <p class="small text-body-secondary mb-4">Drag or browse tasks by status</p>
 
@@ -88,6 +90,18 @@ else
     }
     else
     {
+        <div class="d-flex gap-2 mb-3">
+            <input type="search" class="form-control form-control-sm w-auto" placeholder="Filtrar por título, descrição ou label..."
+                   aria-label="Filtrar tarefas" @bind="_filterText" @bind:event="oninput" />
+            <select class="form-select form-select-sm w-auto" aria-label="Filtrar por prioridade" @bind="_filterPriority">
+                <option value="">Todas as prioridades</option>
+                @foreach (var priority in _priorities)
+                {
+                    <option value="@priority">@priority</option>
+                }
+            </select>
+        </div>
+
         <div class="kanban-board">
             @foreach (var status in _statuses)
             {
@@ -100,7 +114,7 @@ else
                         @if (GetTasks(status).Any())
                         {
                             <Virtualize Items="GetTasks(status).ToList()" ItemSize="80" OverscanCount="5">
-                                <TaskCard Task="context" @key="context.Id" />
+                                <TaskCard Task="context" @key="context.Id" OnOpen="OpenTaskDetailAsync" />
                             </Virtualize>
                         }
                         else
@@ -113,16 +127,16 @@ else
             <div class="kanban-column">
                 <div class="kanban-column-header @GetStatusClass("archived")">
                     <h2>archived</h2>
-                    <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).Count()</span>
+                    <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null && MatchesFilters(t)).Count()</span>
                 </div>
                 <div class="kanban-column-body" style="max-height: 70vh;">
                     @{
-                        var archived = _tasks.Where(t => t.ArchivedAt is not null).OrderBy(t => t.SortOrder).ToList();
+                        var archived = _tasks.Where(t => t.ArchivedAt is not null && MatchesFilters(t)).OrderBy(t => t.SortOrder).ToList();
                     }
                     @if (archived.Any())
                     {
                         <Virtualize Items="archived" ItemSize="80" OverscanCount="5">
-                            <TaskCard Task="context" @key="context.Id" />
+                            <TaskCard Task="context" @key="context.Id" OnOpen="OpenTaskDetailAsync" />
                         </Virtualize>
                     }
                     else
@@ -146,6 +160,9 @@ else
     private string? _selectedRepo;
     private string _selection = string.Empty;
     private List<TaskDto> _tasks = [];
+    private Modal _taskModal = default!;
+    private string _filterText = string.Empty;
+    private string _filterPriority = string.Empty;
     private readonly string[] _statuses = ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"];
     private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
 
@@ -232,8 +249,38 @@ else
     private IEnumerable<TaskDto> GetTasks(string status)
     {
         return _tasks
-            .Where(t => t.Status == status && t.ArchivedAt is null)
+            .Where(t => t.Status == status && t.ArchivedAt is null && MatchesFilters(t))
             .OrderBy(t => t.SortOrder);
+    }
+
+    private bool MatchesFilters(TaskDto task)
+    {
+        if (!string.IsNullOrWhiteSpace(_filterPriority)
+            && !string.Equals(task.Priority, _filterPriority, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_filterText))
+        {
+            return true;
+        }
+
+        var text = _filterText.Trim();
+        return task.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
+            || (task.Description?.Contains(text, StringComparison.OrdinalIgnoreCase) ?? false)
+            || task.Labels.Any(l => l.Contains(text, StringComparison.OrdinalIgnoreCase))
+            || task.Identifier.Contains(text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task OpenTaskDetailAsync(TaskDto task)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(LocalTaskDetailDialog.Task), task }
+        };
+
+        await _taskModal.ShowAsync<LocalTaskDetailDialog>(title: task.Identifier, parameters: parameters);
     }
 
     private string GetStatusClass(string status) => status.ToLowerInvariant() switch

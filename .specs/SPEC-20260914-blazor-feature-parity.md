@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/{AgentLLM}-20260914-blazor-feature-parity` |
 | Ticket | `GAP-implementation-blazor-feature-parity` |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -24,7 +24,7 @@ SPEC-008 (frontend) describes the TO-BE UI as "board Kanban, filtros, gantt, edi
 ## 2. Scope
 
 **In scope (phased, each phase a vertical slice):**
-- **Phase A — Task detail:** comments thread + attachments (upload/download/delete) inside `TaskDetailDialog` for local tasks; consumes existing `/api/tasks/{id}/comments` and `/api/attachments` endpoints.
+- **Phase A — Task detail:** comments thread + attachments (upload/download/delete) inside `TaskDetailDialog` for local tasks; consumes `/api/tasks/{id}/comments` and `/api/attachments`; adds `GET /api/tasks/{id}/attachments` (contract addition: attachment list was missing server-side).
 - **Phase B — Filters:** filter bar on `BoardView` (label, priority, assignee, text search) over already-loaded tasks.
 - **Phase C — Gantt/timeline:** read-only timeline view of tasks by start/due date.
 - **Phase D — Workflow visual:** board for `WorkflowWorkspace` graphs (`/api/device-workspaces`, `/api/workflow-capabilities`).
@@ -35,7 +35,7 @@ SPEC-008 (frontend) describes the TO-BE UI as "board Kanban, filtros, gantt, edi
 
 ## 3. Technical Context
 
-**Where the change happens:** `src/Taskboard.Blazor/Components/` — new pages/components consuming `TaskboardClient`; all backend endpoints already exist (`Program.cs`).
+**Where the change happens:** `src/Taskboard.Blazor/Components/` — new pages/components consuming `TaskboardClient`; backend endpoints exist in `Program.cs`; `GET /api/tasks/{id}/attachments` was added by this spec (missing from SPEC-002 surface).
 
 **Files to read before implementing:**
 - `.specs/SPEC-008-frontend.md` · `.specs/SPEC-012-legacy-react.md`
@@ -67,23 +67,23 @@ SPEC-008 (frontend) describes the TO-BE UI as "board Kanban, filtros, gantt, edi
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a task with comments **when** the detail dialog opens **then** comments render chronologically and new comments POST successfully.
-- [ ] **Given** a task **when** a file is attached **then** it appears in the list and downloads correctly.
-- [ ] **Given** a board with mixed tasks **when** a filter is applied **then** non-matching cards are hidden without a server round-trip.
-- [ ] **Given** tasks with dates **when** `/gantt` is opened **then** a timeline renders.
-- [ ] **Given** a workspace **when** `/workflow` is opened **then** the graph or a designed empty state renders.
-- [ ] `dotnet build` + `dotnet test` green; each phase is independently shippable.
+- [x] **Given** a task with comments **when** the detail dialog opens **then** comments render chronologically and new comments POST successfully.
+- [x] **Given** a task **when** a file is attached **then** it appears in the list and downloads correctly.
+- [x] **Given** a board with mixed tasks **when** a filter is applied **then** non-matching cards are hidden without a server round-trip.
+- [x] **Given** tasks with dates **when** `/gantt` is opened **then** a timeline renders.
+- [x] **Given** a workspace **when** `/workflow` is opened **then** the graph or a designed empty state renders.
+- [x] `dotnet build` + `dotnet test` green; each phase is independently shippable.
 
 ## 7. Task Plan
 
-- [ ] **T1 — Phase A spec-out:** detail comments/attachments component design; confirm DTOs.
-- [ ] **T2 — Phase A implement + tests.**
-- [ ] **T3 — Phase B implement + tests.**
-- [ ] **T4 — Phase C implement + tests.**
-- [ ] **T5 — Phase D implement + tests.**
-- [ ] **T6 — Done + PR per phase.**
+- [x] **T1 — Phase A spec-out:** detail comments/attachments component design; confirm DTOs.
+- [x] **T2 — Phase A implement + tests.**
+- [x] **T3 — Phase B implement + tests.**
+- [x] **T4 — Phase C implement + tests.**
+- [x] **T5 — Phase D implement + tests.**
+- [x] **T6 — Done + PR per phase.**
 
 ## 9. Definition of Done
 
-- [ ] Each phase behind its own route/component with tests.
-- [ ] SPEC-008 parity table updated in docs.
+- [x] Each phase behind its own route/component with tests.
+- [x] SPEC-008 parity table updated in docs.
