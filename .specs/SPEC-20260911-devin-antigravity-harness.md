@@ -11,7 +11,7 @@
 | Repository | afonsoft/taskboard-ai |
 | Suggested branch | `feature/devin-antigravity-harness` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | Done (layout consolidado em .claude/skills — ver ACs atualizados) |
 | Date | 2026-09-11 |
 | Target agent | Devin |
 
@@ -143,7 +143,7 @@ N/A — configuração.
 
 ## 12. Acceptance Criteria
 
-- [ ] `.devin/config.json` existe e é JSON válido.
-- [ ] `.devin/skills/` e `.agent/skills/` existem.
-- [ ] Nenhuma skill listada em `skills-lock.json` fica inacessível.
-- [ ] `dotnet build Taskboard.sln` continua passando.
+- [x] `.devin/config.json` existe e é JSON válido (aponta para `.claude/skills` e `.claude/rules`).
+- [x] Skills consolidadas em `.claude/skills/` — `.devin/skills/` e `.agent/skills/` foram removidos na consolidação (commit 62dbf81); Devin CLI consome via `.devin/config.json` e Antigravity via skills globais `~/.gemini/skills/`.
+- [x] Nenhuma skill listada em `skills-lock.json` fica inacessível.
+- [x] `dotnet build Taskboard.sln` continua passando.

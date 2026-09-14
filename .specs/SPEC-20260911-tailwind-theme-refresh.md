@@ -10,7 +10,7 @@
 | Repository | taskboard-ai |
 | Branch | `feature/devin-20260911-tailwind-theme-refresh` |
 | Ticket | N/A |
-| Status | Approved |
+| Status | Deprecated — superseded by SPEC-20260913-bootstrap-modernization |
 
 ## 1. User Story
 

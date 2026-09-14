@@ -11,7 +11,7 @@
 | Repository | afonsoft/taskboard-ai |
 | Suggested branch | `devin/spec-frontend-ux-performance` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | Done (framework superseded: MudBlazor/Tailwind → Bootstrap 5.3 + Blazor.Bootstrap per SPEC-20260913-bootstrap-modernization) |
 | Date | 2026-09-10 |
 | Target agent | Devin |
 
@@ -302,13 +302,13 @@ public static class TaskboardTheme
 
 ## 19. Acceptance Criteria
 
-- [ ] `<Virtualize>` aplicado em `BoardView` e `KanbanBoard`.
-- [ ] `TaskCard` evita re-render quando parâmetro inalterado.
-- [ ] Loading/erro/vazio usam componentes MudBlazor.
-- [ ] `MudTheme` centralizado com responsividade móvel.
-- [ ] `ErrorBoundary` protege rotas.
-- [ ] Response compression ativa para assets estáticos.
-- [ ] `dotnet build` e `dotnet test` passam sem warnings.
+- [x] `<Virtualize>` aplicado em `BoardView` e `KanbanBoard`.
+- [x] `TaskCard` evita re-render quando parâmetro inalterado.
+- [x] Loading/erro/vazio usam componentes compartilhados (`Components/Shared/Loading.razor`, `EmptyState.razor`) — MudBlazor removido, substituído por Blazor.Bootstrap.
+- [x] Tema centralizado via Bootstrap 5.3 (`data-bs-theme`/`--bs-*`) com sidebar offcanvas responsiva — substitui `MudTheme`.
+- [x] `ErrorBoundary` protege rotas.
+- [x] Response compression ativa para assets estáticos.
+- [x] `dotnet build` e `dotnet test` passam sem warnings.
 
 ---
 
