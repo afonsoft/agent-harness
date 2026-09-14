@@ -29,8 +29,11 @@ public sealed class TaskboardEnvironment
     /// </summary>
     public int GetPort()
     {
-        var configured = _configuration["Taskboard:Port"]
-                         ?? GetTrimmedOrDefault("TASKBOARD_PORT", string.Empty);
+        var configured = GetTrimmedOrDefault("TASKBOARD_PORT", string.Empty);
+        if (string.IsNullOrEmpty(configured))
+        {
+            configured = _configuration["Taskboard:Port"];
+        }
 
         if (int.TryParse(configured, out var port))
         {
@@ -46,8 +49,11 @@ public sealed class TaskboardEnvironment
     /// </summary>
     public string GetDataDir()
     {
-        var configured = _configuration["Taskboard:DataDir"]
-                         ?? GetTrimmedOrDefault("TASKBOARD_DATA_DIR", string.Empty);
+        var configured = GetTrimmedOrDefault("TASKBOARD_DATA_DIR", string.Empty);
+        if (string.IsNullOrEmpty(configured))
+        {
+            configured = _configuration["Taskboard:DataDir"];
+        }
 
         if (string.IsNullOrEmpty(configured))
         {

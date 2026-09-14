@@ -127,6 +127,34 @@ public class TaskboardEnvironmentTests
         port.ShouldBe(9090);
     }
 
+    [Fact]
+    public void GetPort_WhenBothEnvAndConfigSet_ShouldPreferEnvVar()
+    {
+        // SPEC-20260914-env-var-precedence RF-001: TASKBOARD_* env wins over appsettings
+        using var _ = SetEnv("TASKBOARD_PORT", "8080");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>("Taskboard:Port", "9090")])
+            .Build();
+
+        var port = CreateSut(configuration).GetPort();
+
+        port.ShouldBe(8080);
+    }
+
+    [Fact]
+    public void GetDataDir_WhenBothEnvAndConfigSet_ShouldPreferEnvVar()
+    {
+        // SPEC-20260914-env-var-precedence RF-001: TASKBOARD_* env wins over appsettings
+        using var _ = SetEnv("TASKBOARD_DATA_DIR", "/srv/taskboard");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>("Taskboard:DataDir", "/ignored")])
+            .Build();
+
+        var dataDir = CreateSut(configuration).GetDataDir();
+
+        dataDir.ShouldBe("/srv/taskboard");
+    }
+
     private static IDisposable SetEnv(string name, string value)
     {
         var original = Environment.GetEnvironmentVariable(name);
