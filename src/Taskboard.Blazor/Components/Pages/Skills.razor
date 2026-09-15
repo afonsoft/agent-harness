@@ -52,7 +52,7 @@
             <div class="skill-grid">
                 @foreach (var skill in _filteredSkills)
                 {
-                    <div class="skill-card" tabindex="0" @key="skill.Name" @onclick="() => OpenDetail(skill)" @onkeydown="e => HandleKeyDown(e, skill)">
+                    <div class="skill-card" tabindex="0" @key="skill.Path" @onclick="() => OpenDetail(skill)" @onkeydown="e => HandleKeyDown(e, skill)">
                         <div class="skill-card-header">
                             <h3 class="skill-card-title" title="@skill.Name">@skill.Name</h3>
                             <span class="source-badge @GetSourceBadgeClass(skill.Source)">@skill.Source</span>

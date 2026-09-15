@@ -1,34 +1,50 @@
+@inject IJSRuntime JS
+
 <nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="Sidebar navigation">
-    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Kanban" />
         Board
     </NavLink>
-    <NavLink class="nav-link" href="gantt" aria-label="Gantt" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="gantt" aria-label="Gantt" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.BarChart" />
         Gantt
     </NavLink>
-    <NavLink class="nav-link" href="workflow" aria-label="Workflow" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="workflow" aria-label="Workflow" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Diagram3" />
         Workflow
     </NavLink>
-    <NavLink class="nav-link" href="ai-chat" aria-label="AI Chat" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="ai-chat" aria-label="AI Chat" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.ChatDots" />
         AI Chat
     </NavLink>
-    <NavLink class="nav-link" href="github-board" aria-label="GitHub Board" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="github-board" aria-label="GitHub Board" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Github" />
         GitHub Board
     </NavLink>
-    <NavLink class="nav-link" href="settings" aria-label="Settings" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="settings" aria-label="Settings" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Gear" />
         Settings
     </NavLink>
-    <NavLink class="nav-link" href="skills" aria-label="Skills" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="skills" aria-label="Skills" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Lightning" />
         Skills
     </NavLink>
-    <NavLink class="nav-link" href="prompts/taskboard/manage-taskboard" aria-label="Prompts" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar">
+    <NavLink class="nav-link" href="prompts/taskboard/manage-taskboard" aria-label="Prompts" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.FileText" />
         Prompts
     </NavLink>
 </nav>
+
+@code {
+    private async Task CloseSidebarAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.closeSidebar");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop not available (e.g. prerender); navigation still works.
+        }
+    }
+}
