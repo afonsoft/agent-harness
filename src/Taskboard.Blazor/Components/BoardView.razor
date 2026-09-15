@@ -1,23 +1,12 @@
 @page "/"
-@inject TaskboardClient Client
 @inject IGitHubService GitHubService
 
-<Modal @ref="_taskModal" Size="ModalSize.Large" IsScrollable="true" />
-
 <h1 class="h4 fw-bold mb-1">Board</h1>
-<p class="small text-body-secondary mb-4">Drag or browse tasks by status</p>
+<p class="small text-body-secondary mb-4">Drag or browse issues by status</p>
 
 @if (_isLoading)
 {
-    <Loading Message="Loading project..." />
-}
-else if (_errorMessage is not null)
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-else if (!_projects.Any() && !_repositories.Any())
-{
-    <EmptyState Message="No project found." />
+    <Loading Message="Loading repositories..." />
 }
 else
 {
@@ -28,181 +17,71 @@ else
 
     <div class="kanban-board-header">
         <div class="field">
-            <label for="board-selector">Project Name</label>
-            <select id="board-selector" class="form-select form-select-sm" aria-label="Project Name"
-                    @bind="_selection" @bind:after="OnSelectionChangedAsync" disabled="@_isBoardLoading">
-                @if (_projects.Any())
+            <label for="board-repo">Repository</label>
+            <input id="board-repo" type="text" class="form-control form-control-sm" list="board-repo-options"
+                   placeholder="owner/repo" aria-label="Repository"
+                   @bind="_repoInput" @bind:after="OnRepoChanged" @onkeydown="OnRepoKeyDownAsync"
+                   disabled="@_tokenMissing" />
+            <datalist id="board-repo-options">
+                @foreach (var repo in _repositories)
                 {
-                    <optgroup label="Projects">
-                        @foreach (var project in _projects)
-                        {
-                            <option value="project:@project.Id">@project.Name</option>
-                        }
-                    </optgroup>
+                    <option value="@repo.FullName" />
                 }
-                @if (_repositories.Any())
-                {
-                    <optgroup label="GitHub">
-                        @foreach (var repo in _repositories)
-                        {
-                            <option value="repo:@repo.FullName">@repo.FullName</option>
-                        }
-                    </optgroup>
-                }
-            </select>
+            </datalist>
         </div>
-        @if (_selectedRepo is null && _project is not null)
-        {
-            <div class="field">
-                <label>Start Date</label>
-                <span class="value">@GetFormattedStartDate()</span>
+        <div class="field legend">
+            <label>Priority Level</label>
+            <div class="legend mt-1">
+                @foreach (var priority in _priorities)
+                {
+                    <span class="small">
+                        <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(priority)"></span>
+                        @priority
+                    </span>
+                }
             </div>
-            <div class="field">
-                <label>End Date</label>
-                <span class="value">@GetFormattedEndDate()</span>
-            </div>
-            <div class="field">
-                <label>Duration in Days</label>
-                <span class="value">@GetDurationDays()</span>
-            </div>
-            <div class="field legend">
-                <label>Priority Level</label>
-                <div class="legend mt-1">
-                    @foreach (var priority in _priorities)
-                    {
-                        <span class="small">
-                            <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(priority)"></span>
-                            @priority
-                        </span>
-                    }
-                </div>
-            </div>
-        }
+        </div>
     </div>
 
     @if (_selectedRepo is not null)
     {
         <KanbanBoard RepositoryFullName="@_selectedRepo" />
     }
-    else if (_isBoardLoading)
+    else if (!_tokenMissing)
     {
-        <Loading Message="Loading tasks..." />
-    }
-    else
-    {
-        <div class="d-flex gap-2 mb-3">
-            <input type="search" class="form-control form-control-sm w-auto" placeholder="Filtrar por título, descrição ou label..."
-                   aria-label="Filtrar tarefas" @bind="_filterText" @bind:event="oninput" />
-            <select class="form-select form-select-sm w-auto" aria-label="Filtrar por prioridade" @bind="_filterPriority">
-                <option value="">Todas as prioridades</option>
-                @foreach (var priority in _priorities)
-                {
-                    <option value="@priority">@priority</option>
-                }
-            </select>
-        </div>
-
-        <div class="kanban-board">
-            @foreach (var status in _statuses)
-            {
-                <div class="kanban-column">
-                    <div class="kanban-column-header @GetStatusClass(status)">
-                        <h2>@status</h2>
-                        <span class="kanban-label">@GetTasks(status).Count()</span>
-                    </div>
-                    <div class="kanban-column-body" style="max-height: 70vh;">
-                        @if (GetTasks(status).Any())
-                        {
-                            <Virtualize Items="GetTasks(status).ToList()" ItemSize="80" OverscanCount="5">
-                                <TaskCard Task="context" @key="context.Id" OnOpen="OpenTaskDetailAsync" />
-                            </Virtualize>
-                        }
-                        else
-                        {
-                            <EmptyState Message="No tasks" />
-                        }
-                    </div>
-                </div>
-            }
-            <div class="kanban-column">
-                <div class="kanban-column-header @GetStatusClass("archived")">
-                    <h2>archived</h2>
-                    <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null && MatchesFilters(t)).Count()</span>
-                </div>
-                <div class="kanban-column-body" style="max-height: 70vh;">
-                    @{
-                        var archived = _tasks.Where(t => t.ArchivedAt is not null && MatchesFilters(t)).OrderBy(t => t.SortOrder).ToList();
-                    }
-                    @if (archived.Any())
-                    {
-                        <Virtualize Items="archived" ItemSize="80" OverscanCount="5">
-                            <TaskCard Task="context" @key="context.Id" OnOpen="OpenTaskDetailAsync" />
-                        </Virtualize>
-                    }
-                    else
-                    {
-                        <EmptyState Message="No archived tasks" />
-                    }
-                </div>
-            </div>
-        </div>
+        <EmptyState Message="Type or select a repository to load the board." />
     }
 }
 
 @code {
     private bool _isLoading = true;
-    private bool _isBoardLoading;
-    private string? _errorMessage;
+    private bool _tokenMissing;
     private string? _repoWarning;
-    private List<ProjectDto> _projects = [];
     private List<RepositoryDto> _repositories = [];
-    private ProjectDto? _project;
     private string? _selectedRepo;
-    private string _selection = string.Empty;
-    private List<TaskDto> _tasks = [];
-    private Modal _taskModal = default!;
-    private string _filterText = string.Empty;
-    private string _filterPriority = string.Empty;
-    private readonly string[] _statuses = ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"];
+    private string _repoInput = string.Empty;
     private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            var projects = await Client.GetProjectsAsync();
-            _projects = projects.ToList();
-            _project = _projects.FirstOrDefault();
-
-            try
-            {
-                var repositories = await GitHubService.GetRepositoriesAsync();
-                _repositories = repositories.OrderBy(r => r.FullName).ToList();
-            }
-            catch (InvalidOperationException)
-            {
-                // GITHUB_TOKEN not configured; GitHub group stays hidden.
-            }
-            catch (Exception ex)
-            {
-                _repoWarning = $"Could not load GitHub repositories: {ex.Message}";
-            }
-
-            if (_project is not null)
-            {
-                _selection = $"project:{_project.Id}";
-                var tasks = await Client.GetTasksAsync(_project.Id);
-                _tasks = tasks.ToList();
-            }
-            else if (_repositories.Any())
+            var repositories = await GitHubService.GetRepositoriesAsync();
+            _repositories = repositories.OrderBy(r => r.FullName).ToList();
+            if (_repositories.Count > 0)
             {
                 _selectedRepo = _repositories[0].FullName;
-                _selection = $"repo:{_selectedRepo}";
+                _repoInput = _selectedRepo;
             }
+        }
+        catch (InvalidOperationException)
+        {
+            _tokenMissing = true;
+            _repoWarning = "GitHub token not configured. Set the GITHUB_TOKEN environment variable or configure it in Settings.";
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Error loading board: {ex.Message}";
+            _repoWarning = $"Could not load GitHub repositories: {ex.Message}. You can still type a repository name.";
         }
         finally
         {
@@ -210,117 +89,33 @@ else
         }
     }
 
-    private async Task OnSelectionChangedAsync()
+    private async Task OnRepoKeyDownAsync(KeyboardEventArgs e)
     {
-        if (_selection.StartsWith("repo:", StringComparison.Ordinal))
+        if (e.Code is "Enter" or "NumpadEnter")
         {
-            _selectedRepo = _selection["repo:".Length..];
-            return;
-        }
-
-        _selectedRepo = null;
-        var projectId = _selection.StartsWith("project:", StringComparison.Ordinal)
-            ? _selection["project:".Length..]
-            : _selection;
-
-        _project = _projects.FirstOrDefault(p => p.Id == projectId);
-        if (_project is null)
-        {
-            _tasks = [];
-            return;
-        }
-
-        _isBoardLoading = true;
-        try
-        {
-            var tasks = await Client.GetTasksAsync(_project.Id);
-            _tasks = tasks.ToList();
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = $"Error loading tasks: {ex.Message}";
-        }
-        finally
-        {
-            _isBoardLoading = false;
+            await OnRepoChanged();
         }
     }
 
-    private IEnumerable<TaskDto> GetTasks(string status)
+    private Task OnRepoChanged()
     {
-        return _tasks
-            .Where(t => t.Status == status && t.ArchivedAt is null && MatchesFilters(t))
-            .OrderBy(t => t.SortOrder);
-    }
-
-    private bool MatchesFilters(TaskDto task)
-    {
-        if (!string.IsNullOrWhiteSpace(_filterPriority)
-            && !string.Equals(task.Priority, _filterPriority, StringComparison.OrdinalIgnoreCase))
+        var value = _repoInput.Trim();
+        if (value == _selectedRepo)
         {
-            return false;
+            return Task.CompletedTask;
         }
 
-        if (string.IsNullOrWhiteSpace(_filterText))
+        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
         {
-            return true;
+            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
+            _repoInput = _selectedRepo ?? string.Empty;
+            return Task.CompletedTask;
         }
 
-        var text = _filterText.Trim();
-        return task.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
-            || (task.Description?.Contains(text, StringComparison.OrdinalIgnoreCase) ?? false)
-            || task.Labels.Any(l => l.Contains(text, StringComparison.OrdinalIgnoreCase))
-            || task.Identifier.Contains(text, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private async Task OpenTaskDetailAsync(TaskDto task)
-    {
-        var parameters = new Dictionary<string, object>
-        {
-            { nameof(LocalTaskDetailDialog.Task), task }
-        };
-
-        await _taskModal.ShowAsync<LocalTaskDetailDialog>(title: task.Identifier, parameters: parameters);
-    }
-
-    private string GetStatusClass(string status) => status.ToLowerInvariant() switch
-    {
-        "backlog" or "todo" => "status-not-started",
-        "in_progress" or "in_review" => "status-in-progress",
-        "blocked" or "delayed" => "status-on-hold",
-        "done" => "status-completed",
-        "canceled" or "archived" => "status-archived",
-        _ => "status-on-hold"
-    };
-
-    private string GetFormattedStartDate()
-    {
-        var start = _tasks
-            .Where(t => t.StartDate is not null)
-            .MinBy(t => t.StartDate)
-            ?.StartDate;
-        return start?.ToString("MM/dd/yyyy") ?? "—";
-    }
-
-    private string GetFormattedEndDate()
-    {
-        var end = _tasks
-            .Where(t => t.DueDate is not null)
-            .MaxBy(t => t.DueDate)
-            ?.DueDate;
-        return end?.ToString("MM/dd/yyyy") ?? "—";
-    }
-
-    private string GetDurationDays()
-    {
-        var start = _tasks.Where(t => t.StartDate is not null).MinBy(t => t.StartDate)?.StartDate;
-        var end = _tasks.Where(t => t.DueDate is not null).MaxBy(t => t.DueDate)?.DueDate;
-        if (start is null || end is null)
-        {
-            return "—";
-        }
-        var duration = end.Value - start.Value;
-        return duration.TotalDays > 0 ? duration.TotalDays.ToString("F0") : "—";
+        _repoWarning = null;
+        _selectedRepo = value;
+        return Task.CompletedTask;
     }
 
     private string GetPrioritySwatchStyle(string priority)

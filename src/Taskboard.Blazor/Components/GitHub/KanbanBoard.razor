@@ -16,46 +16,66 @@ else if (!string.IsNullOrWhiteSpace(_errorMessage))
 }
 else if (_columns is not null)
 {
-    <div class="mb-4">
+    <div class="d-flex gap-2 mb-3">
         <Button Color="ButtonColor.Primary" @onclick="OpenNewTaskDialogAsync">
             <Icon Name="IconName.Plus" class="me-2" />Nova Tarefa
         </Button>
+        <input type="search" class="form-control form-control-sm w-auto" placeholder="Filtrar por título, descrição ou label..."
+               aria-label="Filtrar issues" @bind="_filterText" @bind:event="oninput" />
+        <select class="form-select form-select-sm w-auto" aria-label="Filtrar por prioridade" @bind="_filterPriority">
+            <option value="">Todas as prioridades</option>
+            @foreach (var priority in _priorities)
+            {
+                <option value="@priority">@priority</option>
+            }
+        </select>
     </div>
 
     <div class="kanban-board">
         @foreach (var column in _columns)
         {
+            var issues = GetIssues(column).ToList();
             <div class="kanban-column"
                  @ondrop="() => OnDropAsync(column.Column)"
-                 @ondrop:preventDefault="true"
+                 @ondrop:preventDefault="column.Column.HasLabel()"
                  @ondragover="OnDragOver"
-                 @ondragover:preventDefault="true">
-                <div class="kanban-column-header">
-                    <h4>@column.Column (@column.Issues.Count)</h4>
-                    <span class="kanban-label">@column.Label</span>
+                 @ondragover:preventDefault="column.Column.HasLabel()">
+                <div class="kanban-column-header @GetStatusClass(column.Column)">
+                    <h2>@column.Label</h2>
+                    <span class="kanban-label">@issues.Count</span>
                 </div>
-                <div class="kanban-column-body" style="height: 600px; overflow-y: auto;">
-                    <Virtualize Items="column.Issues.ToList()" ItemSize="120" OverscanCount="3">
-                        <div class="kanban-card"
-                             @key="context.Id"
-                             draggable="true"
-                             aria-label="@context.Title, drag to move"
-                             @ondragstart="() => OnDragStart(context, column.Column)"
-                             @onclick="() => OpenTaskDetailAsync(context)">
-                            <div class="kanban-card-title">@context.Title</div>
-                            <div class="kanban-card-meta">
-                                <span>#@context.Number</span>
-                                @if (!string.IsNullOrWhiteSpace(context.AssigneeLogin))
+                <div class="kanban-column-body" style="max-height: 70vh;">
+                    @if (issues.Count > 0)
+                    {
+                        <Virtualize Items="issues" ItemSize="80" OverscanCount="5">
+                            <div class="task-card @GetPriorityClass(context)"
+                                 @key="context.Id"
+                                 draggable="true"
+                                 role="button"
+                                 tabindex="0"
+                                 aria-label="@context.Title, drag to move"
+                                 @ondragstart="() => OnDragStart(context, column.Column)"
+                                 @onclick="() => OpenTaskDetailAsync(context)">
+                                <div class="task-title">@context.Title</div>
+                                @if (!string.IsNullOrWhiteSpace(context.Body))
                                 {
-                                    <span title="@context.AssigneeLogin">@@@context.AssigneeLogin</span>
+                                    <div class="task-description">@context.Body</div>
                                 }
+                                <div class="task-meta">
+                                    <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(context)"></span>
+                                    <span>@context.Priority</span>
+                                    <span class="text-body-secondary">|</span>
+                                    <span>#@context.Number</span>
+                                    <span class="text-body-secondary">|</span>
+                                    <span>@(context.AssigneeLogin is null ? "—" : $"@{context.AssigneeLogin}")</span>
+                                </div>
                             </div>
-                            @if (!string.IsNullOrWhiteSpace(context.Body))
-                            {
-                                <div class="kanban-card-body">@context.Body</div>
-                            }
-                        </div>
-                    </Virtualize>
+                        </Virtualize>
+                    }
+                    else
+                    {
+                        <EmptyState Message="No issues" />
+                    }
                 </div>
             </div>
         }
@@ -79,6 +99,9 @@ else if (_columns is not null)
     private IReadOnlyList<BoardColumnDto>? _columns;
     private IssueDto? _draggedIssue;
     private GitHubBoardColumn? _draggedFromColumn;
+    private string _filterText = string.Empty;
+    private string _filterPriority = string.Empty;
+    private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
 
     protected override async Task OnParametersSetAsync()
     {
@@ -96,8 +119,8 @@ else if (_columns is not null)
 
         try
         {
-            var issues = await GitHubService.GetIssuesAsync(RepositoryFullName, GitHubBoardColumnExtensions.GetAllLabels());
-            _columns = GroupIssuesByColumn(issues);
+            var issues = await GitHubService.GetIssuesAsync(RepositoryFullName);
+            _columns = GitHubBoardGrouper.GroupByColumn(issues, DateTimeOffset.UtcNow);
         }
         catch (Exception ex)
         {
@@ -109,16 +132,8 @@ else if (_columns is not null)
         }
     }
 
-    private static IReadOnlyList<BoardColumnDto> GroupIssuesByColumn(IReadOnlyList<IssueDto> issues)
-    {
-        return Enum.GetValues<GitHubBoardColumn>()
-            .Select(column => new BoardColumnDto(
-                column,
-                column.ToLabel(),
-                issues.Where(i => i.Column == column).OrderByDescending(i => i.UpdatedAt).ToList().AsReadOnly()))
-            .ToList()
-            .AsReadOnly();
-    }
+    private IEnumerable<IssueDto> GetIssues(BoardColumnDto column) =>
+        column.Issues.Where(i => GitHubBoardGrouper.MatchesFilters(i, _filterText, _filterPriority));
 
     private void OnDragStart(IssueDto issue, GitHubBoardColumn fromColumn)
     {
@@ -133,7 +148,7 @@ else if (_columns is not null)
 
     private async Task OnDropAsync(GitHubBoardColumn toColumn)
     {
-        if (_draggedIssue is null || _draggedFromColumn == toColumn)
+        if (_draggedIssue is null || _draggedFromColumn == toColumn || !toColumn.HasLabel())
         {
             return;
         }
@@ -255,4 +270,20 @@ else if (_columns is not null)
         _newTaskTcs?.TrySetResult(false);
         _newTaskTcs = null;
     }
+
+    private static string GetStatusClass(GitHubBoardColumn column) => column switch
+    {
+        GitHubBoardColumn.Backlog or GitHubBoardColumn.Todo => "status-not-started",
+        GitHubBoardColumn.InProgress or GitHubBoardColumn.InReview or GitHubBoardColumn.InPullRequest => "status-in-progress",
+        GitHubBoardColumn.Blocked => "status-on-hold",
+        GitHubBoardColumn.Done => "status-completed",
+        GitHubBoardColumn.Canceled or GitHubBoardColumn.Archived => "status-archived",
+        _ => "status-on-hold"
+    };
+
+    private static string GetPriorityClass(IssueDto issue) =>
+        $"priority-{issue.Priority.ToLowerInvariant()}";
+
+    private static string GetPrioritySwatchStyle(IssueDto issue) =>
+        $"background-color: var(--priority-{issue.Priority.ToLowerInvariant()}-border);";
 }

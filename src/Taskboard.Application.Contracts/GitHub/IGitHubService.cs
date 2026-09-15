@@ -16,9 +16,10 @@ public interface IGitHubService
     Task<IReadOnlyList<RepositoryDto>> GetRepositoriesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Retorna as issues abertas de um repositório, opcionalmente filtradas por labels.
+    /// Retorna as issues abertas de um repositório e as fechadas dentro da janela
+    /// de visibilidade (<see cref="GitHubBoardGrouper.ClosedVisibilityWindow"/>).
     /// </summary>
-    Task<IReadOnlyList<IssueDto>> GetIssuesAsync(string repositoryFullName, IReadOnlyCollection<string>? labels = null, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<IssueDto>> GetIssuesAsync(string repositoryFullName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atualiza a coluna (label) de uma issue, removendo a label anterior e adicionando a nova.

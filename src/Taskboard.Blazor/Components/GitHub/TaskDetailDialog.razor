@@ -9,7 +9,7 @@
                     <strong>Repositório:</strong> @RepositoryFullName
                 </p>
                 <p class="small text-body-secondary mb-2">
-                    <strong>Coluna:</strong> @Issue?.Column.ToLabel()
+                    <strong>Coluna:</strong> @Issue?.Column.ToDisplayName()
                 </p>
                 @if (!string.IsNullOrWhiteSpace(Issue?.Body))
                 {
