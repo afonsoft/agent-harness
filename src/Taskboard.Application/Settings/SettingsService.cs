@@ -5,6 +5,7 @@ using System.Threading;
 using Task = System.Threading.Tasks.Task;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Settings;
+using Taskboard.Application.Contracts.Skills;
 using Taskboard.Requests;
 using Taskboard.Domain.Entities;
 using Taskboard.Repositories;
@@ -16,15 +17,18 @@ public sealed class SettingsService
     private readonly IRepository<UserPreference> _userPreferenceRepo;
     private readonly IRepository<AgentPreference> _agentPreferenceRepo;
     private readonly IAgentDiscoveryService _agentDiscovery;
+    private readonly ISkillsSyncService? _skillsSync;
 
     public SettingsService(
         IRepository<UserPreference> userPreferenceRepo,
         IRepository<AgentPreference> agentPreferenceRepo,
-        IAgentDiscoveryService agentDiscovery)
+        IAgentDiscoveryService agentDiscovery,
+        ISkillsSyncService? skillsSync = null)
     {
         _userPreferenceRepo = userPreferenceRepo;
         _agentPreferenceRepo = agentPreferenceRepo;
         _agentDiscovery = agentDiscovery;
+        _skillsSync = skillsSync;
     }
 
     public async Task<SettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
@@ -73,6 +77,10 @@ public sealed class SettingsService
         }
 
         var current = await _agentPreferenceRepo.ListAsync(cancellationToken);
+        var previouslyEnabled = current
+            .Where(p => p.Enabled)
+            .Select(p => p.AgentType)
+            .ToHashSet();
         foreach (var preference in current)
         {
             await _agentPreferenceRepo.DeleteAsync(preference, cancellationToken);
@@ -92,5 +100,13 @@ public sealed class SettingsService
         }
 
         await _userPreferenceRepo.SaveChangesAsync(cancellationToken);
+
+        // SPEC-20260915-skills-repo-sync RF-007: enabling a CLI triggers a
+        // skills sync for the newly enabled agents in the background.
+        var newlyEnabled = enabledTypes.Where(t => !previouslyEnabled.Contains(t)).ToList();
+        if (newlyEnabled.Count > 0)
+        {
+            _skillsSync?.RequestSync(newlyEnabled);
+        }
     }
 }

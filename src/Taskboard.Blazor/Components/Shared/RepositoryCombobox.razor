@@ -1,0 +1,188 @@
+@namespace Taskboard.Blazor.Components.Shared
+
+<div class="repo-combobox" @onfocusout="OnFocusOutAsync">
+    <input id="@Id" type="text" role="combobox"
+           class="form-control form-control-sm"
+           aria-expanded="@_open"
+           aria-controls="@_listboxId"
+           aria-activedescendant="@ActiveDescendantId"
+           aria-label="@AriaLabel"
+           aria-autocomplete="list"
+           autocomplete="off"
+           spellcheck="false"
+           placeholder="@Placeholder"
+           disabled="@Disabled"
+           value="@_text"
+           @oninput="OnInput"
+           @onfocus="Open"
+           @onkeydown="OnKeyDownAsync" />
+    @if (_open && !Disabled)
+    {
+        <ul id="@_listboxId" class="repo-combobox-list" role="listbox" aria-label="@AriaLabel">
+            @if (IsLoading)
+            {
+                <li class="repo-combobox-status" role="presentation">Loading repositories…</li>
+            }
+            else if (Filtered.Count == 0)
+            {
+                <li class="repo-combobox-status" role="presentation">
+                    No repositories found — type owner/repo
+                </li>
+            }
+            else
+            {
+                @for (var i = 0; i < Filtered.Count; i++)
+                {
+                    var index = i;
+                    var repo = Filtered[i];
+                    <li id="@OptionId(index)"
+                        class="repo-combobox-option @(index == _activeIndex ? "active" : null)"
+                        role="option"
+                        aria-selected="@(index == _activeIndex)"
+                        @onmousedown:preventDefault
+                        @onclick="() => CommitAsync(repo)">
+                        @repo
+                    </li>
+                }
+            }
+        </ul>
+        <span class="visually-hidden" aria-live="polite">
+            @Filtered.Count repositories available
+        </span>
+    }
+</div>
+
+@code {
+    private const int MaxResults = 50;
+
+    /// <summary>All selectable repositories (<c>owner/repo</c>).</summary>
+    [Parameter] public IReadOnlyList<string> Repositories { get; set; } = [];
+
+    /// <summary>Committed value.</summary>
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>Raised when the user commits the input (Enter, Tab, click or blur).</summary>
+    [Parameter] public EventCallback<string> OnCommit { get; set; }
+
+    /// <summary>Shows a loading row instead of the option list.</summary>
+    [Parameter] public bool IsLoading { get; set; }
+
+    /// <summary>Renders a read-only input (e.g. token-missing path).</summary>
+    [Parameter] public bool Disabled { get; set; }
+
+    [Parameter] public string Placeholder { get; set; } = "owner/repo";
+    [Parameter] public string AriaLabel { get; set; } = "Repository";
+    [Parameter] public string Id { get; set; } = $"repo-combobox-{Guid.NewGuid():N}";
+
+    private string _text = string.Empty;
+    private string? _filter;
+    private bool _open;
+    private int _activeIndex = -1;
+    private string _listboxId = string.Empty;
+
+    private IReadOnlyList<string> Filtered =>
+        (string.IsNullOrEmpty(_filter)
+            ? Repositories
+            : Repositories.Where(r => r.Contains(_filter, StringComparison.OrdinalIgnoreCase)))
+        .Take(MaxResults)
+        .ToList();
+
+    private string? ActiveDescendantId =>
+        _activeIndex >= 0 && _activeIndex < Filtered.Count ? OptionId(_activeIndex) : null;
+
+    private string OptionId(int index) => $"{_listboxId}-opt-{index}";
+
+    protected override void OnParametersSet()
+    {
+        _listboxId = $"{Id}-listbox";
+        if (!_open)
+        {
+            _text = Value;
+        }
+    }
+
+    private void Open()
+    {
+        _open = true;
+        _filter = null;
+        _activeIndex = -1;
+        _text = Value;
+    }
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        _text = e.Value?.ToString() ?? string.Empty;
+        _filter = _text;
+        _open = true;
+        _activeIndex = Filtered.Count > 0 ? 0 : -1;
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        var filtered = Filtered;
+        switch (e.Code)
+        {
+            case "ArrowDown":
+                _open = true;
+                if (filtered.Count > 0)
+                {
+                    _activeIndex = (_activeIndex + 1) % filtered.Count;
+                }
+                break;
+            case "ArrowUp":
+                if (filtered.Count > 0)
+                {
+                    _activeIndex = _activeIndex <= 0 ? filtered.Count - 1 : _activeIndex - 1;
+                }
+                break;
+            case "Enter":
+            case "NumpadEnter":
+                await CommitAsync(_activeIndex >= 0 && _activeIndex < filtered.Count
+                    ? filtered[_activeIndex]
+                    : _text);
+                break;
+            case "Escape":
+                _text = Value;
+                _filter = null;
+                _open = false;
+                _activeIndex = -1;
+                break;
+            case "Tab":
+                if (_open && _activeIndex >= 0 && _activeIndex < filtered.Count)
+                {
+                    _text = filtered[_activeIndex];
+                }
+                await CommitAsync(_text);
+                break;
+        }
+    }
+
+    private async Task OnFocusOutAsync()
+    {
+        if (!_open)
+        {
+            return;
+        }
+
+        await CommitAsync(_text);
+    }
+
+    private async Task CommitAsync(string value)
+    {
+        _open = false;
+        _activeIndex = -1;
+        _filter = null;
+        _text = value.Trim();
+
+        if (_text != Value && ValueChanged.HasDelegate)
+        {
+            await ValueChanged.InvokeAsync(_text);
+        }
+
+        if (OnCommit.HasDelegate)
+        {
+            await OnCommit.InvokeAsync(_text);
+        }
+    }
+}

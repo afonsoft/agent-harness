@@ -7,12 +7,12 @@ using Taskboard.Server;
 
 namespace Taskboard.Tests.Integration;
 
-public class ServerEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
+public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
 {
     private readonly HttpClient _client;
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly TaskboardWebApplicationFactory _factory;
 
-    public ServerEndpointsTests(WebApplicationFactory<Program> factory)
+    public ServerEndpointsTests(TaskboardWebApplicationFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();

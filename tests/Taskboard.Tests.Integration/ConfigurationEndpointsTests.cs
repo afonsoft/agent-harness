@@ -32,6 +32,7 @@ public class ConfigurationEndpointsTests : IClassFixture<ConfigurationEndpointsT
         {
             builder.UseSetting("Taskboard:DataDir", DataDir);
             builder.UseSetting("Admin:Password", AdminPassword);
+            builder.UseSetting("Taskboard:Skills:SyncOnStartup", "false");
         }
 
         // A single login is shared across tests — /api/login is rate limited to 5/minute.

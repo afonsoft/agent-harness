@@ -51,6 +51,9 @@ public sealed class RuntimeConfigurationService
         new("Admin:Username", "admin", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Managed by the admin account (admin.json).",
             EnvAlias: "TASKBOARD_ADMIN_USERNAME", Validate: null),
+        new("Taskboard:Skills:Repository", "afonsoft/skills", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_SKILLS_REPO", Validate: ValidateSkillsRepository),
     ];
 
     private readonly IConfiguration _configuration;
@@ -215,6 +218,23 @@ public sealed class RuntimeConfigurationService
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)
             ? null
             : $"Log level must be one of: {string.Join(", ", LogLevels)}.";
+
+    private static string? ValidateSkillsRepository(string value)
+    {
+        var trimmed = value.Trim();
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
+        {
+            return null;
+        }
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+            && uri.Scheme is "https" or "http" or "file")
+        {
+            return null;
+        }
+
+        return "Repository must be 'owner/repo' or an absolute git URL.";
+    }
 
     private sealed record CatalogEntry(
         string Key,

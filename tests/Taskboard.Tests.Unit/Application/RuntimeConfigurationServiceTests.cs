@@ -34,6 +34,7 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Database:ConnectionStringName",
             "ConnectionStrings:Taskboard",
             "Admin:Username",
+            "Taskboard:Skills:Repository",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }
@@ -116,6 +117,8 @@ public class RuntimeConfigurationServiceTests
     [InlineData("Logging:LogLevel:Default", "Verbose")]
     [InlineData("Taskboard:BaseUrl", "not-a-url")]
     [InlineData("AllowedHosts", "")]
+    [InlineData("Taskboard:Skills:Repository", "not a repo")]
+    [InlineData("Taskboard:Skills:Repository", "ftp://example.com/repo")]
     public async Task Dado_ValorInvalido_Quando_SetOverride_Entao_RetornaValidation(string key, string value)
     {
         // Covers RF-004: per-key validation rejects bad values without persisting

@@ -5,9 +5,11 @@ using Task = System.Threading.Tasks.Task;
 using NSubstitute;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Settings;
+using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Settings;
 using Taskboard.Domain.Entities;
 using Taskboard.Repositories;
+using Taskboard.Requests;
 using Shouldly;
 using Xunit;
 
@@ -48,5 +50,57 @@ public class SettingsServiceTests
         settings.Agents.Count.ShouldBe(1);
         settings.Agents[0].Type.ShouldBe(AgentType.Claude);
         settings.Agents[0].Enabled.ShouldBe(false);
+    }
+
+    [Fact]
+    public async Task Dado_AgenteRecemHabilitado_Quando_Salvar_Entao_SolicitaSyncDeSkills()
+    {
+        // Covers SPEC-20260915-skills-repo-sync RF-007: enabling a CLI triggers a sync
+        var userRepo = Substitute.For<IRepository<UserPreference>>();
+        userRepo.ListAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<UserPreference>>(new List<UserPreference>()));
+
+        var agentRepo = Substitute.For<IRepository<AgentPreference>>();
+        agentRepo.ListAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentPreference>>(new List<AgentPreference>
+            {
+                new AgentPreference(Guid.NewGuid(), AgentType.Devin) { Enabled = true }
+            }));
+
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        var sync = Substitute.For<ISkillsSyncService>();
+        var service = new SettingsService(userRepo, agentRepo, discovery, sync);
+
+        await service.SaveSettingsAsync(
+            new SaveSettingsRequest("dark", null, ["Devin", "Claude"]));
+
+        sync.Received(1).RequestSync(
+            Arg.Is<IReadOnlyCollection<AgentType>>(agents =>
+                agents.Count == 1 && agents.Contains(AgentType.Claude)));
+    }
+
+    [Fact]
+    public async Task Dado_SemNovoAgenteHabilitado_Quando_Salvar_Entao_NaoSolicitaSync()
+    {
+        // Covers RF-007: saving without newly enabled agents does not re-sync
+        var userRepo = Substitute.For<IRepository<UserPreference>>();
+        userRepo.ListAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<UserPreference>>(new List<UserPreference>()));
+
+        var agentRepo = Substitute.For<IRepository<AgentPreference>>();
+        agentRepo.ListAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentPreference>>(new List<AgentPreference>
+            {
+                new AgentPreference(Guid.NewGuid(), AgentType.Claude) { Enabled = true }
+            }));
+
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        var sync = Substitute.For<ISkillsSyncService>();
+        var service = new SettingsService(userRepo, agentRepo, discovery, sync);
+
+        await service.SaveSettingsAsync(
+            new SaveSettingsRequest("dark", null, ["Claude"]));
+
+        sync.DidNotReceive().RequestSync(Arg.Any<IReadOnlyCollection<AgentType>>());
     }
 }

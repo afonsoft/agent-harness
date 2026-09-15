@@ -18,16 +18,13 @@ else
     <div class="kanban-board-header">
         <div class="field">
             <label for="board-repo">Repository</label>
-            <input id="board-repo" type="text" class="form-control form-control-sm" list="board-repo-options"
-                   placeholder="owner/repo" aria-label="Repository"
-                   @bind="_repoInput" @bind:after="OnRepoChanged" @onkeydown="OnRepoKeyDownAsync"
-                   disabled="@_tokenMissing" />
-            <datalist id="board-repo-options">
-                @foreach (var repo in _repositories)
-                {
-                    <option value="@repo.FullName" />
-                }
-            </datalist>
+            <RepositoryCombobox Id="board-repo"
+                                AriaLabel="Repository"
+                                Placeholder="owner/repo"
+                                Repositories="@_repoNames"
+                                Disabled="@_tokenMissing"
+                                @bind-Value="_repoInput"
+                                OnCommit="OnRepoCommitted" />
         </div>
         <div class="field legend">
             <label>Priority Level</label>
@@ -58,6 +55,7 @@ else
     private bool _tokenMissing;
     private string? _repoWarning;
     private List<RepositoryDto> _repositories = [];
+    private IReadOnlyList<string> _repoNames = [];
     private string? _selectedRepo;
     private string _repoInput = string.Empty;
     private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
@@ -68,6 +66,7 @@ else
         {
             var repositories = await GitHubService.GetRepositoriesAsync();
             _repositories = repositories.OrderBy(r => r.FullName).ToList();
+            _repoNames = _repositories.Select(r => r.FullName).ToList();
             if (_repositories.Count > 0)
             {
                 _selectedRepo = _repositories[0].FullName;
@@ -89,17 +88,8 @@ else
         }
     }
 
-    private async Task OnRepoKeyDownAsync(KeyboardEventArgs e)
+    private Task OnRepoCommitted(string value)
     {
-        if (e.Code is "Enter" or "NumpadEnter")
-        {
-            await OnRepoChanged();
-        }
-    }
-
-    private Task OnRepoChanged()
-    {
-        var value = _repoInput.Trim();
         if (value == _selectedRepo)
         {
             return Task.CompletedTask;

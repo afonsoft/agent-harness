@@ -1,31 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
-    <link rel="stylesheet" href="lib/bootstrap/bootstrap.min.css" />
-    <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.min.css" />
-    <link href="_content/Blazor.Bootstrap/blazor.bootstrap.css" rel="stylesheet" />
-    <link rel="stylesheet" href="css/site.css" />
-    <HeadOutlet @rendermode="PageRenderMode" />
-</head>
-
-<body>
-    <Routes @rendermode="PageRenderMode" />
-    <script src="_framework/blazor.web.js"></script>
-    <script src="lib/bootstrap/bootstrap.bundle.min.js"></script>
-    <script src="js/taskboard.js"></script>
-    <script src="_content/Blazor.Bootstrap/blazor.bootstrap.js"></script>
-</body>
-
-</html>
-
-@code {
-    [CascadingParameter]
-    private HttpContext? HttpContext { get; set; }
-
-    private IComponentRenderMode? PageRenderMode =>
-        HttpContext?.User.Identity?.IsAuthenticated == true ? InteractiveServer : null;
-}
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    <RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <p role="alert">Sorry, there's nothing at this address.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

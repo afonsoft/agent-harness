@@ -3,6 +3,7 @@
 @inject TaskboardClient Client
 @inject NavigationManager Navigation
 @inject ToastService ToastService
+@inject IGitHubService GitHubService
 
 <PageTitle>Settings - Taskboard</PageTitle>
 
@@ -30,6 +31,25 @@
                         <input id="github-token" type="@_tokenInputType" class="form-control" @bind="_gitHubToken" placeholder="ghp_…" />
                         <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="ToggleTokenVisibility">@_tokenToggleLabel</button>
                     </div>
+
+                    <label class="form-label mt-3" for="skills-repo">Skills source repository</label>
+                    <p class="small text-body-secondary">Git repository cloned to install agent skills on each enabled CLI.</p>
+                    <div class="setting-row-input">
+                        <RepositoryCombobox Id="skills-repo"
+                                            AriaLabel="Skills source repository"
+                                            Placeholder="owner/repo"
+                                            Repositories="@_repoNames"
+                                            @bind-Value="_skillsRepo" />
+                        <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="SaveSkillsRepoAsync">Save</button>
+                        @if (_skillsRepoIsOverride)
+                        {
+                            <button type="button" class="btn btn-outline-danger text-nowrap" @onclick="ResetSkillsRepoAsync">Reset</button>
+                        }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_skillsRepoError))
+                    {
+                        <p class="mt-2 small text-danger">@_skillsRepoError</p>
+                    }
                 </div>
 
                 <div class="form-section">
@@ -185,6 +205,12 @@
     private string? _editingKey;
     private string _editingValue = string.Empty;
 
+    private const string SkillsRepositoryKey = "Taskboard:Skills:Repository";
+    private string _skillsRepo = string.Empty;
+    private bool _skillsRepoIsOverride;
+    private string? _skillsRepoError;
+    private IReadOnlyList<string> _repoNames = [];
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -210,6 +236,17 @@
             _isLoading = false;
         }
 
+        try
+        {
+            var repositories = await GitHubService.GetRepositoriesAsync();
+            _repoNames = repositories.Select(r => r.FullName).OrderBy(n => n).ToList();
+        }
+        catch
+        {
+            // No GitHub token or API failure — free-text owner/repo stays usable.
+            _repoNames = [];
+        }
+
         await LoadConfigurationAsync();
     }
 
@@ -219,12 +256,46 @@
         {
             _configEntries = await Client.GetConfigurationEntriesAsync();
             _configError = null;
+            var skillsEntry = _configEntries.FirstOrDefault(e => e.Key == SkillsRepositoryKey);
+            if (skillsEntry is not null)
+            {
+                _skillsRepo = skillsEntry.EffectiveValue ?? string.Empty;
+                _skillsRepoIsOverride = skillsEntry.Source == "db";
+            }
         }
         catch (Exception ex)
         {
             _configEntries = [];
             _configError = $"Could not load configuration entries: {ex.Message}";
         }
+    }
+
+    private async Task SaveSkillsRepoAsync()
+    {
+        _skillsRepoError = null;
+        var error = await Client.SetConfigurationValueAsync(SkillsRepositoryKey, _skillsRepo.Trim());
+        if (error is not null)
+        {
+            _skillsRepoError = error;
+            return;
+        }
+
+        ToastService.Notify(new(ToastType.Success, "Skills source repository saved"));
+        await LoadConfigurationAsync();
+    }
+
+    private async Task ResetSkillsRepoAsync()
+    {
+        _skillsRepoError = null;
+        var error = await Client.DeleteConfigurationValueAsync(SkillsRepositoryKey);
+        if (error is not null)
+        {
+            _skillsRepoError = error;
+            return;
+        }
+
+        ToastService.Notify(new(ToastType.Info, "Skills source repository reset to default"));
+        await LoadConfigurationAsync();
     }
 
     private void StartConfigEdit(ConfigurationEntryDto entry)
