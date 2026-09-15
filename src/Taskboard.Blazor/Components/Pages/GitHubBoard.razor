@@ -9,7 +9,7 @@
 
 @if (!string.IsNullOrWhiteSpace(_selectedRepositoryFullName))
 {
-    <KanbanBoard RepositoryFullName="_selectedRepositoryFullName" />
+    <KanbanBoard RepositoryFullName="@_selectedRepositoryFullName" />
 }
 
 @code {

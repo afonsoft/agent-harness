@@ -18,9 +18,13 @@ public sealed class TaskboardClient
     /// <summary>
     /// Cria uma nova instância de <see cref="TaskboardClient"/>.
     /// </summary>
-    public TaskboardClient(HttpClient httpClient)
+    public TaskboardClient(HttpClient httpClient, CircuitAuthContext authContext)
     {
         _httpClient = httpClient;
+        if (!string.IsNullOrEmpty(authContext.Cookie))
+        {
+            _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", authContext.Cookie);
+        }
     }
 
     /// <summary>
@@ -152,6 +156,24 @@ public sealed class TaskboardClient
     }
 
     /// <summary>
+    /// Retorna o conteúdo de texto de um arquivo dentro do diretório da skill.
+    /// </summary>
+    public async Task<string?> GetSkillFileContentAsync(string source, string name, string relativePath, CancellationToken cancellationToken = default)
+    {
+        var encodedPath = string.Join('/', relativePath.Split('/').Select(Uri.EscapeDataString));
+        var response = await _httpClient.GetAsync(
+            $"/api/skills/{Uri.EscapeDataString(source)}/{Uri.EscapeDataString(name)}/files/{encodedPath}",
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<SkillFileContentResponse>(cancellationToken);
+        return result?.Content;
+    }
+
+    /// <summary>
     /// Retorna o catálogo de configuração com valor efetivo e fonte de cada chave.
     /// </summary>
     public async Task<IReadOnlyList<ConfigurationEntryDto>> GetConfigurationEntriesAsync(CancellationToken cancellationToken = default)
@@ -218,4 +240,5 @@ public sealed class TaskboardClient
     private sealed record SkillsResponse(List<SkillDto> Skills);
     private sealed record SkillDetailResponse(SkillDetailDto Skill);
     private sealed record ConfigurationEntriesResponse(List<ConfigurationEntryDto> Entries);
+    private sealed record SkillFileContentResponse(string Path, string Content);
 }

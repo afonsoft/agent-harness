@@ -62,6 +62,54 @@ public class ServerEndpointsTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task Given_ExistingSkill_When_GetSkillDetail_Then_ReturnsFileTree()
+    {
+        // Covers RF-006: skill detail includes the file list
+        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard");
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        var result = await response.Content.ReadFromJsonAsync<JsonObject>();
+        var files = result?["skill"]?["files"] as JsonArray;
+        files.ShouldNotBeNull();
+        var paths = files!.Select(f => f!["relativePath"]!.GetValue<string>()).ToList();
+        paths.ShouldContain("SKILL.md");
+        paths.ShouldContain("references/cli.md");
+    }
+
+    [Fact]
+    public async Task Given_ExistingSkillFile_When_GetSkillFile_Then_ReturnsContent()
+    {
+        // Covers RF-007: file content endpoint returns text content
+        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard/files/references/cli.md");
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        var result = await response.Content.ReadFromJsonAsync<JsonObject>();
+        result.ShouldNotBeNull();
+        result["path"]?.GetValue<string>().ShouldBe("references/cli.md");
+        result["content"]?.GetValue<string>().ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Theory]
+    [InlineData("/api/skills/taskboard/manage-taskboard/files/..%2Fadmin.json")]
+    [InlineData("/api/skills/taskboard/manage-taskboard/files/references%2F..%2F..%2Fetc%2Fpasswd")]
+    public async Task Given_TraversalPath_When_GetSkillFile_Then_Returns400(string url)
+    {
+        // Covers RF-007: path traversal is rejected
+        var response = await _client.GetAsync(url);
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Given_MissingSkillFile_When_GetSkillFile_Then_Returns404()
+    {
+        // Covers RF-007: missing file returns 404
+        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard/files/does-not-exist.md");
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Given_ProjectExists_When_ListProjects_Then_ReturnsProjectsObject()
     {
         var response = await _client.GetAsync("/api/projects");

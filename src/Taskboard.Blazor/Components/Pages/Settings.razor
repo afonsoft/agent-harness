@@ -318,6 +318,10 @@
             ToastService.Notify(new(ToastType.Success, "Password changed"));
             _currentPassword = _newPassword = _confirmPassword = string.Empty;
         }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            _passwordError = "Not authorized. Please sign in again.";
+        }
         catch (HttpRequestException)
         {
             _passwordError = "Current password is incorrect.";
@@ -337,12 +341,19 @@
 
     private async Task SaveAsync()
     {
-        var request = new SaveSettingsRequest(
-            "light",
-            _gitHubToken,
-            _enabledState.Where(kv => kv.Value).Select(kv => kv.Key.ToString()).ToList().AsReadOnly());
-        await Client.SaveSettingsAsync(request);
-        ToastService.Notify(new(ToastType.Success, "Settings saved"));
-        Navigation.NavigateTo("/settings", forceLoad: true);
+        try
+        {
+            var request = new SaveSettingsRequest(
+                "light",
+                _gitHubToken,
+                _enabledState.Where(kv => kv.Value).Select(kv => kv.Key.ToString()).ToList().AsReadOnly());
+            await Client.SaveSettingsAsync(request);
+            ToastService.Notify(new(ToastType.Success, "Settings saved"));
+            Navigation.NavigateTo("/settings", forceLoad: true);
+        }
+        catch (HttpRequestException ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to save settings: {ex.Message}"));
+        }
     }
 }

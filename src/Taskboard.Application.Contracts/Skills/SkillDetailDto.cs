@@ -8,4 +8,5 @@ public sealed record SkillDetailDto(
     IReadOnlyList<string> Tools,
     string? References,
     string? Scripts,
-    string Content);
+    string Content,
+    IReadOnlyList<SkillFileDto> Files);
