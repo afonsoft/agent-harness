@@ -10,7 +10,7 @@
 | Repository | `taskboard-ai` |
 | Branch | `feature/devin-20260915-github-board-unified` |
 | Ticket | N/A |
-| Status | Approved |
+| Status | Done (merged via PR #76, commit 7e9dc0d) |
 
 ## 1. User Story
 
