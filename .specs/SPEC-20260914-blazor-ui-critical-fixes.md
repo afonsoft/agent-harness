@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `fix/blazor-ui-critical-fixes` (aprovado pelo usuário; `main`/`develop` proibidas) |
 | Ticket | `user-report-2026-09-14` |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
