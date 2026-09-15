@@ -6,7 +6,7 @@ Este guia cobre como instalar, compilar, configurar e executar o `taskboard-ai` 
 
 ## Visão Geral
 
-O `taskboard-ai` é um quadro de tarefas local-first e AI-native escrito em **C# 14 / .NET 10**. Ele oferece um sistema de tarefas com SQLite, API REST, eventos Server-Sent Events (SSE), a CLI `taskctl`, um servidor MCP e uma interface web Blazor Server.
+O `taskboard-ai` é um quadro de tarefas local-first e AI-native escrito em **C# 14 / .NET 10**. Ele oferece um sistema de tarefas com SQLite, API REST, eventos Server-Sent Events (SSE), a CLI `taskctl`, um servidor MCP e uma interface web Blazor WebAssembly.
 
 ## Pré-requisitos
 

@@ -6,7 +6,7 @@ This guide covers how to install, build, configure, and run `taskboard-ai` local
 
 ## Overview
 
-`taskboard-ai` is a local-first, AI-native taskboard written in **C# 14 / .NET 10**. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, and a Blazor Server web UI.
+`taskboard-ai` is a local-first, AI-native taskboard written in **C# 14 / .NET 10**. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, and a Blazor WebAssembly web UI.
 
 ## Prerequisites
 

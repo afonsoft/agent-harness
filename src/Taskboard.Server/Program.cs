@@ -1076,7 +1076,7 @@ app.MapGet("/api/events", async (HttpResponse response, IEventStreamService even
     }
 }).RequireAuthorization();
 
-app.UseStaticFiles();
+// Static files are served by MapStaticAssets() below — no UseStaticFiles needed.
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

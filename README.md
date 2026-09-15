@@ -11,7 +11,7 @@ A local-first, AI-native taskboard inspired by `dashi-taskboard`, rewritten in *
 
 ## Overview
 
-`taskboard-ai` is a local-first issue board for developers and AI agents. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, AI chat integration, and a Blazor Server web UI — all implemented in .NET 10 with ABP N-Layer / DDD.
+`taskboard-ai` is a local-first issue board for developers and AI agents. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, AI chat integration, and a Blazor WebAssembly web UI — all implemented in .NET 10 with ABP N-Layer / DDD.
 
 ## Tech Stack
 
@@ -26,7 +26,7 @@ A local-first, AI-native taskboard inspired by `dashi-taskboard`, rewritten in *
 | CLI Parser | System.CommandLine | latest stable |
 | MCP SDK | ModelContextProtocol | 2.2.0 |
 | Tests | xUnit + Shouldly + NSubstitute | latest stable |
-| Frontend | Blazor Server | .NET 10 |
+| Frontend | Blazor WebAssembly | .NET 10 |
 | UI Components | Blazor.Bootstrap | 4.0.0 |
 | Real-time | ASP.NET Core SignalR | 10.0 |
 | GitHub API Client | Octokit | 14.0.0 |
@@ -49,7 +49,8 @@ src/
   Taskboard.Cloud/                  # Cloud companion + sync
   Taskboard.Integrations/           # Jira, GitHub, agent orchestration, execution helpers
   Taskboard.Maui/                   # Optional desktop Blazor Hybrid
-  Taskboard.Blazor/                 # Blazor Server web UI
+  Taskboard.Client/                 # Blazor WebAssembly host (WASM boot, loading UI)
+  Taskboard.Blazor/                 # Shared Blazor UI components (RCL)
 tests/
   Taskboard.Tests.Unit/             # 89 unit tests
   Taskboard.Tests.Integration/      # 9 integration tests

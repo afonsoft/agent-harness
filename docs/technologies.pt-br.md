@@ -11,7 +11,7 @@
 | Parser de CLI | System.CommandLine | latest stable |
 | MCP SDK | ModelContextProtocol | latest stable for .NET |
 | Testes | xUnit + Shouldly + NSubstitute | latest stable |
-| Frontend | Blazor Server | .NET 10 |
+| Frontend | Blazor WebAssembly | .NET 10 |
 | Componentes de UI | Blazor.Bootstrap | 4.0.0 |
 | Tempo real | ASP.NET Core SignalR | 10.0 |
 | Cliente da API do GitHub | Octokit | 14.0.0 |

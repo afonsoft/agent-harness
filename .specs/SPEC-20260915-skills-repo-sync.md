@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260915-skills-repo-sync` |
 | Ticket | N/A |
-| Status | `Implemented` |
+| Status | `Done (merged via PR #78)` |
 
 ## 1. User Story
 
