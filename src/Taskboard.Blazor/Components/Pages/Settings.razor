@@ -83,6 +83,76 @@
                         </div>
                     }
                 </div>
+
+                <div class="form-section">
+                    <h2 class="form-section-title">Configuration</h2>
+                    <p class="small text-body-secondary">Database overrides win over environment variables and appsettings.</p>
+                    @if (_configError is not null)
+                    {
+                        <div class="alert alert-warning mb-0">@_configError</div>
+                    }
+                    else if (_configEntries.Count == 0)
+                    {
+                        <EmptyState Message="No configuration keys." />
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Key</th>
+                                        <th scope="col">Value</th>
+                                        <th scope="col">Source</th>
+                                        <th scope="col"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in _configEntries)
+                                    {
+                                        <tr @key="entry.Key">
+                                            <td class="font-monospace small">@entry.Key</td>
+                                            <td class="small">
+                                                @if (_editingKey == entry.Key)
+                                                {
+                                                    <input type="text" class="form-control form-control-sm font-monospace" @bind="_editingValue" aria-label="Value for @entry.Key" />
+                                                }
+                                                else
+                                                {
+                                                    @(entry.EffectiveValue ?? "—")
+                                                    @if (entry.RequiresRestart)
+                                                    {
+                                                        <span class="badge text-bg-secondary ms-1" title="Applies on next restart">restart</span>
+                                                    }
+                                                }
+                                            </td>
+                                            <td><span class="badge @GetSourceBadgeClass(entry.Source)">@entry.Source</span></td>
+                                            <td class="text-end text-nowrap">
+                                                @if (_editingKey == entry.Key)
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveConfigAsync(entry)">Save</button>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelConfigEdit">Cancel</button>
+                                                }
+                                                else if (entry.Editable)
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartConfigEdit(entry)">Edit</button>
+                                                    @if (entry.Source == "db")
+                                                    {
+                                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ResetConfigAsync(entry)">Reset</button>
+                                                    }
+                                                }
+                                                else if (!string.IsNullOrEmpty(entry.ReadOnlyReason))
+                                                {
+                                                    <span class="small text-body-secondary" title="@entry.ReadOnlyReason">read-only</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
             </div>
 
             <div class="action-bar">
@@ -110,6 +180,11 @@
     private string _tokenInputType = "password";
     private string _tokenToggleLabel = "Show";
 
+    private IReadOnlyList<ConfigurationEntryDto> _configEntries = [];
+    private string? _configError;
+    private string? _editingKey;
+    private string _editingValue = string.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -134,7 +209,73 @@
         {
             _isLoading = false;
         }
+
+        await LoadConfigurationAsync();
     }
+
+    private async Task LoadConfigurationAsync()
+    {
+        try
+        {
+            _configEntries = await Client.GetConfigurationEntriesAsync();
+            _configError = null;
+        }
+        catch (Exception ex)
+        {
+            _configEntries = [];
+            _configError = $"Could not load configuration entries: {ex.Message}";
+        }
+    }
+
+    private void StartConfigEdit(ConfigurationEntryDto entry)
+    {
+        _editingKey = entry.Key;
+        _editingValue = entry.Masked ? string.Empty : entry.EffectiveValue ?? string.Empty;
+    }
+
+    private void CancelConfigEdit()
+    {
+        _editingKey = null;
+        _editingValue = string.Empty;
+    }
+
+    private async Task SaveConfigAsync(ConfigurationEntryDto entry)
+    {
+        var error = await Client.SetConfigurationValueAsync(entry.Key, _editingValue);
+        if (error is not null)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to save {entry.Key}: {error}"));
+            return;
+        }
+
+        _editingKey = null;
+        _editingValue = string.Empty;
+        ToastService.Notify(entry.RequiresRestart
+            ? new(ToastType.Warning, $"{entry.Key} saved — applies on next restart")
+            : new(ToastType.Success, $"{entry.Key} saved"));
+        await LoadConfigurationAsync();
+    }
+
+    private async Task ResetConfigAsync(ConfigurationEntryDto entry)
+    {
+        var error = await Client.DeleteConfigurationValueAsync(entry.Key);
+        if (error is not null)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to reset {entry.Key}: {error}"));
+            return;
+        }
+
+        ToastService.Notify(new(ToastType.Info, $"{entry.Key} override removed"));
+        await LoadConfigurationAsync();
+    }
+
+    private static string GetSourceBadgeClass(string source) => source switch
+    {
+        "db" => "text-bg-primary",
+        "env" => "text-bg-info",
+        "appsettings" => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
 
     private void ToggleTokenVisibility()
     {

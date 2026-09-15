@@ -6,5 +6,6 @@
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />
     <PackageReference Include="Octokit" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
 </Project>

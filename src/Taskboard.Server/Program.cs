@@ -26,7 +26,9 @@ using Taskboard.Blazor.Services;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
 using Taskboard.EntityFrameworkCore.Data;
+using Taskboard.Application.Configuration;
 using Taskboard.Integrations.Agents;
+using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Jira;
@@ -52,6 +54,15 @@ using TaskStatus = Taskboard.ValueObjects.TaskStatus;
 var builder = WebApplication.CreateBuilder(args);
 
 var environment = new TaskboardEnvironment(builder.Configuration, builder.Environment);
+var dataDir = environment.GetDataDir();
+Directory.CreateDirectory(dataDir);
+
+// Database-stored overrides are registered last so they win over env vars and
+// appsettings. Loaded now so a Taskboard:Port override applies to this boot.
+var sqliteConfigProvider = new SqliteConfigurationProvider(Path.Combine(dataDir, "taskboard.sqlite"));
+builder.Configuration.Sources.Add(new SqliteConfigurationSource(sqliteConfigProvider));
+builder.Services.AddSingleton(sqliteConfigProvider);
+
 var serverUrls = environment.GetServerUrls();
 builder.WebHost.UseUrls(serverUrls);
 
@@ -123,6 +134,7 @@ builder.Services.AddSingleton<ISkillDiscoveryService>(sp => new SkillDiscoverySe
     new SkillDiscoverySource("taskboard", Path.Join(AppContext.BaseDirectory, "skills"))
 }));
 builder.Services.AddScoped<SettingsService>();
+builder.Services.AddScoped<RuntimeConfigurationService>();
 builder.Services.AddSingleton<IAgentAcpClient, JsonRpcAcpClient>();
 builder.Services.AddSingleton<IAgentAdapter, KnownCliAgentAdapter>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
@@ -138,6 +150,28 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.HttpOnly = true;
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.Events.OnRedirectToLogin = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return System.Threading.Tasks.Task.CompletedTask;
+            }
+
+            context.Response.Redirect(context.RedirectUri);
+            return System.Threading.Tasks.Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api"))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return System.Threading.Tasks.Task.CompletedTask;
+            }
+
+            context.Response.Redirect(context.RedirectUri);
+            return System.Threading.Tasks.Task.CompletedTask;
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -195,11 +229,8 @@ builder.Services.AddRequestLocalization(options =>
     options.DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture("en-US");
 });
 
-var adminDataDir = environment.GetDataDir();
-builder.Services.AddSingleton(AdminUser.CreateFromConfiguration(builder.Configuration, adminDataDir));
+builder.Services.AddSingleton(AdminUser.CreateFromConfiguration(builder.Configuration, dataDir));
 
-var dataDir = environment.GetDataDir();
-Directory.CreateDirectory(dataDir);
 var connectionString = $"Data Source={Path.Combine(dataDir, "taskboard.sqlite")}";
 
 builder.Services.AddTaskboardEntityFrameworkCore(connectionString);
@@ -224,6 +255,9 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<TaskboardDbContext>();
     await dbContext.Database.MigrateAsync();
+
+    // The overrides table may have just been created by this migration.
+    sqliteConfigProvider.Reload();
 
     var projectRepo = scope.ServiceProvider.GetRequiredService<IRepository<Project>>();
     var localId = ProjectId.From("local");
@@ -1050,6 +1084,59 @@ api.MapPut("settings", async (SaveSettingsRequest request, SettingsService setti
     await settings.SaveSettingsAsync(request, ct);
     return Results.NoContent();
 }).RequireAuthorization();
+
+api.MapGet("configuration", (RuntimeConfigurationService configuration) =>
+    Results.Ok(new { entries = configuration.GetEntries() }))
+    .RequireAuthorization();
+
+api.MapPut("configuration/{key}", async (
+    string key,
+    SetConfigurationRequest request,
+    RuntimeConfigurationService configuration,
+    SqliteConfigurationProvider overridesProvider,
+    CancellationToken ct) =>
+{
+    var result = await configuration.SetOverrideAsync(key, request.Value, ct);
+    if (result.Error is not ConfigurationWriteError.None)
+    {
+        return ConfigurationError(result);
+    }
+
+    overridesProvider.Reload();
+    return Results.NoContent();
+}).RequireAuthorization();
+
+api.MapDelete("configuration/{key}", async (
+    string key,
+    RuntimeConfigurationService configuration,
+    SqliteConfigurationProvider overridesProvider,
+    CancellationToken ct) =>
+{
+    var result = await configuration.DeleteOverrideAsync(key, ct);
+    if (result.Error is not ConfigurationWriteError.None)
+    {
+        return ConfigurationError(result);
+    }
+
+    overridesProvider.Reload();
+    return Results.NoContent();
+}).RequireAuthorization();
+
+static IResult ConfigurationError(ConfigurationWriteResult result) => result.Error switch
+{
+    ConfigurationWriteError.ReadOnly => Results.BadRequest(new
+    {
+        error = new { code = "KEY_READ_ONLY", message = result.Message }
+    }),
+    ConfigurationWriteError.NotFound => Results.NotFound(new
+    {
+        error = new { code = "OVERRIDE_NOT_FOUND", message = result.Message }
+    }),
+    _ => Results.BadRequest(new
+    {
+        error = new { code = "VALIDATION", message = result.Message }
+    })
+};
 
 api.MapGet("skills", async (ISkillDiscoveryService skills, CancellationToken ct) =>
 {

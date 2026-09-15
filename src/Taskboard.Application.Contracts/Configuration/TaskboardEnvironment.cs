@@ -26,10 +26,16 @@ public sealed class TaskboardEnvironment
 
     /// <summary>
     /// Returns the configured taskboard port. Defaults to <c>47823</c>.
+    /// Precedence: database override &gt; <c>TASKBOARD_PORT</c> env &gt; appsettings.
     /// </summary>
     public int GetPort()
     {
-        var configured = GetTrimmedOrDefault("TASKBOARD_PORT", string.Empty);
+        var configured = GetDatabaseOverride("Taskboard:Port");
+        if (string.IsNullOrEmpty(configured))
+        {
+            configured = GetTrimmedOrDefault("TASKBOARD_PORT", string.Empty);
+        }
+
         if (string.IsNullOrEmpty(configured))
         {
             configured = _configuration["Taskboard:Port"];
@@ -76,6 +82,26 @@ public sealed class TaskboardEnvironment
         }
 
         return $"http://127.0.0.1:{GetPort()}";
+    }
+
+    private string? GetDatabaseOverride(string key)
+    {
+        if (_configuration is not IConfigurationRoot root)
+        {
+            return null;
+        }
+
+        foreach (var provider in root.Providers)
+        {
+            if (provider is IOverrideConfigurationProvider overrides
+                && overrides.TryGetOverride(key, out var value)
+                && !string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     private static string GetTrimmedOrDefault(string name, string defaultValue)
