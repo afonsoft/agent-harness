@@ -14,5 +14,7 @@ public sealed record IssueDto(
     IReadOnlyList<string> Labels,
     GitHubBoardColumn Column,
     string? AssigneeLogin,
+    string Priority,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt,
+    DateTimeOffset? ClosedAt);

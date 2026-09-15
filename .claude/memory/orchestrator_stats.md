@@ -236,3 +236,23 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - `dotnet build` na Release: ✅ pass
 - `dotnet test` Taskboard.sln: ✅ 93 unit + 11 integration
 
+
+---
+
+## Execução da sessão 2026-09-15
+
+### SPECs em execução
+
+| SPEC | Status | Issue | Branch |
+|---|---|---|---|
+| `SPEC-20260915-github-board-unified` | In implementation | #75 | `feature/devin-20260915-github-board-unified` |
+
+### Bugfix prévio (mesma branch)
+
+- `KanbanBoard` passava `GetAllLabels()` a `GetIssuesAsync`; a API do GitHub trata `labels` como filtro AND → issues recém-criadas nunca apareciam. Corrigido para buscar sem filtro e agrupar no cliente.
+- `GitHubService.CreateIssueAsync`/`UpdateIssueColumnAsync` passaram a garantir a label da coluna via `EnsureLabelExistsAsync` (evita HTTP 422).
+
+### Verificação
+
+- `dotnet build`: ✅ 0 warnings, 0 errors
+- `dotnet test`: ✅ 180 unit + 31 integration

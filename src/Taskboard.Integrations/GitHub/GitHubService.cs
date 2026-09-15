@@ -50,7 +50,6 @@ public sealed class GitHubService : IGitHubService
     /// <inheritdoc />
     public async Task<IReadOnlyList<IssueDto>> GetIssuesAsync(
         string repositoryFullName,
-        IReadOnlyCollection<string>? labels = null,
         CancellationToken cancellationToken = default)
     {
         EnsureAuthenticated();
@@ -58,21 +57,18 @@ public sealed class GitHubService : IGitHubService
 
         var request = new RepositoryIssueRequest
         {
-            State = ItemStateFilter.Open,
+            State = ItemStateFilter.All,
             SortProperty = IssueSort.Created,
             SortDirection = SortDirection.Descending
         };
 
-        if (labels is not null && labels.Count > 0)
-        {
-            foreach (var label in labels)
-            {
-                request.Labels.Add(label);
-            }
-        }
-
         var issues = await _client.Issue.GetAllForRepository(owner, name, request);
-        return issues.Select(i => MapToDto(i, repositoryFullName)).ToList().AsReadOnly();
+        var now = DateTimeOffset.UtcNow;
+        return issues
+            .Select(i => MapToDto(i, repositoryFullName))
+            .Where(dto => GitHubBoardGrouper.IsVisible(dto, now))
+            .ToList()
+            .AsReadOnly();
     }
 
     /// <inheritdoc />
@@ -84,10 +80,15 @@ public sealed class GitHubService : IGitHubService
         CancellationToken cancellationToken = default)
     {
         EnsureAuthenticated();
+        if (!newColumn.HasLabel())
+        {
+            throw new ArgumentOutOfRangeException(nameof(newColumn), newColumn, "Column is derived and cannot be assigned via label.");
+        }
+
         var (owner, name) = SplitRepositoryName(repositoryFullName);
         var newLabel = newColumn.ToLabel();
 
-        if (oldColumn.HasValue && oldColumn.Value != newColumn)
+        if (oldColumn.HasValue && oldColumn.Value != newColumn && oldColumn.Value.HasLabel())
         {
             var oldLabel = oldColumn.Value.ToLabel();
             try
@@ -100,6 +101,7 @@ public sealed class GitHubService : IGitHubService
             }
         }
 
+        await EnsureLabelExistsAsync(owner, name, newLabel, cancellationToken);
         await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, [newLabel]);
 
         var updatedIssue = await _client.Issue.Get(owner, name, issueNumber);
@@ -116,6 +118,8 @@ public sealed class GitHubService : IGitHubService
     {
         EnsureAuthenticated();
         var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        await EnsureLabelExistsAsync(owner, name, initialColumn.ToLabel(), cancellationToken);
 
         var newIssue = new NewIssue(title)
         {
@@ -170,38 +174,27 @@ public sealed class GitHubService : IGitHubService
         repository.HtmlUrl,
         repository.Private);
 
-    private static IssueDto MapToDto(Issue issue, string repositoryFullName) => new(
-        issue.Id,
-        issue.Number,
-        issue.Title,
-        issue.Body,
-        issue.State.StringValue,
-        issue.Url,
-        issue.HtmlUrl,
-        issue.Labels?.Select(l => l.Name).ToList() ?? [],
-        ResolveColumn(issue.Labels?.Select(l => l.Name) ?? []),
-        issue.Assignee?.Login,
-        issue.CreatedAt,
-        issue.UpdatedAt);
-
-    private static GitHubBoardColumn ResolveColumn(IEnumerable<string> labels)
+    private static IssueDto MapToDto(Issue issue, string repositoryFullName)
     {
-        foreach (var column in new[]
-                 {
-                     GitHubBoardColumn.Done,
-                     GitHubBoardColumn.Review,
-                     GitHubBoardColumn.InProgress,
-                     GitHubBoardColumn.Backlog
-                 })
-        {
-            var label = column.ToLabel();
-            if (labels.Any(l => string.Equals(l, label, StringComparison.OrdinalIgnoreCase)))
-            {
-                return column;
-            }
-        }
+        var labels = issue.Labels?.Select(l => l.Name).ToList() ?? [];
 
-        return GitHubBoardColumn.Backlog;
+        var dto = new IssueDto(
+            issue.Id,
+            issue.Number,
+            issue.Title,
+            issue.Body,
+            issue.State.StringValue,
+            issue.Url,
+            issue.HtmlUrl,
+            labels,
+            GitHubBoardColumn.Backlog,
+            issue.Assignee?.Login,
+            GitHubBoardColumnExtensions.ResolvePriority(labels),
+            issue.CreatedAt,
+            issue.UpdatedAt,
+            issue.ClosedAt);
+
+        return dto with { Column = GitHubBoardGrouper.ResolveColumn(dto) };
     }
 
     private static (string Owner, string Name) SplitRepositoryName(string repositoryFullName)

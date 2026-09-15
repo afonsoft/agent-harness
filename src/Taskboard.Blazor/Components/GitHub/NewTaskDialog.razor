@@ -15,9 +15,9 @@
 <div class="mb-3">
     <label for="new-task-column" class="form-label">Coluna Inicial</label>
     <select id="new-task-column" class="form-select" @bind="_initialColumn">
-        @foreach (var column in Enum.GetValues<GitHubBoardColumn>())
+        @foreach (var column in GitHubBoardColumnExtensions.LabelBackedColumns)
         {
-            <option value="@column">@column.ToLabel()</option>
+            <option value="@column">@column.ToDisplayName()</option>
         }
     </select>
 </div>

@@ -111,7 +111,7 @@ public class AgentOrchestrationServiceTests
                 request.RepositoryFullName,
                 request.IssueNumber,
                 GitHubBoardColumn.InProgress,
-                GitHubBoardColumn.Review,
+                GitHubBoardColumn.InReview,
                 Arg.Any<CancellationToken>());
         }
         finally
@@ -228,9 +228,11 @@ public class AgentOrchestrationServiceTests
             "https://github.com/owner/repo/issues/42",
             "https://github.com/owner/repo/issues/42",
             [],
-            GitHubBoardColumn.Review,
+            GitHubBoardColumn.InReview,
             null,
+            "None",
             DateTimeOffset.UtcNow,
+            null,
             null);
 
     private static async Task<AgentExecutionResult> AguardarCancelamentoAsync(CancellationToken cancellationToken)

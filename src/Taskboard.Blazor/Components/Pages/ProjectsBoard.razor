@@ -1,0 +1,271 @@
+@page "/projects"
+@inject TaskboardClient Client
+
+<Modal @ref="_taskModal" Size="ModalSize.Large" IsScrollable="true" />
+
+<h1 class="h4 fw-bold mb-1">Projects</h1>
+<p class="small text-body-secondary mb-4">Drag or browse tasks by status</p>
+
+@if (_isLoading)
+{
+    <Loading Message="Loading project..." />
+}
+else if (_errorMessage is not null)
+{
+    <div class="alert alert-danger">@_errorMessage</div>
+}
+else if (!_projects.Any())
+{
+    <EmptyState Message="No project found." />
+}
+else
+{
+    <div class="kanban-board-header">
+        <div class="field">
+            <label for="project-selector">Project Name</label>
+            <select id="project-selector" class="form-select form-select-sm" aria-label="Project Name"
+                    @bind="_selection" @bind:after="OnSelectionChangedAsync" disabled="@_isBoardLoading">
+                @foreach (var project in _projects)
+                {
+                    <option value="@project.Id">@project.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label>Start Date</label>
+            <span class="value">@GetFormattedStartDate()</span>
+        </div>
+        <div class="field">
+            <label>End Date</label>
+            <span class="value">@GetFormattedEndDate()</span>
+        </div>
+        <div class="field">
+            <label>Duration in Days</label>
+            <span class="value">@GetDurationDays()</span>
+        </div>
+        <div class="field legend">
+            <label>Priority Level</label>
+            <div class="legend mt-1">
+                @foreach (var priority in _priorities)
+                {
+                    <span class="small">
+                        <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(priority)"></span>
+                        @priority
+                    </span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_isBoardLoading)
+    {
+        <Loading Message="Loading tasks..." />
+    }
+    else
+    {
+        <div class="d-flex gap-2 mb-3">
+            <input type="search" class="form-control form-control-sm w-auto" placeholder="Filtrar por título, descrição ou label..."
+                   aria-label="Filtrar tarefas" @bind="_filterText" @bind:event="oninput" />
+            <select class="form-select form-select-sm w-auto" aria-label="Filtrar por prioridade" @bind="_filterPriority">
+                <option value="">Todas as prioridades</option>
+                @foreach (var priority in _priorities)
+                {
+                    <option value="@priority">@priority</option>
+                }
+            </select>
+        </div>
+
+        <div class="kanban-board">
+            @foreach (var status in _statuses)
+            {
+                <div class="kanban-column">
+                    <div class="kanban-column-header @GetStatusClass(status)">
+                        <h2>@status</h2>
+                        <span class="kanban-label">@GetTasks(status).Count()</span>
+                    </div>
+                    <div class="kanban-column-body" style="max-height: 70vh;">
+                        @if (GetTasks(status).Any())
+                        {
+                            <Virtualize Items="GetTasks(status).ToList()" ItemSize="80" OverscanCount="5">
+                                <TaskCard Task="context" @key="context.Id" OnOpen="OpenTaskDetailAsync" />
+                            </Virtualize>
+                        }
+                        else
+                        {
+                            <EmptyState Message="No tasks" />
+                        }
+                    </div>
+                </div>
+            }
+            <div class="kanban-column">
+                <div class="kanban-column-header @GetStatusClass("archived")">
+                    <h2>archived</h2>
+                    <span class="kanban-label">@_tasks.Where(t => t.ArchivedAt is not null && MatchesFilters(t)).Count()</span>
+                </div>
+                <div class="kanban-column-body" style="max-height: 70vh;">
+                    @{
+                        var archived = _tasks.Where(t => t.ArchivedAt is not null && MatchesFilters(t)).OrderBy(t => t.SortOrder).ToList();
+                    }
+                    @if (archived.Any())
+                    {
+                        <Virtualize Items="archived" ItemSize="80" OverscanCount="5">
+                            <TaskCard Task="context" @key="context.Id" OnOpen="OpenTaskDetailAsync" />
+                        </Virtualize>
+                    }
+                    else
+                    {
+                        <EmptyState Message="No archived tasks" />
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _isLoading = true;
+    private bool _isBoardLoading;
+    private string? _errorMessage;
+    private List<ProjectDto> _projects = [];
+    private ProjectDto? _project;
+    private string _selection = string.Empty;
+    private List<TaskDto> _tasks = [];
+    private Modal _taskModal = default!;
+    private string _filterText = string.Empty;
+    private string _filterPriority = string.Empty;
+    private readonly string[] _statuses = ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"];
+    private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var projects = await Client.GetProjectsAsync();
+            _projects = projects.ToList();
+            _project = _projects.FirstOrDefault();
+
+            if (_project is not null)
+            {
+                _selection = _project.Id;
+                var tasks = await Client.GetTasksAsync(_project.Id);
+                _tasks = tasks.ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading board: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnSelectionChangedAsync()
+    {
+        _project = _projects.FirstOrDefault(p => p.Id == _selection);
+        if (_project is null)
+        {
+            _tasks = [];
+            return;
+        }
+
+        _isBoardLoading = true;
+        try
+        {
+            var tasks = await Client.GetTasksAsync(_project.Id);
+            _tasks = tasks.ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading tasks: {ex.Message}";
+        }
+        finally
+        {
+            _isBoardLoading = false;
+        }
+    }
+
+    private IEnumerable<TaskDto> GetTasks(string status)
+    {
+        return _tasks
+            .Where(t => t.Status == status && t.ArchivedAt is null && MatchesFilters(t))
+            .OrderBy(t => t.SortOrder);
+    }
+
+    private bool MatchesFilters(TaskDto task)
+    {
+        if (!string.IsNullOrWhiteSpace(_filterPriority)
+            && !string.Equals(task.Priority, _filterPriority, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_filterText))
+        {
+            return true;
+        }
+
+        var text = _filterText.Trim();
+        return task.Title.Contains(text, StringComparison.OrdinalIgnoreCase)
+            || (task.Description?.Contains(text, StringComparison.OrdinalIgnoreCase) ?? false)
+            || task.Labels.Any(l => l.Contains(text, StringComparison.OrdinalIgnoreCase))
+            || task.Identifier.Contains(text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task OpenTaskDetailAsync(TaskDto task)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { nameof(LocalTaskDetailDialog.Task), task }
+        };
+
+        await _taskModal.ShowAsync<LocalTaskDetailDialog>(title: task.Identifier, parameters: parameters);
+    }
+
+    private string GetStatusClass(string status) => status.ToLowerInvariant() switch
+    {
+        "backlog" or "todo" => "status-not-started",
+        "in_progress" or "in_review" => "status-in-progress",
+        "blocked" or "delayed" => "status-on-hold",
+        "done" => "status-completed",
+        "canceled" or "archived" => "status-archived",
+        _ => "status-on-hold"
+    };
+
+    private string GetFormattedStartDate()
+    {
+        var start = _tasks
+            .Where(t => t.StartDate is not null)
+            .MinBy(t => t.StartDate)
+            ?.StartDate;
+        return start?.ToString("MM/dd/yyyy") ?? "—";
+    }
+
+    private string GetFormattedEndDate()
+    {
+        var end = _tasks
+            .Where(t => t.DueDate is not null)
+            .MaxBy(t => t.DueDate)
+            ?.DueDate;
+        return end?.ToString("MM/dd/yyyy") ?? "—";
+    }
+
+    private string GetDurationDays()
+    {
+        var start = _tasks.Where(t => t.StartDate is not null).MinBy(t => t.StartDate)?.StartDate;
+        var end = _tasks.Where(t => t.DueDate is not null).MaxBy(t => t.DueDate)?.DueDate;
+        if (start is null || end is null)
+        {
+            return "—";
+        }
+        var duration = end.Value - start.Value;
+        return duration.TotalDays > 0 ? duration.TotalDays.ToString("F0") : "—";
+    }
+
+    private string GetPrioritySwatchStyle(string priority)
+    {
+        var key = priority.ToLowerInvariant();
+        return $"background-color: var(--priority-{key}-border);";
+    }
+}

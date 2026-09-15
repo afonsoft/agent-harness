@@ -144,7 +144,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
                 request.RepositoryFullName,
                 request.IssueNumber,
                 GitHubBoardColumn.InProgress,
-                GitHubBoardColumn.Review);
+                GitHubBoardColumn.InReview);
         }
         catch (Exception ex)
         {
