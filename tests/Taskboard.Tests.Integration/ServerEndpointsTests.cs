@@ -18,6 +18,9 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
         _client = factory.CreateClient();
     }
 
+    // /api requires a session since SPEC-20260915-api-authorization-hardening
+    private Task<HttpClient> ApiClientAsync() => _factory.CreateAuthenticatedClientAsync();
+
     [Fact]
     public async Task Given_NoAuth_When_GetHealth_Then_Returns200()
     {
@@ -51,7 +54,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     public async Task Given_ExistingSkill_When_GetSkillDetail_Then_ReturnsSkillContent()
     {
         // Covers FR-003: skill detail API
-        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard");
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync("/api/skills/taskboard/manage-taskboard");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -65,7 +69,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     public async Task Given_ExistingSkill_When_GetSkillDetail_Then_ReturnsFileTree()
     {
         // Covers RF-006: skill detail includes the file list
-        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard");
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync("/api/skills/taskboard/manage-taskboard");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -80,7 +85,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     public async Task Given_ExistingSkillFile_When_GetSkillFile_Then_ReturnsContent()
     {
         // Covers RF-007: file content endpoint returns text content
-        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard/files/references/cli.md");
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync("/api/skills/taskboard/manage-taskboard/files/references/cli.md");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -95,7 +101,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     public async Task Given_TraversalPath_When_GetSkillFile_Then_Returns400(string url)
     {
         // Covers RF-007: path traversal is rejected
-        var response = await _client.GetAsync(url);
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync(url);
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
     }
@@ -104,7 +111,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     public async Task Given_MissingSkillFile_When_GetSkillFile_Then_Returns404()
     {
         // Covers RF-007: missing file returns 404
-        var response = await _client.GetAsync("/api/skills/taskboard/manage-taskboard/files/does-not-exist.md");
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync("/api/skills/taskboard/manage-taskboard/files/does-not-exist.md");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.NotFound);
     }
@@ -112,7 +120,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     [Fact]
     public async Task Given_ProjectExists_When_ListProjects_Then_ReturnsProjectsObject()
     {
-        var response = await _client.GetAsync("/api/projects");
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync("/api/projects");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -123,12 +132,13 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     [Fact]
     public async Task Given_ValidProject_When_CreateProject_Then_ProjectCreated()
     {
+        var client = await ApiClientAsync();
         var project = new
         {
             name = "Test Project Integration"
         };
 
-        var response = await _client.PostAsJsonAsync("/api/projects", project);
+        var response = await client.PostAsJsonAsync("/api/projects", project);
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var created = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -144,8 +154,10 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     [Fact]
     public async Task Given_ProjectExists_When_CreateTask_Then_TaskCreated()
     {
+        var client = await ApiClientAsync();
+
         // First create a project
-        var createProjectResponse = await _client.PostAsJsonAsync("/api/projects", new { name = "Project for Tasks" });
+        var createProjectResponse = await client.PostAsJsonAsync("/api/projects", new { name = "Project for Tasks" });
         createProjectResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var projectObj = (await createProjectResponse.Content.ReadFromJsonAsync<JsonObject>())!["project"] as JsonObject;
         var projectId = projectObj!["id"]?.GetValue<string>();
@@ -159,7 +171,7 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
             priority = "high"
         };
 
-        var response = await _client.PostAsJsonAsync("/api/tasks", task);
+        var response = await client.PostAsJsonAsync("/api/tasks", task);
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var created = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -173,7 +185,8 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     [Fact]
     public async Task Given_TaskExists_When_ListTasks_Then_ReturnsTasks()
     {
-        var response = await _client.GetAsync("/api/tasks");
+        var client = await ApiClientAsync();
+        var response = await client.GetAsync("/api/tasks");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -184,20 +197,22 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     [Fact]
     public async Task Given_TaskExists_When_AddComment_Then_CommentAdded()
     {
+        var client = await ApiClientAsync();
+
         // Create project and task
-        var createProjectResponse = await _client.PostAsJsonAsync("/api/projects", new { name = "Comment Test" });
+        var createProjectResponse = await client.PostAsJsonAsync("/api/projects", new { name = "Comment Test" });
         createProjectResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var projectObj = (await createProjectResponse.Content.ReadFromJsonAsync<JsonObject>())!["project"] as JsonObject;
         var projectId = projectObj!["id"]?.GetValue<string>();
 
-        var taskResponse = await _client.PostAsJsonAsync("/api/tasks", new { projectId, title = "Task for Comment", status = "todo", priority = "medium" });
+        var taskResponse = await client.PostAsJsonAsync("/api/tasks", new { projectId, title = "Task for Comment", status = "todo", priority = "medium" });
         taskResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var taskObj = (await taskResponse.Content.ReadFromJsonAsync<JsonObject>())!["task"] as JsonObject;
         var taskId = taskObj!["id"]?.GetValue<string>();
 
         // Add comment
         var comment = new { body = "Test comment from integration test" };
-        var response = await _client.PostAsJsonAsync($"/api/tasks/{taskId}/comments", comment);
+        var response = await client.PostAsJsonAsync($"/api/tasks/{taskId}/comments", comment);
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var created = await response.Content.ReadFromJsonAsync<JsonObject>();
@@ -211,12 +226,14 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     [Fact]
     public async Task Given_AttachmentUploaded_When_GetTaskAttachments_Then_AttachmentListed()
     {
-        var createProjectResponse = await _client.PostAsJsonAsync("/api/projects", new { name = "Attachment List Test" });
+        var client = await ApiClientAsync();
+
+        var createProjectResponse = await client.PostAsJsonAsync("/api/projects", new { name = "Attachment List Test" });
         createProjectResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var projectObj = (await createProjectResponse.Content.ReadFromJsonAsync<JsonObject>())!["project"] as JsonObject;
         var projectId = projectObj!["id"]?.GetValue<string>();
 
-        var taskResponse = await _client.PostAsJsonAsync("/api/tasks", new { projectId, title = "Task for Attachment", status = "todo", priority = "medium" });
+        var taskResponse = await client.PostAsJsonAsync("/api/tasks", new { projectId, title = "Task for Attachment", status = "todo", priority = "medium" });
         taskResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created);
         var taskObj = (await taskResponse.Content.ReadFromJsonAsync<JsonObject>())!["task"] as JsonObject;
         var taskId = taskObj!["id"]?.GetValue<string>();
@@ -226,11 +243,11 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
         form.Add(fileContent, "file", "note.txt");
         form.Add(new StringContent(taskId!), "taskId");
-        var uploadResponse = await _client.PostAsync("/api/attachments", form);
+        var uploadResponse = await client.PostAsync("/api/attachments", form);
         var uploadBody = await uploadResponse.Content.ReadAsStringAsync();
         uploadResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.Created, uploadBody);
 
-        var listResponse = await _client.GetAsync($"/api/tasks/{taskId}/attachments");
+        var listResponse = await client.GetAsync($"/api/tasks/{taskId}/attachments");
 
         listResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var listed = await listResponse.Content.ReadFromJsonAsync<JsonObject>();
@@ -257,10 +274,11 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     public async Task Dado_RequisicaoComAcceptEncodingGzip_Quando_GetProjects_Entao_RetornaConteudoComprimido()
     {
         // Covers FR-006: response compression for dynamic responses
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip");
+        var client = await ApiClientAsync();
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/projects");
+        request.Headers.AcceptEncoding.Add(new System.Net.Http.Headers.StringWithQualityHeaderValue("gzip"));
 
-        var response = await client.GetAsync("/api/projects");
+        var response = await client.SendAsync(request);
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         response.Content.Headers.ContentEncoding.ShouldContain("gzip");

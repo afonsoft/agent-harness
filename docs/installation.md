@@ -65,6 +65,7 @@ dotnet test Taskboard.sln
 | `TASKBOARD_DATA_DIR` | `.data` under the server content root | Directory where `taskboard.sqlite` and `.admin-password` are stored |
 | `GITHUB_TOKEN` | *(none)* | GitHub personal access token for the Kanban board (`/github-board`) |
 | `TASKBOARD_URL` | `http://127.0.0.1:47823` | Base URL used by the `taskctl` CLI and MCP server |
+| `TASKBOARD_API_KEY` | *(none)* | API key sent as `X-Api-Key` by `taskctl`/MCP to authenticate against the server's `/api` (all endpoints except `login`, `auth/me`, `meta` and health require cookie or API-key auth) |
 | `ASPNETCORE_URLS` | *(none)* | Overrides `TASKBOARD_PORT` with a complete URL such as `http://0.0.0.0:47823` |
 
 Set variables for the current shell session:
