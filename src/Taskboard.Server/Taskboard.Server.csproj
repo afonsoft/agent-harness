@@ -6,11 +6,12 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
     <Content Include="../../.claude/skills/manage-taskboard/**/*" CopyToOutputDirectory="PreserveNewest" Link="skills/manage-taskboard/%(RecursiveDir)%(Filename)%(Extension)" />
     <ProjectReference Include="../Taskboard.Application/Taskboard.Application.csproj" />
     <ProjectReference Include="../Taskboard.EntityFrameworkCore/Taskboard.EntityFrameworkCore.csproj" />
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />
     <ProjectReference Include="../Taskboard.Integrations/Taskboard.Integrations.csproj" />
-    <ProjectReference Include="../Taskboard.Blazor/Taskboard.Blazor.csproj" />
+    <ProjectReference Include="../Taskboard.Client/Taskboard.Client.csproj" />
   </ItemGroup>
 </Project>

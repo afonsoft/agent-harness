@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260915-repo-search-combobox` |
 | Ticket | N/A |
-| Status | `Approved` |
+| Status | `Implemented` |
 
 ## 1. User Story
 
@@ -133,11 +133,11 @@ No new endpoints. Reuses:
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** read context files (section 3); confirm `RepositoryDto` fields and `TaskboardClient` signatures.
-- [ ] **T2 — Component:** implement `RepositoryCombobox` (input, dropdown, filter, keyboard, ARIA, states).
-- [ ] **T3 — Board:** swap datalist for the component; verify identical warnings/behavior.
-- [ ] **T4 — Settings:** add the skills-repo field wired to the configuration endpoints (depends on the `Taskboard:Skills:Repository` catalog key from SPEC-20260915-skills-repo-sync — if not yet merged, implement the catalog key in this branch or guard the UI).
-- [ ] **T5 — Tests:** filter/validation helper unit tests; bUnit tests for the component if the project already uses bUnit — otherwise keep logic in a testable static/pure helper.
+- [x] **T1 — Discovery:** read context files (section 3); confirm `RepositoryDto` fields and `TaskboardClient` signatures.
+- [x] **T2 — Component:** implement `RepositoryCombobox` (input, dropdown, filter, keyboard, ARIA, states).
+- [x] **T3 — Board:** swap datalist for the component; verify identical warnings/behavior.
+- [x] **T4 — Settings:** add the skills-repo field wired to the configuration endpoints (depends on the `Taskboard:Skills:Repository` catalog key from SPEC-20260915-skills-repo-sync — if not yet merged, implement the catalog key in this branch or guard the UI).
+- [x] **T5 — Tests:** filter/validation helper unit tests; bUnit tests for the component if the project already uses bUnit — otherwise keep logic in a testable static/pure helper.
 - [ ] **T6 — Validation:** `dotnet build -c Release`, `dotnet test`, manual smoke of both pages (keyboard + free text).
 - [ ] **T7 — Done + PR:** set `Status = Done`, open PR on `feature/devin-20260915-repo-search-combobox`.
 

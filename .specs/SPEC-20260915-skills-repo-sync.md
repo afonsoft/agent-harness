@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260915-skills-repo-sync` |
 | Ticket | N/A |
-| Status | `Approved` |
+| Status | `Implemented` |
 
 ## 1. User Story
 
@@ -168,13 +168,13 @@ tests/Taskboard.*Tests/...                                          # NEW tests
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a fresh install with no skills in `~/.claude/skills` and Claude enabled **when** the server starts **then** within the sync timeout all `skills/*` from the repo exist under `~/.claude/skills` and the manifest is written.
-- [ ] **Given** skills already installed and the repo unchanged **when** sync runs again **then** every skill reports `skipped` and no file is rewritten.
-- [ ] **Given** a skill updated upstream **when** sync runs **then** only that skill is re-copied and reported `updated`.
-- [ ] **Given** a custom skill dir in `~/.claude/skills/mine` absent from the repo **when** sync runs **then** `mine/` is untouched.
-- [ ] **Given** Codex toggled OFF→ON in Settings **when** `PUT /api/settings` returns **then** a background sync installs skills into `~/.codex/skills` even with no `codex` binary on PATH.
-- [ ] **Given** no network/git **when** the app starts **then** boot succeeds, status shows `Failed`, and `/skills` still lists previously installed skills.
-- [ ] **Given** `Taskboard:Skills:Repository` overridden to `other/skills-repo` **when** sync runs **then** the cache re-clones from the new origin.
+- [x] **Given** a fresh install with no skills in `~/.claude/skills` and Claude enabled **when** the server starts **then** within the sync timeout all `skills/*` from the repo exist under `~/.claude/skills` and the manifest is written.
+- [x] **Given** skills already installed and the repo unchanged **when** sync runs again **then** every skill reports `skipped` and no file is rewritten.
+- [x] **Given** a skill updated upstream **when** sync runs **then** only that skill is re-copied and reported `updated`.
+- [x] **Given** a custom skill dir in `~/.claude/skills/mine` absent from the repo **when** sync runs **then** `mine/` is untouched.
+- [x] **Given** Codex toggled OFF→ON in Settings **when** `PUT /api/settings` returns **then** a background sync installs skills into `~/.codex/skills` even with no `codex` binary on PATH.
+- [x] **Given** no network/git **when** the app starts **then** boot succeeds, status shows `Failed`, and `/skills` still lists previously installed skills.
+- [x] **Given** `Taskboard:Skills:Repository` overridden to `other/skills-repo` **when** sync runs **then** the cache re-clones from the new origin.
 
 **Edge cases:**
 
@@ -189,13 +189,13 @@ tests/Taskboard.*Tests/...                                          # NEW tests
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** read context files (section 3); confirm `FrontmatterReader`, `IOverrideConfigurationProvider`, `TaskboardEnvironment.GetDataDir` signatures.
-- [ ] **T2 — Domain/Contracts:** `AgentSkillDirectoryMap`, `ISkillsSyncService`, `SkillsSyncStatus`, `SkillsSyncResult`, catalog key in `RuntimeConfigurationService`.
-- [ ] **T3 — Integrations:** `GitRunner` (clone/fetch/reset, token extraheader, sanitized errors), `SkillsSyncService` (enumerate, hash, copy, manifest).
-- [ ] **T4 — Server:** `SkillsSyncHostedService`, endpoints, DI registration.
-- [ ] **T5 — Application:** `SettingsService` trigger for newly enabled agents.
-- [ ] **T6 — Tests:** unit (hash diff, dir map, URL normalization, manifest reconcile) + integration (temp-dir sync with a local git repo as source, enable-trigger, endpoint auth).
-- [ ] **T7 — Validation:** `dotnet build -c Release` (warnings as errors) + `dotnet test`; manual smoke: enable a CLI in Settings and verify files land in its skills dir.
+- [x] **T1 — Discovery:** read context files (section 3); confirm `FrontmatterReader`, `IOverrideConfigurationProvider`, `TaskboardEnvironment.GetDataDir` signatures.
+- [x] **T2 — Domain/Contracts:** `AgentSkillDirectoryMap`, `ISkillsSyncService`, `SkillsSyncStatus`, `SkillsSyncResult`, catalog key in `RuntimeConfigurationService`.
+- [x] **T3 — Integrations:** `GitRunner` (clone/fetch/reset, token extraheader, sanitized errors), `SkillsSyncService` (enumerate, hash, copy, manifest).
+- [x] **T4 — Server:** `SkillsSyncHostedService`, endpoints, DI registration.
+- [x] **T5 — Application:** `SettingsService` trigger for newly enabled agents.
+- [x] **T6 — Tests:** unit (hash diff, dir map, URL normalization, manifest reconcile) + integration (temp-dir sync with a local git repo as source, enable-trigger, endpoint auth).
+- [x] **T7 — Validation:** `dotnet build -c Release` (warnings as errors) + `dotnet test`; manual smoke: enable a CLI in Settings and verify files land in its skills dir.
 - [ ] **T8 — Done + PR:** set `Status = Done`, open PR on `feature/devin-20260915-skills-repo-sync`.
 
 ## 8. Organization Guardrails

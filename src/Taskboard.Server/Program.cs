@@ -21,8 +21,6 @@ using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Events;
 using Taskboard.Dtos;
-using Taskboard.Blazor;
-using Taskboard.Blazor.Services;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
 using Taskboard.EntityFrameworkCore.Data;
@@ -43,6 +41,7 @@ using Taskboard.Server.HealthChecks;
 using Taskboard.Server.Hubs;
 using Taskboard.Repositories;
 using Taskboard.Requests;
+using Taskboard.Server.Api;
 using Taskboard.Server.Mapping;
 using Taskboard.Server.Middleware;
 using Taskboard.Server.Serialization;
@@ -101,19 +100,8 @@ builder.Services.AddScoped<AiChatService>();
 
 builder.Services.AddHttpClient<JiraService>();
 
-builder.Services.AddHttpClient<TaskboardClient>(client =>
-{
-    var baseAddress = serverUrls.Split(';', StringSplitOptions.RemoveEmptyEntries)
-        .Select(s => s.Trim())
-        .FirstOrDefault() ?? "http://127.0.0.1:47823";
-    client.BaseAddress = NormalizeLoopbackBaseAddress(baseAddress);
-});
-
-builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
-builder.Services.AddScoped<CircuitAuthContext>();
-builder.Services.AddBlazorBootstrap();
 builder.Services.AddSignalR();
+builder.Services.AddAntiforgery();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -143,6 +131,43 @@ builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddSingleton<IAgentOrchestrationService, AgentOrchestrationService>();
 builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequiredService<IAgentOrchestrationService>());
 
+builder.Services.AddSingleton<ISkillsSyncService>(sp => new SkillsSyncService(
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<ILogger<SkillsSyncService>>(),
+    Path.Join(dataDir, "skills-cache"),
+    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+    async ct =>
+    {
+        await using var scope = sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+        var preferences = await scope.ServiceProvider
+            .GetRequiredService<IRepository<AgentPreference>>()
+            .ListAsync(ct);
+        return preferences.Count == 0
+            ? (IReadOnlyCollection<AgentType>)Enum.GetValues<AgentType>()
+            : preferences.Where(p => p.Enabled).Select(p => p.AgentType).ToList();
+    },
+    async ct =>
+    {
+        var envToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        if (!string.IsNullOrWhiteSpace(envToken))
+        {
+            return envToken.Trim();
+        }
+
+        await using var scope = sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+        var users = await scope.ServiceProvider
+            .GetRequiredService<IRepository<UserPreference>>()
+            .ListAsync(ct);
+        return users.FirstOrDefault()?.GitHubToken;
+    }));
+
+// Opt-out switch for environments where a background git clone must not run
+// (tests, air-gapped hosts). Default: enabled.
+if (builder.Configuration.GetValue("Taskboard:Skills:SyncOnStartup", true))
+{
+    builder.Services.AddHostedService<SkillsSyncHostedService>();
+}
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -153,7 +178,8 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.Events.OnRedirectToLogin = context =>
         {
-            if (context.Request.Path.StartsWithSegments("/api"))
+            if (context.Request.Path.StartsWithSegments("/api")
+                || context.Request.Path.StartsWithSegments("/agent-log-hub"))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return System.Threading.Tasks.Task.CompletedTask;
@@ -164,7 +190,8 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         };
         options.Events.OnRedirectToAccessDenied = context =>
         {
-            if (context.Request.Path.StartsWithSegments("/api"))
+            if (context.Request.Path.StartsWithSegments("/api")
+                || context.Request.Path.StartsWithSegments("/agent-log-hub"))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 return System.Threading.Tasks.Task.CompletedTask;
@@ -1037,42 +1064,14 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.UseOutputCache();
 
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path.Value ?? string.Empty;
-
-    if (context.User.Identity?.IsAuthenticated == true)
-    {
-        await next();
-        return;
-    }
-
-    if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/_content/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/lib/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/img/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/health", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/login", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
-    {
-        await next();
-        return;
-    }
-
-    context.Response.Redirect("/login");
-});
-
 app.UseAntiforgery();
 
+// SPEC-20260915-blazor-wasm-migration: index.html + _framework assets are
+// served anonymously; every API endpoint keeps RequireAuthorization and the
+// WASM client routes itself to /login.
 app.MapStaticAssets();
-app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
-app.MapHub<AgentLogHub>("/agent-log-hub");
+app.MapFrameworkAssetsApi();
+app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
 
 api.MapGet("settings", async (SettingsService settings, CancellationToken ct) =>
 {
@@ -1164,6 +1163,119 @@ api.MapGet("skills/{source}/{name}/files/{**path}", async (string source, string
     };
 });
 
+api.MapGet("auth/me", (HttpContext context) =>
+    context.User.Identity?.IsAuthenticated == true
+        ? Results.Ok(new { authenticated = true, username = context.User.Identity.Name })
+        : Results.Unauthorized());
+
+var github = api.MapGroup("github").RequireAuthorization();
+
+github.MapGet("repositories", async (IGitHubService gitHub, CancellationToken ct) =>
+{
+    try
+    {
+        var repositories = await gitHub.GetRepositoriesAsync(ct);
+        return Results.Ok(new { repositories });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = new { code = "GITHUB_TOKEN_MISSING", message = ex.Message } });
+    }
+});
+
+github.MapGet("repos/{owner}/{repo}/issues", async (string owner, string repo, IGitHubService gitHub, CancellationToken ct) =>
+{
+    try
+    {
+        var issues = await gitHub.GetIssuesAsync($"{owner}/{repo}", ct);
+        return Results.Ok(new { issues });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = new { code = "GITHUB_TOKEN_MISSING", message = ex.Message } });
+    }
+});
+
+github.MapPost("repos/{owner}/{repo}/issues", async (
+    string owner,
+    string repo,
+    CreateGitHubIssueRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    var issue = await gitHub.CreateIssueAsync(
+        $"{owner}/{repo}", request.Title, request.Body, request.InitialColumn, ct);
+    return Results.Ok(new { issue });
+});
+
+github.MapPut("repos/{owner}/{repo}/issues/{number:int}/column", async (
+    string owner,
+    string repo,
+    int number,
+    UpdateGitHubIssueColumnRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    var issue = await gitHub.UpdateIssueColumnAsync(
+        $"{owner}/{repo}", number, request.OldColumn, request.NewColumn, ct);
+    return Results.Ok(new { issue });
+});
+
+github.MapPost("repos/{owner}/{repo}/issues/{number:int}/labels", async (
+    string owner,
+    string repo,
+    int number,
+    AddGitHubLabelsRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    await gitHub.AddLabelsToIssueAsync($"{owner}/{repo}", number, request.Labels, ct);
+    return Results.NoContent();
+});
+
+var agents = api.MapGroup("agents").RequireAuthorization();
+
+agents.MapGet("", async (IAgentOrchestrationService orchestration, CancellationToken ct) =>
+{
+    var available = await orchestration.GetAvailableAgentsAsync(ct);
+    return Results.Ok(new { agents = available });
+});
+
+agents.MapPost("executions", async (
+    AgentExecutionRequest request,
+    IAgentOrchestrationService orchestration,
+    CancellationToken ct) =>
+{
+    await orchestration.EnqueueAsync(request, ct);
+    return Results.Accepted();
+});
+
+agents.MapGet("logs/{issueId}", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>
+{
+    var logs = await orchestration.GetLogsAsync(issueId, ct);
+    return Results.Ok(new { logs });
+});
+
+agents.MapPost("executions/{issueId}/cancel", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>
+{
+    await orchestration.CancelAsync(issueId, ct);
+    return Results.NoContent();
+});
+
+api.MapGet("skills/sync/status", (ISkillsSyncService sync) =>
+    Results.Ok(sync.GetStatus()))
+    .RequireAuthorization();
+
+api.MapPost("skills/sync", async (
+    ISkillsSyncService sync,
+    IServiceScopeFactory scopeFactory,
+    CancellationToken ct) =>
+{
+    var agents = await EnabledAgentResolver.ResolveAsync(scopeFactory, ct);
+    sync.RequestSync(agents);
+    return Results.Json(sync.GetStatus(), statusCode: StatusCodes.Status202Accepted);
+}).RequireAuthorization();
+
 app.MapSwagger();
 app.UseSwaggerUI(options =>
 {
@@ -1175,18 +1287,6 @@ app.UseSwaggerUI(options =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
-
-// ASPNETCORE_URLS may use wildcard/unspecified bind hosts (+, *, 0.0.0.0,
-// [::]) which are not valid HTTP request targets. Rewrite them to loopback
-// so the self-referencing API client can connect.
-static Uri NormalizeLoopbackBaseAddress(string url)
-{
-    var sanitized = System.Text.RegularExpressions.Regex.Replace(
-        url,
-        @"://(\+|\*|0\.0\.0\.0|\[::0?\])(?=:|/|$)",
-        "://127.0.0.1");
-    return new Uri(sanitized, UriKind.Absolute);
-}
 
 static ServerSentEvent MapDomainEvent(IDomainEvent domainEvent)
 {

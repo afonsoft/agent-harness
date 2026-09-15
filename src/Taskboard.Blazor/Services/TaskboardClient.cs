@@ -18,13 +18,9 @@ public sealed class TaskboardClient
     /// <summary>
     /// Cria uma nova instância de <see cref="TaskboardClient"/>.
     /// </summary>
-    public TaskboardClient(HttpClient httpClient, CircuitAuthContext authContext)
+    public TaskboardClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
-        if (!string.IsNullOrEmpty(authContext.Cookie))
-        {
-            _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", authContext.Cookie);
-        }
     }
 
     /// <summary>

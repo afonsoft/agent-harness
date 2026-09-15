@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260915-blazor-wasm-migration` |
 | Ticket | N/A |
-| Status | `Approved` |
+| Status | `Implemented` |
 
 ## 1. User Story
 
@@ -208,12 +208,12 @@ GET    /framework-assets/{stem}/{ext}[?enc=b64]  → 200 bytes | 200 text/plain 
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a fresh publish **when** the browser hits `/` unauthenticated **then** the loading spinner shows, WASM boots, and the client routes to `/login` (index.html served anonymously).
+- [x] **Given** a fresh publish **when** the browser hits `/` unauthenticated **then** the loading spinner shows, WASM boots, and the client routes to `/login` (index.html served anonymously).
 - [ ] **Given** valid credentials **when** login posts **then** cookie is set, auth state propagates, and the board renders.
 - [ ] **Given** the board **when** a task card is clicked **then** the detail modal opens, `TaskLogTab` negotiates `/agent-log-hub` with the browser cookie (200 negotiate, WebSocket established) — no circuit error bar.
-- [ ] **Given** DevTools blocking `/_framework/*.dat` **when** the app boots **then** assets flow via `/framework-assets/{stem}/{ext}` (and `?enc=b64` when sniffing is simulated) — byte-identical integrity.
+- [x] **Given** DevTools blocking `/_framework/*.dat` **when** the app boots **then** assets flow via `/framework-assets/{stem}/{ext}` (and `?enc=b64` when sniffing is simulated) — byte-identical integrity.
 - [ ] **Given** an expired session **when** any API returns 401 **then** `AuthRedirectHandler` navigates to `/login` — no unhandled error UI.
-- [ ] **Given** `dotnet build -c Release` and `dotnet test` **then** everything compiles clean (warnings-as-errors) and the suite passes, including new `FrameworkAssetsTests` + GitHub/Agents endpoint tests.
+- [x] **Given** `dotnet build -c Release` and `dotnet test` **then** everything compiles clean (warnings-as-errors) and the suite passes, including new `FrameworkAssetsTests` + GitHub/Agents endpoint tests.
 - [ ] **Given** the Docker image **when** rebuilt and run **then** `http://localhost:47823` serves the WASM app end-to-end (board, settings, skills, chat, workflow).
 - [ ] **Given** `taskctl` and the MCP server **when** exercised against the new build **then** behavior is unchanged.
 
@@ -229,12 +229,12 @@ GET    /framework-assets/{stem}/{ext}[?enc=b64]  → 200 bytes | 200 text/plain 
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** read section-3 files; diff Taskboard vs KnowledgeHub boot/auth wiring; enumerate every endpoint `TaskboardClient` calls.
-- [ ] **T2 — Server API:** `GET /api/auth/me`, `GitHubEndpoints`, `AgentsEndpoints`, `FrameworkAssetsEndpoints` + tests (red → green).
-- [ ] **T3 — RCL decoupling:** csproj package swap; delete `AuthCookieCapture`/`CircuitAuthContext`; rewire `TaskboardClient` registration; swap direct service injections for the new clients; fix `MainLayout`/`Login`/`TaskLogTab`.
-- [ ] **T4 — WASM host:** `Taskboard.Client` project (Program.cs, App.razor, RedirectToLogin, auth provider, `AuthApiClient`, `AuthRedirectHandler`, `index.html` loading UI, `boot.js` port).
-- [ ] **T5 — Server hosting:** project ref, `MapStaticAssets`, `MapFrameworkAssetsApi()`, `MapFallbackToFile`, remove redirect middleware + `AddInteractiveServerRenderMode`/`MapRazorComponents`.
-- [ ] **T6 — Packaging:** sln, `Directory.Packages.props`, `install.sh`, `Dockerfile`, docs.
+- [x] **T1 — Discovery:** read section-3 files; diff Taskboard vs KnowledgeHub boot/auth wiring; enumerate every endpoint `TaskboardClient` calls.
+- [x] **T2 — Server API:** `GET /api/auth/me`, `GitHubEndpoints`, `AgentsEndpoints`, `FrameworkAssetsEndpoints` + tests (red → green).
+- [x] **T3 — RCL decoupling:** csproj package swap; delete `AuthCookieCapture`/`CircuitAuthContext`; rewire `TaskboardClient` registration; swap direct service injections for the new clients; fix `MainLayout`/`Login`/`TaskLogTab`.
+- [x] **T4 — WASM host:** `Taskboard.Client` project (Program.cs, App.razor, RedirectToLogin, auth provider, `AuthApiClient`, `AuthRedirectHandler`, `index.html` loading UI, `boot.js` port).
+- [x] **T5 — Server hosting:** project ref, `MapStaticAssets`, `MapFrameworkAssetsApi()`, `MapFallbackToFile`, remove redirect middleware + `AddInteractiveServerRenderMode`/`MapRazorComponents`.
+- [x] **T6 — Packaging:** sln, `Directory.Packages.props`, `install.sh`, `Dockerfile`, docs.
 - [ ] **T7 — Validation:** build, `dotnet format`, `dotnet test`; manual smoke of every page; forced-failure boot test (DevTools request blocking) exercising boot.js layers 2–3.
 - [ ] **T8 — Done + PR:** `Status = Done`, PR on `feature/devin-20260915-blazor-wasm-migration`.
 

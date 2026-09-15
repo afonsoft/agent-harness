@@ -1,0 +1,40 @@
+.repo-combobox {
+    position: relative;
+    min-width: 16rem;
+}
+
+.repo-combobox-list {
+    position: absolute;
+    inset-inline: 0;
+    top: calc(100% + 2px);
+    z-index: 1050;
+    margin: 0;
+    padding: 0.25rem 0;
+    list-style: none;
+    max-height: 16rem;
+    overflow-y: auto;
+    background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.repo-combobox-option {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.repo-combobox-option.active {
+    background-color: var(--bs-primary);
+    color: var(--bs-white);
+}
+
+.repo-combobox-status {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}

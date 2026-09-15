@@ -1,5 +1,4 @@
 @inherits LayoutComponentBase
-@inject IHttpContextAccessor HttpContextAccessor
 
 <Toasts class="p-3" AutoHide="true" Delay="4000" Placement="ToastsPlacement.TopRight" />
 
@@ -26,12 +25,11 @@
                 <Icon Name="IconName.Gear" />
             </a>
             <a href="https://github.com/afonsoft/taskboard-ai" target="_blank" class="btn btn-link text-decoration-none">About</a>
-            @if (HttpContextAccessor.HttpContext?.User.Identity?.IsAuthenticated == true)
-            {
+            <AuthorizeView>
                 <form method="post" action="/api/logout" class="m-0" aria-label="Logout">
                     <button type="submit" class="btn btn-outline-secondary">Log out</button>
                 </form>
-            }
+            </AuthorizeView>
         </header>
         <main class="app-main">
             <ErrorBoundary>
