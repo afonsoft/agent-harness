@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Mvc;
@@ -200,9 +201,21 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             context.Response.Redirect(context.RedirectUri);
             return System.Threading.Tasks.Task.CompletedTask;
         };
-    });
+    })
+    .AddScheme<AuthenticationSchemeOptions, Taskboard.Server.Auth.ApiKeyAuthenticationHandler>(
+        Taskboard.Server.Auth.ApiKeyAuthenticationHandler.SchemeName, null);
 
-builder.Services.AddAuthorization();
+// SPEC-20260915-api-authorization-hardening: the default policy accepts either
+// the cookie session or the X-Api-Key scheme, so every RequireAuthorization()
+// covers browsers and machine clients (taskctl, MCP) alike.
+builder.Services.AddAuthorization(options =>
+{
+    options.DefaultPolicy = new AuthorizationPolicyBuilder(
+        CookieAuthenticationDefaults.AuthenticationScheme,
+        Taskboard.Server.Auth.ApiKeyAuthenticationHandler.SchemeName)
+        .RequireAuthenticatedUser()
+        .Build();
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddResponseCompression(options =>
 {
@@ -296,7 +309,10 @@ await using (var scope = app.Services.CreateAsyncScope())
     }
 }
 
-var api = app.MapGroup("/api");
+// SPEC-20260915-api-authorization-hardening RF-001/RF-002: the whole API
+// requires an authenticated principal (cookie or X-Api-Key); only the
+// endpoints below carry AllowAnonymous.
+var api = app.MapGroup("/api").RequireAuthorization();
 
 static bool IsLocalUrl(string? url)
 {
@@ -341,7 +357,8 @@ api.MapPost("login", async (HttpContext context, AdminUser admin) =>
 
     context.Response.Redirect(returnUrl);
 }).DisableAntiforgery()
-.RequireRateLimiting("login");
+.RequireRateLimiting("login")
+.AllowAnonymous();
 
 api.MapPost("logout", async (HttpContext context) =>
 {
@@ -376,7 +393,8 @@ app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthC
 });
 
 api.MapGet("meta", () => Results.Ok(new { name = "taskboard", version = "1.0.0", realtime = new { transport = "poll", intervalMs = 2000 } }))
-   .CacheOutput("ReadOnlyApi");
+   .CacheOutput("ReadOnlyApi")
+   .AllowAnonymous();
 
 api.MapGet("client-storage", () => Results.Ok(new { data = (string?)null }));
 api.MapPut("client-storage", (object? _) => Results.NoContent());
@@ -1056,7 +1074,7 @@ app.MapGet("/api/events", async (HttpResponse response, IEventStreamService even
         await response.WriteAsync($"data: {JsonSerializer.Serialize(ev.Payload, ApiJsonOptions.Default)}\n\n", ct);
         await response.Body.FlushAsync(ct);
     }
-});
+}).RequireAuthorization();
 
 app.UseStaticFiles();
 app.UseAuthentication();
@@ -1166,7 +1184,7 @@ api.MapGet("skills/{source}/{name}/files/{**path}", async (string source, string
 api.MapGet("auth/me", (HttpContext context) =>
     context.User.Identity?.IsAuthenticated == true
         ? Results.Ok(new { authenticated = true, username = context.User.Identity.Name })
-        : Results.Unauthorized());
+        : Results.Unauthorized()).AllowAnonymous();
 
 var github = api.MapGroup("github").RequireAuthorization();
 

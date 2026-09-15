@@ -1,7 +1,7 @@
 # Gap Analysis — 20260915
 
 - Repository: /home/ubuntu/repos/taskboard-ai | Branch: main | Commit: fef0a20
-- Phase reached: verdicts (awaiting user scoping before write-specs)
+- Phase reached: issues (specs Approved + merged via PR #84; execution handoff pending user)
 - Mode: analyze
 
 ## 1. Source inventory
@@ -33,10 +33,10 @@
 
 | Key | Category | Verdict | Priority | Spec | Issue | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| GAP-security-api-anonymous-surface | security | CONFIRMADO | high | — | — | anon curls: GET /api/tasks 200, POST /api/projects 201, GET /api/local/jira-connection 200, GET /api/settings 200 (returns gitHubToken when configured — WhenWritingNull only hides null). Program.cs api group + projects/tasks/attachments/local groups lack RequireAuthorization |
-| GAP-operation-nonpublish-hosting | operation | CONFIRMADO | high | — | — | `dotnet exec bin/Release/.../Taskboard.Server.dll` in Production: `/` 404, framework-assets 404 (reproduced). install.sh:283 execs build output directly |
-| GAP-documentation-blazor-server-stale | documentation | CONFIRMADO | medium | — | — | CLAUDE.md:18, AGENTS.md:18, README.md:14/29/52, docs/installation(.pt-br).md:9, docs/technologies*.md:14; also missing Taskboard.Client in structure docs + SPEC statuses Implemented→Done |
-| GAP-tests-repository-combobox | tests | CONFIRMADO | medium | — | — | no test file references RepositoryCombobox; no bUnit in test csproj; filter/keyboard logic inline in Components/Shared/RepositoryCombobox.razor |
+| GAP-security-api-anonymous-surface | security | CONFIRMADO | high | .specs/SPEC-20260915-api-authorization-hardening.md | #82 | anon curls: GET /api/tasks 200, POST /api/projects 201, GET /api/local/jira-connection 200, GET /api/settings 200 (returns gitHubToken when configured — WhenWritingNull only hides null). Program.cs api group + projects/tasks/attachments/local groups lack RequireAuthorization |
+| GAP-operation-nonpublish-hosting | operation | CONFIRMADO | high | .specs/SPEC-20260915-wasm-post-migration-hardening.md | #83 | `dotnet exec bin/Release/.../Taskboard.Server.dll` in Production: `/` 404, framework-assets 404 (reproduced). install.sh:283 execs build output directly |
+| GAP-documentation-blazor-server-stale | documentation | CONFIRMADO | medium | .specs/SPEC-20260915-wasm-post-migration-hardening.md | #83 | CLAUDE.md:18, AGENTS.md:18, README.md:14/29/52, docs/installation(.pt-br).md:9, docs/technologies*.md:14; also missing Taskboard.Client in structure docs + SPEC statuses Implemented→Done |
+| GAP-tests-repository-combobox | tests | CONFIRMADO | medium | .specs/SPEC-20260915-wasm-post-migration-hardening.md | #83 | no test file references RepositoryCombobox; no bUnit in test csproj; filter/keyboard logic inline in Components/Shared/RepositoryCombobox.razor |
 | GAP-requirements-skills-lock-not-honored | requirements | INCONCLUSIVO | — | — | — | skills-lock.json not read by any code (grep src/ install.sh); sync installs upstream HEAD. Intended or oversight? user decision |
 | GAP-operation-skills-sync-container-home | operation | INCONCLUSIVO | — | — | — | sync writes to container /root/.claude/skills etc., not host CLIs; matches SPEC literally but may not match deployment intent |
 | redundant-UseStaticFiles | implementation | REJEITADO | — | — | — | app.UseStaticFiles() (Program.cs:1061) harmless alongside MapStaticAssets; server wwwroot empty |
@@ -47,12 +47,14 @@
 
 ## 4. Approval gate
 
-- Decision: pending — awaiting user scoping (which CONFIRMADO gaps become SPECs)
+- Decision: approved — both SPECs `Approved` by user, merged via PR #84 (commit 9ddcf48)
+- Inconclusive gaps deferred by user: skills-lock honoring, container-home skills target
 
 ## 5. Issues
 
-- Not started (pre-gate)
+- Epic: gap-analysis-20260915 → https://github.com/afonsoft/taskboard-ai/issues/81
+- Slices: S1 api-authorization-hardening → #82; S2 wasm-post-migration-hardening → #83
 
 ## 6. Orchestrator handoff
 
-- Not started
+- Pending user decision — S1 (#82) is the urgent security fix; S2 (#83) can follow

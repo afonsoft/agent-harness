@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260915-api-authorization-hardening` |
 | Ticket | `GAP-security-api-anonymous-surface` (gap-analysis-20260915) |
-| Status | `Approved` |
+| Status | `Implemented` |
 
 ## 1. User Story
 
@@ -123,24 +123,24 @@ docs/installation*.md, README.md                           # TASKBOARD_API_KEY e
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** no credentials **when** `GET /api/tasks`, `GET /api/projects`, `GET /api/settings`, `GET /api/local/jira-connection`, `GET /api/skills`, `GET /api/events` **then** each returns `401` (not `200`, not a redirect).
-- [ ] **Given** no credentials **when** `POST /api/projects`, `POST /api/tasks`, `PUT /api/settings`, `POST /api/local/jira-connection/sync`, `POST /api/local/ai/threads/{id}/runs` **then** each returns `401` — no resource is created.
-- [ ] **Given** a configured `TASKBOARD_API_KEY` **when** a request carries `X-Api-Key: <key>` to `GET /api/tasks` **then** `200`; with a wrong key → `401`.
-- [ ] **Given** valid login **when** the browser holds the session cookie **then** all endpoints behave exactly as today (cookie path unchanged).
-- [ ] **Given** `taskctl` with `TASKBOARD_API_KEY` set **when** it calls the API **then** requests succeed; without the env var against a keyed server → clear 401 error, no crash.
-- [ ] **Given** anonymous browser **when** navigating to `/`, `/ai-chat`, `/projects` **then** routed to `/login`; `/login` itself renders.
-- [ ] **Given** `GET /api/configuration` with a key stored **then** the `ApiKey` entry is masked.
-- [ ] **Given** the MCP server with `TASKBOARD_API_KEY` **when** tools invoke API endpoints **then** `200`s; without → `401`.
-- [ ] `dotnet build` clean; `dotnet test` green including new `ApiAuthorizationTests` and updated `WasmHostingTests`/`ServerEndpointsTests` (existing tests that hit `/api/*` anonymously must use the factory's authenticated client or expect 401).
+- [x] **Given** no credentials **when** `GET /api/tasks`, `GET /api/projects`, `GET /api/settings`, `GET /api/local/jira-connection`, `GET /api/skills`, `GET /api/events` **then** each returns `401` (not `200`, not a redirect).
+- [x] **Given** no credentials **when** `POST /api/projects`, `POST /api/tasks`, `PUT /api/settings`, `POST /api/local/jira-connection/sync`, `POST /api/local/ai/threads/{id}/runs` **then** each returns `401` — no resource is created.
+- [x] **Given** a configured `TASKBOARD_API_KEY` **when** a request carries `X-Api-Key: <key>` to `GET /api/tasks` **then** `200`; with a wrong key → `401`.
+- [x] **Given** valid login **when** the browser holds the session cookie **then** all endpoints behave exactly as today (cookie path unchanged).
+- [x] **Given** `taskctl` with `TASKBOARD_API_KEY` set **when** it calls the API **then** requests succeed; without the env var against a keyed server → clear 401 error, no crash.
+- [x] **Given** anonymous browser **when** navigating to `/`, `/ai-chat`, `/projects` **then** routed to `/login`; `/login` itself renders.
+- [x] **Given** `GET /api/configuration` with a key stored **then** the `ApiKey` entry is masked.
+- [x] **Given** the MCP server with `TASKBOARD_API_KEY` **when** tools invoke API endpoints **then** `200`s; without → `401`.
+- [x] `dotnet build` clean; `dotnet test` green including new `ApiAuthorizationTests` and updated `WasmHostingTests`/`ServerEndpointsTests` (existing tests that hit `/api/*` anonymously must use the factory's authenticated client or expect 401).
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** read section-3 files; port `ApiKeyAuthenticationHandler`/`AuthPolicies` from KnowledgeHub; enumerate the full anonymous-needed set (login, auth/me, meta only).
-- [ ] **T2 — Tests (red):** `ApiAuthorizationTests` — anonymous 401 matrix across representative GET/POST/PUT endpoints; allowlist 200s; API key acceptance/rejection. Watch existing anonymous-API tests fail/adjust.
-- [ ] **T3 — Server auth:** `AuthPolicies`, handler, scheme registration, `/api` group `RequireAuthorization`, allowlist `AllowAnonymous`, catalog key + masking.
-- [ ] **T4 — Clients:** `X-Api-Key` plumbing in `Taskboard.Cli` + `Taskboard.Mcp` (option/env read → header → 401 error message).
-- [ ] **T5 — Pages:** `[Authorize]` on `BoardView`, `AiChat`, `ProjectsBoard`.
-- [ ] **T6 — Docs:** `TASKBOARD_API_KEY` in README + installation docs (en + pt-br).
+- [x] **T1 — Discovery:** read section-3 files; port `ApiKeyAuthenticationHandler`/`AuthPolicies` from KnowledgeHub; enumerate the full anonymous-needed set (login, auth/me, meta only).
+- [x] **T2 — Tests (red):** `ApiAuthorizationTests` — anonymous 401 matrix across representative GET/POST/PUT endpoints; allowlist 200s; API key acceptance/rejection. Watch existing anonymous-API tests fail/adjust.
+- [x] **T3 — Server auth:** `AuthPolicies`, handler, scheme registration, `/api` group `RequireAuthorization`, allowlist `AllowAnonymous`, catalog key + masking.
+- [x] **T4 — Clients:** `X-Api-Key` plumbing in `Taskboard.Cli` + `Taskboard.Mcp` (option/env read → header → 401 error message).
+- [x] **T5 — Pages:** `[Authorize]` on `BoardView`, `AiChat`, `ProjectsBoard`.
+- [x] **T6 — Docs:** `TASKBOARD_API_KEY` in README + installation docs (en + pt-br).
 - [ ] **T7 — Validation:** build, `dotnet test`; container redeploy smoke — anonymous curl matrix returns 401; browser login flow intact.
 - [ ] **T8 — Done + PR:** `Status = Done` after merge.
 
@@ -155,12 +155,12 @@ docs/installation*.md, README.md                           # TASKBOARD_API_KEY e
 
 ## 9. Definition of Done
 
-- [ ] All requirements (section 4) implemented.
-- [ ] All acceptance criteria (section 6) covered by passing tests.
+- [x] All requirements (section 4) implemented.
+- [x] All acceptance criteria (section 6) covered by passing tests.
 - [ ] Anonymous access verified against the deployed container (curl matrix).
 - [ ] `taskctl` + MCP verified against a keyed server.
-- [ ] `dotnet build` clean (TreatWarningsAsErrors), `dotnet test` green.
-- [ ] Docs updated; SPEC status advanced.
+- [x] `dotnet build` clean (TreatWarningsAsErrors), `dotnet test` green.
+- [x] Docs updated; SPEC status advanced.
 
 ## Open Questions / Pending Ambiguity
 

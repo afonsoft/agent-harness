@@ -54,6 +54,9 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Skills:Repository", "afonsoft/skills", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "TASKBOARD_SKILLS_REPO", Validate: ValidateSkillsRepository),
+        new("Taskboard:ApiKey", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_API_KEY", Validate: ValidateApiKey),
     ];
 
     private readonly IConfiguration _configuration;
@@ -209,10 +212,16 @@ public sealed class RuntimeConfigurationService
     private static bool IsSecret(string key) =>
         key.Contains("Password", StringComparison.OrdinalIgnoreCase)
         || key.Contains("Token", StringComparison.OrdinalIgnoreCase)
+        || key.Contains("ApiKey", StringComparison.OrdinalIgnoreCase)
         || key.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase);
 
     private static string? Mask(string? value) =>
         value is null ? null : $"••••{(value.Length > 4 ? value[^4..] : string.Empty)}";
+
+    private static string? ValidateApiKey(string value) =>
+        value.Trim().Length is 0 or >= 16
+            ? null
+            : "API key must be at least 16 characters, or empty to disable.";
 
     private static string? ValidateLogLevel(string value) =>
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)

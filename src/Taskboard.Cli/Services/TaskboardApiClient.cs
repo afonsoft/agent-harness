@@ -16,6 +16,15 @@ public sealed class TaskboardApiClient
     {
         _client = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
         _client.DefaultRequestHeaders.Add("Accept", "application/json");
+
+        // SPEC-20260915-api-authorization-hardening RF-004: machine clients
+        // authenticate via X-Api-Key when the key is configured.
+        var apiKey = Environment.GetEnvironmentVariable("TASKBOARD_API_KEY");
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            _client.DefaultRequestHeaders.Add("X-Api-Key", apiKey.Trim());
+        }
+
         _options = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

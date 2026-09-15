@@ -35,6 +35,7 @@ public class RuntimeConfigurationServiceTests
             "ConnectionStrings:Taskboard",
             "Admin:Username",
             "Taskboard:Skills:Repository",
+            "Taskboard:ApiKey",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }
