@@ -256,3 +256,8 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build`: ✅ 0 warnings, 0 errors
 - `dotnet test`: ✅ 180 unit + 31 integration
+
+### Encerramento (2026-09-15)
+
+- SPEC-20260915-github-board-unified: merged via PR #76 (squash `7e9dc0d`), Issue #75 fechada.
+- Deploy: imagem `taskboard-ai:latest` rebuildada de `main`; container `taskboard` recriado com `--env-file .env` (TOKEN_OK, API respondendo).
