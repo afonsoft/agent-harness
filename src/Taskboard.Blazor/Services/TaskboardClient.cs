@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Text.Json;
+using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Dtos;
@@ -171,6 +173,62 @@ public sealed class TaskboardClient
         return result?.Content;
     }
 
+    /// <summary>
+    /// Retorna o catálogo de configuração com valor efetivo e fonte de cada chave.
+    /// </summary>
+    public async Task<IReadOnlyList<ConfigurationEntryDto>> GetConfigurationEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<ConfigurationEntriesResponse>("/api/configuration", cancellationToken);
+        return response?.Entries ?? [];
+    }
+
+    /// <summary>
+    /// Persiste um override de configuração. Retorna a mensagem de erro da API ou <c>null</c> em sucesso.
+    /// </summary>
+    public async Task<string?> SetConfigurationValueAsync(string key, string value, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            $"/api/configuration/{Uri.EscapeDataString(key)}",
+            new SetConfigurationRequest(value),
+            cancellationToken);
+        return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    /// <summary>
+    /// Remove o override de configuração. Retorna a mensagem de erro da API ou <c>null</c> em sucesso.
+    /// </summary>
+    public async Task<string?> DeleteConfigurationValueAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"/api/configuration/{Uri.EscapeDataString(key)}",
+            cancellationToken);
+        return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var message = document.RootElement
+                .GetProperty("error")
+                .GetProperty("message")
+                .GetString();
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                return message;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        catch (KeyNotFoundException)
+        {
+        }
+
+        return $"Request failed with status {(int)response.StatusCode}.";
+    }
+
     private sealed record ProjectListResponse(List<ProjectDto> Projects);
     private sealed record CommentListResponse(List<CommentDto> Comments);
     private sealed record CommentResponse(CommentDto Comment);
@@ -181,5 +239,6 @@ public sealed class TaskboardClient
     private sealed record SettingsResponse(SettingsDto Settings);
     private sealed record SkillsResponse(List<SkillDto> Skills);
     private sealed record SkillDetailResponse(SkillDetailDto Skill);
+    private sealed record ConfigurationEntriesResponse(List<ConfigurationEntryDto> Entries);
     private sealed record SkillFileContentResponse(string Path, string Content);
 }

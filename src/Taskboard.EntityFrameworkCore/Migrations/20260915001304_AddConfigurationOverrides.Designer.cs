@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Taskboard.EntityFrameworkCore.Data;
 
@@ -10,9 +11,11 @@ using Taskboard.EntityFrameworkCore.Data;
 namespace Taskboard.EntityFrameworkCore.Migrations
 {
     [DbContext(typeof(TaskboardDbContext))]
-    partial class TaskboardDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260915001304_AddConfigurationOverrides")]
+    partial class AddConfigurationOverrides
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
