@@ -141,7 +141,22 @@ public class SkillsSyncServiceTests : IDisposable
         File.Exists(Path.Join(home, ".config", "devin", "skills", "alpha-skill", "SKILL.md")).ShouldBeTrue();
     }
 
-    private SkillsSyncService CreateService(string repository, string home)
+    [Fact]
+    public async Task Dado_TokenConfigurado_Quando_SyncEmRepoLocal_Entao_SucessoSemAuthNaUrl()
+    {
+        // Covers RF-010: the token flows through -c http.extraheader scoped to
+        // github.com, so a local/path repo still clones anonymously.
+        var repo = await CreateSourceRepositoryAsync();
+        var home = Path.Join(_root, "home");
+        var service = CreateService(repo, home, accessToken: "ghp_test_token");
+
+        var status = await service.SyncAsync([AgentType.Claude]);
+
+        status.State.ShouldBe(SkillsSyncState.Succeeded);
+        File.Exists(Path.Join(home, ".claude", "skills", "alpha-skill", "SKILL.md")).ShouldBeTrue();
+    }
+
+    private SkillsSyncService CreateService(string repository, string home, string? accessToken = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(
@@ -156,7 +171,8 @@ public class SkillsSyncServiceTests : IDisposable
             NullLogger<SkillsSyncService>.Instance,
             Path.Join(_root, "cache"),
             home,
-            _ => Task.FromResult<IReadOnlyCollection<AgentType>>([AgentType.Claude]));
+            _ => Task.FromResult<IReadOnlyCollection<AgentType>>([AgentType.Claude]),
+            accessToken is null ? null : _ => Task.FromResult<string?>(accessToken));
     }
 
     private async Task<string> CreateSourceRepositoryAsync()

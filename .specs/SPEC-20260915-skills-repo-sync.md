@@ -137,7 +137,7 @@ tests/Taskboard.*Tests/...                                          # NEW tests
 
 ### RF-010: Git availability and private repos
 
-- **Description:** If `git` is not on the PATH, sync short-circuits to `Failed`/`Skipped` with reason `GitUnavailable`. When `GITHUB_TOKEN` (or the token stored via Settings) exists and the repo URL is `https://github.com`, authentication uses `git -c http.https://github.com/.extraheader="AUTHORIZATION: bearer <token>"` passed via process arguments — the token never appears in logs, status messages, or the manifest.
+- **Description:** If `git` is not on the PATH, sync short-circuits to `Failed`/`Skipped` with reason `GitUnavailable`. When `GITHUB_TOKEN` (or the token stored via Settings) exists and the repo URL is `https://github.com`, authentication uses `git -c http.https://github.com/.extraheader="AUTHORIZATION: basic <base64(x-access-token:token)>"` passed via process arguments (GitHub git-over-HTTP rejects the Bearer scheme) — the token never appears in logs, status messages, or the manifest.
 
 **Business rules / invariants:**
 

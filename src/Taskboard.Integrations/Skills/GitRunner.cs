@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Taskboard.Integrations.Agents;
 
 namespace Taskboard.Integrations.Skills;
@@ -34,9 +35,13 @@ internal static class GitRunner
 
         if (!string.IsNullOrEmpty(authToken))
         {
+            // GitHub's git-over-HTTP endpoint rejects the Bearer scheme; it
+            // expects Basic credentials — same shape actions/checkout uses.
+            var basic = Convert.ToBase64String(
+                Encoding.ASCII.GetBytes($"x-access-token:{authToken}"));
             startInfo.ArgumentList.Add("-c");
             startInfo.ArgumentList.Add(
-                $"http.https://github.com/.extraheader=AUTHORIZATION: bearer {authToken}");
+                $"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}");
         }
 
         foreach (var arg in args)
