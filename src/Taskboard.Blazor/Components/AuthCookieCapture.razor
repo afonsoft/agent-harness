@@ -1,0 +1,33 @@
+@inject PersistentComponentState ApplicationState
+@inject CircuitAuthContext AuthContext
+@implements IDisposable
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private PersistingComponentStateSubscription _subscription;
+
+    protected override void OnInitialized()
+    {
+        // Interactive circuit: restore the cookie persisted during prerender.
+        if (ApplicationState.TryTakeFromJson<string>("taskboard.authCookie", out var cookie))
+        {
+            AuthContext.Cookie = cookie;
+            return;
+        }
+
+        // Prerender: persist the request cookie so the interactive circuit can reuse it.
+        var requestCookie = HttpContext?.Request.Headers.Cookie.ToString();
+        if (!string.IsNullOrEmpty(requestCookie))
+        {
+            _subscription = ApplicationState.RegisterOnPersisting(() =>
+            {
+                ApplicationState.PersistAsJson("taskboard.authCookie", requestCookie);
+                return Task.CompletedTask;
+            });
+        }
+    }
+
+    public void Dispose() => _subscription.Dispose();
+}

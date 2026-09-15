@@ -82,7 +82,7 @@ else
 
     @if (_selectedRepo is not null)
     {
-        <KanbanBoard RepositoryFullName="_selectedRepo" />
+        <KanbanBoard RepositoryFullName="@_selectedRepo" />
     }
     else if (_isBoardLoading)
     {

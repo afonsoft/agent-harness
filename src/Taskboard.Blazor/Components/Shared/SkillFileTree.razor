@@ -1,0 +1,42 @@
+<ul class="skill-file-tree list-unstyled mb-0">
+    @foreach (var node in Nodes)
+    {
+        if (node.IsDirectory)
+        {
+            <li class="skill-file-dir">
+                <Icon Name="IconName.Folder" class="me-1" />@node.Name
+                <SkillFileTree Nodes="node.Children" SelectedFile="SelectedFile" OnFileSelected="OnFileSelected" />
+            </li>
+        }
+        else
+        {
+            <li>
+                @if (node.File!.IsText)
+                {
+                    <button type="button"
+                            class="btn btn-link btn-sm p-0 text-decoration-none skill-file-link @(node.File == SelectedFile ? "fw-semibold" : "")"
+                            @onclick="() => OnFileSelected.InvokeAsync(node.File)">
+                        <Icon Name="IconName.FileEarmark" class="me-1" />@node.Name
+                    </button>
+                }
+                else
+                {
+                    <span class="small text-body-secondary" title="binary file">
+                        <Icon Name="IconName.FileEarmarkBinary" class="me-1" />@node.Name
+                    </span>
+                }
+            </li>
+        }
+    }
+</ul>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<SkillFileNode> Nodes { get; set; } = [];
+
+    [Parameter]
+    public SkillFileDto? SelectedFile { get; set; }
+
+    [Parameter]
+    public EventCallback<SkillFileDto> OnFileSelected { get; set; }
+}

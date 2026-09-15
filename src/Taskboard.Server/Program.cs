@@ -100,6 +100,7 @@ builder.Services.AddHttpClient<TaskboardClient>(client =>
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddScoped<CircuitAuthContext>();
 builder.Services.AddBlazorBootstrap();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
@@ -1061,6 +1062,19 @@ api.MapGet("skills/{source}/{name}", async (string source, string name, ISkillDi
 {
     var result = await skills.GetDetailAsync(source, name, ct);
     return result is null ? Results.NotFound() : Results.Ok(new { skill = result });
+});
+
+api.MapGet("skills/{source}/{name}/files/{**path}", async (string source, string name, string path, ISkillDiscoveryService skills, CancellationToken ct) =>
+{
+    var result = await skills.GetFileAsync(source, name, path, ct);
+    return result.Error switch
+    {
+        SkillFileError.None => Results.Ok(new { path = result.RelativePath, content = result.Content }),
+        SkillFileError.InvalidPath => Results.BadRequest(new { error = new { code = "INVALID_PATH", message = "File path is not valid." } }),
+        SkillFileError.TooLarge => Results.Json(new { error = new { code = "FILE_TOO_LARGE", message = "File exceeds the 256 KB limit." } }, statusCode: StatusCodes.Status413PayloadTooLarge),
+        SkillFileError.NotText => Results.Json(new { error = new { code = "NOT_TEXT", message = "File is not a supported text file." } }, statusCode: StatusCodes.Status415UnsupportedMediaType),
+        _ => Results.NotFound(new { error = new { code = "FILE_NOT_FOUND", message = "Skill or file not found." } })
+    };
 });
 
 app.MapSwagger();

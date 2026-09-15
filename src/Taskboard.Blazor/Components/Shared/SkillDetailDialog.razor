@@ -1,4 +1,5 @@
 @using Taskboard.Application.Contracts.Skills
+@inject TaskboardClient Client
 
 @if (Skill is null)
 {
@@ -48,11 +49,70 @@ else
         <h3 class="h6 fw-semibold mb-2">Content</h3>
         <div class="code-block small overflow-y-auto" style="max-height: 16rem;">@Skill.Content</div>
     </div>
+
+    @if (_fileTree.Count > 0)
+    {
+        <div class="mt-4">
+            <h3 class="h6 fw-semibold mb-2">Files</h3>
+            <SkillFileTree Nodes="_fileTree" SelectedFile="_selectedFile" OnFileSelected="LoadFileAsync" />
+            @if (_fileLoading)
+            {
+                <div class="small text-body-secondary mt-2">Loading file...</div>
+            }
+            else if (_fileError is not null)
+            {
+                <div class="small text-danger mt-2">@_fileError</div>
+            }
+            else if (_fileContent is not null)
+            {
+                <div class="mt-2">
+                    <div class="small text-body-secondary font-monospace mb-1">@_selectedFile!.RelativePath</div>
+                    <div class="code-block small overflow-y-auto" style="max-height: 16rem;">@_fileContent</div>
+                </div>
+            }
+        </div>
+    }
 }
 
 @code {
     [Parameter]
     public SkillDetailDto Skill { get; set; } = default!;
+
+    private IReadOnlyList<SkillFileNode> _fileTree = [];
+    private SkillFileDto? _selectedFile;
+    private string? _fileContent;
+    private string? _fileError;
+    private bool _fileLoading;
+
+    protected override void OnParametersSet()
+    {
+        _fileTree = Skill is null ? [] : SkillFileNode.Build(Skill.Files);
+    }
+
+    private async Task LoadFileAsync(SkillFileDto file)
+    {
+        _selectedFile = file;
+        _fileContent = null;
+        _fileError = null;
+        _fileLoading = true;
+
+        try
+        {
+            _fileContent = await Client.GetSkillFileContentAsync(Skill.Source, Skill.Name, file.RelativePath);
+            if (_fileContent is null)
+            {
+                _fileError = "Could not load file content.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _fileError = $"Could not load file content: {ex.Message}";
+        }
+        finally
+        {
+            _fileLoading = false;
+        }
+    }
 
     private static string GetSourceBadgeClass(string source) => $"source-badge-{source.ToLowerInvariant()}" switch
     {
