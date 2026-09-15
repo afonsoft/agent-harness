@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/runtime-configuration-overrides` (aprovado pelo usuário) |
 | Ticket | `user-request-2026-09-14` |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
