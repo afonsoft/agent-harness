@@ -60,4 +60,10 @@
 - SignalR hub: `/agent-log-hub`
 - Successful execution moves the issue from `In Progress` to `Review`
 
+## Agent CLIs & Terminal
+
+- `/agents` page: install/auth status board for Claude Code, Codex, OpenCode, Devin CLI and Antigravity `agy` (`GET /api/agent-clis`)
+- `/terminal` page: interactive bash PTY over SignalR (`/terminal-hub`) with xterm.js — one session per user, 30 min idle timeout, `Taskboard:Terminal:Enabled` flag
+- Docker image ships Node.js LTS + the five CLIs with `HOME=/data/home` so credentials persist in the `/data` volume
+
 See `.specs/SPEC-*.md` for full requirements.

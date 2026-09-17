@@ -713,3 +713,17 @@ body {
     right: 0.75rem;
     top: 0.5rem;
 }
+
+.terminal-host {
+    background: #0d1117;
+    border: 1px solid var(--bs-border-color, #30363d);
+    border-radius: 0.5rem;
+    height: 65vh;
+    min-height: 320px;
+    overflow: hidden;
+    padding: 0.5rem;
+}
+
+.terminal-host .xterm {
+    height: 100%;
+}

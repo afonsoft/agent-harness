@@ -39,6 +39,7 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Rag:ServerName",
             "Taskboard:Rag:Url",
             "Taskboard:Rag:ApiKey",
+            "Taskboard:Terminal:Enabled",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }

@@ -1,0 +1,129 @@
+@page "/agents"
+@attribute [Authorize]
+@inject TaskboardClient Client
+
+<PageTitle>CLI Agents - Taskboard</PageTitle>
+
+<h1 class="h4 fw-bold mb-1">CLI Agents</h1>
+<p class="small text-body-secondary mb-4">Agent CLIs detected on this machine. Open a terminal to authenticate or manage each CLI.</p>
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-end mb-3">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
+                <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+            </Button>
+        </div>
+
+        @if (_loading && _agents is null)
+        {
+            <Loading Message="Detecting agent CLIs..." />
+        }
+        else if (!string.IsNullOrEmpty(_error))
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false">
+                <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
+            </Alert>
+        }
+        else if (_agents is { Count: > 0 })
+        {
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>CLI</th>
+                            <th>Binary</th>
+                            <th>Installed</th>
+                            <th>Version</th>
+                            <th>Auth</th>
+                            <th>Config dir</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var agent in _agents)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@agent.DisplayName</td>
+                                <td><code>@agent.Binary</code></td>
+                                <td>
+                                    @if (agent.Installed)
+                                    {
+                                        <Badge Color="BadgeColor.Success">Installed</Badge>
+                                    }
+                                    else
+                                    {
+                                        <Badge Color="BadgeColor.Secondary">Not found</Badge>
+                                    }
+                                </td>
+                                <td class="small">@(agent.Version ?? "—")</td>
+                                <td>
+                                    @switch (agent.AuthStatus)
+                                    {
+                                        case AgentCliAuthStatus.Authenticated:
+                                            <Badge Color="BadgeColor.Success">Authenticated</Badge>
+                                            break;
+                                        case AgentCliAuthStatus.NotAuthenticated:
+                                            <Badge Color="BadgeColor.Warning">Not authenticated</Badge>
+                                            break;
+                                        default:
+                                            <Badge Color="BadgeColor.Secondary">Unknown</Badge>
+                                            break;
+                                    }
+                                </td>
+                                <td class="small"><code>@agent.ConfigDir</code></td>
+                                <td class="text-end">
+                                    @if (agent.Installed)
+                                    {
+                                        <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(agent.LoginCommand)">
+                                            <Icon Name="IconName.Terminal" class="me-1" /> Login
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <a class="btn btn-sm btn-outline-secondary" href="@TerminalUrl(agent.InstallHint)" title="@agent.InstallHint">
+                                            <Icon Name="IconName.Terminal" class="me-1" /> Install
+                                        </a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="small text-body-secondary mt-3 mb-0">
+                <Icon Name="IconName.InfoCircle" class="me-1" />
+                Auth status is detected by the presence of credential files — contents are never read. Commands are typed into the terminal, not executed automatically.
+            </p>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<AgentCliStatus>? _agents;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _agents = await Client.GetAgentClisAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load agent CLI status: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string TerminalUrl(string command) =>
+        $"/terminal?cmd={Uri.EscapeDataString(command)}";
+}
