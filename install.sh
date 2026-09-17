@@ -138,6 +138,12 @@ detect_repo_dir() {
 build_solution() {
     echo "Compilando a solucao..."
     run dotnet build "$REPO_DIR/Taskboard.sln" -c Release
+
+    # SPEC-20260915-wasm-post-migration-hardening: publish the server so the
+    # launcher serves the WASM SPA + static web assets in Production — the
+    # plain bin/Release output does not include them.
+    echo "Publicando o servidor (SPA + static web assets)..."
+    run dotnet publish "$REPO_DIR/src/Taskboard.Server/Taskboard.Server.csproj" -c Release -o "$TASKBOARD_HOME/server"
 }
 
 install_cli() {
@@ -264,11 +270,11 @@ create_wrappers() {
     run mkdir -p "$BIN_DIR"
 
     local server_dll
-    server_dll="$REPO_DIR/src/Taskboard.Server/bin/Release/net10.0/Taskboard.Server.dll"
+    server_dll="$TASKBOARD_HOME/server/Taskboard.Server.dll"
     local mcp_dll
     mcp_dll="$REPO_DIR/src/Taskboard.Mcp/bin/Release/net10.0/Taskboard.Mcp.dll"
     local server_content_root
-    server_content_root="$REPO_DIR/src/Taskboard.Server"
+    server_content_root="$TASKBOARD_HOME/server"
 
     write_file "$BIN_DIR/taskboard-server" <<EOF
 #!/usr/bin/env bash

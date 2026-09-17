@@ -36,6 +36,9 @@ public class RuntimeConfigurationServiceTests
             "Admin:Username",
             "Taskboard:Skills:Repository",
             "Taskboard:ApiKey",
+            "Taskboard:Rag:ServerName",
+            "Taskboard:Rag:Url",
+            "Taskboard:Rag:ApiKey",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }
@@ -120,6 +123,13 @@ public class RuntimeConfigurationServiceTests
     [InlineData("AllowedHosts", "")]
     [InlineData("Taskboard:Skills:Repository", "not a repo")]
     [InlineData("Taskboard:Skills:Repository", "ftp://example.com/repo")]
+    [InlineData("Taskboard:Rag:Url", "not-a-url")]
+    [InlineData("Taskboard:Rag:Url", "ftp://rag.example.com/mcp")]
+    [InlineData("Taskboard:Rag:ServerName", "UPPER")]
+    [InlineData("Taskboard:Rag:ServerName", "-leading-dash")]
+    [InlineData("Taskboard:Rag:ServerName", "has space")]
+    [InlineData("Taskboard:Rag:ServerName", "")]
+    [InlineData("Taskboard:Rag:ApiKey", "short")]
     public async Task Dado_ValorInvalido_Quando_SetOverride_Entao_RetornaValidation(string key, string value)
     {
         // Covers RF-004: per-key validation rejects bad values without persisting
@@ -144,6 +154,47 @@ public class RuntimeConfigurationServiceTests
 
         result.Error.ShouldBe(ConfigurationWriteError.ReadOnly);
         context.ConfigurationOverrides.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_RagValido_Quando_SetOverride_Entao_PersisteEmSqlite()
+    {
+        // Covers SPEC-20260917-rag-mcp-provisioning RF-001: RAG keys persist via ConfigurationOverride
+        var (service, context, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        (await service.SetOverrideAsync("Taskboard:Rag:Url", "https://rag.afonsoft.dev/mcp"))
+            .Error.ShouldBe(ConfigurationWriteError.None);
+        (await service.SetOverrideAsync("Taskboard:Rag:ApiKey", "aft_0123456789abcdef"))
+            .Error.ShouldBe(ConfigurationWriteError.None);
+
+        context.ConfigurationOverrides.Select(o => o.Key).ShouldBe(
+            ["Taskboard:Rag:Url", "Taskboard:Rag:ApiKey"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void Dado_RagApiKey_Quando_Listar_Entao_Mascarada()
+    {
+        // Covers SPEC-20260917-rag-mcp-provisioning: API key never leaves the API in clear text
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>(
+                "Taskboard:Rag:ApiKey", "aft_0123456789abcdef")])
+            .Build();
+        var (service, _, _) = CreateSut(configuration);
+
+        var entry = service.GetEntries().Single(e => e.Key == "Taskboard:Rag:ApiKey");
+
+        entry.Masked.ShouldBeTrue();
+        entry.EffectiveValue.ShouldBe("••••cdef");
+    }
+
+    [Fact]
+    public void Dado_RagServerName_Quando_Listar_Entao_DefaultKnowledge()
+    {
+        var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        var entry = service.GetEntries().Single(e => e.Key == "Taskboard:Rag:ServerName");
+
+        entry.EffectiveValue.ShouldBe("knowledge");
     }
 
     [Fact]

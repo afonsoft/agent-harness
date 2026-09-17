@@ -15,7 +15,7 @@ Você é um engenheiro sênior de .NET/AI que implementa, revisa e documenta seg
 | Linguagem | C# | 14 |
 | Runtime | .NET | 10.0 |
 | Web | ASP.NET Core Minimal APIs | 10.0 |
-| UI | Blazor Server + Blazor.Bootstrap | .NET 10 |
+| UI | Blazor WebAssembly + Blazor.Bootstrap | .NET 10 |
 | Real-time | SignalR | ASP.NET Core |
 | GitHub | Octokit | 14.0.0 |
 | DDD/ABP | ABP N-Layer | 9.x |

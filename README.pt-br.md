@@ -11,7 +11,7 @@ Taskboard local-first e AI-native inspirado no `dashi-taskboard`, reescrito em *
 
 ## Visão Geral
 
-O `taskboard-ai` é um quadro de tarefas local-first para desenvolvedores e agentes de IA. Oferece sistema de tarefas com SQLite, API REST, Server-Sent Events (SSE), CLI `taskctl`, servidor MCP, integração de chat com IA e UI web Blazor Server — tudo implementado em .NET 10 com ABP N-Layer / DDD.
+O `taskboard-ai` é um quadro de tarefas local-first para desenvolvedores e agentes de IA. Oferece sistema de tarefas com SQLite, API REST, Server-Sent Events (SSE), CLI `taskctl`, servidor MCP, integração de chat com IA e UI web Blazor WebAssembly — tudo implementado em .NET 10 com ABP N-Layer / DDD.
 
 ## Stack Tecnológico
 
@@ -26,8 +26,8 @@ O `taskboard-ai` é um quadro de tarefas local-first para desenvolvedores e agen
 | CLI Parser | System.CommandLine | latest stable |
 | MCP SDK | ModelContextProtocol | 2.2.0 |
 | Testes | xUnit + Shouldly + NSubstitute | latest stable |
-| Frontend | Blazor Server | .NET 10 |
-| Componentes de UI | MudBlazor | 9.9.0 |
+| Frontend | Blazor WebAssembly | .NET 10 |
+| Componentes de UI | Blazor.Bootstrap | 4.0.0 |
 | Tempo real | ASP.NET Core SignalR | 10.0 |
 | Cliente GitHub API | Octokit | 14.0.0 |
 | Mediator | MediatR | 12.4.1 |
@@ -49,7 +49,7 @@ src/
   Taskboard.Cloud/                  # Companion cloud e sync
   Taskboard.Integrations/           # Jira, GitHub, orquestração de agentes, helpers de execução
   Taskboard.Maui/                   # Desktop Blazor Hybrid (opcional)
-  Taskboard.Blazor/                 # UI web Blazor Server
+  Taskboard.Blazor/                 # UI web Blazor WebAssembly
 tests/
   Taskboard.Tests.Unit/             # 89 testes unitários
   Taskboard.Tests.Integration/      # 9 testes de integração

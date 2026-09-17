@@ -1,11 +1,9 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
-using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Skills;
 
@@ -20,14 +18,11 @@ namespace Taskboard.Integrations.Skills;
 /// </summary>
 public sealed class SkillsSyncService : ISkillsSyncService
 {
-    internal const string RepositoryConfigKey = "Taskboard:Skills:Repository";
-    internal const string RepositoryEnvAlias = "TASKBOARD_SKILLS_REPO";
-    internal const string DefaultRepository = "afonsoft/skills";
+    internal const string RepositoryConfigKey = SkillsRepository.ConfigKey;
+    internal const string RepositoryEnvAlias = SkillsRepository.EnvAlias;
+    internal const string DefaultRepository = SkillsRepository.DefaultRepository;
     internal const string ManifestFileName = ".taskboard-skills.json";
     internal const int DefaultTimeoutSeconds = 120;
-
-    private static readonly Regex OwnerRepoPattern =
-        new("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.Compiled);
 
     private readonly IConfiguration _configuration;
     private readonly ILogger<SkillsSyncService> _logger;
@@ -163,117 +158,13 @@ public sealed class SkillsSyncService : ISkillsSyncService
         }
     }
 
-    internal string ResolveRepository()
-    {
-        if (_configuration is IConfigurationRoot root)
-        {
-            foreach (var provider in root.Providers)
-            {
-                if (provider is IOverrideConfigurationProvider overrides
-                    && overrides.TryGetOverride(RepositoryConfigKey, out var value)
-                    && !string.IsNullOrWhiteSpace(value))
-                {
-                    return value.Trim();
-                }
-            }
-        }
+    internal string ResolveRepository() => SkillsRepository.Resolve(_configuration);
 
-        var env = Environment.GetEnvironmentVariable(RepositoryEnvAlias);
-        if (!string.IsNullOrWhiteSpace(env))
-        {
-            return env.Trim();
-        }
+    internal static string NormalizeRepoUrl(string value) => SkillsRepository.NormalizeUrl(value);
 
-        var configured = _configuration[RepositoryConfigKey];
-        return string.IsNullOrWhiteSpace(configured) ? DefaultRepository : configured.Trim();
-    }
-
-    /// <summary>
-    /// Normalizes the configured repository to a clonable URL:
-    /// <c>owner/repo</c> becomes <c>https://github.com/owner/repo.git</c>;
-    /// absolute URLs and local paths pass through.
-    /// </summary>
-    internal static string NormalizeRepoUrl(string value)
-    {
-        var trimmed = value.Trim();
-        if (trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("file://", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("git@", StringComparison.Ordinal)
-            || Path.IsPathRooted(trimmed))
-        {
-            return trimmed;
-        }
-
-        if (OwnerRepoPattern.IsMatch(trimmed))
-        {
-            return $"https://github.com/{trimmed}.git";
-        }
-
-        throw new ArgumentException(
-            $"Invalid skills repository '{value}'. Expected 'owner/repo' or an absolute git URL.");
-    }
-
-    private async Task EnsureCacheAsync(string repository, string? token, CancellationToken cancellationToken)
-    {
-        var url = NormalizeRepoUrl(repository);
-        var gitDirectory = Path.Join(_cacheDirectory, ".git");
-
-        if (Directory.Exists(gitDirectory))
-        {
-            var remote = await GitRunner
-                .RunAsync(_cacheDirectory, null, cancellationToken, "remote", "get-url", "origin")
-                .ConfigureAwait(false);
-            if (remote.ExitCode != 0
-                || !remote.StdOut.Trim().Equals(url, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation(
-                    "Skills cache remote changed from {OldRemote} to {NewRemote}; re-cloning.",
-                    remote.StdOut.Trim(),
-                    url);
-                Directory.Delete(_cacheDirectory, recursive: true);
-            }
-        }
-        else if (Directory.Exists(_cacheDirectory))
-        {
-            Directory.Delete(_cacheDirectory, recursive: true);
-        }
-
-        if (!Directory.Exists(gitDirectory))
-        {
-            var parent = Path.GetDirectoryName(_cacheDirectory);
-            if (!string.IsNullOrEmpty(parent))
-            {
-                Directory.CreateDirectory(parent);
-            }
-
-            var clone = await GitRunner
-                .RunAsync(parent ?? ".", token, cancellationToken, "clone", "--depth", "1", url, _cacheDirectory)
-                .ConfigureAwait(false);
-            if (clone.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"git clone failed: {clone.StdErr.Trim()}");
-            }
-        }
-        else
-        {
-            var fetch = await GitRunner
-                .RunAsync(_cacheDirectory, token, cancellationToken, "fetch", "--depth", "1", "origin")
-                .ConfigureAwait(false);
-            if (fetch.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"git fetch failed: {fetch.StdErr.Trim()}");
-            }
-
-            var reset = await GitRunner
-                .RunAsync(_cacheDirectory, null, cancellationToken, "reset", "--hard", "FETCH_HEAD")
-                .ConfigureAwait(false);
-            if (reset.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"git reset failed: {reset.StdErr.Trim()}");
-            }
-        }
-    }
+    private Task EnsureCacheAsync(string repository, string? token, CancellationToken cancellationToken) =>
+        SkillsRepository.EnsureCacheAsync(
+            _cacheDirectory, repository, token, GitRunner.RunAsync, _logger, cancellationToken);
 
     private List<SourceSkill> LoadSourceSkills()
     {

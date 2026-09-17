@@ -31,8 +31,10 @@ using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Jira;
+using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Skills;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Settings;
@@ -132,35 +134,30 @@ builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddSingleton<IAgentOrchestrationService, AgentOrchestrationService>();
 builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequiredService<IAgentOrchestrationService>());
 
+// Test/override seam: agent config + skills writes target this directory.
+var homeDir = builder.Configuration["Taskboard:HomeDir"]
+    ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
 builder.Services.AddSingleton<ISkillsSyncService>(sp => new SkillsSyncService(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<ILogger<SkillsSyncService>>(),
     Path.Join(dataDir, "skills-cache"),
-    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-    async ct =>
-    {
-        await using var scope = sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
-        var preferences = await scope.ServiceProvider
-            .GetRequiredService<IRepository<AgentPreference>>()
-            .ListAsync(ct);
-        return preferences.Count == 0
-            ? (IReadOnlyCollection<AgentType>)Enum.GetValues<AgentType>()
-            : preferences.Where(p => p.Enabled).Select(p => p.AgentType).ToList();
-    },
-    async ct =>
-    {
-        var envToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-        if (!string.IsNullOrWhiteSpace(envToken))
-        {
-            return envToken.Trim();
-        }
+    homeDir,
+    async ct => await ResolveEnabledAgentsAsync(sp, ct),
+    async ct => await ResolveGitHubTokenAsync(sp, ct)));
 
-        await using var scope = sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
-        var users = await scope.ServiceProvider
-            .GetRequiredService<IRepository<UserPreference>>()
-            .ListAsync(ct);
-        return users.FirstOrDefault()?.GitHubToken;
-    }));
+builder.Services.AddSingleton<ISkillsInstallerService>(sp => new SkillsInstallerService(
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<ILogger<SkillsInstallerService>>(),
+    dataDir,
+    homeDir,
+    async ct => await ResolveGitHubTokenAsync(sp, ct)));
+
+builder.Services.AddSingleton<IMcpProvisioningService>(sp => new McpProvisioningService(
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<ILogger<McpProvisioningService>>(),
+    homeDir,
+    async ct => await ResolveEnabledAgentsAsync(sp, ct)));
 
 // Opt-out switch for environments where a background git clone must not run
 // (tests, air-gapped hosts). Default: enabled.
@@ -1076,7 +1073,7 @@ app.MapGet("/api/events", async (HttpResponse response, IEventStreamService even
     }
 }).RequireAuthorization();
 
-app.UseStaticFiles();
+// Static files are served by MapStaticAssets() below — no UseStaticFiles needed.
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -1294,6 +1291,70 @@ api.MapPost("skills/sync", async (
     return Results.Json(sync.GetStatus(), statusCode: StatusCodes.Status202Accepted);
 }).RequireAuthorization();
 
+api.MapGet("skills/install/status", (ISkillsInstallerService installer) =>
+    Results.Ok(installer.GetStatus()))
+    .RequireAuthorization();
+
+api.MapPost("skills/install", (ISkillsInstallerService installer) =>
+{
+    installer.RequestInstall();
+    return Results.Json(installer.GetStatus(), statusCode: StatusCodes.Status202Accepted);
+}).RequireAuthorization();
+
+api.MapPost("skills/install/verify", async (
+    ISkillsInstallerService installer,
+    CancellationToken ct) =>
+    Results.Ok(await installer.VerifyAsync(ct)))
+    .RequireAuthorization();
+
+api.MapGet("mcp/status", (IMcpProvisioningService mcp) =>
+    Results.Ok(mcp.GetStatus()))
+    .RequireAuthorization();
+
+api.MapPost("mcp/sync", (IMcpProvisioningService mcp) =>
+{
+    mcp.RequestProvision();
+    return Results.Json(mcp.GetStatus(), statusCode: StatusCodes.Status202Accepted);
+}).RequireAuthorization();
+
+api.MapPut("mcp/rag", async (
+    SaveRagMcpRequest request,
+    RuntimeConfigurationService configuration,
+    SqliteConfigurationProvider overridesProvider,
+    IMcpProvisioningService mcp,
+    CancellationToken ct) =>
+{
+    // null = keep the stored value; "" clears it (URL clear removes the entry).
+    var writes = new List<(string Key, string Value)>();
+    if (request.Name is not null)
+    {
+        writes.Add(("Taskboard:Rag:ServerName", request.Name));
+    }
+
+    if (request.Url is not null)
+    {
+        writes.Add(("Taskboard:Rag:Url", request.Url));
+    }
+
+    if (request.ApiKey is not null)
+    {
+        writes.Add(("Taskboard:Rag:ApiKey", request.ApiKey));
+    }
+
+    foreach (var (key, value) in writes)
+    {
+        var result = await configuration.SetOverrideAsync(key, value, ct);
+        if (result.Error is not ConfigurationWriteError.None)
+        {
+            return ConfigurationError(result);
+        }
+    }
+
+    overridesProvider.Reload();
+    mcp.RequestProvision();
+    return Results.NoContent();
+}).RequireAuthorization();
+
 app.MapSwagger();
 app.UseSwaggerUI(options =>
 {
@@ -1305,6 +1366,36 @@ app.UseSwaggerUI(options =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static async System.Threading.Tasks.Task<IReadOnlyCollection<AgentType>> ResolveEnabledAgentsAsync(
+    IServiceProvider sp,
+    CancellationToken ct)
+{
+    await using var scope = sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+    var preferences = await scope.ServiceProvider
+        .GetRequiredService<IRepository<AgentPreference>>()
+        .ListAsync(ct);
+    return preferences.Count == 0
+        ? (IReadOnlyCollection<AgentType>)Enum.GetValues<AgentType>()
+        : preferences.Where(p => p.Enabled).Select(p => p.AgentType).ToList();
+}
+
+static async System.Threading.Tasks.Task<string?> ResolveGitHubTokenAsync(
+    IServiceProvider sp,
+    CancellationToken ct)
+{
+    var envToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+    if (!string.IsNullOrWhiteSpace(envToken))
+    {
+        return envToken.Trim();
+    }
+
+    await using var scope = sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope();
+    var users = await scope.ServiceProvider
+        .GetRequiredService<IRepository<UserPreference>>()
+        .ListAsync(ct);
+    return users.FirstOrDefault()?.GitHubToken;
+}
 
 static ServerSentEvent MapDomainEvent(IDomainEvent domainEvent)
 {

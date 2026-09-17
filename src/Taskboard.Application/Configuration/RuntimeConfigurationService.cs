@@ -57,6 +57,15 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "TASKBOARD_API_KEY", Validate: ValidateApiKey),
+        new("Taskboard:Rag:ServerName", "knowledge", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_RAG_NAME", Validate: ValidateRagServerName),
+        new("Taskboard:Rag:Url", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_RAG_URL", Validate: ValidateRagUrl),
+        new("Taskboard:Rag:ApiKey", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_RAG_API_KEY", Validate: ValidateRagApiKey),
     ];
 
     private readonly IConfiguration _configuration;
@@ -222,6 +231,29 @@ public sealed class RuntimeConfigurationService
         value.Trim().Length is 0 or >= 16
             ? null
             : "API key must be at least 16 characters, or empty to disable.";
+
+    private static string? ValidateRagServerName(string value) =>
+        System.Text.RegularExpressions.Regex.IsMatch(value.Trim(), @"^[a-z0-9][a-z0-9-]{0,63}$")
+            ? null
+            : "Server name must match ^[a-z0-9][a-z0-9-]{0,63}$.";
+
+    private static string? ValidateRagApiKey(string value) =>
+        value.Trim().Length is 0 or >= 8
+            ? null
+            : "RAG API key must be at least 8 characters, or empty for an unauthenticated server.";
+
+    private static string? ValidateRagUrl(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return null; // empty disables provisioning
+        }
+
+        return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+            ? null
+            : "RAG URL must be an absolute http(s) URL, or empty to disable.";
+    }
 
     private static string? ValidateLogLevel(string value) =>
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)

@@ -6,7 +6,7 @@ This guide covers how to install, build, configure, and run `taskboard-ai` local
 
 ## Overview
 
-`taskboard-ai` is a local-first, AI-native taskboard written in **C# 14 / .NET 10**. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, and a Blazor Server web UI.
+`taskboard-ai` is a local-first, AI-native taskboard written in **C# 14 / .NET 10**. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, and a Blazor WebAssembly web UI.
 
 ## Prerequisites
 
@@ -67,6 +67,10 @@ dotnet test Taskboard.sln
 | `TASKBOARD_URL` | `http://127.0.0.1:47823` | Base URL used by the `taskctl` CLI and MCP server |
 | `TASKBOARD_API_KEY` | *(none)* | API key sent as `X-Api-Key` by `taskctl`/MCP to authenticate against the server's `/api` (all endpoints except `login`, `auth/me`, `meta` and health require cookie or API-key auth) |
 | `ASPNETCORE_URLS` | *(none)* | Overrides `TASKBOARD_PORT` with a complete URL such as `http://0.0.0.0:47823` |
+| `TASKBOARD_SKILLS_REPO` | `afonsoft/skills` | Skills repository installed/synced from `/settings` (`npx skills add <repo> -g --all --copy` + `install.sh --all`) |
+| `TASKBOARD_RAG_NAME` | `knowledge` | Managed MCP server name provisioned into enabled agent CLIs |
+| `TASKBOARD_RAG_URL` | *(none)* | RAG MCP URL provisioned into enabled agent CLIs (empty = entry removed) |
+| `TASKBOARD_RAG_API_KEY` | *(none)* | Bearer key for the RAG MCP server (masked in reads; also editable in `/settings`) |
 
 Set variables for the current shell session:
 

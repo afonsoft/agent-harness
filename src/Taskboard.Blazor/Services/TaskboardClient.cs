@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Taskboard.Application.Contracts.Configuration;
+using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Dtos;
@@ -199,6 +200,69 @@ public sealed class TaskboardClient
             $"/api/configuration/{Uri.EscapeDataString(key)}",
             cancellationToken);
         return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    /// <summary>Status do instalador global de skills (SPEC-20260917-skills-installer).</summary>
+    public async Task<SkillsInstallStatus?> GetSkillsInstallStatusAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<SkillsInstallStatus>("/api/skills/install/status", cancellationToken);
+
+    /// <summary>Dispara a instalação global em background (202 Accepted).</summary>
+    public async Task<SkillsInstallStatus?> InstallSkillsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/skills/install", content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<SkillsInstallStatus>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Re-verifica os diretórios globais de skills.</summary>
+    public async Task<SkillsInstallStatus?> VerifySkillsInstallAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/skills/install/verify", content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<SkillsInstallStatus>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Status da sincronização de skills por agente.</summary>
+    public async Task<SkillsSyncStatus?> GetSkillsSyncStatusAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<SkillsSyncStatus>("/api/skills/sync/status", cancellationToken);
+
+    /// <summary>Dispara a sincronização de skills (202 Accepted).</summary>
+    public async Task<SkillsSyncStatus?> SyncSkillsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/skills/sync", content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<SkillsSyncStatus>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Status do provisionamento MCP por agente (SPEC-20260917-rag-mcp-provisioning).</summary>
+    public async Task<McpProvisionStatus?> GetMcpStatusAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<McpProvisionStatus>("/api/mcp/status", cancellationToken);
+
+    /// <summary>
+    /// Persiste a configuração RAG e agenda o provisionamento.
+    /// <paramref name="apiKey"/> nulo mantém a chave gravada; vazio a remove.
+    /// Retorna a mensagem de erro da API ou <c>null</c> em sucesso.
+    /// </summary>
+    public async Task<string?> SaveRagMcpAsync(
+        string? name, string? url, string? apiKey, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            "/api/mcp/rag",
+            new SaveRagMcpRequest(name, url, apiKey),
+            cancellationToken);
+        return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    /// <summary>Dispara o provisionamento MCP em background (202 Accepted).</summary>
+    public async Task<McpProvisionStatus?> SyncMcpAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/mcp/sync", content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<McpProvisionStatus>(cancellationToken)
+            : null;
     }
 
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)

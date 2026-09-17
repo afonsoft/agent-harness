@@ -1,4 +1,5 @@
 @namespace Taskboard.Blazor.Components.Shared
+@using Taskboard.Blazor.Services
 
 <div class="repo-combobox" @onfocusout="OnFocusOutAsync">
     <input id="@Id" type="text" role="combobox"
@@ -53,7 +54,6 @@
 </div>
 
 @code {
-    private const int MaxResults = 50;
 
     /// <summary>All selectable repositories (<c>owner/repo</c>).</summary>
     [Parameter] public IReadOnlyList<string> Repositories { get; set; } = [];
@@ -81,15 +81,12 @@
     private int _activeIndex = -1;
     private string _listboxId = string.Empty;
 
-    private IReadOnlyList<string> Filtered =>
-        (string.IsNullOrEmpty(_filter)
-            ? Repositories
-            : Repositories.Where(r => r.Contains(_filter, StringComparison.OrdinalIgnoreCase)))
-        .Take(MaxResults)
-        .ToList();
+    private IReadOnlyList<string> Filtered => RepositoryFilter.Filter(Repositories, _filter);
 
     private string? ActiveDescendantId =>
-        _activeIndex >= 0 && _activeIndex < Filtered.Count ? OptionId(_activeIndex) : null;
+        RepositoryFilter.ClampActiveIndex(_activeIndex, Filtered.Count) is var active && active >= 0
+            ? OptionId(active)
+            : null;
 
     private string OptionId(int index) => $"{_listboxId}-opt-{index}";
 
@@ -115,7 +112,7 @@
         _text = e.Value?.ToString() ?? string.Empty;
         _filter = _text;
         _open = true;
-        _activeIndex = Filtered.Count > 0 ? 0 : -1;
+        _activeIndex = RepositoryFilter.ClampActiveIndex(0, Filtered.Count);
     }
 
     private async Task OnKeyDownAsync(KeyboardEventArgs e)
@@ -125,22 +122,15 @@
         {
             case "ArrowDown":
                 _open = true;
-                if (filtered.Count > 0)
-                {
-                    _activeIndex = (_activeIndex + 1) % filtered.Count;
-                }
+                _activeIndex = RepositoryFilter.MoveActiveIndex(_activeIndex, filtered.Count, 1);
                 break;
             case "ArrowUp":
-                if (filtered.Count > 0)
-                {
-                    _activeIndex = _activeIndex <= 0 ? filtered.Count - 1 : _activeIndex - 1;
-                }
+                _activeIndex = RepositoryFilter.MoveActiveIndex(_activeIndex, filtered.Count, -1);
                 break;
             case "Enter":
             case "NumpadEnter":
-                await CommitAsync(_activeIndex >= 0 && _activeIndex < filtered.Count
-                    ? filtered[_activeIndex]
-                    : _text);
+                var enterIndex = RepositoryFilter.ClampActiveIndex(_activeIndex, filtered.Count);
+                await CommitAsync(enterIndex >= 0 ? filtered[enterIndex] : _text);
                 break;
             case "Escape":
                 _text = Value;
@@ -149,9 +139,10 @@
                 _activeIndex = -1;
                 break;
             case "Tab":
-                if (_open && _activeIndex >= 0 && _activeIndex < filtered.Count)
+                var tabIndex = RepositoryFilter.ClampActiveIndex(_activeIndex, filtered.Count);
+                if (_open && tabIndex >= 0)
                 {
-                    _text = filtered[_activeIndex];
+                    _text = filtered[tabIndex];
                 }
                 await CommitAsync(_text);
                 break;
@@ -173,7 +164,7 @@
         _open = false;
         _activeIndex = -1;
         _filter = null;
-        _text = value.Trim();
+        _text = RepositoryFilter.NormalizeCommit(value);
 
         if (_text != Value && ValueChanged.HasDelegate)
         {

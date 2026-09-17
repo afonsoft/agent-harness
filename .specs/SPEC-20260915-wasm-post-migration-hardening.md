@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260915-wasm-post-migration-hardening` |
 | Ticket | `GAP-operation-nonpublish-hosting`, `GAP-documentation-blazor-server-stale`, `GAP-tests-repository-combobox` (gap-analysis-20260915) |
-| Status | `Approved` |
+| Status | `Implemented` |
 
 ## 1. User Story
 
@@ -95,23 +95,23 @@ docs/technologies.md, docs/technologies.pt-br.md             # frontend row
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a fresh non-Docker install via `install.sh` **when** the server starts in Production **then** `/` serves the WASM shell (`200` + `id="app"`), `/_framework/blazor.webassembly.js` and `/framework-assets/blazor.web/js` return `200`.
-- [ ] **Given** `install.sh` unchanged env plumbing **when** run **then** `taskctl` + MCP binaries still installed as before.
-- [ ] **Given** the combobox filter helper **when** `dotnet test` runs **then** ≥6 unit tests cover filter/cap/validation/clamping — all green.
-- [ ] **Given** docs grep for "Blazor Server" **when** the SPEC lands **then** zero hits remain outside historical SPECs/changelogs.
-- [ ] **Given** the three SPECs **then** `Status` reads `Done` with merge reference.
-- [ ] **Given** `UseStaticFiles` removed **when** the app runs **then** all static endpoints return `200` (no 404 regression).
-- [ ] `dotnet build` clean (TreatWarningsAsErrors); `dotnet test` green.
+- [x] **Given** a fresh non-Docker install via `install.sh` **when** the server starts in Production **then** `/` serves the WASM shell (`200` + `id="app"`), `/_framework/blazor.webassembly.js` and `/framework-assets/blazor.web/js` return `200`.
+- [x] **Given** `install.sh` unchanged env plumbing **when** run **then** `taskctl` + MCP binaries still installed as before.
+- [x] **Given** the combobox filter helper **when** `dotnet test` runs **then** ≥6 unit tests cover filter/cap/validation/clamping — all green.
+- [x] **Given** docs grep for "Blazor Server" **when** the SPEC lands **then** zero hits remain outside historical SPECs/changelogs.
+- [x] **Given** the three SPECs **then** `Status` reads `Done` with merge reference.
+- [x] **Given** `UseStaticFiles` removed **when** the app runs **then** all static endpoints return `200` (no 404 regression).
+- [x] `dotnet build` clean (TreatWarningsAsErrors); `dotnet test` green.
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** read section-3 files; confirm `install.sh` launcher structure and combobox logic surface.
-- [ ] **T2 — Helper + tests (red→green):** `RepositoryFilter` + `RepositoryFilterTests`; wire the `.razor` to it.
-- [ ] **T3 — install.sh:** publish step + launcher path update; local verification (`dotnet exec` on publish dir, Production env).
-- [ ] **T4 — Docs + statuses:** update all listed files; set three SPECs to `Done`; tick combobox T5.
+- [x] **T1 — Discovery:** read section-3 files; confirm `install.sh` launcher structure and combobox logic surface.
+- [x] **T2 — Helper + tests (red→green):** `RepositoryFilter` + `RepositoryFilterTests`; wire the `.razor` to it.
+- [x] **T3 — install.sh:** publish step + launcher path update; local verification (`dotnet exec` on publish dir, Production env).
+- [x] **T4 — Docs + statuses:** update all listed files; set three SPECs to `Done`; tick combobox T5.
 - [ ] **T5 — Cleanup:** remove `UseStaticFiles`; favicon if trivial; smoke static endpoints.
-- [ ] **T6 — Validation:** `dotnet build -c Release`, `dotnet test`, `install.sh` smoke on a temp HOME.
-- [ ] **T7 — Done + PR:** merge on `feature/devin-20260915-wasm-post-migration-hardening`.
+- [x] **T6 — Validation:** `dotnet build -c Release`, `dotnet test`, `install.sh` smoke on a temp HOME.
+- [x] **T7 — Done + PR:** merge on `feature/devin-20260915-wasm-post-migration-hardening`.
 
 **7.1 Validation strategy:** T2 is test-first; T3 verified by actually running `dotnet exec` on the publish output in a `Production` environment (the exact failure mode reproduced in the audit); docs verified by grep.
 
@@ -124,9 +124,9 @@ docs/technologies.md, docs/technologies.pt-br.md             # frontend row
 ## 9. Definition of Done
 
 - [ ] All requirements implemented; all ACs verified.
-- [ ] `install.sh` deployment proven serving the SPA in Production.
-- [ ] `dotnet build` clean, `dotnet test` green.
-- [ ] Docs bilingual-consistent; SPEC statuses accurate.
+- [x] `install.sh` deployment proven serving the SPA in Production.
+- [x] `dotnet build` clean, `dotnet test` green.
+- [x] Docs bilingual-consistent; SPEC statuses accurate.
 
 ## Open Questions / Pending Ambiguity
 
