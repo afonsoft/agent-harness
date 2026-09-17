@@ -4,6 +4,7 @@
 @inject NavigationManager Navigation
 @inject ToastService ToastService
 @inject IGitHubService GitHubService
+@implements IDisposable
 
 <PageTitle>Settings - Taskboard</PageTitle>
 
@@ -50,6 +51,136 @@
                     {
                         <p class="mt-2 small text-danger">@_skillsRepoError</p>
                     }
+                </div>
+
+                <div class="form-section">
+                    <h2 class="form-section-title">Agent Skills</h2>
+                    <p class="small text-body-secondary">
+                        Global install of the configured skills repository into every supported agent CLI
+                        (<code>npx skills add &lt;repo&gt; -g --all --copy</code> + <code>install.sh --all</code>).
+                    </p>
+
+                    @if (_skillsInstall is null)
+                    {
+                        <p class="small text-body-secondary">Status unavailable.</p>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                            @if (_skillsInstall.Installed)
+                            {
+                                <span class="badge text-bg-success">Installed — @_skillsInstall.SkillCount skills</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-secondary">Not installed</span>
+                            }
+                            @foreach (var prereq in _skillsInstall.Prerequisites)
+                            {
+                                <span class="badge @(prereq.Value ? "text-bg-success" : "text-bg-danger")"
+                                      title="@(prereq.Value ? "available" : "missing")">@prereq.Key</span>
+                            }
+                        </div>
+                        <div class="small text-body-secondary mb-2">
+                            Repository: <code>@(_skillsInstall.Repository ?? "—")</code>
+                            @if (_skillsInstall.LastRunUtc is not null)
+                            {
+                                <span class="ms-2">Last run: @_skillsInstall.LastRunUtc.Value.LocalDateTime.ToString("g")</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_skillsInstall.Error))
+                        {
+                            <p class="small text-danger mb-2">@_skillsInstall.Error</p>
+                        }
+                        @if (_skillsInstall.Steps.Count > 0)
+                        {
+                            <ul class="small mb-2">
+                                @foreach (var step in _skillsInstall.Steps)
+                                {
+                                    <li>
+                                        <code>@step.Name</code> — @step.State
+                                        @if (!string.IsNullOrWhiteSpace(step.Message))
+                                        {
+                                            <span class="text-body-secondary">(@step.Message)</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        @if (_skillsInstall.Locations.Count > 0)
+                        {
+                            <ul class="small mb-2">
+                                @foreach (var location in _skillsInstall.Locations)
+                                {
+                                    <li><code>@location.Path</code> — @location.Count skills</li>
+                                }
+                            </ul>
+                        }
+                        @if (_skillsSync is not null && _skillsSync.LastRunUtc is not null)
+                        {
+                            <p class="small text-body-secondary mb-2">
+                                Sync: @_skillsSync.State — @_skillsSync.LastRunUtc.Value.LocalDateTime.ToString("g")
+                            </p>
+                        }
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-outline-primary"
+                                    disabled="@(_skillsBusy || !_skillsInstall.Prerequisites.GetValueOrDefault("npx") || !_skillsInstall.Prerequisites.GetValueOrDefault("git"))"
+                                    title="@SkillsInstallButtonTitle()"
+                                    @onclick="InstallSkillsAsync">Install</button>
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_skillsBusy" @onclick="VerifySkillsAsync">Verify</button>
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_skillsBusy" @onclick="SyncSkillsAsync">Sync</button>
+                        </div>
+                    }
+                </div>
+
+                <div class="form-section">
+                    <h2 class="form-section-title">RAG / Knowledge MCP</h2>
+                    <p class="small text-body-secondary">
+                        Provision the RAG MCP server into every enabled agent CLI config
+                        (<code>~/.claude.json</code>, <code>~/.codex/config.toml</code>, …).
+                    </p>
+
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label" for="rag-name">Server name</label>
+                            <input id="rag-name" type="text" class="form-control font-monospace" @bind="_ragName" placeholder="knowledge" />
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label" for="rag-url">MCP URL</label>
+                            <input id="rag-url" type="text" class="form-control font-monospace" @bind="_ragUrl" placeholder="https://rag.afonsoft.dev/mcp" />
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <label class="form-label" for="rag-key">API key</label>
+                        <div class="setting-row-input">
+                            <input id="rag-key" type="@_ragKeyInputType" class="form-control font-monospace" @bind="_ragApiKey" placeholder="@(_ragKeySet ? "•••• (unchanged)" : "aft_…")" />
+                            <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="ToggleRagKeyVisibility">@_ragKeyToggleLabel</button>
+                        </div>
+                        <p class="small text-body-secondary mt-1 mb-0">Leave blank to keep the stored key.</p>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_ragError))
+                    {
+                        <div class="alert alert-danger mt-2 mb-0">@_ragError</div>
+                    }
+
+                    @if (_mcpStatus is not null && _mcpStatus.Agents.Count > 0)
+                    {
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            @foreach (var agent in _mcpStatus.Agents)
+                            {
+                                <span class="badge @GetMcpBadgeClass(agent)" title="@McpBadgeTitle(agent)">
+                                    @agent.Agent — @GetMcpBadgeLabel(agent)
+                                </span>
+                            }
+                        </div>
+                    }
+
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-primary" disabled="@_ragBusy" @onclick="SaveRagAsync">Save &amp; Sync</button>
+                        <button type="button" class="btn btn-outline-secondary" disabled="@_ragBusy" @onclick="SyncMcpAsync">Sync</button>
+                        <button type="button" class="btn btn-outline-secondary" disabled="@_ragBusy" @onclick="VerifyMcpAsync">Verify</button>
+                    </div>
                 </div>
 
                 <div class="form-section">
@@ -211,6 +342,24 @@
     private string? _skillsRepoError;
     private IReadOnlyList<string> _repoNames = [];
 
+    private SkillsInstallStatus? _skillsInstall;
+    private SkillsSyncStatus? _skillsSync;
+    private bool _skillsBusy;
+    private CancellationTokenSource? _pollCts;
+
+    private const string RagServerNameKey = "Taskboard:Rag:ServerName";
+    private const string RagUrlKey = "Taskboard:Rag:Url";
+    private const string RagApiKeyKey = "Taskboard:Rag:ApiKey";
+    private McpProvisionStatus? _mcpStatus;
+    private string _ragName = "knowledge";
+    private string _ragUrl = string.Empty;
+    private string _ragApiKey = string.Empty;
+    private bool _ragKeySet;
+    private bool _ragBusy;
+    private string? _ragError;
+    private string _ragKeyInputType = "password";
+    private string _ragKeyToggleLabel = "Show";
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -248,6 +397,284 @@
         }
 
         await LoadConfigurationAsync();
+        await LoadSkillsStatusAsync();
+        await LoadMcpStatusAsync();
+    }
+
+    private async Task LoadSkillsStatusAsync()
+    {
+        try
+        {
+            _skillsInstall = await Client.GetSkillsInstallStatusAsync();
+            _skillsSync = await Client.GetSkillsSyncStatusAsync();
+        }
+        catch
+        {
+            _skillsInstall = null;
+        }
+    }
+
+    private string SkillsInstallButtonTitle()
+    {
+        if (_skillsInstall is null)
+        {
+            return "Install the configured skills repository globally";
+        }
+
+        var missing = _skillsInstall.Prerequisites
+            .Where(p => !p.Value)
+            .Select(p => p.Key)
+            .ToList();
+        return missing.Count > 0
+            ? $"Missing prerequisites: {string.Join(", ", missing)}"
+            : "Install the configured skills repository globally";
+    }
+
+    private void StartStatusPolling()
+    {
+        if (_pollCts is not null)
+        {
+            return;
+        }
+
+        _pollCts = new CancellationTokenSource();
+        _ = PollStatusLoopAsync(_pollCts.Token);
+    }
+
+    private async Task PollStatusLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                try
+                {
+                    if (_skillsInstall?.State == SkillsSyncState.Running)
+                    {
+                        _skillsInstall = await Client.GetSkillsInstallStatusAsync();
+                    }
+
+                    if (_skillsSync?.State == SkillsSyncState.Running)
+                    {
+                        _skillsSync = await Client.GetSkillsSyncStatusAsync();
+                    }
+
+                    if (_mcpStatus?.State == McpProvisionState.Running)
+                    {
+                        _mcpStatus = await Client.GetMcpStatusAsync();
+                    }
+                }
+                catch
+                {
+                    // Transient poll failure — next tick retries.
+                }
+
+                var running = _skillsInstall?.State == SkillsSyncState.Running
+                    || _skillsSync?.State == SkillsSyncState.Running
+                    || _mcpStatus?.State == McpProvisionState.Running;
+                await InvokeAsync(StateHasChanged);
+                if (!running)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _pollCts = null;
+        }
+    }
+
+    public void Dispose() => _pollCts?.Cancel();
+
+    private async Task InstallSkillsAsync()
+    {
+        _skillsBusy = true;
+        try
+        {
+            _skillsInstall = await Client.InstallSkillsAsync();
+            ToastService.Notify(new(ToastType.Info, "Skills install started"));
+            if (_skillsInstall?.State == SkillsSyncState.Running)
+            {
+                StartStatusPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to start skills install: {ex.Message}"));
+        }
+        finally
+        {
+            _skillsBusy = false;
+        }
+    }
+
+    private async Task VerifySkillsAsync()
+    {
+        _skillsBusy = true;
+        try
+        {
+            _skillsInstall = await Client.VerifySkillsInstallAsync();
+            ToastService.Notify(new(_skillsInstall?.Installed == true ? ToastType.Success : ToastType.Info,
+                _skillsInstall?.Installed == true
+                    ? $"Skills installed — {_skillsInstall.SkillCount} found"
+                    : "Skills not installed"));
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Verify failed: {ex.Message}"));
+        }
+        finally
+        {
+            _skillsBusy = false;
+        }
+    }
+
+    private async Task SyncSkillsAsync()
+    {
+        _skillsBusy = true;
+        try
+        {
+            _skillsSync = await Client.SyncSkillsAsync();
+            ToastService.Notify(new(ToastType.Info, "Skills sync started"));
+            if (_skillsSync?.State == SkillsSyncState.Running)
+            {
+                StartStatusPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to start skills sync: {ex.Message}"));
+        }
+        finally
+        {
+            _skillsBusy = false;
+        }
+    }
+
+    private async Task LoadMcpStatusAsync()
+    {
+        try
+        {
+            _mcpStatus = await Client.GetMcpStatusAsync();
+        }
+        catch
+        {
+            _mcpStatus = null;
+        }
+    }
+
+    private void ToggleRagKeyVisibility()
+    {
+        if (_ragKeyInputType == "password")
+        {
+            _ragKeyInputType = "text";
+            _ragKeyToggleLabel = "Hide";
+        }
+        else
+        {
+            _ragKeyInputType = "password";
+            _ragKeyToggleLabel = "Show";
+        }
+    }
+
+    private static string GetMcpBadgeClass(McpAgentResult agent) => agent.State switch
+    {
+        McpAgentState.Configured => "text-bg-success",
+        McpAgentState.Failed => "text-bg-danger",
+        McpAgentState.Repaired => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+
+    private static string McpBadgeTitle(McpAgentResult agent) =>
+        agent.Error is null ? agent.Path : $"{agent.Path} — {agent.Error}";
+
+    private static string GetMcpBadgeLabel(McpAgentResult agent) => agent.State switch
+    {
+        McpAgentState.Configured => "configured",
+        McpAgentState.Repaired => "repaired",
+        McpAgentState.Removed => "removed",
+        McpAgentState.Failed => "error",
+        McpAgentState.Skipped => "skipped",
+        _ => "not configured"
+    };
+
+    private async Task SaveRagAsync()
+    {
+        _ragBusy = true;
+        _ragError = null;
+        try
+        {
+            // Blank key keeps the stored value; the API treats "" as clear.
+            var error = await Client.SaveRagMcpAsync(
+                _ragName.Trim(),
+                _ragUrl.Trim(),
+                string.IsNullOrWhiteSpace(_ragApiKey) ? null : _ragApiKey.Trim());
+            if (error is not null)
+            {
+                _ragError = error;
+                return;
+            }
+
+            _ragApiKey = string.Empty;
+            _ragKeySet = true;
+            ToastService.Notify(new(ToastType.Success, "RAG MCP configuration saved — provisioning started"));
+            await LoadConfigurationAsync();
+            await LoadMcpStatusAsync();
+            if (_mcpStatus?.State == McpProvisionState.Running)
+            {
+                StartStatusPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            _ragError = $"Failed to save RAG configuration: {ex.Message}";
+        }
+        finally
+        {
+            _ragBusy = false;
+        }
+    }
+
+    private async Task SyncMcpAsync()
+    {
+        _ragBusy = true;
+        try
+        {
+            _mcpStatus = await Client.SyncMcpAsync();
+            ToastService.Notify(new(ToastType.Info, "MCP provisioning started"));
+            if (_mcpStatus?.State == McpProvisionState.Running)
+            {
+                StartStatusPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to start MCP sync: {ex.Message}"));
+        }
+        finally
+        {
+            _ragBusy = false;
+        }
+    }
+
+    private async Task VerifyMcpAsync()
+    {
+        _ragBusy = true;
+        try
+        {
+            await LoadMcpStatusAsync();
+            var configured = _mcpStatus?.Agents.Count(a => a.Configured) ?? 0;
+            ToastService.Notify(new(ToastType.Info, $"MCP status refreshed — {configured} agent(s) configured"));
+        }
+        finally
+        {
+            _ragBusy = false;
+        }
     }
 
     private async Task LoadConfigurationAsync()
@@ -262,6 +689,10 @@
                 _skillsRepo = skillsEntry.EffectiveValue ?? string.Empty;
                 _skillsRepoIsOverride = skillsEntry.Source == "db";
             }
+
+            _ragName = _configEntries.FirstOrDefault(e => e.Key == RagServerNameKey)?.EffectiveValue ?? "knowledge";
+            _ragUrl = _configEntries.FirstOrDefault(e => e.Key == RagUrlKey)?.EffectiveValue ?? string.Empty;
+            _ragKeySet = _configEntries.FirstOrDefault(e => e.Key == RagApiKeyKey)?.EffectiveValue is not null;
         }
         catch (Exception ex)
         {

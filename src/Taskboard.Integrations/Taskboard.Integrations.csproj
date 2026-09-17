@@ -7,5 +7,6 @@
     <PackageReference Include="Octokit" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Tomlyn" />
   </ItemGroup>
 </Project>

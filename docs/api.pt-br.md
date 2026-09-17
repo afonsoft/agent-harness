@@ -99,6 +99,41 @@ POST   /api/search/semantic
 GET    /api/search/suggestions
 ```
 
+### Configurações
+
+```http
+GET    /api/settings
+PUT    /api/settings
+GET    /api/configuration
+PUT    /api/configuration/{key}
+DELETE /api/configuration/{key}
+```
+
+### Skills de Agente
+
+```http
+GET    /api/skills
+GET    /api/skills/{source}/{name}
+GET    /api/skills/{source}/{name}/files/{**path}
+GET    /api/skills/sync/status
+POST   /api/skills/sync
+GET    /api/skills/install/status
+POST   /api/skills/install
+POST   /api/skills/install/verify
+```
+
+`POST /api/skills/install` executa `npx skills add <repo> -g --all --copy` e o `install.sh --all` do repositório em background (retorna `202` + status em andamento; chamadas concorrentes são coalescidas). `verify` re-varre os diretórios globais de skills sem spawnar processos.
+
+### Provisionamento MCP (RAG)
+
+```http
+GET    /api/mcp/status
+POST   /api/mcp/sync
+PUT    /api/mcp/rag
+```
+
+`PUT /api/mcp/rag` aceita `{ "name", "url", "apiKey" }` — campos `null` preservam o valor gravado; `url` vazia remove a entrada gerenciada de todos os agentes habilitados. O provisionamento faz merge da entrada `<name>` em `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json` e `~/.openhands/mcp.json` (escrita atômica, backup `.bak`, `0600`). A API key nunca é retornada por nenhum endpoint. Chaves de configuração: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (aliases de env `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persistidas como overrides em SQLite.
+
 ## SSE
 
 ### Eventos globais

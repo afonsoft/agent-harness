@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Task = System.Threading.Tasks.Task;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Requests;
@@ -18,17 +19,20 @@ public sealed class SettingsService
     private readonly IRepository<AgentPreference> _agentPreferenceRepo;
     private readonly IAgentDiscoveryService _agentDiscovery;
     private readonly ISkillsSyncService? _skillsSync;
+    private readonly IMcpProvisioningService? _mcpProvisioning;
 
     public SettingsService(
         IRepository<UserPreference> userPreferenceRepo,
         IRepository<AgentPreference> agentPreferenceRepo,
         IAgentDiscoveryService agentDiscovery,
-        ISkillsSyncService? skillsSync = null)
+        ISkillsSyncService? skillsSync = null,
+        IMcpProvisioningService? mcpProvisioning = null)
     {
         _userPreferenceRepo = userPreferenceRepo;
         _agentPreferenceRepo = agentPreferenceRepo;
         _agentDiscovery = agentDiscovery;
         _skillsSync = skillsSync;
+        _mcpProvisioning = mcpProvisioning;
     }
 
     public async Task<SettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
@@ -107,6 +111,9 @@ public sealed class SettingsService
         if (newlyEnabled.Count > 0)
         {
             _skillsSync?.RequestSync(newlyEnabled);
+            // SPEC-20260917-rag-mcp-provisioning RF-004: enabling a CLI also
+            // provisions the managed MCP server for the newly enabled agents.
+            _mcpProvisioning?.RequestProvision(newlyEnabled);
         }
     }
 }
