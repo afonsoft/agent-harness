@@ -17,6 +17,7 @@ using Swashbuckle.AspNetCore.SwaggerUI;
 using Microsoft.EntityFrameworkCore;
 using Taskboard;
 using Taskboard.Application.Contracts.Configuration;
+using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Domain.Entities;
@@ -133,6 +134,8 @@ builder.Services.AddSingleton<IAgentAcpClient, JsonRpcAcpClient>();
 builder.Services.AddSingleton<IAgentAdapter, KnownCliAgentAdapter>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
+builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
+builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
 builder.Services.AddSingleton<IAgentOrchestrationService, AgentOrchestrationService>();
 builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequiredService<IAgentOrchestrationService>());
 
@@ -1272,8 +1275,26 @@ agents.MapPost("executions", async (
     IAgentOrchestrationService orchestration,
     CancellationToken ct) =>
 {
-    await orchestration.EnqueueAsync(request, ct);
-    return Results.Accepted();
+    var queued = await orchestration.EnqueueAsync(request, ct);
+    return queued
+        ? Results.Accepted()
+        : Results.UnprocessableEntity(new { error = "agent-not-eligible", agentType = request.AgentType.ToString() });
+});
+
+agents.MapGet("runs", async (
+    string issueId,
+    int? take,
+    IAgentOrchestrationService orchestration,
+    CancellationToken ct) =>
+{
+    var runs = await orchestration.GetRunsAsync(issueId, take ?? 5, ct);
+    return Results.Ok(new { runs });
+});
+
+agents.MapGet("runs/active", async (IAgentOrchestrationService orchestration, CancellationToken ct) =>
+{
+    var runs = await orchestration.GetLatestRunsAsync(ct);
+    return Results.Ok(new { runs });
 });
 
 agents.MapGet("logs/{issueId}", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>

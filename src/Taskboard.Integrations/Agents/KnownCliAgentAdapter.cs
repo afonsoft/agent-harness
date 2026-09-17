@@ -14,7 +14,8 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         [AgentType.Claude] = "claude",
         [AgentType.Codex] = "codex",
         [AgentType.OpenCode] = "opencode",
-        [AgentType.OpenHands] = "openhands"
+        [AgentType.OpenHands] = "openhands",
+        [AgentType.Antigravity] = "agy"
     };
 
     public bool CanHandle(AgentType agentType) => ExecutableNames.ContainsKey(agentType);

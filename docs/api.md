@@ -145,6 +145,21 @@ POST   /terminal-hub/negotiate   (SignalR hub)
 
 `/terminal-hub` is a SignalR hub streaming an interactive bash PTY (`script -qfc`, `TERM=xterm-256color`) to the `/terminal` page — one session per authenticated user, reconnects replace the previous session, idle sessions close after 30 minutes. Hub methods: `Input(string)`, `Resize(int cols, int rows)`; client callbacks: `output(string)`, `closed(string reason)`. Gated by `Taskboard:Terminal:Enabled` (default `true`, env `TASKBOARD_TERMINAL_ENABLED`, editable at runtime).
 
+### Agent Orchestration
+
+```http
+GET    /api/agents
+POST   /api/agents/executions
+GET    /api/agents/runs?issueId={id}&take={n}
+GET    /api/agents/runs/active
+GET    /api/agents/logs/{issueId}
+POST   /api/agents/executions/{issueId}/cancel
+```
+
+`GET /api/agents` lists only *eligible* agents — installed on PATH, authenticated CLI (credential probe) and enabled in Settings → Agents; running agents are reported as `Busy`. `POST /api/agents/executions` returns `202` when queued or `422 { "error": "agent-not-eligible" }` for a disabled/unauthenticated/uninstalled agent.
+
+`GET /api/agents/runs?issueId=` returns the issue's latest runs (`{ id, issueId, agentType, state, startedAt, finishedAt }`, newest first; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` returns the latest run per issue — used to render agent badges on the kanban cards.
+
 ## SSE
 
 ### Global events

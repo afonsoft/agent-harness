@@ -208,9 +208,18 @@
 
                 <div class="form-section">
                     <h2 class="form-section-title">Agents</h2>
+                    <p class="small text-body-secondary">
+                        Only installed and authenticated agent CLIs are listed. A disabled agent cannot be
+                        selected for task actions. Manage logins on the <a href="/agents">Agents</a> page
+                        or the <a href="/terminal">Terminal</a>.
+                    </p>
                     @if (!_agents.Any())
                     {
-                        <EmptyState Message="No agents discovered." />
+                        <div class="alert alert-secondary mb-0" role="status">
+                            No agent CLI is authenticated right now —
+                            <a href="/agents" class="alert-link">open Agents</a> to check status or
+                            <a href="/terminal" class="alert-link">open the Terminal</a> to log in.
+                        </div>
                     }
                     else
                     {
@@ -219,7 +228,10 @@
                             {
                                 <div class="setting-row" @key="agent.Type">
                                     <div>
-                                        <div class="fw-medium">@agent.Name</div>
+                                        <div class="fw-medium">
+                                            @agent.Name
+                                            <span class="badge text-bg-success ms-1">Authenticated</span>
+                                        </div>
                                         @if (!string.IsNullOrWhiteSpace(agent.Description))
                                         {
                                             <div class="small text-body-secondary">@agent.Description</div>
@@ -227,7 +239,7 @@
                                         <div class="small text-body-secondary">@agent.Type@(string.IsNullOrWhiteSpace(agent.Version) ? "" : $" · v{agent.Version}")</div>
                                     </div>
                                     <div class="form-check form-switch mb-0">
-                                        <input type="checkbox" role="switch" class="form-check-input" checked="@_enabledState[agent.Type]" @onchange="e => ToggleAgent(agent.Type, (bool)e.Value!)" aria-label="Enable @agent.Name" />
+                                        <input type="checkbox" role="switch" class="form-check-input agent-toggle" checked="@_enabledState[agent.Type]" @onchange="e => ToggleAgent(agent.Type, (bool)e.Value!)" aria-label="Enable @agent.Name" />
                                     </div>
                                 </div>
                             }

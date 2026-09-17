@@ -74,4 +74,35 @@ public static class AgentCliMap
     /// <summary>All known CLIs in display order.</summary>
     public static IReadOnlyList<KeyValuePair<AgentCliKind, AgentCliSpec>> All =>
         Specs.OrderBy(kv => kv.Value.DisplayName).ToList();
+
+    private static readonly IReadOnlyDictionary<AgentCliKind, AgentType> CliToType =
+        new Dictionary<AgentCliKind, AgentType>
+        {
+            [AgentCliKind.Devin] = AgentType.Devin,
+            [AgentCliKind.Claude] = AgentType.Claude,
+            [AgentCliKind.Codex] = AgentType.Codex,
+            [AgentCliKind.OpenCode] = AgentType.OpenCode,
+            [AgentCliKind.Antigravity] = AgentType.Antigravity,
+        };
+
+    /// <summary>Returns the orchestration <see cref="AgentType"/> for a CLI kind, or <c>null</c> for unknown kinds.</summary>
+    public static AgentType? AgentTypeFor(AgentCliKind kind) =>
+        CliToType.TryGetValue(kind, out var type) ? type : null;
+
+    /// <summary>
+    /// Returns the CLI kind backing an <see cref="AgentType"/>, or <c>null</c> when the type
+    /// has no detectable CLI (e.g. <see cref="AgentType.OpenHands"/>).
+    /// </summary>
+    public static AgentCliKind? CliKindFor(AgentType type)
+    {
+        foreach (var kv in CliToType)
+        {
+            if (kv.Value == type)
+            {
+                return kv.Key;
+            }
+        }
+
+        return null;
+    }
 }

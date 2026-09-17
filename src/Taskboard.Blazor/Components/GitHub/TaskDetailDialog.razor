@@ -1,4 +1,5 @@
 @using System.Globalization
+@inject IAgentOrchestrationService OrchestrationService
 
 <Tabs EnableFadeEffect="true">
     <Tab Title="Detalhes" IsActive="true">
@@ -10,6 +11,33 @@
                 </p>
                 <p class="small text-body-secondary mb-2">
                     <strong>Coluna:</strong> @Issue?.Column.ToDisplayName()
+                </p>
+                <p class="small text-body-secondary mb-2">
+                    <strong>Agente:</strong>
+                    @if (_latestRun is null)
+                    {
+                        <span>Nenhum agente executou nesta issue</span>
+                    }
+                    else
+                    {
+                        <span class="agent-badge @GetAgentBadgeClass(_latestRun)">
+                            <Icon Name="IconName.Robot" />@GetAgentDisplayName(_latestRun.AgentType)
+                        </span>
+                        <span> — @_latestRun.State</span>
+                        @if (_latestRun.FinishedAt is not null)
+                        {
+                            <span class="d-block text-body-secondary">
+                                iniciado @_latestRun.StartedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                                · finalizado @_latestRun.FinishedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="d-block text-body-secondary">
+                                iniciado @_latestRun.StartedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                            </span>
+                        }
+                    }
                 </p>
                 @if (!string.IsNullOrWhiteSpace(Issue?.Body))
                 {
@@ -39,4 +67,45 @@
 
     [Parameter, EditorRequired]
     public string RepositoryFullName { get; set; } = string.Empty;
+
+    private AgentRunDto? _latestRun;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _latestRun = null;
+        if (Issue is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var runs = await OrchestrationService.GetRunsAsync(
+                Issue.Id.ToString(CultureInfo.InvariantCulture), take: 1);
+            _latestRun = runs.FirstOrDefault();
+        }
+        catch
+        {
+            // Agent info is best-effort — the dialog still works without it.
+            _latestRun = null;
+        }
+    }
+
+    private static string GetAgentBadgeClass(AgentRunDto run)
+    {
+        var kind = AgentCliMap.CliKindFor(run.AgentType);
+        var name = (kind?.ToString() ?? run.AgentType.ToString()).ToLowerInvariant();
+        var state = run.State is AgentRunState.Queued or AgentRunState.Running
+            ? "agent-badge-active"
+            : "agent-badge-muted";
+        return $"agent-{name} {state}";
+    }
+
+    private static string GetAgentDisplayName(AgentType type)
+    {
+        var kind = AgentCliMap.CliKindFor(type);
+        return kind is not null
+            ? AgentCliMap.GetSpec(kind.Value)?.DisplayName ?? type.ToString()
+            : type.ToString();
+    }
 }

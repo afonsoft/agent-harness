@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.GitHub;
 
 namespace Taskboard.Integrations.Agents;
@@ -17,7 +18,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     private readonly IAgentLogBroadcaster _logBroadcaster;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IGitHubService _gitHubService;
-    private readonly Channel<AgentExecutionRequest> _channel = Channel.CreateUnbounded<AgentExecutionRequest>();
+    private readonly Channel<QueuedJob> _channel = Channel.CreateUnbounded<QueuedJob>();
     private readonly ConcurrentDictionary<string, RunningJob> _running = new();
     private readonly ConcurrentDictionary<string, List<AgentLogMessage>> _logs = new();
 
@@ -37,36 +38,49 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+        await foreach (var job in _channel.Reader.ReadAllAsync(stoppingToken))
         {
-            _ = Task.Run(async () => await RunAsync(request, stoppingToken), stoppingToken);
+            _ = Task.Run(async () => await RunAsync(job, stoppingToken), stoppingToken);
         }
     }
 
     public async Task<IReadOnlyList<AgentInfo>> GetAvailableAgentsAsync(CancellationToken cancellationToken = default)
     {
         var discovered = await _discoveryService.DiscoverAsync(cancellationToken);
+        var eligible = await GetEligibleTypesAsync(cancellationToken);
         var busyTypes = _running.Values
             .Select(r => r.Request.AgentType)
             .ToHashSet();
 
         return discovered
+            .Where(a => a.Status == AgentStatus.Available && eligible.Contains(a.Type))
             .Select(a => a with
             {
-                Status = a.Status == AgentStatus.Available && busyTypes.Contains(a.Type)
-                    ? AgentStatus.Busy
-                    : a.Status
+                Status = busyTypes.Contains(a.Type) ? AgentStatus.Busy : a.Status
             })
             .ToList()
             .AsReadOnly();
     }
 
-    public Task EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
+    public async Task<bool> EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
     {
         EnsureLogList(request.IssueId);
+
+        // SPEC-20260917-agent-eligibility-task-badge RF-003: never queue an agent
+        // that is disabled or whose CLI is not authenticated right now.
+        var eligible = await GetEligibleTypesAsync(cancellationToken);
+        if (!eligible.Contains(request.AgentType))
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"Agent {request.AgentType} rejected: disabled or CLI not authenticated."));
+            return false;
+        }
+
+        var runId = await TryCreateRunAsync(request, cancellationToken);
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Queued {request.AgentType} for issue {request.IssueId}."));
-        _channel.Writer.TryWrite(request);
-        return Task.CompletedTask;
+        _channel.Writer.TryWrite(new QueuedJob(request, runId));
+        return true;
     }
 
     public async Task<IReadOnlyList<AgentLogMessage>> GetLogsAsync(string issueId, CancellationToken cancellationToken = default)
@@ -95,14 +109,30 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         return Task.CompletedTask;
     }
 
-    private async Task RunAsync(AgentExecutionRequest request, CancellationToken stoppingToken)
+    public async Task<IReadOnlyList<AgentRunDto>> GetRunsAsync(string issueId, int take = 5, CancellationToken cancellationToken = default)
     {
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAgentRunRepository>();
+        return await repository.GetByIssueIdAsync(issueId, take, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AgentRunDto>> GetLatestRunsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAgentRunRepository>();
+        return await repository.GetLatestPerIssueAsync(cancellationToken);
+    }
+
+    private async Task RunAsync(QueuedJob job, CancellationToken stoppingToken)
+    {
+        var request = job.Request;
         var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        var job = new RunningJob(request, cancellationTokenSource);
-        _running[request.IssueId] = job;
+        var runningJob = new RunningJob(request, cancellationTokenSource);
+        _running[request.IssueId] = runningJob;
         EnsureLogList(request.IssueId);
 
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Starting {request.AgentType} on {request.RepoPath}..."));
+        await UpdateRunAsync(job.RunId, (repo, id) => repo.MarkRunningAsync(id, CancellationToken.None), stoppingToken);
 
         var progress = new Progress<AgentLogMessage>(async message =>
         {
@@ -115,6 +145,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             var result = await _acpClient.ExecuteAsync(request, progress, cancellationTokenSource.Token);
 
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Agent finished with exit code {result.ExitCode}."));
+            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Succeeded, CancellationToken.None), stoppingToken);
 
             if (result.IsSuccess)
             {
@@ -124,10 +155,12 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         catch (OperationCanceledException)
         {
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, "Agent execution was cancelled."));
+            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Canceled, CancellationToken.None), stoppingToken);
         }
         catch (Exception ex)
         {
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Agent error: {ex.Message}"));
+            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
         }
         finally
         {
@@ -152,6 +185,54 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         }
     }
 
+    /// <summary>
+    /// AgentTypes eligible for execution right now: installed + authenticated CLI
+    /// AND enabled in Settings — resolved via the scoped
+    /// <see cref="IAgentEligibilityService"/> (Integrations has no Domain access).
+    /// </summary>
+    private async Task<IReadOnlySet<AgentType>> GetEligibleTypesAsync(CancellationToken cancellationToken)
+    {
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var eligibility = scope.ServiceProvider.GetRequiredService<IAgentEligibilityService>();
+        return await eligibility.GetEligibleTypesAsync(cancellationToken);
+    }
+
+    private async Task<Guid?> TryCreateRunAsync(AgentExecutionRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IAgentRunRepository>();
+            var run = await repository.EnqueueAsync(request.IssueId, request.AgentType, cancellationToken);
+            return run.Id;
+        }
+        catch (Exception ex)
+        {
+            // Run tracking must never break orchestration.
+            AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Failed to record agent run: {ex.Message}"));
+            return null;
+        }
+    }
+
+    private async Task UpdateRunAsync(Guid? runId, Func<IAgentRunRepository, Guid, Task> update, CancellationToken cancellationToken)
+    {
+        if (runId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IAgentRunRepository>();
+            await update(repository, runId.Value);
+        }
+        catch
+        {
+            // Run tracking is best-effort; orchestration outcome is unaffected.
+        }
+    }
+
     private void EnsureLogList(string issueId)
     {
         _logs.GetOrAdd(issueId, _ => []);
@@ -173,6 +254,8 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             await repository.AppendAsync(message);
         });
     }
+
+    private sealed record QueuedJob(AgentExecutionRequest Request, Guid? RunId);
 
     private sealed class RunningJob
     {

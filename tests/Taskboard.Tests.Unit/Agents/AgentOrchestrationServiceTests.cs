@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.GitHub;
 using Taskboard.Integrations.Agents;
 using Xunit;
@@ -187,16 +188,91 @@ public class AgentOrchestrationServiceTests
         }
     }
 
+    [Fact]
+    public async Task Dado_AgenteDesabilitado_Quando_Enfileirar_Entao_RejeitaERegistraLog()
+    {
+        // SPEC-20260917-agent-eligibility-task-badge RF-003: ineligible agents are never queued.
+        var eligibility = Substitute.For<IAgentEligibilityService>();
+        eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlySet<AgentType>>(new HashSet<AgentType> { AgentType.Claude }));
+        var service = CriarService(eligibility: eligibility);
+        var request = CriarRequest();
+
+        var queued = await service.EnqueueAsync(request);
+
+        queued.ShouldBeFalse();
+        var logs = await service.GetLogsAsync(request.IssueId);
+        logs.ShouldContain(log => log.Content.Contains("rejected"));
+    }
+
+    [Fact]
+    public async Task Dado_AgenteElegivel_Quando_Enfileirar_Entao_CriaRunQueued()
+    {
+        var runRepository = Substitute.For<IAgentRunRepository>();
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentRunDto(
+                Guid.NewGuid(), "issue-1", AgentType.Codex, AgentRunState.Queued,
+                DateTimeOffset.UtcNow, null)));
+        var service = CriarService(agentRunRepository: runRepository);
+        var request = CriarRequest();
+
+        var queued = await service.EnqueueAsync(request);
+
+        queued.ShouldBeTrue();
+        await runRepository.Received(1).EnqueueAsync(request.IssueId, AgentType.Codex, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_AgenteNaoElegivel_Quando_ConsultarDisponibilidade_Entao_NaoLista()
+    {
+        // Discovered on PATH but not eligible → filtered out.
+        var discoveryService = Substitute.For<IAgentDiscoveryService>();
+        discoveryService.DiscoverAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentInfo>>(
+            [
+                new AgentInfo("claude", "/usr/bin/claude", AgentType.Claude, AgentStatus.Available, "1.0", null),
+                new AgentInfo("codex", "/usr/bin/codex", AgentType.Codex, AgentStatus.Available, "1.0", null)
+            ]));
+        var eligibility = Substitute.For<IAgentEligibilityService>();
+        eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlySet<AgentType>>(new HashSet<AgentType> { AgentType.Claude }));
+        var service = CriarService(discoveryService: discoveryService, eligibility: eligibility);
+
+        var agents = await service.GetAvailableAgentsAsync();
+
+        agents.ShouldHaveSingleItem().Type.ShouldBe(AgentType.Claude);
+    }
+
+    private static IAgentEligibilityService EligibilityPadrao()
+    {
+        var eligibility = Substitute.For<IAgentEligibilityService>();
+        eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlySet<AgentType>>(
+                new HashSet<AgentType>(Enum.GetValues<AgentType>())));
+        return eligibility;
+    }
+
     private static AgentOrchestrationService CriarService(
         IAgentAcpClient? acpClient = null,
         IAgentDiscoveryService? discoveryService = null,
+        IAgentEligibilityService? eligibility = null,
         IAgentLogBroadcaster? logBroadcaster = null,
         IAgentLogRepository? agentLogRepository = null,
+        IAgentRunRepository? agentRunRepository = null,
         IGitHubService? gitHubService = null)
     {
         var repository = agentLogRepository ?? Substitute.For<IAgentLogRepository>();
+        var runRepository = agentRunRepository ?? Substitute.For<IAgentRunRepository>();
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new AgentRunDto(
+                Guid.NewGuid(), call.Arg<string>(), call.Arg<AgentType>(), AgentRunState.Queued,
+                DateTimeOffset.UtcNow, null)));
+        var eligibilityService = eligibility ?? EligibilityPadrao();
+
         var services = new ServiceCollection();
         services.AddScoped(_ => repository);
+        services.AddScoped(_ => runRepository);
+        services.AddScoped(_ => eligibilityService);
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         return new(
