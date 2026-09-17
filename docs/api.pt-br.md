@@ -134,6 +134,17 @@ PUT    /api/mcp/rag
 
 `PUT /api/mcp/rag` aceita `{ "name", "url", "apiKey" }` — campos `null` preservam o valor gravado; `url` vazia remove a entrada gerenciada de todos os agentes habilitados. O provisionamento faz merge da entrada `<name>` em `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json` e `~/.openhands/mcp.json` (escrita atômica, backup `.bak`, `0600`). A API key nunca é retornada por nenhum endpoint. Chaves de configuração: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (aliases de env `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persistidas como overrides em SQLite.
 
+### CLI Agents e Terminal
+
+```http
+GET    /api/agent-clis
+POST   /terminal-hub/negotiate   (hub SignalR)
+```
+
+`GET /api/agent-clis` retorna uma entrada por CLI de agente suportado (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`): `agent`, `displayName`, `binary`, `installed`, `version`, `authStatus` (`0` desconhecido / `1` autenticado / `2` não autenticado — probe apenas de existência do arquivo de credencial, o conteúdo nunca é lido), `configDir`, `loginCommand`, `installHint`. Baseado em `Taskboard:HomeDir` (padrão `$HOME`).
+
+`/terminal-hub` é um hub SignalR que transmite um bash PTY interativo (`script -qfc`, `TERM=xterm-256color`) para a página `/terminal` — uma sessão por usuário autenticado, reconexões substituem a sessão anterior, sessões ociosas fecham após 30 minutos. Métodos do hub: `Input(string)`, `Resize(int cols, int rows)`; callbacks do cliente: `output(string)`, `closed(string reason)`. Controlado por `Taskboard:Terminal:Enabled` (padrão `true`, env `TASKBOARD_TERMINAL_ENABLED`, editável em runtime).
+
 ## SSE
 
 ### Eventos globais

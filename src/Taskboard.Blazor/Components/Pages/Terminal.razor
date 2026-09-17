@@ -1,0 +1,183 @@
+@page "/terminal"
+@attribute [Authorize]
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Terminal - Taskboard</PageTitle>
+
+<h1 class="h4 fw-bold mb-1">Terminal</h1>
+<p class="small text-body-secondary mb-3">Interactive shell session (bash). Use it to authenticate agent CLIs, e.g. <code>claude</code>, <code>codex</code>, <code>devin auth login</code>.</p>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <Alert Color="AlertColor.Danger" Dismissable="false">
+        <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
+    </Alert>
+}
+else if (_closed)
+{
+    <Alert Color="AlertColor.Warning" Dismissable="false">
+        <Icon Name="IconName.InfoCircleFill" class="me-2" />Session ended: @_closeReason
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-3" @onclick="ReconnectAsync">Reconnect</Button>
+    </Alert>
+}
+else if (!_connected)
+{
+    <div class="d-flex align-items-center gap-2 mb-2 text-body-secondary small">
+        <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Connecting to terminal…
+    </div>
+}
+
+<div id="terminal-host" class="terminal-host" @onclick="FocusTerminal"></div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "cmd")]
+    public string? Cmd { get; set; }
+
+    private HubConnection? _hub;
+    private DotNetObjectReference<Terminal>? _selfRef;
+    private bool _connected;
+    private bool _closed;
+    private string? _error;
+    private string? _closeReason;
+    private bool _cmdSent;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _selfRef = DotNetObjectReference.Create(this);
+        var initialized = await JS.InvokeAsync<bool>("taskboardTerminal.init", "terminal-host", _selfRef);
+        if (!initialized)
+        {
+            _error = "Terminal emulator failed to initialize.";
+            StateHasChanged();
+            return;
+        }
+
+        await ConnectAsync();
+    }
+
+    private async Task ConnectAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/terminal-hub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hub.On<string>("output", data => JS.InvokeVoidAsync("taskboardTerminal.write", data));
+        _hub.On<string>("closed", reason =>
+        {
+            _closed = true;
+            _closeReason = reason;
+            return InvokeAsync(StateHasChanged);
+        });
+        _hub.Reconnected += _ =>
+        {
+            _closed = false;
+            _connected = true;
+            return InvokeAsync(StateHasChanged);
+        };
+        _hub.Closed += _ =>
+        {
+            _connected = false;
+            if (!_closed)
+            {
+                _closed = true;
+                _closeReason = "connection lost";
+            }
+            return InvokeAsync(StateHasChanged);
+        };
+
+        try
+        {
+            await _hub.StartAsync();
+            _connected = true;
+            _closed = false;
+
+            if (!_cmdSent && !string.IsNullOrWhiteSpace(Cmd))
+            {
+                _cmdSent = true;
+                await _hub.InvokeAsync("Input", Cmd);
+            }
+
+            await JS.InvokeVoidAsync("taskboardTerminal.focus");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not open a terminal session: {ex.Message}";
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReconnectAsync()
+    {
+        _error = null;
+        _closed = false;
+        _closeReason = null;
+
+        if (_hub is not null)
+        {
+            await _hub.DisposeAsync();
+            _hub = null;
+        }
+
+        await ConnectAsync();
+    }
+
+    private async Task FocusTerminal()
+    {
+        await JS.InvokeVoidAsync("taskboardTerminal.focus");
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalData(string data)
+    {
+        if (_hub is { State: HubConnectionState.Connected })
+        {
+            await _hub.InvokeAsync("Input", data);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalResize(int cols, int rows)
+    {
+        if (_hub is { State: HubConnectionState.Connected })
+        {
+            await _hub.InvokeAsync("Resize", cols, rows);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try
+            {
+                await _hub.DisposeAsync();
+            }
+            catch
+            {
+                // Ignore cleanup errors on disconnect.
+            }
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.dispose");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop unavailable during teardown.
+        }
+
+        _selfRef?.Dispose();
+    }
+}

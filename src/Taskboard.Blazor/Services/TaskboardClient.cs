@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Settings;
@@ -264,6 +265,11 @@ public sealed class TaskboardClient
             ? await response.Content.ReadFromJsonAsync<McpProvisionStatus>(cancellationToken)
             : null;
     }
+
+    /// <summary>Status dos CLIs de agente (instalado/versão/auth) — SPEC-20260917-cli-agents-terminal.</summary>
+    public async Task<IReadOnlyList<AgentCliStatus>> GetAgentClisAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentCliStatus>>("/api/agent-clis", cancellationToken)
+        ?? [];
 
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {

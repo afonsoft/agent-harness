@@ -66,6 +66,9 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Rag:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "TASKBOARD_RAG_API_KEY", Validate: ValidateRagApiKey),
+        new("Taskboard:Terminal:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_TERMINAL_ENABLED", Validate: ValidateBoolean),
     ];
 
     private readonly IConfiguration _configuration;
@@ -254,6 +257,11 @@ public sealed class RuntimeConfigurationService
             ? null
             : "RAG URL must be an absolute http(s) URL, or empty to disable.";
     }
+
+    private static string? ValidateBoolean(string value) =>
+        bool.TryParse(value.Trim(), out _)
+            ? null
+            : "Value must be 'true' or 'false'.";
 
     private static string? ValidateLogLevel(string value) =>
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)

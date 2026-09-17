@@ -32,8 +32,10 @@ using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
+using Taskboard.Integrations.Terminal;
 using Taskboard.Integrations.Skills;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
@@ -158,6 +160,14 @@ builder.Services.AddSingleton<IMcpProvisioningService>(sp => new McpProvisioning
     sp.GetRequiredService<ILogger<McpProvisioningService>>(),
     homeDir,
     async ct => await ResolveEnabledAgentsAsync(sp, ct)));
+
+builder.Services.AddSingleton<IAgentCliStatusService>(sp => new AgentCliStatusService(
+    homeDir,
+    sp.GetRequiredService<ILogger<AgentCliStatusService>>()));
+
+builder.Services.AddSingleton(sp => new PtySessionFactory(
+    homeDir,
+    sp.GetRequiredService<ILoggerFactory>()));
 
 // Opt-out switch for environments where a background git clone must not run
 // (tests, air-gapped hosts). Default: enabled.
@@ -1087,6 +1097,7 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapFrameworkAssetsApi();
 app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
+app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
 
 api.MapGet("settings", async (SettingsService settings, CancellationToken ct) =>
 {
@@ -1305,6 +1316,10 @@ api.MapPost("skills/install/verify", async (
     ISkillsInstallerService installer,
     CancellationToken ct) =>
     Results.Ok(await installer.VerifyAsync(ct)))
+    .RequireAuthorization();
+
+api.MapGet("agent-clis", async (IAgentCliStatusService agentClis, CancellationToken ct) =>
+    Results.Ok(await agentClis.GetStatusAsync(ct)))
     .RequireAuthorization();
 
 api.MapGet("mcp/status", (IMcpProvisioningService mcp) =>

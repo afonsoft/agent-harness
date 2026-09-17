@@ -71,6 +71,7 @@ dotnet test Taskboard.sln
 | `TASKBOARD_RAG_NAME` | `knowledge` | Managed MCP server name provisioned into enabled agent CLIs |
 | `TASKBOARD_RAG_URL` | *(none)* | RAG MCP URL provisioned into enabled agent CLIs (empty = entry removed) |
 | `TASKBOARD_RAG_API_KEY` | *(none)* | Bearer key for the RAG MCP server (masked in reads; also editable in `/settings`) |
+| `TASKBOARD_TERMINAL_ENABLED` | `true` | Enables the `/terminal` bash PTY page and `/agents` CLI status board (disable to remove the web shell surface) |
 
 Set variables for the current shell session:
 
@@ -207,6 +208,13 @@ If `install.sh` is used, ensure it is executable:
 ```bash
 chmod +x install.sh
 ```
+
+## Agent CLIs and the web terminal
+
+The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`TASKBOARD_TERMINAL_ENABLED`).
+
+- **Bare-metal/host install:** the server uses the real `$HOME`, so CLIs already installed on the host are detected as-is.
+- **Docker image:** the runtime stage ships Node.js LTS plus all five CLIs pre-installed, and sets `HOME=/data/home` so CLI credentials land inside the `/data` volume and survive container recreation. Mount `~/.taskboard/data` at `/data` as usual and authenticate each CLI once from `/terminal`.
 
 ## Next steps
 
