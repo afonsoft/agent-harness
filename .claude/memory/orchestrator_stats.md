@@ -261,3 +261,51 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - SPEC-20260915-github-board-unified: merged via PR #76 (squash `7e9dc0d`), Issue #75 fechada.
 - Deploy: imagem `taskboard-ai:latest` rebuildada de `main`; container `taskboard` recriado com `--env-file .env` (TOKEN_OK, API respondendo).
+
+---
+
+## Execução da sessão 2026-09-17 (orchestrator run)
+
+### Phase -1 — Framework
+
+- `afonsoft/skills` clone `/home/ubuntu/repos/skills` @ `bd78a76c` — up-to-date com `origin` (fetch OK, sem commits novos).
+
+### Phase 0 — Preconditions
+
+- Git clean ✅ | `gh auth` ✅ (afonsoft) | remote `afonsoft/taskboard-ai` ✅ | dotnet 10.0.112 + node v24.16.0 ✅
+
+### Phase 1 — Reconciliação de Issues
+
+- **#81** (epic gap-analysis-20260915): filhos #82/#83 CLOSED, PRs #84–#86 merged → **fechada** com comentário pt-BR.
+- **#74** ("Test"/"teste", label todo): issue de teste sem vínculo com trabalho — **reportada ao usuário** (não fechada automaticamente).
+
+### Phase 6 — SPECs com status defasado
+
+6 SPECs marcados `Approved` mas já implementados (issues fechadas + código em main) → status corrigido para `Done`:
+
+| SPEC | Evidência |
+|---|---|
+| SPEC-20260910-install-cli-sh | `install-cli.sh` no repo; issue #25 CLOSED |
+| SPEC-20260910-system-configuration | `RuntimeConfigurationService` + endpoints `/api/configuration` |
+| SPEC-20260911-acp-json-rpc | `JsonRpcAcpClient` + testes; issue #36 CLOSED |
+| SPEC-20260911-admin-change-password | `PUT /api/admin/password` (Program.cs); commit `2e82153` |
+| SPEC-20260911-api-docs-and-prompts | `UseSwaggerUI` (Program.cs) + página `/prompts` |
+| SPEC-20260911-persist-agent-logs | `AgentLog` EF Core + migration `AddAgentLogs`; issue #35 CLOSED |
+
+### Entregas da sessão anterior (registradas)
+
+| SPEC | Status | PR |
+|---|---|---|
+| SPEC-20260917-skills-installer | Done | #87 (squash `9ec7cf2`) |
+| SPEC-20260917-rag-mcp-provisioning | Done | #87 |
+| SPEC-20260917-cli-agents-terminal | Done | #88 (squash `55a3f8b`) |
+
+### Phase 7 — Verificação final
+
+- `dotnet build -c Release`: ✅ 0 warnings/errors · `dotnet test`: ✅ 353 (265 unit + 88 integration) · `docker build`: ✅ (imagem descartada — deploy é no host)
+- Deploy: host systemd `taskboard-server` enabled+running; `/agents` reporta 5/5 CLIs autenticados; container Docker removido
+- TODO/FIXME em `src/`: nenhum
+- Issues abertas restantes: #74 (teste — aguardando decisão do usuário)
+- Branches locais órfãs (candidatas a cleanup, não removidas sem confirmação): `chore/update-afonsoft-skills`, `devin/spec-*`, `feat/docs-architecture-and-harness`, `feature/devin-20260910-*`, `fix/codeql-pr26`
+
+**Status**: fluxo concluído; pendências = decisão do usuário sobre #74 e cleanup de branches.

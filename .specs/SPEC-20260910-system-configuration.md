@@ -11,7 +11,7 @@
 | Repository | afonsoft/taskboard-ai |
 | Suggested branch | `devin/spec-system-configuration` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | `Done` (status corrigido — implementado e issues fechadas; reconciliado em 2026-09-17) |
 | Date | 2026-09-10 |
 | Target agent | Devin |
 
