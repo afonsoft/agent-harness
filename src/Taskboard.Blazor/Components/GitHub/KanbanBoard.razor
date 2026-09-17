@@ -1,10 +1,11 @@
+@using System.Globalization
 @inject IGitHubService GitHubService
 @inject IAgentOrchestrationService OrchestrationService
 @inject ToastService ToastService
 
-<Modal @ref="_agentModal" Size="ModalSize.Small" IsVerticallyCentered="true" OnHidden="OnAgentModalHidden" />
-<Modal @ref="_detailModal" Size="ModalSize.Large" IsScrollable="true" />
-<Modal @ref="_newTaskModal" Size="ModalSize.Small" IsVerticallyCentered="true" OnHidden="OnNewTaskModalHidden" />
+<Modal @ref="_agentModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnAgentModalHidden" />
+<Modal @ref="_detailModal" Size="ModalSize.Large" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
+<Modal @ref="_newTaskModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnNewTaskModalHidden" />
 
 @if (_isLoading)
 {
@@ -56,7 +57,33 @@ else if (_columns is not null)
                                  aria-label="@context.Title, drag to move"
                                  @ondragstart="() => OnDragStart(context, column.Column)"
                                  @onclick="() => OpenTaskDetailAsync(context)">
-                                <div class="task-title">@context.Title</div>
+                                <div class="task-card-header">
+                                    <div class="task-title">@context.Title</div>
+                                    <div class="dropdown task-card-actions">
+                                        <button type="button" class="task-card-menu" data-bs-toggle="dropdown"
+                                                aria-expanded="false" aria-haspopup="menu"
+                                                aria-label="Mover issue #@context.Number"
+                                                @onclick:stopPropagation @ondragstart:stopPropagation>
+                                            <Icon Name="IconName.ThreeDotsVertical" />
+                                        </button>
+                                        <ul class="dropdown-menu" role="menu">
+                                            @foreach (var target in _columns)
+                                            {
+                                                if (target.Column == column.Column || !target.Column.HasLabel())
+                                                {
+                                                    continue;
+                                                }
+                                                <li>
+                                                    <button type="button" class="dropdown-item" role="menuitem"
+                                                            @onclick="() => MoveIssueAsync(context, column.Column, target.Column)"
+                                                            @onclick:stopPropagation>
+                                                        Mover para @target.Label
+                                                    </button>
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+                                </div>
                                 @if (!string.IsNullOrWhiteSpace(context.Body))
                                 {
                                     <div class="task-description">@context.Body</div>
@@ -68,6 +95,14 @@ else if (_columns is not null)
                                     <span>#@context.Number</span>
                                     <span class="text-body-secondary">|</span>
                                     <span>@(context.AssigneeLogin is null ? "—" : $"@{context.AssigneeLogin}")</span>
+                                    @if (TryGetRun(context, out var run))
+                                    {
+                                        <span class="text-body-secondary">|</span>
+                                        <span class="agent-badge @GetAgentBadgeClass(run!)"
+                                              title="Agente: @GetAgentDisplayName(run!.AgentType) — @run!.State">
+                                            <Icon Name="IconName.Robot" />@GetAgentShortName(run!.AgentType)
+                                        </span>
+                                    }
                                 </div>
                             </div>
                         </Virtualize>
@@ -97,6 +132,7 @@ else if (_columns is not null)
     private string? _errorMessage;
     private string? _currentRepository;
     private IReadOnlyList<BoardColumnDto>? _columns;
+    private Dictionary<string, AgentRunDto>? _agentRuns;
     private IssueDto? _draggedIssue;
     private GitHubBoardColumn? _draggedFromColumn;
     private string _filterText = string.Empty;
@@ -121,6 +157,7 @@ else if (_columns is not null)
         {
             var issues = await GitHubService.GetIssuesAsync(RepositoryFullName);
             _columns = GitHubBoardGrouper.GroupByColumn(issues, DateTimeOffset.UtcNow);
+            await LoadAgentRunsAsync();
         }
         catch (Exception ex)
         {
@@ -130,6 +167,55 @@ else if (_columns is not null)
         {
             _isLoading = false;
         }
+    }
+
+    private async Task LoadAgentRunsAsync()
+    {
+        try
+        {
+            var runs = await OrchestrationService.GetLatestRunsAsync();
+            _agentRuns = runs.ToDictionary(r => r.IssueId);
+        }
+        catch
+        {
+            // Badge hydration is best-effort — the board still works without it.
+            _agentRuns = null;
+        }
+    }
+
+    private bool TryGetRun(IssueDto issue, out AgentRunDto? run)
+    {
+        run = null;
+        return _agentRuns is not null
+            && _agentRuns.TryGetValue(issue.Id.ToString(CultureInfo.InvariantCulture), out run);
+    }
+
+    private static string GetAgentBadgeClass(AgentRunDto run)
+    {
+        var kind = AgentCliMap.CliKindFor(run.AgentType);
+        var name = (kind?.ToString() ?? run.AgentType.ToString()).ToLowerInvariant();
+        var state = run.State is AgentRunState.Queued or AgentRunState.Running
+            ? "agent-badge-active"
+            : "agent-badge-muted";
+        return $"agent-{name} {state}";
+    }
+
+    private static string GetAgentShortName(AgentType type) => type switch
+    {
+        AgentType.Claude => "Claude",
+        AgentType.Codex => "Codex",
+        AgentType.OpenCode => "OpenCode",
+        AgentType.Devin => "Devin",
+        AgentType.Antigravity => "AGY",
+        _ => type.ToString()
+    };
+
+    private static string GetAgentDisplayName(AgentType type)
+    {
+        var kind = AgentCliMap.CliKindFor(type);
+        return kind is not null
+            ? AgentCliMap.GetSpec(kind.Value)?.DisplayName ?? type.ToString()
+            : type.ToString();
     }
 
     private IEnumerable<IssueDto> GetIssues(BoardColumnDto column) =>
@@ -148,16 +234,25 @@ else if (_columns is not null)
 
     private async Task OnDropAsync(GitHubBoardColumn toColumn)
     {
-        if (_draggedIssue is null || _draggedFromColumn == toColumn || !toColumn.HasLabel())
+        if (_draggedIssue is null || _draggedFromColumn is not { } fromColumn || fromColumn == toColumn || !toColumn.HasLabel())
         {
             return;
         }
 
         var issue = _draggedIssue;
-        var fromColumn = _draggedFromColumn;
 
         _draggedIssue = null;
         _draggedFromColumn = null;
+
+        await MoveIssueAsync(issue, fromColumn, toColumn);
+    }
+
+    private async Task MoveIssueAsync(IssueDto issue, GitHubBoardColumn fromColumn, GitHubBoardColumn toColumn)
+    {
+        if (fromColumn == toColumn || !toColumn.HasLabel())
+        {
+            return;
+        }
 
         try
         {
@@ -171,8 +266,10 @@ else if (_columns is not null)
 
                 await GitHubService.UpdateIssueColumnAsync(RepositoryFullName, issue.Number, fromColumn, toColumn);
                 await GitHubService.AddLabelsToIssueAsync(RepositoryFullName, issue.Number, [request.AgentType.ToLabel()]);
-                await OrchestrationService.EnqueueAsync(request);
-                ToastService.Notify(new(ToastType.Success, $"Issue #{issue.Number} movida para {toColumn.ToLabel()} e agente {request.AgentType} iniciado."));
+                var queued = await OrchestrationService.EnqueueAsync(request);
+                ToastService.Notify(queued
+                    ? new(ToastType.Success, $"Issue #{issue.Number} movida para {toColumn.ToLabel()} e agente {request.AgentType} iniciado.")
+                    : new(ToastType.Warning, $"Issue #{issue.Number} movida, mas o agente {request.AgentType} não está elegível (desabilitado ou não autenticado)."));
             }
             else
             {

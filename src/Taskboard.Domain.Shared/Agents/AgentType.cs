@@ -9,5 +9,6 @@ public enum AgentType
     Claude,
     Codex,
     OpenCode,
-    OpenHands
+    OpenHands,
+    Antigravity
 }

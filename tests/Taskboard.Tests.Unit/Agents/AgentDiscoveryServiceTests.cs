@@ -24,7 +24,7 @@ public class AgentDiscoveryServiceTests
 
             var agents = await new AgentDiscoveryService().DiscoverAsync();
 
-            agents.Count.ShouldBe(5);
+            agents.Count.ShouldBe(6);
             var claude = agents.Single(agent => agent.Type == AgentType.Claude);
             claude.Status.ShouldBe(AgentStatus.Available);
             claude.Version.ShouldBe("claude 1.2.3");

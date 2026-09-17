@@ -27,6 +27,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<UserPreference> UserPreferences => Set<UserPreference>();
     public DbSet<AgentPreference> AgentPreferences => Set<AgentPreference>();
     public DbSet<AgentLog> AgentLogs => Set<AgentLog>();
+    public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<ConfigurationOverride> ConfigurationOverrides => Set<ConfigurationOverride>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

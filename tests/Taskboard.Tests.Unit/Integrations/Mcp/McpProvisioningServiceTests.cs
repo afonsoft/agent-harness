@@ -57,8 +57,13 @@ public class McpProvisioningServiceTests : IDisposable
         var status = await service.ProvisionAsync();
 
         status.State.ShouldBe(McpProvisionState.Succeeded);
-        status.Agents.Count.ShouldBe(5);
-        status.Agents.ShouldAllBe(r => r.Configured && r.State == McpAgentState.Configured);
+        status.Agents.Count.ShouldBe(6);
+        status.Agents
+            .Where(r => r.Agent != AgentType.Antigravity)
+            .ShouldAllBe(r => r.Configured && r.State == McpAgentState.Configured);
+        // Antigravity has no known MCP config target — Skipped, not an error.
+        status.Agents.Single(r => r.Agent == AgentType.Antigravity)
+            .State.ShouldBe(McpAgentState.Skipped);
 
         var claude = Path.Join(_home, ".claude.json");
         var devin = Path.Join(_home, ".config", "devin", "mcp_config.json");
@@ -181,6 +186,10 @@ public class McpProvisioningServiceTests : IDisposable
 
         var status = service.GetStatus();
 
-        status.Agents.ShouldAllBe(r => !r.Configured && r.State == McpAgentState.NotConfigured);
+        status.Agents
+            .Where(r => r.Agent != AgentType.Antigravity)
+            .ShouldAllBe(r => !r.Configured && r.State == McpAgentState.NotConfigured);
+        status.Agents.Single(r => r.Agent == AgentType.Antigravity)
+            .State.ShouldBe(McpAgentState.Skipped);
     }
 }

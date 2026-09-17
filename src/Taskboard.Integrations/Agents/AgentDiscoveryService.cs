@@ -15,7 +15,8 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
         [AgentType.Claude] = "claude",
         [AgentType.Codex] = "codex",
         [AgentType.OpenCode] = "opencode",
-        [AgentType.OpenHands] = "openhands"
+        [AgentType.OpenHands] = "openhands",
+        [AgentType.Antigravity] = "agy"
     };
 
     private static readonly Dictionary<AgentType, string> KnownDescriptions = new()
@@ -24,7 +25,8 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
         [AgentType.Claude] = "Claude Code integration",
         [AgentType.Codex] = "OpenAI Codex CLI for code generation",
         [AgentType.OpenCode] = "OpenCode agentic IDE",
-        [AgentType.OpenHands] = "OpenHands autonomous software engineer"
+        [AgentType.OpenHands] = "OpenHands autonomous software engineer",
+        [AgentType.Antigravity] = "Google Antigravity CLI (agy)"
     };
 
     public Task<IReadOnlyList<AgentInfo>> DiscoverAsync(CancellationToken cancellationToken = default)

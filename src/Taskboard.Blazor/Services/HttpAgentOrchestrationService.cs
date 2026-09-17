@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 
 namespace Taskboard.Blazor.Services;
 
@@ -17,10 +18,16 @@ public sealed class HttpAgentOrchestrationService(HttpClient http) : IAgentOrche
         return result?.Agents ?? [];
     }
 
-    public async Task EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
+    public async Task<bool> EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
     {
         var response = await http.PostAsJsonAsync("/api/agents/executions", request, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.UnprocessableEntity)
+        {
+            return false;
+        }
+
         response.EnsureSuccessStatusCode();
+        return true;
     }
 
     public async Task<IReadOnlyList<AgentLogMessage>> GetLogsAsync(string issueId, CancellationToken cancellationToken = default)
@@ -37,6 +44,20 @@ public sealed class HttpAgentOrchestrationService(HttpClient http) : IAgentOrche
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<IReadOnlyList<AgentRunDto>> GetRunsAsync(string issueId, int take = 5, CancellationToken cancellationToken = default)
+    {
+        var result = await http.GetFromJsonAsync<RunsResponse>(
+            $"/api/agents/runs?issueId={Uri.EscapeDataString(issueId)}&take={take}", cancellationToken);
+        return result?.Runs ?? [];
+    }
+
+    public async Task<IReadOnlyList<AgentRunDto>> GetLatestRunsAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await http.GetFromJsonAsync<RunsResponse>("/api/agents/runs/active", cancellationToken);
+        return result?.Runs ?? [];
+    }
+
     private sealed record AgentsResponse(List<AgentInfo> Agents);
     private sealed record LogsResponse(List<AgentLogMessage> Logs);
+    private sealed record RunsResponse(List<AgentRunDto> Runs);
 }
