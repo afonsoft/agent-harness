@@ -23,7 +23,7 @@ public class KnownCliAgentAdapterTests
     }
 
     [Fact]
-    public void Dado_CodexDisponivelNoPath_Quando_MontarComando_Entao_IncluiPromptERepositorio()
+    public void Dado_CodexDisponivelNoPath_Quando_MontarComando_Entao_UsaExecComPromptComoUltimoArgumento()
     {
         var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");
         var executablePath = Path.Combine(directory.FullName, "codex");
@@ -40,10 +40,80 @@ public class KnownCliAgentAdapterTests
 
             command.ExecutablePath.ShouldBe(executablePath);
             command.WorkingDirectory.ShouldBe(request.RepoPath);
-            command.Arguments.Count.ShouldBe(1);
-            command.Arguments[0].ShouldContain($"Branch: {request.Branch}");
-            command.Arguments[0].ShouldContain($"Scope: {request.Scope}");
-            command.Arguments[0].ShouldContain(request.Instructions);
+            command.Arguments.ShouldBe(["exec", "--approve-for-me", "--skip-git-repo-check", command.Arguments[3]]);
+            command.Arguments[3].ShouldContain($"Branch: {request.Branch}");
+            command.Arguments[3].ShouldContain($"Scope: {request.Scope}");
+            command.Arguments[3].ShouldContain(request.Instructions);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", previousPath);
+            Directory.Delete(directory.FullName, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Dado_DevinDisponivelNoPath_Quando_MontarComando_Entao_PromptVaiAposPrintSemVirarPath()
+    {
+        var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");
+        var executablePath = Path.Combine(directory.FullName, "devin");
+        File.WriteAllText(executablePath, "#!/bin/sh\n");
+        SetExecutable(executablePath);
+
+        var previousPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", directory.FullName);
+            var request = CriarRequest(AgentType.Devin) with
+            {
+                Instructions = "Bumps Npgsql.\n\n<details>\n<summary>Release notes</summary>\n</details>"
+            };
+
+            var command = new KnownCliAgentAdapter().BuildCommand(request);
+
+            command.Arguments.Count.ShouldBe(4);
+            command.Arguments[0].ShouldBe("--respect-workspace-trust");
+            command.Arguments[1].ShouldBe("false");
+            command.Arguments[2].ShouldBe("-p");
+            command.Arguments[3].ShouldContain("</details>");
+            command.Arguments[3].ShouldContain(request.Instructions);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", previousPath);
+            Directory.Delete(directory.FullName, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(AgentType.Claude, new[] { "--dangerously-skip-permissions", "-p" })]
+    [InlineData(AgentType.OpenCode, new[] { "run" })]
+    [InlineData(AgentType.Antigravity, new[] { "-p" })]
+    public void Dado_CliConhecido_Quando_MontarComando_Entao_PromptEhUltimoArgumento(AgentType agentType, string[] prefix)
+    {
+        var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");
+        var executablePath = Path.Combine(
+            directory.FullName,
+            agentType switch
+            {
+                AgentType.Claude => "claude",
+                AgentType.OpenCode => "opencode",
+                _ => "agy"
+            });
+        File.WriteAllText(executablePath, "#!/bin/sh\n");
+        SetExecutable(executablePath);
+
+        var previousPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", directory.FullName);
+            var request = CriarRequest(agentType);
+
+            var command = new KnownCliAgentAdapter().BuildCommand(request);
+
+            command.Arguments.Count.ShouldBe(prefix.Length + 1);
+            command.Arguments.Take(prefix.Length).ShouldBe(prefix);
+            command.Arguments[^1].ShouldContain(request.Instructions);
         }
         finally
         {

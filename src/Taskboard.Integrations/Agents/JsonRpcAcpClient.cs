@@ -29,12 +29,6 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         }
 
         var command = adapter.BuildCommand(request);
-        var prompt = command.Arguments.FirstOrDefault() ?? string.Empty;
-        var requestPayload = new JsonRpcRequest(
-            request.IssueId,
-            "execute",
-            JsonSerializer.SerializeToElement(new { prompt }));
-        var requestJson = JsonSerializer.Serialize(requestPayload);
 
         var tcs = new TaskCompletionSource<AgentExecutionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -44,7 +38,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             WorkingDirectory = command.WorkingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            RedirectStandardInput = true,
+            RedirectStandardInput = false,
             UseShellExecute = false,
             CreateNoWindow = true
         };
@@ -82,17 +76,6 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         {
             try
             {
-                var cancel = JsonSerializer.Serialize(new JsonRpcNotification("$/cancelRequest", null));
-                process.StandardInput.WriteLine(cancel);
-                process.StandardInput.Flush();
-            }
-            catch
-            {
-                // Ignora se o processo já encerrou.
-            }
-
-            try
-            {
                 process.Kill(entireProcessTree: true);
             }
             catch
@@ -103,9 +86,6 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
 
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-
-        await process.StandardInput.WriteLineAsync(requestJson).ConfigureAwait(false);
-        await process.StandardInput.FlushAsync().ConfigureAwait(false);
 
         try
         {
