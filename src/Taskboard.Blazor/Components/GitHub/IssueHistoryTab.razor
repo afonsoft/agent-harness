@@ -1,0 +1,105 @@
+@using System.Globalization
+@using Taskboard.GitHub
+@inject TaskboardClient Client
+
+<div class="pt-3">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <strong>History</strong>
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadAsync" Disabled="_loading">
+            <Icon Name="IconName.ArrowClockwise" />
+        </Button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="d-flex align-items-center gap-2 text-body-secondary small">
+            <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Loading history…
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="small text-danger">@_error</div>
+    }
+    else if (_items.Count == 0)
+    {
+        <div class="small text-body-secondary">No recorded history for this issue yet.</div>
+    }
+    else
+    {
+        <ul class="list-unstyled mb-0">
+            @foreach (var item in _items)
+            {
+                <li class="d-flex align-items-start gap-2 py-2 border-bottom">
+                    <Icon Name="@IconFor(item)" class="mt-1 text-body-secondary" />
+                    <div class="flex-grow-1">
+                        <div class="small">@Describe(item)</div>
+                        <div class="small text-body-secondary">
+                            @item.OccurredAt.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)
+                            @if (item.FinishedAt is not null)
+                            {
+                                <text>· finished @item.FinishedAt.Value.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)</text>
+                            }
+                        </div>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string IssueId { get; set; } = string.Empty;
+
+    private IReadOnlyList<IssueHistoryItemDto> _items = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _items = await Client.GetIssueHistoryAsync(IssueId);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load history: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static IconName IconFor(IssueHistoryItemDto item) => item.Kind switch
+    {
+        IssueHistoryItemDto.AgentRun => IconName.Robot,
+        IssueHistoryItemDto.ColumnMoved => IconName.ArrowLeftRight,
+        IssueHistoryItemDto.Edited => IconName.PencilSquare,
+        IssueHistoryItemDto.Closed => IconName.Archive,
+        _ => IconName.Dot
+    };
+
+    private static string Describe(IssueHistoryItemDto item) => item.Kind switch
+    {
+        IssueHistoryItemDto.AgentRun => AgentRunText(item),
+        IssueHistoryItemDto.ColumnMoved => $"Moved: {item.From ?? "?"} → {item.To ?? "?"}",
+        IssueHistoryItemDto.Edited => $"Edited{(item.Detail is not null ? $" ({item.Detail})" : "")}",
+        IssueHistoryItemDto.Closed => $"Closed as {item.Detail ?? "done"}",
+        _ => item.Detail ?? item.Kind
+    };
+
+    private static string AgentRunText(IssueHistoryItemDto item)
+    {
+        var name = item.AgentType?.ToLabel() ?? "Agent";
+        var state = item.AgentRunState?.ToString() ?? "Ran";
+        return $"Agent run: {name} — {state}";
+    }
+}

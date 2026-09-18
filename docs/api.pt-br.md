@@ -156,6 +156,7 @@ GET    /api/vscode/status
 POST   /api/vscode/install
 GET    /api/vscode/install/status
 GET    /api/vscode/workdir?repo=owner/name
+GET    /api/vscode/open?repo=owner/name  → 302 → /vscode/?folder=<workdir> (link direto para o editor)
 GET    /vscode                  → 302 → /vscode/ (barra final exigida pelo code-server)
 GET    /vscode/{**}             → proxy reverso YARP → http://127.0.0.1:8377
 ```
@@ -179,9 +180,12 @@ PUT   /api/github/repos/{owner}/{repo}/issues/{number}/column
 PUT   /api/github/repos/{owner}/{repo}/issues/{number}/priority
 POST  /api/github/repos/{owner}/{repo}/issues/{number}/labels
 POST  /api/github/repos/{owner}/{repo}/issues/{number}/close
+GET   /api/github/issues/{issueId}/history?take=50
 ```
 
 O estado do kanban é baseado em labels: `PATCH .../issues/{n}` edita `{ title?, body }` (corpo markdown renderizado sanitizado na UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` troca as labels `priority:*` (`none` remove); `POST .../close` `{ "resolution": "canceled|archived" }` fecha a issue — `canceled` também aplica a label `canceled` (coluna Canceled), `archived` fecha sem label de coluna (Archived). Todos retornam `200 { issue }`; enum inválido → `400`, issue desconhecida → `404`, anônimo → `401`.
+
+Cada mutação do board também é persistida como `IssueHistoryEvent` (`column-moved` com `from`/`to`, `edited` com os campos alterados, `closed` com a resolução) indexada pelo id da issue do GitHub — best-effort, nunca falha a mutação. `GET .../issues/{issueId}/history` mescla esses eventos com os agent runs da issue em `200 { items: [{ kind, occurredAt, agentType?, agentRunState?, finishedAt?, from?, to?, detail? }] }` do mais recente ao mais antigo — os dados da aba `Histórico` no dialog da issue.
 
 ### Orquestração de Agentes
 

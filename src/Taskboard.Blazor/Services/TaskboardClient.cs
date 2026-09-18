@@ -332,6 +332,15 @@ public sealed class TaskboardClient
             : null;
     }
 
+    /// <summary>Timeline unificada da issue: eventos do board + execuções de agente, mais recente primeiro.</summary>
+    public async Task<IReadOnlyList<Taskboard.GitHub.IssueHistoryItemDto>> GetIssueHistoryAsync(
+        string issueId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<IssueHistoryResponse>(
+            $"/api/github/issues/{Uri.EscapeDataString(issueId)}/history", cancellationToken);
+        return (IReadOnlyList<Taskboard.GitHub.IssueHistoryItemDto>?)response?.Items ?? [];
+    }
+
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try
@@ -355,6 +364,8 @@ public sealed class TaskboardClient
 
         return $"Request failed with status {(int)response.StatusCode}.";
     }
+
+    private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);
 
     private sealed record ProjectListResponse(List<ProjectDto> Projects);
     private sealed record CommentListResponse(List<CommentDto> Comments);
