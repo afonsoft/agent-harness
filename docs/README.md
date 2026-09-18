@@ -2,7 +2,7 @@
 
 ## Overview
 
-`taskboard-ai` is a .NET 10 clone of the `dashi-taskboard` local-first taskboard. It is built with ABP N-Layer / Domain-Driven Design and exposes HTTP REST, SSE, CLI (`taskctl`), and MCP server interfaces.
+**Harness** (`taskboard-ai`) is a .NET 10 clone of the `dashi-taskboard` local-first taskboard. It is built with ABP N-Layer / Domain-Driven Design and exposes HTTP REST, SSE, CLI (`taskctl`), and MCP server interfaces.
 
 ## Architecture
 

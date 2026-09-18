@@ -1,4 +1,4 @@
-# taskboard-ai
+# Harness
 
 [![.NET Build and Test](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml)
 [![Code Quality](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml)
@@ -7,11 +7,21 @@
 
 > **Idioma padrão:** Inglês (en-us). Veja a [README.md](README.md) para a versão em inglês.
 
-Taskboard local-first e AI-native inspirado no `dashi-taskboard`, reescrito em **C# 14 / .NET 10**.
+**Harness** é uma bancada local-first e AI-native para orquestrar agentes de código de IA — construído em **C# 14 / .NET 10**. (O repositório e os identificadores técnicos mantêm o nome `taskboard-ai`.)
 
 ## Visão Geral
 
-O `taskboard-ai` é um quadro de tarefas local-first para desenvolvedores e agentes de IA. Oferece sistema de tarefas com SQLite, API REST, Server-Sent Events (SSE), CLI `taskctl`, servidor MCP, integração de chat com IA e UI web Blazor WebAssembly — tudo implementado em .NET 10 com ABP N-Layer / DDD.
+O Harness transforma issues do GitHub em um quadro Kanban dirigido por CLIs de agentes de IA. Oferece sistema de tarefas com SQLite, API REST, Server-Sent Events (SSE), CLI `taskctl`, servidor MCP, integração de chat com IA, terminal multi-abas, editor VS Code web embutido (code-server) e UI Blazor WebAssembly — tudo implementado em .NET 10 com ABP N-Layer / DDD.
+
+Capacidades principais:
+
+- **Quadro Kanban GitHub** — colunas baseadas em labels, drag & drop, prioridades, corpos em markdown, comentários de issue (postar pela UI direto no GitHub) e timeline unificada por issue (mutações do board + execuções de agente).
+- **Orquestração de agentes** — execute qualquer um dos 13 CLIs de agente (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) numa issue, com prompts por issue, seção `Comments:` de handoff anexada automaticamente ao prompt, streaming de logs via SignalR e histórico de execuções persistido.
+- **Tiers de modelo** — seletor Lite/Normal/Ultra por CLI mapeado para modelos reais (ex.: Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.1-codex-mini`/`-codex`/`-codex-max`, Devin `haiku`/`swe`/`opus`); CLIs sem flag de modelo ficam gerenciados pela própria CLI.
+- **Admin de CLIs de agentes** — instale/autentique CLIs pela UI com logs de instalação estilo terminal; ative/desative por agente.
+- **Settings de Skills & MCP/RAG** — instale o catálogo `afonsoft/skills` pela UI e provisione um servidor MCP de RAG (URL + key) em todos os configs de agentes suportados.
+- **VS Code Web** — code-server gerenciado em `/vscode/` (proxy com espera de readiness, encaminhamento de portas via `VSCODE_PROXY_URI`), mais link "Open in VS Code" por issue.
+- **Terminal** — múltiplas abas bash PTY interativas via SignalR.
 
 ## Stack Tecnológico
 
@@ -95,15 +105,15 @@ Defina `GITHUB_TOKEN` antes de iniciar o servidor:
 export GITHUB_TOKEN=seu-token-do-github
 ```
 
-Abra `/github-board` para visualizar as issues do GitHub como um board Kanban. Arraste uma issue para **In Progress**, selecione um agente instalado e acompanhe a execução na aba **Logs**. As CLIs suportadas são Devin, Claude, Codex, OpenCode e OpenHands. Os logs dos agentes são transmitidos em tempo real pelo hub SignalR em `/agent-log-hub`.
+Abra `/github-board` para visualizar as issues do GitHub como um board Kanban. Arraste uma issue para **In Progress**, escolha o CLI do agente e o tier de modelo, e acompanhe a execução na aba **Logs**. Os logs dos agentes são transmitidos em tempo real pelo hub SignalR em `/agent-log-hub`.
 
 ## Destaques Recentes
 
-- Orquestração de agentes com detecção de CLI e streaming de logs via SignalR.
-- Persistência de `AgentLogMessage` em SQLite via EF Core.
-- Adapter JSON-RPC ACP sobre stdin/stdout para comunicação com agentes.
-- Harness `.devin/` para Devin CLI e `~/.gemini/skills/` para Google Antigravity.
-- Refinamento das GitHub Actions com cache, concurrency, permissions, SonarCloud e CodeQL.
+- Tiers de modelo Lite/Normal/Ultra mapeados para modelos reais por CLI.
+- Comentários de issue do GitHub como canal de handoff entre agentes (aba na UI + seção `Comments:` automática no prompt + MCP/taskctl).
+- Histórico unificado da issue: mutações do board + execuções de agente numa única timeline.
+- VS Code Web (code-server gerenciado) com deep links por issue e encaminhamento de portas.
+- Terminal PTY multi-abas e página de admin de CLIs com logs de instalação.
 
 ## Ordem de Build
 

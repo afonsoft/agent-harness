@@ -158,7 +158,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
             // without this every new folder opens in Restricted Mode.
             startInfo.ArgumentList.Add("--disable-workspace-trust");
             startInfo.ArgumentList.Add("--app-name");
-            startInfo.ArgumentList.Add("Taskboard");
+            startInfo.ArgumentList.Add("Harness");
             // code-server is mounted at a subpath — without this its ports
             // panel and /proxy/<port> links point at the domain root and 404.
             startInfo.Environment["VSCODE_PROXY_URI"] = _publicPathPrefix + "/proxy/{{port}}";

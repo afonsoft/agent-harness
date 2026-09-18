@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-harness-rebranding` |
 | Ticket | — |
-| Status | `Draft` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -110,8 +110,8 @@ Somente `GET /api/meta` campo `name` (se existir). Sem breaking changes.
 
 ## 9. Definition of Done
 
-- [ ] `Harness` no título/menu/login/code-server.
-- [ ] READMEs completos e fiéis ao estado atual.
-- [ ] AGENTS.md com missão Harness + nota de nomenclatura.
-- [ ] Zero referências de branding a "taskboard" na UI; zero renames técnicos.
-- [ ] Build + testes verdes; PR merged + deploy.
+- [x] `Harness` no título/menu/login/code-server.
+- [x] READMEs completos e fiéis ao estado atual.
+- [x] AGENTS.md com missão Harness + nota de nomenclatura.
+- [x] Zero referências de branding a "taskboard" na UI; zero renames técnicos.
+- [x] Build + testes verdes; PR merged + deploy.
