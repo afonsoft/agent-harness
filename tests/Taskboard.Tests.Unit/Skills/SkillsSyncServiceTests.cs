@@ -156,6 +156,33 @@ public class SkillsSyncServiceTests : IDisposable
         File.Exists(Path.Join(home, ".claude", "skills", "alpha-skill", "SKILL.md")).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task Dado_CacheInacessivel_Quando_Sync_Entao_RecuperaESincroniza()
+    {
+        // Covers RF-005 + AC1: an inaccessible cache is moved aside and a clean
+        // clone drives a full sync to the agent targets
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var repo = await CreateSourceRepositoryAsync();
+        var home = Path.Join(_root, "home");
+        var cache = Path.Join(_root, "cache");
+        Directory.CreateDirectory(cache);
+        File.SetUnixFileMode(cache, 0);
+
+        var service = CreateService(repo, home);
+        var status = await service.SyncAsync([AgentType.Claude]);
+
+        status.State.ShouldBe(SkillsSyncState.Succeeded);
+        File.Exists(Path.Join(home, ".claude", "skills", "alpha-skill", "SKILL.md")).ShouldBeTrue();
+        Directory.Exists(cache).ShouldBeTrue();
+        var stale = Directory.EnumerateDirectories(_root, "cache.inaccessible-*").Single();
+        File.SetUnixFileMode(stale,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
     private SkillsSyncService CreateService(string repository, string home, string? accessToken = null)
     {
         var configuration = new ConfigurationBuilder()

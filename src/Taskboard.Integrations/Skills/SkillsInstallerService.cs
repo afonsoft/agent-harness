@@ -185,21 +185,31 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
             else
             {
                 var cacheStopwatch = Stopwatch.StartNew();
+                var cacheReady = false;
                 try
                 {
-                    await SkillsRepository
+                    var prepare = await SkillsRepository
                         .EnsureCacheAsync(_cacheDirectory, repository, token, GitExec, _logger, cancellationToken)
                         .ConfigureAwait(false);
+                    if (prepare == CachePrepareResult.Recovered)
+                    {
+                        steps.Add(new SkillsInstallStep(
+                            "cache-prepare", SkillsInstallStepState.Succeeded, null,
+                            cacheStopwatch.ElapsedMilliseconds,
+                            "recovered from inaccessible cache — stale clone moved aside"));
+                    }
+
+                    cacheReady = true;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Skills cache refresh failed for {Repository}.", repository);
                     steps.Add(new SkillsInstallStep(
-                        "install-sh", SkillsInstallStepState.Failed, null, cacheStopwatch.ElapsedMilliseconds,
+                        "cache-prepare", SkillsInstallStepState.Failed, null, cacheStopwatch.ElapsedMilliseconds,
                         Sanitize(ex.Message)));
                 }
 
-                if (steps.Count == 1)
+                if (cacheReady)
                 {
                     var script = Path.Join(_cacheDirectory, "install.sh");
                     steps.Add(!File.Exists(script)
@@ -208,6 +218,12 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
                         : await RunStepAsync(
                             "install-sh", bash, _cacheDirectory, ["install.sh", "--all"], cancellationToken)
                             .ConfigureAwait(false));
+                }
+                else
+                {
+                    steps.Add(new SkillsInstallStep(
+                        "install-sh", SkillsInstallStepState.Skipped, null, null,
+                        "cache-prepare failed"));
                 }
             }
 
