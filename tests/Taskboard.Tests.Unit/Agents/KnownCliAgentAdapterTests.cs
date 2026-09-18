@@ -40,7 +40,7 @@ public class KnownCliAgentAdapterTests
 
             command.ExecutablePath.ShouldBe(executablePath);
             command.WorkingDirectory.ShouldBe(request.RepoPath);
-            command.Arguments.ShouldBe(["exec", "--approve-for-me", "--skip-git-repo-check", "-m", "gpt-5.1-codex", command.Arguments[5]]);
+            command.Arguments.ShouldBe(["exec", "--approve-for-me", "--skip-git-repo-check", "-m", "gpt-5.6-luna", command.Arguments[5]]);
             command.Arguments[5].ShouldContain($"Branch: {request.Branch}");
             command.Arguments[5].ShouldContain($"Scope: {request.Scope}");
             command.Arguments[5].ShouldContain(request.Instructions);

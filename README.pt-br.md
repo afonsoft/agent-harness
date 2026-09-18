@@ -17,7 +17,7 @@ Capacidades principais:
 
 - **Quadro Kanban GitHub** — colunas baseadas em labels, drag & drop, prioridades, corpos em markdown, comentários de issue (postar pela UI direto no GitHub) e timeline unificada por issue (mutações do board + execuções de agente).
 - **Orquestração de agentes** — execute qualquer um dos 13 CLIs de agente (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) numa issue, com prompts por issue, seção `Comments:` de handoff anexada automaticamente ao prompt, streaming de logs via SignalR e histórico de execuções persistido.
-- **Tiers de modelo** — seletor Lite/Normal/Ultra por CLI mapeado para modelos reais (ex.: Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.1-codex-mini`/`-codex`/`-codex-max`, Devin `haiku`/`swe`/`opus`); CLIs sem flag de modelo ficam gerenciados pela própria CLI.
+- **Tiers de modelo** — seletor Lite/Normal/Ultra por CLI mapeado para modelos reais (ex.: Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.6-luna`, Devin `haiku`/`swe`/`opus`); CLIs sem flag de modelo ficam gerenciados pela própria CLI.
 - **Admin de CLIs de agentes** — instale/autentique CLIs pela UI com logs de instalação estilo terminal; ative/desative por agente.
 - **Settings de Skills & MCP/RAG** — instale o catálogo `afonsoft/skills` pela UI e provisione um servidor MCP de RAG (URL + key) em todos os configs de agentes suportados.
 - **VS Code Web** — code-server gerenciado em `/vscode/` (proxy com espera de readiness, encaminhamento de portas via `VSCODE_PROXY_URI`), mais link "Open in VS Code" por issue.
