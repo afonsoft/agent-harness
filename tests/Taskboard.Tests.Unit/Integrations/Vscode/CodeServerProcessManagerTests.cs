@@ -19,9 +19,12 @@ public class CodeServerProcessManagerTests : IDisposable
     private CodeServerProcessManager Create(
         Func<string, string?>? locator = null,
         IStreamingProcessRunner? runner = null,
-        Func<ProcessStartInfo, Process?>? starter = null) =>
+        Func<ProcessStartInfo, Process?>? starter = null,
+        Func<int, CancellationToken, Task<bool>>? portProbe = null,
+        TimeSpan? readyTimeout = null) =>
         new(_home, 18777, Workspace, NullLogger<CodeServerProcessManager>.Instance,
-            locator ?? (_ => null), runner ?? Substitute.For<IStreamingProcessRunner>(), starter);
+            locator ?? (_ => null), runner ?? Substitute.For<IStreamingProcessRunner>(), starter,
+            portProbe: portProbe, readyTimeout: readyTimeout);
 
     [Fact]
     public async Task Dado_BinarioAusente_Quando_GetStatus_Entao_NaoInstaladoNemRodando()
@@ -107,6 +110,50 @@ public class CodeServerProcessManagerTests : IDisposable
         captured.Environment["VSCODE_PROXY_URI"].ShouldBe("/vscode/proxy/{{port}}");
         captured.WorkingDirectory.ShouldBe(Path.Join(_home, "repos"));
         captured.RedirectStandardOutput.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_ProcessoVivo_Quando_EnsureStarted_Entao_EsperaPortaAbrir()
+    {
+        var probes = 0;
+        var manager = Create(
+            locator: _ => "/usr/bin/code-server",
+            starter: _ => Process.GetCurrentProcess(),
+            portProbe: (_, _) => { probes++; return Task.FromResult(probes >= 3); });
+
+        var status = await manager.EnsureStartedAsync();
+
+        status.Running.ShouldBeTrue();
+        probes.ShouldBeGreaterThanOrEqualTo(3);
+    }
+
+    [Fact]
+    public async Task Dado_PortaNuncaAbre_Quando_EnsureStarted_Entao_NaoRunning()
+    {
+        var manager = Create(
+            locator: _ => "/usr/bin/code-server",
+            starter: _ => Process.GetCurrentProcess(),
+            portProbe: (_, _) => Task.FromResult(false),
+            readyTimeout: TimeSpan.FromMilliseconds(400));
+
+        var status = await manager.EnsureStartedAsync();
+
+        status.Running.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_ProcessoMorto_Quando_EnsureStarted_Entao_NaoProcuraPorta()
+    {
+        var probed = false;
+        var manager = Create(
+            locator: _ => "/usr/bin/code-server",
+            starter: _ => null,
+            portProbe: (_, _) => { probed = true; return Task.FromResult(true); });
+
+        var status = await manager.EnsureStartedAsync();
+
+        probed.ShouldBeFalse();
+        status.Running.ShouldBeFalse();
     }
 
     public void Dispose()

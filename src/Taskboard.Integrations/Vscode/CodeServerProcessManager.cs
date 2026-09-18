@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Vscode;
 using Taskboard.Integrations.Agents;
@@ -17,6 +19,8 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
     public const int DefaultPort = 8377;
 
     private static readonly TimeSpan VersionProbeTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultReadyTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ReadyPollInterval = TimeSpan.FromMilliseconds(250);
 
     private readonly string _homeDirectory;
     private readonly int _port;
@@ -26,11 +30,14 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
     private readonly Func<string, string?> _locator;
     private readonly IStreamingProcessRunner _runner;
     private readonly Func<ProcessStartInfo, Process?> _processStarter;
+    private readonly Func<int, CancellationToken, Task<bool>> _portProbe;
+    private readonly TimeSpan _readyTimeout;
     private readonly object _gate = new();
 
     private Process? _process;
     private Task? _pumpTask;
     private bool _lastStartFailed;
+    private bool _listening;
 
     public CodeServerProcessManager(
         string homeDirectory,
@@ -40,7 +47,9 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
         Func<string, string?>? executableLocator = null,
         IStreamingProcessRunner? runner = null,
         Func<ProcessStartInfo, Process?>? processStarter = null,
-        string publicPathPrefix = "/vscode")
+        string publicPathPrefix = "/vscode",
+        Func<int, CancellationToken, Task<bool>>? portProbe = null,
+        TimeSpan? readyTimeout = null)
     {
         _homeDirectory = homeDirectory;
         _port = port;
@@ -50,6 +59,8 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
         _locator = executableLocator ?? PathSearch.FindExecutable;
         _runner = runner ?? StreamingProcessRunner.Instance;
         _processStarter = processStarter ?? Process.Start;
+        _portProbe = portProbe ?? TcpProbeAsync;
+        _readyTimeout = readyTimeout ?? DefaultReadyTimeout;
     }
 
     /// <summary>Loopback base URL the reverse proxy targets.</summary>
@@ -68,7 +79,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
             binary is not null,
             binary,
             version,
-            IsRunning(),
+            IsRunning() && _listening,
             _port,
             _homeDirectory,
             _workspace.Root);
@@ -83,6 +94,13 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
             {
                 Start(binary);
             }
+        }
+
+        if (IsRunning())
+        {
+            // The process is alive but may still be binding its listener —
+            // proxying now would surface as a raw 502 (connection refused).
+            await WaitForListeningAsync(cancellationToken).ConfigureAwait(false);
         }
 
         return await GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -147,6 +165,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
 
             try
             {
+                _listening = false;
                 _process = _processStarter(startInfo);
                 _lastStartFailed = _process is null;
             }
@@ -162,6 +181,59 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
                 _pumpTask = Task.Run(PumpAsync);
                 _logger.LogInformation("code-server started (pid {Pid}, {Url}).", _process.Id, BaseUrl);
             }
+        }
+    }
+
+    /// <summary>
+    /// Polls the loopback port until code-server accepts a connection or the
+    /// ready timeout elapses. Once bound, the listener stays up for the life
+    /// of the process, so a single successful probe marks it servable.
+    /// </summary>
+    private async Task WaitForListeningAsync(CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_readyTimeout);
+        try
+        {
+            while (true)
+            {
+                if (!IsRunning())
+                {
+                    return; // died during startup — status will report not-running
+                }
+
+                if (await _portProbe(_port, timeout.Token).ConfigureAwait(false))
+                {
+                    _listening = true;
+                    _logger.LogInformation("code-server is listening on {Url}.", BaseUrl);
+                    return;
+                }
+
+                await Task.Delay(ReadyPollInterval, timeout.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(
+                    "code-server did not listen on {Url} within {Seconds}s.",
+                    BaseUrl, _readyTimeout.TotalSeconds);
+            }
+        }
+    }
+
+    private static async Task<bool> TcpProbeAsync(int port, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
         }
     }
 

@@ -73,7 +73,7 @@
 
 - Página `/editor` (menu lateral "VS Code"): VS Code Web via `code-server` gerenciado — iframe embutido, toolbar de caminho, abrir em nova aba; abre em `$HOME` por padrão, `?repo=owner/name` abre o workdir do repo do card
 - Instalação gerenciada: `POST /api/vscode/install` executa o instalador standalone allowlisted em background com console de log ao vivo (`GET /api/vscode/install/status`)
-- code-server roda como processo filho lazy em `127.0.0.1` com `--auth none --disable-workspace-trust --app-name Taskboard`, acessível apenas pelo proxy YARP autenticado em `/vscode/{**}` (com WebSocket, prefixo removido); `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` mantém os links de portas funcionando sob o subpath
+- code-server roda como processo filho lazy em `127.0.0.1` com `--auth none --disable-workspace-trust --app-name Taskboard`, acessível apenas pelo proxy YARP autenticado em `/vscode/{**}` (com WebSocket, prefixo removido); `EnsureStartedAsync` aguarda a porta aceitar conexão (probe TCP, timeout 30s) para o primeiro request não cair num 502 de race; `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` mantém os links de portas funcionando sob o subpath
 - Workspace root `Taskboard:WorkspaceRoot` (padrão `~/repos`, criado automaticamente): cwd default dos agent runs e clones; workdir do card resolve para `<root>/<repo>` (sanitizado, sem traversal) via `GET /api/vscode/workdir`
 - "Open in VS Code" no dialog da issue abre o editor em nova aba do navegador via `GET /api/vscode/open?repo=<fullName>` → 302 para `/vscode/?folder=<workdir do card>` — veja e edite os mesmos arquivos que o agente está alterando
 
