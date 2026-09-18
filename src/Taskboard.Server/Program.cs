@@ -1609,14 +1609,15 @@ agents.MapPut("{agentType}/models", async (
 agents.MapGet("{agentType}/models/available", async (
     AgentType agentType,
     IAgentModelCatalogService modelCatalog,
-    CancellationToken ct) =>
+    CancellationToken ct,
+    bool refresh = false) =>
 {
     if (!AgentCliModels.SupportsModelSelection(agentType))
     {
         return Results.UnprocessableEntity(new { error = "model-selection-unsupported", agentType = agentType.ToString() });
     }
 
-    return Results.Ok(new AvailableAgentModelsResponse(await modelCatalog.ListAvailableAsync(agentType, ct)));
+    return Results.Ok(new AvailableAgentModelsResponse(await modelCatalog.ListAvailableAsync(agentType, refresh, ct)));
 });
 
 agents.MapDelete("{agentType}/models", async (

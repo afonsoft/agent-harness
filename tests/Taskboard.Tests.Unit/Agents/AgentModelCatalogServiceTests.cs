@@ -99,6 +99,21 @@ public class AgentModelCatalogServiceTests
     }
 
     [Fact]
+    public async Task Dado_ForceRefresh_Quando_ListAvailable_Entao_IgnoraCacheEReexecuta()
+    {
+        var runner = new FakeRunner
+        {
+            Handler = (_, _) => new CommandResult(0, "opencode/m1\n", string.Empty),
+        };
+        var service = CreateService(locator: _ => "/usr/bin/opencode", runner: runner);
+
+        await service.ListAvailableAsync(AgentType.OpenCode);
+        await service.ListAvailableAsync(AgentType.OpenCode, forceRefresh: true);
+
+        runner.Calls.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task Dado_ProbeFalha_Quando_ListAvailable_Entao_VazioSemLancar()
     {
         var runner = new FakeRunner

@@ -50,7 +50,7 @@ O mapeamento tier→modelo vive hoje na tabela curada `AgentCliModels` (hardcode
 - **RF-005** `PUT` valida strings não-vazias ≤128 chars (cada tier pode ser omitido → usa default); `DELETE` remove o override.
 - **RF-006** `AgentOrchestrationService.EnqueueAsync` resolve o modelo via o service (scope), grava em `AgentRun.ModelName` e propaga `ResolvedModelName` — argv e run record nunca divergem.
 - **RF-007** CLI Agents: botão **Models** (ícone engrenagem) na coluna Actions, visível apenas para `Installed && SupportsModelSelection`. Dialog mostra os 3 tiers com **AutoComplete editável** (digitação livre + busca por conteúdo, `StringFilterOperator.Contains`), badge `Override|Default`, botões Salvar / Restaurar defaults / Cancelar.
-- **RF-008** `GET /api/agents/{type}/models/available` retorna `{ models }` — ids que a CLI instalada reporta headless (`opencode models` linhas, `devin models list` famílias/variantes/aliases, `agy models` `id<TAB>nome`; probe 10s, cache 5min, falha → `[]`). `422 model-selection-unsupported` para CLI-managed. O dialog mescla available + catálogo curado + valores atuais (distinct, case-insensitive) nas sugestões.
+- **RF-008** `GET /api/agents/{type}/models/available` retorna `{ models }` — ids que a CLI instalada reporta headless (`opencode models` linhas, `devin models list` famílias/variantes/aliases, `agy models` `id<TAB>nome`; probe 10s, cache 5min — `?refresh=true` fura o cache, falha → `[]`). `422 model-selection-unsupported` para CLI-managed. O dialog mescla available + catálogo curado + valores atuais (distinct, case-insensitive) nas sugestões e tem botão **Sync** que chama `?refresh=true` para atualizar a lista sob demanda.
 
 ## 4. Technical Notes
 

@@ -52,16 +52,32 @@ else if (_config is not null)
         </div>
     }
 
-    <p class="small text-body-secondary">
-        <Icon Name="IconName.InfoCircle" class="me-1" />
-        Deixe em branco para usar o default curado. O modelo é passado à CLI via argumento na execução.
-        @if (_available is not null)
-        {
-            <span class="d-block mt-1">
-                @_available.Count modelo(s) reportado(s) pela CLI + catálogo curado.
-            </span>
-        }
-    </p>
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+        <p class="small text-body-secondary mb-0">
+            <Icon Name="IconName.InfoCircle" class="me-1" />
+            Deixe em branco para usar o default curado. O modelo é passado à CLI via argumento na execução.
+            @if (_available is not null)
+            {
+                <span class="d-block mt-1">
+                    @_available.Count modelo(s) reportado(s) pela CLI + catálogo curado.
+                </span>
+            }
+        </p>
+        <Tooltip Title="Re-executar o comando de listagem de modelos da CLI (ignora o cache de 5 min)">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                    @onclick="SyncAsync" Disabled="@(_syncing || _loading)">
+                @if (_syncing)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
+                }
+                else
+                {
+                    <Icon Name="IconName.ArrowClockwise" class="me-1" />
+                }
+                Sync
+            </Button>
+        </Tooltip>
+    </div>
 
     <div class="d-flex justify-content-between pt-2 border-top">
         <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ResetAsync"
@@ -114,6 +130,7 @@ else
     private List<ModelOption> _suggestions = [];
     private bool _loading = true;
     private bool _saving;
+    private bool _syncing;
     private string? _error;
 
     protected override async Task OnInitializedAsync()
@@ -145,17 +162,34 @@ else
     // can take a few seconds — the dialog renders immediately with the
     // curated catalog and the dropdown gains the CLI-reported ids when the
     // probe returns (failures keep the curated list only).
-    private async Task RefreshAvailableAsync()
+    private async Task RefreshAvailableAsync(bool forceRefresh = false)
     {
         try
         {
-            _available = await ModelCatalog.ListAvailableAsync(AgentType);
+            _available = await ModelCatalog.ListAvailableAsync(AgentType, forceRefresh);
             _suggestions = BuildSuggestions();
             await InvokeAsync(StateHasChanged);
         }
         catch
         {
             _available = [];
+        }
+    }
+
+    // Sync button: forces a fresh probe server-side (bypasses the 5-min
+    // cache) so newly installed/updated CLIs surface their models at once.
+    private async Task SyncAsync()
+    {
+        _syncing = true;
+        try
+        {
+            await RefreshAvailableAsync(forceRefresh: true);
+            ToastService.Notify(new(ToastType.Info,
+                $"Lista de modelos de {DisplayName} atualizada ({_available?.Count ?? 0} reportados pela CLI)."));
+        }
+        finally
+        {
+            _syncing = false;
         }
     }
 

@@ -37,7 +37,7 @@ public sealed class AgentModelCatalogService : IAgentModelCatalogService
     }
 
     public async Task<IReadOnlyList<string>> ListAvailableAsync(
-        AgentType agentType, CancellationToken cancellationToken = default)
+        AgentType agentType, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         var probe = AgentCliModels.ModelListProbe(agentType);
         var kind = AgentCliMap.CliKindFor(agentType);
@@ -48,7 +48,7 @@ public sealed class AgentModelCatalogService : IAgentModelCatalogService
             return [];
         }
 
-        if (_cache.TryGetValue(agentType, out var hit) && hit.ExpiresAt > DateTimeOffset.UtcNow)
+        if (!forceRefresh && _cache.TryGetValue(agentType, out var hit) && hit.ExpiresAt > DateTimeOffset.UtcNow)
         {
             return hit.Models;
         }
