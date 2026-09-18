@@ -63,4 +63,18 @@ public interface IGitHubService
     /// Adiciona um comentário a uma issue existente.
     /// </summary>
     Task<IssueCommentDto> AddIssueCommentAsync(string repositoryFullName, int issueNumber, string body, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lista os milestones de um repositório (abertos e fechados) — o
+    /// <c>due_on</c> é o marcador de deadline do Gantt
+    /// (SPEC-20260918-gantt-github-timeline).
+    /// </summary>
+    Task<IReadOnlyList<MilestoneDto>> GetMilestonesAsync(string repositoryFullName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Eventos <c>labeled</c>/<c>unlabeled</c> do timeline de uma issue — usados
+    /// para reconstruir as transições de coluna. Best-effort: a implementação
+    /// retorna o que conseguir (rate limits não devem derrubar o conjunto).
+    /// </summary>
+    Task<IReadOnlyList<IssueLabelEventDto>> GetIssueTimelineEventsAsync(string repositoryFullName, int issueNumber, CancellationToken cancellationToken = default);
 }

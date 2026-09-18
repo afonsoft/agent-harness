@@ -48,6 +48,7 @@
 - Jira sync
 - GitHub Kanban at `/github-board` through `IGitHubService`
 - GitHub board labels: `backlog`, `in-progress`, `review`, `done`
+- Gantt at `/gantt` backed by GitHub issues: bars `createdAt → closedAt` (open issues run to today with a distinct "in progress" style), milestone `due_on` diamonds, column-colored bars, and a kanban metrics panel — lead time (avg/median), cycle time (first backlog exit → done), WIP, median open-issue aging and weekly throughput — all computed server-side from `labeled`/`unlabeled` timeline events merged with local `IssueHistoryEvent` records
 - GitHub authentication through `GITHUB_TOKEN`
 - DeepSeek harness
 - Execution helpers (`CodexExecutableResolver`, `ProcessTreeSignaler`, `ExecutableCommand`)

@@ -649,6 +649,71 @@ body {
 .gantt-bar-low { background-color: var(--priority-low-border); }
 .gantt-bar-none { background-color: var(--priority-none-border); }
 
+/* Gantt — column colors + open/milestone styles (SPEC-20260918-gantt-github-timeline) */
+.gantt-col-backlog { background-color: var(--bs-secondary); }
+.gantt-col-todo { background-color: var(--bs-info); }
+.gantt-col-in-progress { background-color: var(--bs-primary); }
+.gantt-col-in-review { background-color: var(--bs-warning); }
+.gantt-col-in-pullrequest { background-color: #6f42c1; }
+.gantt-col-blocked { background-color: var(--bs-danger); }
+.gantt-col-done { background-color: var(--bs-success); }
+.gantt-col-canceled { background-color: var(--bs-dark); }
+.gantt-col-archived { background-color: var(--bs-gray-500); }
+
+.gantt-bar-open {
+    opacity: 0.65;
+    background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 4px,
+        rgb(255 255 255 / 0.35) 4px,
+        rgb(255 255 255 / 0.35) 8px);
+    border: 1px dashed var(--bs-border-color);
+}
+
+.gantt-milestone {
+    position: absolute;
+    top: 50%;
+    width: 0.5rem;
+    height: 0.5rem;
+    background-color: var(--bs-dark);
+    transform: translate(-50%, -50%) rotate(45deg);
+    border: 1px solid var(--bs-body-bg);
+    z-index: 1;
+}
+
+.gantt-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.75rem;
+}
+
+.gantt-metric-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--bs-secondary-color);
+}
+
+.gantt-metric-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.gantt-throughput {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 1.5rem;
+}
+
+.gantt-throughput-bar {
+    flex: 1;
+    min-width: 4px;
+    background-color: var(--bs-primary);
+    border-radius: 1px 1px 0 0;
+}
+
 .gantt-dates {
     width: 140px;
     flex-shrink: 0;

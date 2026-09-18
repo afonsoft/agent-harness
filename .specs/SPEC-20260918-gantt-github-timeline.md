@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-gantt-github-timeline` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -103,7 +103,7 @@ GET /api/github/{owner}/{repo}/metrics?days=90
 
 ## 9. Definition of Done
 
-- [ ] Tela mostra timeline real do repo com métricas corretas sobre dados fake/reais.
-- [ ] Unit + integration verdes; `dotnet build` limpo.
-- [ ] docs/features.md + api.md en/pt-br atualizados; SPEC → Done.
+- [x] Tela mostra timeline real do repo com métricas corretas sobre dados fake/reais.
+- [x] Unit + integration verdes; `dotnet build` limpo. (462 unit + 147 integration)
+- [x] docs/features.md + api.md en/pt-br atualizados; SPEC → Done.
 - [ ] Deploy + verificação em produção.

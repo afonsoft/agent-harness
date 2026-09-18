@@ -138,6 +138,24 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             CancellationToken cancellationToken = default) =>
             Task.FromResult(Issue);
 
+        public Task<IReadOnlyList<Taskboard.GitHub.MilestoneDto>> GetMilestonesAsync(
+            string repositoryFullName, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Taskboard.GitHub.MilestoneDto>>(
+            [
+                new Taskboard.GitHub.MilestoneDto(
+                    1, "v1.0", DateTimeOffset.UtcNow.AddDays(14), "open")
+            ]);
+
+        public Task<IReadOnlyList<Taskboard.GitHub.IssueLabelEventDto>> GetIssueTimelineEventsAsync(
+            string repositoryFullName, int issueNumber, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Taskboard.GitHub.IssueLabelEventDto>>(
+            [
+                new Taskboard.GitHub.IssueLabelEventDto(
+                    DateTimeOffset.UtcNow.AddDays(-10), "todo", Added: true),
+                new Taskboard.GitHub.IssueLabelEventDto(
+                    DateTimeOffset.UtcNow.AddDays(-5), "in-progress", Added: true)
+            ]);
+
         private readonly List<Taskboard.GitHub.IssueCommentDto> _comments = [];
 
         public Task<IReadOnlyList<Taskboard.GitHub.IssueCommentDto>> GetIssueCommentsAsync(
