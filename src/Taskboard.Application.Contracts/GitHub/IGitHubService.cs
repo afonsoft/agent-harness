@@ -35,4 +35,22 @@ public interface IGitHubService
     /// Adiciona labels extras a uma issue existente.
     /// </summary>
     Task AddLabelsToIssueAsync(string repositoryFullName, int issueNumber, IReadOnlyCollection<string> labels, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atualiza título e/ou corpo (markdown) de uma issue existente.
+    /// </summary>
+    Task<IssueDto> UpdateIssueAsync(string repositoryFullName, int issueNumber, string? title, string? body, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Define a prioridade da issue trocando as labels <c>priority:*</c>
+    /// (remove todas as existentes e adiciona a nova; <c>None</c> remove apenas).
+    /// </summary>
+    Task<IssueDto> SetIssuePriorityAsync(string repositoryFullName, int issueNumber, string priority, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fecha a issue no GitHub. <paramref name="resolution"/>:
+    /// <c>canceled</c> aplica a label <c>canceled</c> antes de fechar (coluna Canceled);
+    /// <c>archived</c> fecha sem label de coluna (coluna Archived).
+    /// </summary>
+    Task<IssueDto> CloseIssueAsync(string repositoryFullName, int issueNumber, string resolution, CancellationToken cancellationToken = default);
 }

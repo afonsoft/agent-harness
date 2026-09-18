@@ -1,0 +1,167 @@
+@using System.Globalization
+@inject IAgentOrchestrationService OrchestrationService
+@inject ToastService ToastService
+@inject IJSRuntime JS
+
+@*
+    SPEC-20260918-kanban-card-ux RF-006: agente elegível + prompt por issue.
+    O último prompt usado fica em localStorage["agent-prompt:{issueId}"].
+*@
+
+@if (_isLoading)
+{
+    <div class="d-flex align-items-center pt-3">
+        <Spinner Size="SpinnerSize.Small" Class="me-2" />
+        <span>Detectando agentes...</span>
+    </div>
+}
+else if (_agents is { Count: 0 })
+{
+    <div class="alert alert-warning mt-3" role="status">
+        Nenhum agente CLI habilitado e autenticado. Ative um agente em
+        <a href="/settings" class="alert-link">Settings → Agents</a> ou faça login pelo
+        <a href="/terminal" class="alert-link">Terminal</a>.
+    </div>
+}
+else if (_agents is not null)
+{
+    <div class="pt-3">
+        <div class="mb-3">
+            <label for="cfg-agent-select" class="form-label">Agente</label>
+            <select id="cfg-agent-select" class="form-select" @bind="_selectedAgentType">
+                @foreach (var agent in _agents)
+                {
+                    <option value="@agent.Type" disabled="@(agent.Status != AgentStatus.Available)">
+                        @agent.Name (@agent.Status)
+                    </option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="cfg-agent-prompt" class="form-label">Prompt <span class="text-danger">*</span></label>
+            <textarea id="cfg-agent-prompt" class="form-control" rows="6" @bind="_prompt"
+                      placeholder="Instruções para o agente executar nesta issue..."></textarea>
+            @if (string.IsNullOrWhiteSpace(_prompt))
+            {
+                <div class="form-text text-danger">O prompt é obrigatório.</div>
+            }
+        </div>
+
+        <div class="d-flex justify-content-end">
+            <Button Color="ButtonColor.Primary" @onclick="ExecuteAsync" Disabled="!CanExecute()">
+                @if (_executing)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-2" />
+                }
+                Executar
+            </Button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IssueDto? Issue { get; set; }
+
+    [Parameter, EditorRequired]
+    public string RepositoryFullName { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnExecuted { get; set; }
+
+    private bool _isLoading;
+    private bool _executing;
+    private IReadOnlyList<AgentInfo>? _agents;
+    private AgentType _selectedAgentType;
+    private string _prompt = string.Empty;
+
+    private string StorageKey =>
+        $"agent-prompt:{Issue?.Id.ToString(CultureInfo.InvariantCulture)}";
+
+    private AgentInfo? SelectedAgent =>
+        _agents?.FirstOrDefault(a => a.Type == _selectedAgentType);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Issue is null || _agents is not null)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        try
+        {
+            _agents = await OrchestrationService.GetAvailableAgentsAsync();
+            var first = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            if (first is not null)
+            {
+                _selectedAgentType = first.Type;
+            }
+
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+            _prompt = !string.IsNullOrWhiteSpace(saved)
+                ? saved
+                : (string.IsNullOrWhiteSpace(Issue.Body)
+                    ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
+                    : Issue.Body);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private bool CanExecute() =>
+        !_executing
+        && SelectedAgent is { Status: AgentStatus.Available }
+        && !string.IsNullOrWhiteSpace(_prompt);
+
+    private async Task ExecuteAsync()
+    {
+        if (Issue is null || !CanExecute())
+        {
+            return;
+        }
+
+        _executing = true;
+        try
+        {
+            var request = new AgentExecutionRequest(
+                Issue.Id.ToString(CultureInfo.InvariantCulture),
+                Issue.Number,
+                RepositoryFullName,
+                string.Empty,
+                Branch: null,
+                Scope: null,
+                _prompt,
+                _selectedAgentType);
+
+            var queued = await OrchestrationService.EnqueueAsync(request);
+            if (queued)
+            {
+                await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, _prompt);
+                ToastService.Notify(new(ToastType.Success,
+                    $"Agente {_selectedAgentType} enfileirado para a issue #{Issue.Number}."));
+                await OnExecuted.InvokeAsync();
+            }
+            else
+            {
+                ToastService.Notify(new(ToastType.Danger,
+                    $"Agente {_selectedAgentType} inelegível (desabilitado ou não autenticado)."));
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao executar agente: {ex.Message}"));
+        }
+        finally
+        {
+            _executing = false;
+        }
+    }
+}

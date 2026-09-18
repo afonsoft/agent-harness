@@ -107,4 +107,58 @@ public class GitHubBoardColumnExtensionsTests
     {
         GitHubBoardColumnExtensions.ResolvePriority(labels).ShouldBe(expected);
     }
+
+    [Theory]
+    [InlineData("urgent", "Urgent")]
+    [InlineData("HIGH", "High")]
+    [InlineData(" medium ", "Medium")]
+    [InlineData("Low", "Low")]
+    [InlineData("none", "None")]
+    public void Dado_PrioridadeValida_Quando_Normalizar_Entao_RetornaNomeCanoneco(
+        string input,
+        string expected)
+    {
+        GitHubBoardColumnExtensions.NormalizePriority(input).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("critical")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Dado_PrioridadeInvalida_Quando_Normalizar_Entao_RetornaNulo(string? input)
+    {
+        GitHubBoardColumnExtensions.NormalizePriority(input).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Urgent", "priority:urgent")]
+    [InlineData("High", "priority:high")]
+    [InlineData("Medium", "priority:medium")]
+    [InlineData("low", "priority:low")]
+    public void Dado_PrioridadeComLabel_Quando_Converter_Entao_RetornaLabel(
+        string priority,
+        string expectedLabel)
+    {
+        GitHubBoardColumnExtensions.ToPriorityLabel(priority).ShouldBe(expectedLabel);
+    }
+
+    [Theory]
+    [InlineData("None")]
+    [InlineData("bogus")]
+    public void Dado_PrioridadeSemLabel_Quando_Converter_Entao_RetornaNulo(string priority)
+    {
+        GitHubBoardColumnExtensions.ToPriorityLabel(priority).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("priority:high", true)]
+    [InlineData("PRIORITY:LOW", true)]
+    [InlineData("todo", false)]
+    [InlineData("priority", false)]
+    public void Dado_Label_Quando_VerificarSeEhPrioridade_Entao_RetornaEsperado(
+        string label,
+        bool expected)
+    {
+        GitHubBoardColumnExtensions.IsPriorityLabel(label).ShouldBe(expected);
+    }
 }

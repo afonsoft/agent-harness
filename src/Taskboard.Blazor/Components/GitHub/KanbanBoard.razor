@@ -36,11 +36,16 @@ else if (_columns is not null)
         @foreach (var column in _columns)
         {
             var issues = GetIssues(column).ToList();
-            <div class="kanban-column"
+            var isDropTarget = _draggedIssue is not null
+                && _dragOverColumn == column.Column
+                && column.Column != _draggedFromColumn
+                && column.Column.HasLabel();
+            <div class="kanban-column @(isDropTarget ? "kanban-column-drop-target" : null)"
                  @ondrop="() => OnDropAsync(column.Column)"
                  @ondrop:preventDefault="column.Column.HasLabel()"
-                 @ondragover="OnDragOver"
-                 @ondragover:preventDefault="column.Column.HasLabel()">
+                 @ondragover="() => OnDragOver(column.Column)"
+                 @ondragover:preventDefault="column.Column.HasLabel()"
+                 @ondragleave="() => OnDragLeave(column.Column)">
                 <div class="kanban-column-header @GetStatusClass(column.Column)">
                     <h2>@column.Label</h2>
                     <span class="kanban-label">@issues.Count</span>
@@ -48,53 +53,70 @@ else if (_columns is not null)
                 <div class="kanban-column-body" style="max-height: 70vh;">
                     @if (issues.Count > 0)
                     {
-                        <Virtualize Items="issues" ItemSize="80" OverscanCount="5">
-                            <div class="task-card @GetPriorityClass(context)"
+                        <Virtualize Items="issues" ItemSize="120" OverscanCount="5">
+                            <div class="task-card @GetPriorityClass(context) @(_draggedIssue?.Id == context.Id ? "task-card-dragging" : null)"
                                  @key="context.Id"
                                  draggable="true"
                                  role="button"
                                  tabindex="0"
                                  aria-label="@context.Title, drag to move"
                                  @ondragstart="() => OnDragStart(context, column.Column)"
+                                 @ondragend="OnDragEnd"
                                  @onclick="() => OpenTaskDetailAsync(context)">
                                 <div class="task-card-header">
-                                    <div class="task-title">@context.Title</div>
+                                    <div class="task-title"><span class="task-number">#@context.Number</span> @context.Title</div>
                                     <div class="dropdown task-card-actions">
                                         <button type="button" class="task-card-menu" data-bs-toggle="dropdown"
                                                 aria-expanded="false" aria-haspopup="menu"
-                                                aria-label="Mover issue #@context.Number"
+                                                aria-label="Ações da issue #@context.Number"
                                                 @onclick:stopPropagation @ondragstart:stopPropagation>
                                             <Icon Name="IconName.ThreeDotsVertical" />
                                         </button>
                                         <ul class="dropdown-menu" role="menu">
-                                            @foreach (var target in _columns)
+                                            <li>
+                                                <button type="button" class="dropdown-item" role="menuitem"
+                                                        @onclick="() => OpenMoveSheet(context)"
+                                                        @onclick:stopPropagation>
+                                                    Mover para…
+                                                </button>
+                                            </li>
+                                            <li><hr class="dropdown-divider" /></li>
+                                            <li><h6 class="dropdown-header">Prioridade</h6></li>
+                                            @foreach (var priority in _priorities)
                                             {
-                                                if (target.Column == column.Column || !target.Column.HasLabel())
-                                                {
-                                                    continue;
-                                                }
                                                 <li>
                                                     <button type="button" class="dropdown-item" role="menuitem"
-                                                            @onclick="() => MoveIssueAsync(context, column.Column, target.Column)"
+                                                            @onclick="() => SetPriorityAsync(context, priority)"
                                                             @onclick:stopPropagation>
-                                                        Mover para @target.Label
+                                                        @(priority == context.Priority ? "✓ " : "")@priority
                                                     </button>
                                                 </li>
                                             }
                                         </ul>
                                     </div>
                                 </div>
+                                @if (GetExtraLabels(context) is { Count: > 0 } extraLabels)
+                                {
+                                    <div class="task-labels">
+                                        @foreach (var label in extraLabels)
+                                        {
+                                            <span class="task-label-chip">@label</span>
+                                        }
+                                    </div>
+                                }
                                 @if (!string.IsNullOrWhiteSpace(context.Body))
                                 {
                                     <div class="task-description">@context.Body</div>
                                 }
                                 <div class="task-meta">
-                                    <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(context)"></span>
+                                    <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(context)"
+                                          title="Prioridade: @context.Priority"></span>
                                     <span>@context.Priority</span>
-                                    <span class="text-body-secondary">|</span>
-                                    <span>#@context.Number</span>
-                                    <span class="text-body-secondary">|</span>
-                                    <span>@(context.AssigneeLogin is null ? "—" : $"@{context.AssigneeLogin}")</span>
+                                    @if (context.AssigneeLogin is not null)
+                                    {
+                                        <span class="text-body-secondary">|</span>
+                                        <span class="task-assignee" title="@context.AssigneeLogin">@GetInitials(context.AssigneeLogin)</span>
+                                    }
                                     @if (TryGetRun(context, out var run))
                                     {
                                         <span class="text-body-secondary">|</span>
@@ -103,9 +125,18 @@ else if (_columns is not null)
                                             <Icon Name="IconName.Robot" />@GetAgentShortName(run!.AgentType)
                                         </span>
                                     }
+                                    <span class="task-meta-time ms-auto" title="@context.UpdatedAt">@RelativeTime(context.UpdatedAt ?? context.CreatedAt)</span>
                                 </div>
                             </div>
                         </Virtualize>
+                        @if (isDropTarget)
+                        {
+                            <div class="task-card-placeholder" aria-hidden="true"></div>
+                        }
+                    }
+                    else if (isDropTarget)
+                    {
+                        <div class="task-card-placeholder" aria-hidden="true"></div>
                     }
                     else
                     {
@@ -115,6 +146,15 @@ else if (_columns is not null)
             </div>
         }
     </div>
+}
+
+@if (_moveSheetIssue is not null)
+{
+    <MoveIssueModal Issue="_moveSheetIssue"
+                    FromColumn="_moveSheetIssue.Column"
+                    OnColumnSelected="OnMoveSheetColumnAsync"
+                    OnCloseRequested="CloseIssueAsync"
+                    OnDismissed="CloseMoveSheetAsync" />
 }
 
 @code {
@@ -135,6 +175,8 @@ else if (_columns is not null)
     private Dictionary<string, AgentRunDto>? _agentRuns;
     private IssueDto? _draggedIssue;
     private GitHubBoardColumn? _draggedFromColumn;
+    private GitHubBoardColumn? _dragOverColumn;
+    private IssueDto? _moveSheetIssue;
     private string _filterText = string.Empty;
     private string _filterPriority = string.Empty;
     private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
@@ -227,15 +269,31 @@ else if (_columns is not null)
         _draggedFromColumn = fromColumn;
     }
 
-    private static void OnDragOver(DragEventArgs args)
+    private void OnDragOver(GitHubBoardColumn column)
     {
-        // Necessário para permitir o drop.
+        _dragOverColumn = column;
+    }
+
+    private void OnDragLeave(GitHubBoardColumn column)
+    {
+        if (_dragOverColumn == column)
+        {
+            _dragOverColumn = null;
+        }
+    }
+
+    private void OnDragEnd()
+    {
+        _draggedIssue = null;
+        _draggedFromColumn = null;
+        _dragOverColumn = null;
     }
 
     private async Task OnDropAsync(GitHubBoardColumn toColumn)
     {
         if (_draggedIssue is null || _draggedFromColumn is not { } fromColumn || fromColumn == toColumn || !toColumn.HasLabel())
         {
+            OnDragEnd();
             return;
         }
 
@@ -243,8 +301,83 @@ else if (_columns is not null)
 
         _draggedIssue = null;
         _draggedFromColumn = null;
+        _dragOverColumn = null;
 
         await MoveIssueAsync(issue, fromColumn, toColumn);
+    }
+
+    private void OpenMoveSheet(IssueDto issue)
+    {
+        _moveSheetIssue = issue;
+    }
+
+    private Task CloseMoveSheetAsync()
+    {
+        _moveSheetIssue = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task OnMoveSheetColumnAsync(GitHubBoardColumn column)
+    {
+        if (_moveSheetIssue is null)
+        {
+            return;
+        }
+
+        var issue = _moveSheetIssue;
+        _moveSheetIssue = null;
+        await MoveIssueAsync(issue, issue.Column, column);
+    }
+
+    private async Task CloseIssueAsync(string resolution)
+    {
+        if (_moveSheetIssue is null)
+        {
+            return;
+        }
+
+        var issue = _moveSheetIssue;
+        _moveSheetIssue = null;
+
+        try
+        {
+            await GitHubService.CloseIssueAsync(RepositoryFullName, issue.Number, resolution);
+            ToastService.Notify(new(ToastType.Success,
+                $"Issue #{issue.Number} fechada ({resolution})."));
+            await LoadIssuesAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
+        }
+    }
+
+    private async Task SetPriorityAsync(IssueDto issue, string priority)
+    {
+        try
+        {
+            var updated = await GitHubService.SetIssuePriorityAsync(RepositoryFullName, issue.Number, priority);
+            ReplaceIssue(updated);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao atualizar prioridade: {ex.Message}"));
+        }
+    }
+
+    /// <summary>Substitui a issue e reagrupa sem recarregar o board inteiro (RF-003).</summary>
+    private void ReplaceIssue(IssueDto updated)
+    {
+        if (_columns is null)
+        {
+            return;
+        }
+
+        var issues = _columns
+            .SelectMany(c => c.Issues)
+            .Select(i => i.Id == updated.Id ? updated : i)
+            .ToList();
+        _columns = GitHubBoardGrouper.GroupByColumn(issues, DateTimeOffset.UtcNow);
     }
 
     private async Task MoveIssueAsync(IssueDto issue, GitHubBoardColumn fromColumn, GitHubBoardColumn toColumn)
@@ -325,7 +458,8 @@ else if (_columns is not null)
         var parameters = new Dictionary<string, object>
         {
             { nameof(TaskDetailDialog.Issue), issue },
-            { nameof(TaskDetailDialog.RepositoryFullName), RepositoryFullName }
+            { nameof(TaskDetailDialog.RepositoryFullName), RepositoryFullName },
+            { nameof(TaskDetailDialog.OnChanged), EventCallback.Factory.Create(this, LoadIssuesAsync) }
         };
 
         await _detailModal.ShowAsync<TaskDetailDialog>(title: $"Issue #{issue.Number}", parameters: parameters);
@@ -366,6 +500,34 @@ else if (_columns is not null)
     {
         _newTaskTcs?.TrySetResult(false);
         _newTaskTcs = null;
+    }
+
+    /// <summary>Labels de exibição: exclui labels de coluna e <c>priority:*</c>; máx. 3 (RF-002).</summary>
+    private static IReadOnlyList<string> GetExtraLabels(IssueDto issue) =>
+        issue.Labels
+            .Where(l => GitHubBoardColumnExtensions.FromLabel(l) is null
+                && !GitHubBoardColumnExtensions.IsPriorityLabel(l))
+            .Take(3)
+            .ToList();
+
+    private static string GetInitials(string login)
+    {
+        var parts = login.Split('-', '_', '.');
+        var initials = string.Concat(parts.Where(p => p.Length > 0).Take(2).Select(p => char.ToUpperInvariant(p[0])));
+        return initials.Length > 0 ? initials : login[..Math.Min(2, login.Length)].ToUpperInvariant();
+    }
+
+    private static string RelativeTime(DateTimeOffset timestamp)
+    {
+        var elapsed = DateTimeOffset.UtcNow - timestamp;
+        return elapsed switch
+        {
+            { TotalMinutes: < 1 } => "agora",
+            { TotalHours: < 1 } => $"há {(int)elapsed.TotalMinutes}min",
+            { TotalDays: < 1 } => $"há {(int)elapsed.TotalHours}h",
+            { TotalDays: < 30 } => $"há {(int)elapsed.TotalDays}d",
+            _ => timestamp.ToLocalTime().ToString("d", CultureInfo.CurrentCulture)
+        };
     }
 
     private static string GetStatusClass(GitHubBoardColumn column) => column switch

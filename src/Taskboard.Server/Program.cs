@@ -1262,6 +1262,78 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/labels", async (
     return Results.NoContent();
 });
 
+// SPEC-20260918-kanban-card-ux: edit body/title, swap priority labels, close as canceled/archived.
+github.MapPatch("repos/{owner}/{repo}/issues/{number:int}", async (
+    string owner,
+    string repo,
+    int number,
+    UpdateGitHubIssueRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var issue = await gitHub.UpdateIssueAsync(
+            $"{owner}/{repo}", number, request.Title, request.Body, ct);
+        return Results.Ok(new { issue });
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "issue-not-found" });
+    }
+});
+
+github.MapPut("repos/{owner}/{repo}/issues/{number:int}/priority", async (
+    string owner,
+    string repo,
+    int number,
+    SetIssuePriorityRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    if (GitHubBoardColumnExtensions.NormalizePriority(request.Priority) is null)
+    {
+        return Results.BadRequest(new { error = "invalid-priority" });
+    }
+
+    try
+    {
+        var issue = await gitHub.SetIssuePriorityAsync(
+            $"{owner}/{repo}", number, request.Priority, ct);
+        return Results.Ok(new { issue });
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "issue-not-found" });
+    }
+});
+
+github.MapPost("repos/{owner}/{repo}/issues/{number:int}/close", async (
+    string owner,
+    string repo,
+    int number,
+    CloseGitHubIssueRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    if (!string.Equals(request.Resolution, "canceled", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(request.Resolution, "archived", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "invalid-resolution" });
+    }
+
+    try
+    {
+        var issue = await gitHub.CloseIssueAsync(
+            $"{owner}/{repo}", number, request.Resolution, ct);
+        return Results.Ok(new { issue });
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "issue-not-found" });
+    }
+});
+
 var agents = api.MapGroup("agents").RequireAuthorization();
 
 agents.MapGet("", async (IAgentOrchestrationService orchestration, CancellationToken ct) =>

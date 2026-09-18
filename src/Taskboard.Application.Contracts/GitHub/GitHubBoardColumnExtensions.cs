@@ -111,4 +111,47 @@ public static class GitHubBoardColumnExtensions
 
         return "None";
     }
+
+    /// <summary>Prioridades selecionáveis no card, em ordem de exibição.</summary>
+    public static IReadOnlyList<string> SelectablePriorities { get; } =
+        ["None", "Urgent", "High", "Medium", "Low"];
+
+    /// <summary>
+    /// Normaliza um valor de prioridade (case-insensitive) para o nome canônico
+    /// (<c>Urgent</c>, <c>High</c>, <c>Medium</c>, <c>Low</c>, <c>None</c>) ou
+    /// retorna <c>null</c> quando o valor não é suportado.
+    /// </summary>
+    public static string? NormalizePriority(string? value)
+    {
+        foreach (var priority in SelectablePriorities)
+        {
+            if (string.Equals(priority, value?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return priority;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Retorna a label <c>priority:*</c> correspondente ao nome canônico,
+    /// ou <c>null</c> para <c>None</c>/valores inválidos.
+    /// </summary>
+    public static string? ToPriorityLabel(string priority)
+    {
+        foreach (var pair in PriorityMap)
+        {
+            if (string.Equals(pair.Value, priority, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Key;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Indica se a label é uma label de prioridade (<c>priority:*</c>).</summary>
+    public static bool IsPriorityLabel(string label) =>
+        label.StartsWith("priority:", StringComparison.OrdinalIgnoreCase);
 }
