@@ -40,10 +40,10 @@ public class KnownCliAgentAdapterTests
 
             command.ExecutablePath.ShouldBe(executablePath);
             command.WorkingDirectory.ShouldBe(request.RepoPath);
-            command.Arguments.ShouldBe(["exec", "--approve-for-me", "--skip-git-repo-check", command.Arguments[3]]);
-            command.Arguments[3].ShouldContain($"Branch: {request.Branch}");
-            command.Arguments[3].ShouldContain($"Scope: {request.Scope}");
-            command.Arguments[3].ShouldContain(request.Instructions);
+            command.Arguments.ShouldBe(["exec", "--approve-for-me", "--skip-git-repo-check", "-m", "gpt-5.1-codex", command.Arguments[5]]);
+            command.Arguments[5].ShouldContain($"Branch: {request.Branch}");
+            command.Arguments[5].ShouldContain($"Scope: {request.Scope}");
+            command.Arguments[5].ShouldContain(request.Instructions);
         }
         finally
         {
@@ -71,12 +71,14 @@ public class KnownCliAgentAdapterTests
 
             var command = new KnownCliAgentAdapter().BuildCommand(request);
 
-            command.Arguments.Count.ShouldBe(4);
+            command.Arguments.Count.ShouldBe(6);
             command.Arguments[0].ShouldBe("--respect-workspace-trust");
             command.Arguments[1].ShouldBe("false");
-            command.Arguments[2].ShouldBe("-p");
-            command.Arguments[3].ShouldContain("</details>");
-            command.Arguments[3].ShouldContain(request.Instructions);
+            command.Arguments[2].ShouldBe("--model");
+            command.Arguments[3].ShouldBe("swe");
+            command.Arguments[4].ShouldBe("-p");
+            command.Arguments[5].ShouldContain("</details>");
+            command.Arguments[5].ShouldContain(request.Instructions);
         }
         finally
         {
@@ -86,9 +88,9 @@ public class KnownCliAgentAdapterTests
     }
 
     [Theory]
-    [InlineData(AgentType.Claude, new[] { "--dangerously-skip-permissions", "-p" })]
-    [InlineData(AgentType.OpenCode, new[] { "run" })]
-    [InlineData(AgentType.Antigravity, new[] { "-p" })]
+    [InlineData(AgentType.Claude, new[] { "--dangerously-skip-permissions", "--model", "sonnet", "-p" })]
+    [InlineData(AgentType.OpenCode, new[] { "run", "-m", "opencode/claude-sonnet-5" })]
+    [InlineData(AgentType.Antigravity, new[] { "--model", "gemini-3.1-pro-low", "-p" })]
     public void Dado_CliConhecido_Quando_MontarComando_Entao_PromptEhUltimoArgumento(AgentType agentType, string[] prefix)
     {
         var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");

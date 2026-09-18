@@ -1238,12 +1238,18 @@ body {
     }
 }
 
-/* Modais amplos (~70% da viewport) — RF-001 */
+/* Modais amplos (~70% / ~80% da viewport) — RF-001 */
 @media (min-width: 768px) {
     .modal-70 {
         --bs-modal-width: 70vw;
         width: 70vw;
         max-width: 70vw;
+    }
+
+    .modal-80 {
+        --bs-modal-width: 80vw;
+        width: 80vw;
+        max-width: 80vw;
     }
 }
 

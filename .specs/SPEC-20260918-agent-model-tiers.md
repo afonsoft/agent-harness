@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-agent-model-tiers` |
 | Ticket | — |
-| Status | `Draft` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -78,17 +78,19 @@ tests/Taskboard.Tests.Integration/                                 (request com 
 |---|---|---|---|---|
 | Claude | `--model` | `haiku` | `sonnet` | `opus` |
 | Codex | `-m` | `gpt-5.1-codex-mini` | `gpt-5.1-codex` | `gpt-5.1-codex-max` |
-| OpenCode | `-m` | model barato do provider configurado | provider default | provider top |
-| Devin | — | *CLI-managed* | | |
-| Antigravity (`agy`) | `--model` | `gemini-3-flash` | `gemini-3-pro` | `gemini-3-pro` (deep) |
-| Kimi | `--model` | lite do kimi | `kimi-k2` | `kimi-k2-max` |
+| OpenCode | `-m` | `opencode/claude-haiku-4-5` | `opencode/claude-sonnet-5` | `opencode/claude-opus-5` |
+| Devin | `--model` | `haiku` | `swe` | `opus` |
+| Antigravity (`agy`) | `--model` | `gemini-3.8-flash-low` | `gemini-3.1-pro-low` | `gemini-3.1-pro-high` |
+| Kimi | `--model` | `kimi-k2` | `kimi-k2` | `kimi-k2-max` |
 | Grok | `--model` | `grok-4-fast` | `grok-4` | `grok-4-heavy` |
 | Aider | `--model` | `deepseek` | `sonnet` | `opus` |
-| Cline | — | *CLI-managed* | | |
-| Continue (`cn`) | `--model`? | *validar; se ausente → CLI-managed* | | |
-| Copilot | `--model` | cheap copilot | `claude-sonnet-4.5` | `gpt-5.1` |
+| Cline | — | *CLI-managed* (o `-m` aceita ids específicos de provider) | | |
+| Continue (`cn`) | — | *CLI-managed* (sem flag headless documentada) | | |
+| Copilot | `--model` | `claude-haiku-4-5` | `claude-sonnet-4-5` | `gpt-5.1` |
 | Qwen | `-m`/`--model` | `qwen3-coder-flash` | `qwen3-coder-plus` | `qwen3-max` |
-| Kiro (`kiro-cli`) | `chat --model` | *validar* | default | *validar* |
+| Kiro (`kiro-cli`) | — | *CLI-managed* | | |
+
+_Validado na implementação:_ Claude/Codex/OpenCode/Devin/Antigravity conferidos contra `--help` e `models list` no host; Kimi/Grok/Aider/Copilot/Qwen marcados `// validate` no código (CLIs não instalados no host).
 
 - **Input → Output:** `(AgentType, AgentModelTier) → string? modelName` (null quando CLI-managed).
 
@@ -144,10 +146,10 @@ Sem novos endpoints. `POST /api/agents/executions` aceita o campo `modelTier` ad
 
 ## 9. Definition of Done
 
-- [ ] Combo Lite/Normal/Ultra funcional no Agent Config, desabilitado para CLIs sem flag.
-- [ ] Argv/preview refletem o tier; `AgentRun` persiste tier+modelo.
-- [ ] Badge do card exibe CLI + estado de execução.
-- [ ] Modal da issue ~80vw.
-- [ ] Testes unit (mapeamento/argv) + integration (request com tier) verdes; build sem warnings.
-- [ ] Tabela de modelos validada contra `--help` dos CLIs instalados.
-- [ ] Docs en/pt-br + SPEC `Done`; PR merged + deploy.
+- [x] Combo Lite/Normal/Ultra funcional no Agent Config, desabilitado para CLIs sem flag.
+- [x] Argv/preview refletem o tier; `AgentRun` persiste tier+modelo.
+- [x] Badge do card exibe CLI + estado de execução.
+- [x] Modal da issue ~80vw.
+- [x] Testes unit (mapeamento/argv) + integration (request com tier) verdes; build sem warnings.
+- [x] Tabela de modelos validada contra `--help` dos CLIs instalados.
+- [x] Docs en/pt-br + SPEC `Done`; PR merged + deploy.

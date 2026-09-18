@@ -41,21 +41,42 @@ else if (_agents is not null)
             </div>
         }
 
-        <div class="mb-3">
-            <label for="cfg-agent-select" class="form-label">Agente</label>
-            <select id="cfg-agent-select" class="form-select" @bind="_selectedAgentType">
-                @foreach (var agent in _agents)
+        <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+                <label for="cfg-agent-select" class="form-label">Agente</label>
+                <select id="cfg-agent-select" class="form-select" @bind="_selectedAgentType">
+                    @foreach (var agent in _agents)
+                    {
+                        <option value="@agent.Type" disabled="@(agent.Status != AgentStatus.Available)">
+                            @agent.Name (@agent.Status)
+                        </option>
+                    }
+                </select>
+            </div>
+            <div class="col-sm-6">
+                <label for="cfg-model-select" class="form-label">Modelo</label>
+                @if (AgentCliModels.SupportsModelSelection(_selectedAgentType))
                 {
-                    <option value="@agent.Type" disabled="@(agent.Status != AgentStatus.Available)">
-                        @agent.Name (@agent.Status)
-                    </option>
+                    <select id="cfg-model-select" class="form-select" @bind="_modelTier">
+                        <option value="@AgentModelTier.Lite">Lite</option>
+                        <option value="@AgentModelTier.Normal">Normal</option>
+                        <option value="@AgentModelTier.Ultra">Ultra</option>
+                    </select>
+                    <div class="form-text">@AgentCliModels.ModelFor(_selectedAgentType, _modelTier)</div>
                 }
-            </select>
+                else
+                {
+                    <select id="cfg-model-select" class="form-select" disabled>
+                        <option>Gerenciado pela CLI</option>
+                    </select>
+                    <div class="form-text">A CLI escolhe o modelo</div>
+                }
+            </div>
         </div>
 
         <div class="mb-3">
             <label class="form-label">Comando</label>
-            <pre class="agent-command-preview border rounded p-2 mb-0 small"><code>@AgentCliInvocation.PreviewCommandLine(_selectedAgentType)</code></pre>
+            <pre class="agent-command-preview border rounded p-2 mb-0 small"><code>@AgentCliInvocation.PreviewCommandLine(_selectedAgentType, _modelTier)</code></pre>
         </div>
 
         <div class="mb-3">
@@ -94,6 +115,7 @@ else if (_agents is not null)
     private bool _executing;
     private IReadOnlyList<AgentInfo>? _agents;
     private AgentType _selectedAgentType;
+    private AgentModelTier _modelTier = AgentModelTier.Normal;
     private string _prompt = string.Empty;
 
     private string StorageKey =>
@@ -226,7 +248,8 @@ else if (_agents is not null)
                 Branch: null,
                 Scope: null,
                 _prompt,
-                _selectedAgentType);
+                _selectedAgentType,
+                _modelTier);
 
             var queued = await OrchestrationService.EnqueueAsync(request);
             if (queued)

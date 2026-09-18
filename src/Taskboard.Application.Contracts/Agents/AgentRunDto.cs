@@ -11,4 +11,6 @@ public sealed record AgentRunDto(
     AgentType AgentType,
     AgentRunState State,
     DateTimeOffset StartedAt,
-    DateTimeOffset? FinishedAt);
+    DateTimeOffset? FinishedAt,
+    AgentModelTier? ModelTier = null,
+    string? ModelName = null);

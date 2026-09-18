@@ -212,7 +212,12 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         {
             await using var scope = _serviceScopeFactory.CreateAsyncScope();
             var repository = scope.ServiceProvider.GetRequiredService<IAgentRunRepository>();
-            var run = await repository.EnqueueAsync(request.IssueId, request.AgentType, cancellationToken);
+            var run = await repository.EnqueueAsync(
+                request.IssueId,
+                request.AgentType,
+                request.ModelTier,
+                AgentCliModels.ModelFor(request.AgentType, request.ModelTier),
+                cancellationToken);
             return run.Id;
         }
         catch (Exception ex)

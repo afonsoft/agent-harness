@@ -204,6 +204,8 @@ POST   /api/agents/executions/{issueId}/cancel
 
 `GET /api/agents` lists only *eligible* agents — installed on PATH, authenticated CLI (credential probe) and enabled in Settings → Agents; running agents are reported as `Busy`. `POST /api/agents/executions` returns `202` when queued or `422 { "error": "agent-not-eligible" }` for a disabled/unauthenticated/uninstalled agent.
 
+The executions body accepts an optional `modelTier` (`"lite" | "normal" | "ultra"`, default `"normal"` — absent in old payloads): the server maps `(agentType, tier)` to a concrete model through the curated `AgentCliModels` table and injects the CLI's model flag into the argv (`claude --model sonnet`, `codex -m gpt-5.1-codex`, `devin --model swe`, `agy --model gemini-3.1-pro-low`, `opencode -m opencode/claude-sonnet-5`, …). CLIs without a headless model flag (Cline, Continue, Kiro, OpenHands) get no flag regardless of tier. `GET /api/agents/runs` items carry `modelTier` and the resolved `modelName` (null for old runs and CLI-managed agents).
+
 `GET /api/agents/runs?issueId=` returns the issue's latest runs (`{ id, issueId, agentType, state, startedAt, finishedAt }`, newest first; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` returns the latest run per issue — used to render agent badges on the kanban cards.
 
 ## SSE
