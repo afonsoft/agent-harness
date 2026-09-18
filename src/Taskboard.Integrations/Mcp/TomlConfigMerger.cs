@@ -29,6 +29,7 @@ public static class TomlConfigMerger
         }
 
         var changed = false;
+        var created = false;
         var removing = string.IsNullOrWhiteSpace(url);
         if (removing)
         {
@@ -41,6 +42,7 @@ public static class TomlConfigMerger
                 || existingObj is not TomlTable existing
                 || !TablesEqual(existing, desired))
             {
+                created = existingObj is null;
                 servers[name] = desired;
                 changed = true;
             }
@@ -58,7 +60,9 @@ public static class TomlConfigMerger
             return MergeOutcome.Repaired;
         }
 
-        return removing ? MergeOutcome.Removed : MergeOutcome.Updated;
+        return removing
+            ? MergeOutcome.Removed
+            : created ? MergeOutcome.Created : MergeOutcome.Updated;
     }
 
     /// <summary>

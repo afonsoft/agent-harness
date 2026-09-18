@@ -263,13 +263,27 @@ public sealed class TaskboardClient
         return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
     }
 
-    /// <summary>Dispara o provisionamento MCP em background (202 Accepted).</summary>
-    public async Task<McpProvisionStatus?> SyncMcpAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Dispara o provisionamento MCP em background (202 Accepted).
+    /// Retorna (status, erro) — erro quando a URL ainda não foi salva
+    /// (SPEC-20260918-rag-mcp-sync: Sync nunca remove implicitamente).
+    /// </summary>
+    public async Task<(McpProvisionStatus? Status, string? Error)> SyncMcpAsync(
+        CancellationToken cancellationToken = default) =>
+        await PostMcpAsync("/api/mcp/sync", cancellationToken);
+
+    /// <summary>Remove explicitamente a entrada gerenciada de todos os CLIs (202).</summary>
+    public async Task<(McpProvisionStatus? Status, string? Error)> RemoveMcpAsync(
+        CancellationToken cancellationToken = default) =>
+        await PostMcpAsync("/api/mcp/remove", cancellationToken);
+
+    private async Task<(McpProvisionStatus? Status, string? Error)> PostMcpAsync(
+        string path, CancellationToken cancellationToken)
     {
-        var response = await _httpClient.PostAsync("/api/mcp/sync", content: null, cancellationToken);
+        var response = await _httpClient.PostAsync(path, content: null, cancellationToken);
         return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<McpProvisionStatus>(cancellationToken)
-            : null;
+            ? (await response.Content.ReadFromJsonAsync<McpProvisionStatus>(cancellationToken), null)
+            : (null, await ReadErrorMessageAsync(response, cancellationToken));
     }
 
     /// <summary>Log de processo das últimas execuções de provisionamento MCP.</summary>

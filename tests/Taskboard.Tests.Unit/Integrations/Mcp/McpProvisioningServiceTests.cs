@@ -123,6 +123,40 @@ public class McpProvisioningServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_EntryComUrlDiferente_Quando_Provision_Entao_Updated()
+    {
+        // Covers SPEC-20260918-rag-mcp-sync RF-003: overwriting a stale entry reports Updated
+        var service = CreateService(RagConfig());
+        await service.ProvisionAsync([AgentType.Claude]);
+
+        var reconfigured = CreateService(RagConfig(url: "https://rag.other.dev/mcp"));
+        var status = await reconfigured.ProvisionAsync([AgentType.Claude]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Claude)
+            .State.ShouldBe(McpAgentState.Updated);
+        var claudeJson = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadAllText(Path.Join(_home, ".claude.json")))!.AsObject();
+        claudeJson["mcpServers"]!.AsObject()["knowledge"]!.AsObject()["url"]!
+            .GetValue<string>().ShouldBe("https://rag.other.dev/mcp");
+    }
+
+    [Fact]
+    public async Task Dado_UrlConfigurada_Quando_ProvisionForceRemove_Entao_Remove()
+    {
+        // Covers RF-002: forceRemove un-provisions even when a URL is configured
+        var service = CreateService(RagConfig());
+        await service.ProvisionAsync([AgentType.Claude]);
+
+        var status = await service.ProvisionAsync([AgentType.Claude], forceRemove: true);
+
+        status.Agents.Single(r => r.Agent == AgentType.Claude)
+            .State.ShouldBe(McpAgentState.Removed);
+        var claudeJson = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadAllText(Path.Join(_home, ".claude.json")))!.AsObject();
+        claudeJson["mcpServers"]!.AsObject().ContainsKey("knowledge").ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Dado_SemApiKey_Quando_Provision_Entao_SemHeaderAuthorization()
     {
         // Covers edge: empty key → no headers

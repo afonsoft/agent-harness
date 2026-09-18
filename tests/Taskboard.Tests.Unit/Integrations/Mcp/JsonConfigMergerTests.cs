@@ -36,6 +36,18 @@ public class JsonConfigMergerTests : IDisposable
     {
         var outcome = JsonConfigMerger.Merge(_path, "mcpServers", "knowledge", Entry("https://rag/mcp"));
 
+        outcome.ShouldBe(MergeOutcome.Created);
+        JsonConfigMerger.ReadManagedUrl(_path, "mcpServers", "knowledge").ShouldBe("https://rag/mcp");
+    }
+
+    [Fact]
+    public void Dado_EntryComUrlDiferente_Quando_Upsert_Entao_Updated()
+    {
+        // Covers SPEC-20260918-rag-mcp-sync RF-003: overwrite reports Updated, not Created
+        JsonConfigMerger.Merge(_path, "mcpServers", "knowledge", Entry("https://old/mcp"));
+
+        var outcome = JsonConfigMerger.Merge(_path, "mcpServers", "knowledge", Entry("https://rag/mcp"));
+
         outcome.ShouldBe(MergeOutcome.Updated);
         JsonConfigMerger.ReadManagedUrl(_path, "mcpServers", "knowledge").ShouldBe("https://rag/mcp");
     }

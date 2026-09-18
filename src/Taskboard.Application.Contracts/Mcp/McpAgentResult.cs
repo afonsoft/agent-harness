@@ -8,6 +8,9 @@ public enum McpAgentState
     /// <summary>Managed entry present with the configured URL.</summary>
     Configured,
 
+    /// <summary>Managed entry existed with a different value and was overwritten.</summary>
+    Updated,
+
     /// <summary>Managed entry was removed (URL cleared).</summary>
     Removed,
 

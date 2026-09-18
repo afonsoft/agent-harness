@@ -129,10 +129,12 @@ POST   /api/skills/install/verify
 ```http
 GET    /api/mcp/status
 POST   /api/mcp/sync
+POST   /api/mcp/remove
+GET    /api/mcp/log
 PUT    /api/mcp/rag
 ```
 
-`PUT /api/mcp/rag` aceita `{ "name", "url", "apiKey" }` — campos `null` preservam o valor gravado; `url` vazia remove a entrada gerenciada de todos os agentes habilitados. O provisionamento faz merge da entrada `<name>` em `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json`, `~/.openhands/mcp.json`, `~/.kimi-code/mcp.json`, `~/.grok/config.toml`, `~/.qwen/settings.json`, `~/.copilot/mcp-config.json` e `~/.kiro/settings/mcp.json`; Antigravity e Cline são provisionados via CLI (`agy mcp add/remove`, `cline mcp add/remove`); Continue recebe um arquivo JSON em `~/.continue/mcpServers/<name>.json` (escrita atômica, backup `.bak`, `0600`). A API key nunca é retornada por nenhum endpoint. Chaves de configuração: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (aliases de env `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persistidas como overrides em SQLite.
+`PUT /api/mcp/rag` aceita `{ "name", "url", "apiKey" }` — campos `null` preservam o valor gravado; `url` vazia é rejeitada (`400 rag-url-required`) pois a remoção é a ação explícita `POST /api/mcp/remove`. `POST /api/mcp/sync` recarrega os overrides do banco e provisiona a config salva — retorna `400 rag-not-configured` quando não há URL gravada (Sync nunca remove implicitamente). `POST /api/mcp/remove` remove a entrada gerenciada de todos os alvos independente da URL gravada. Resultados por agente reportam `configured` / `updated` / `removed` / `not-configured` / `skipped` / `repaired` / `failed` (`updated` = entrada existente com valor diferente foi sobrescrita). O provisionamento faz merge da entrada `<name>` em `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json`, `~/.openhands/mcp.json`, `~/.kimi-code/mcp.json`, `~/.grok/config.toml`, `~/.qwen/settings.json`, `~/.copilot/mcp-config.json` e `~/.kiro/settings/mcp.json`; Antigravity e Cline são provisionados via CLI (`agy mcp add/remove`, `cline mcp add/remove`); Continue recebe um arquivo JSON em `~/.continue/mcpServers/<name>.json` (escrita atômica, backup `.bak`, `0600`). A API key nunca é retornada por nenhum endpoint. Chaves de configuração: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (aliases de env `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persistidas como overrides em SQLite.
 
 ### CLI Agents e Terminal
 

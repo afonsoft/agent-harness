@@ -6,6 +6,7 @@ namespace Taskboard.Integrations.Mcp;
 public enum MergeOutcome
 {
     NoChange,
+    Created,
     Updated,
     Removed,
     Repaired
@@ -34,6 +35,7 @@ public static class JsonConfigMerger
         }
 
         var changed = false;
+        var created = false;
         if (entry is null)
         {
             changed = container.Remove(name);
@@ -44,6 +46,7 @@ public static class JsonConfigMerger
             if (existing is null
                 || !JsonNode.DeepEquals(existing, entry))
             {
+                created = existing is null;
                 container[name] = entry;
                 changed = true;
             }
@@ -63,7 +66,9 @@ public static class JsonConfigMerger
             return MergeOutcome.Repaired;
         }
 
-        return entry is null ? MergeOutcome.Removed : MergeOutcome.Updated;
+        return entry is null
+            ? MergeOutcome.Removed
+            : created ? MergeOutcome.Created : MergeOutcome.Updated;
     }
 
     /// <summary>

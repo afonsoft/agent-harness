@@ -80,6 +80,6 @@
 ## Settings: Skills e RAG MCP
 
 - Agent Skills: instalação global `npx skills add` + `install.sh --all`, verificação e sync por agente com log de processo ao vivo (`GET /api/skills/log`)
-- RAG / Knowledge MCP: provisiona o servidor configurado em todos os CLIs habilitados — merge JSON/TOML para Devin, Claude, Codex, OpenCode, OpenHands, Kimi, Grok, Qwen, Copilot e Kiro; `agy mcp add/remove` para Antigravity; `cline mcp add/remove` para Cline; arquivo JSON em `~/.continue/mcpServers/` para Continue (Aider não suporta MCP) — com log de processo ao vivo (`GET /api/mcp/log`); chaves de API nunca aparecem em status ou logs
+- RAG / Knowledge MCP: provisiona o servidor configurado em todos os CLIs habilitados — merge JSON/TOML para Devin, Claude, Codex, OpenCode, OpenHands, Kimi, Grok, Qwen, Copilot e Kiro; `agy mcp add/remove` para Antigravity; `cline mcp add/remove` para Cline; arquivo JSON em `~/.continue/mcpServers/` para Continue (Aider não suporta MCP) — com log de processo ao vivo (`GET /api/mcp/log`); chaves de API nunca aparecem em status ou logs. **Sync** provisiona a URL salva (bloqueado enquanto não há URL salva — nunca remove implicitamente); **Remove** é a ação explícita de desprovisionar; badges por agente distinguem `configured`/`updated`/`removed`/`failed`
 
 Veja `.specs/SPEC-*.md` para requisitos completos.
