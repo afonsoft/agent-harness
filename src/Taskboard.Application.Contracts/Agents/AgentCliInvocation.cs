@@ -48,29 +48,29 @@ public static class AgentCliInvocation
         {
             // devin [PATH]... requires -p/--print for non-interactive mode; without it the prompt becomes a PATH.
             // --respect-workspace-trust false: print mode fails in an untrusted directory.
-            AgentType.Devin => ["--respect-workspace-trust", "false", ..model, "-p", prompt],
+            AgentType.Devin => ["--respect-workspace-trust", "false", .. model, "-p", prompt],
             // claude -p for non-interactive mode; without a TTY permissions must be bypassed.
-            AgentType.Claude => ["--dangerously-skip-permissions", ..model, "-p", prompt],
+            AgentType.Claude => ["--dangerously-skip-permissions", .. model, "-p", prompt],
             // codex exec is the non-interactive mode; --approve-for-me auto-approves via workspace-write sandbox.
-            AgentType.Codex => ["exec", "--approve-for-me", "--skip-git-repo-check", ..model, prompt],
+            AgentType.Codex => ["exec", "--approve-for-me", "--skip-git-repo-check", .. model, prompt],
             // opencode run executes a message and exits.
-            AgentType.OpenCode => ["run", ..model, prompt],
+            AgentType.OpenCode => ["run", .. model, prompt],
             // agy -p/--print takes the prompt as the flag value and exits.
-            AgentType.Antigravity => [..model, "-p", prompt],
+            AgentType.Antigravity => [.. model, "-p", prompt],
             // kimi -p/--print runs the prompt headlessly and exits.
-            AgentType.Kimi => [..model, "-p", prompt],
+            AgentType.Kimi => [.. model, "-p", prompt],
             // grok -p runs headless; the CLI is non-interactive when a prompt is given.
-            AgentType.Grok => [..model, "-p", prompt],
+            AgentType.Grok => [.. model, "-p", prompt],
             // aider --message runs one-shot; --yes-always confirms all prompts without a TTY.
-            AgentType.Aider => ["--yes-always", ..model, "--message", prompt],
+            AgentType.Aider => ["--yes-always", .. model, "--message", prompt],
             // cline <prompt> starts in act mode with auto-approve enabled by default.
             AgentType.Cline => [prompt],
             // cn -p is headless print mode; --auto approves tool calls.
             AgentType.Continue => ["--auto", "-p", prompt],
             // copilot -p is programmatic mode; --allow-all-tools removes interactive approvals.
-            AgentType.Copilot => ["--allow-all-tools", ..model, "-p", prompt],
+            AgentType.Copilot => ["--allow-all-tools", .. model, "-p", prompt],
             // qwen -p/--prompt runs headlessly (gemini-cli fork semantics).
-            AgentType.Qwen => [..model, "-p", prompt],
+            AgentType.Qwen => [.. model, "-p", prompt],
             // kiro-cli chat --no-interactive executes the prompt and exits; --trust-all-tools
             // pre-approves tool use so no TTY approval is needed.
             AgentType.Kiro => ["chat", "--no-interactive", "--trust-all-tools", prompt],
