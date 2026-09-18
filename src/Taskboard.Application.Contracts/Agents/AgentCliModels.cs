@@ -17,9 +17,14 @@ public static class AgentCliModels
         // claude --model accepts aliases (verified: 'haiku', 'sonnet', 'opus').
         [AgentType.Claude] = new("--model", "haiku", "sonnet", "opus",
             ["haiku", "sonnet", "opus", "claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-1"]),
-        // codex exec -m <MODEL>; names from codex docs — validate on host.
-        [AgentType.Codex] = new("-m", "gpt-5.1-codex-mini", "gpt-5.1-codex", "gpt-5.1-codex-max",
-            ["gpt-5.1-codex-mini", "gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.1", "gpt-5.1-codex-mini-high"]),
+        // codex exec -m <MODEL> — host-validated 2026-09-18: the ChatGPT
+        // account rejects the whole gpt-5.1* family ("not supported when using
+        // Codex with a ChatGPT account"); gpt-5.6-luna is the only working
+        // name on this host and matches ~/.codex/config.toml. The gpt-5.1*
+        // names stay in the catalog for API-key accounts — override via the
+        // Models dialog.
+        [AgentType.Codex] = new("-m", "gpt-5.6-luna", "gpt-5.6-luna", "gpt-5.6-luna",
+            ["gpt-5.6-luna", "gpt-5.1-codex-mini", "gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.1"]),
         // opencode -m takes provider/model (verified via `opencode models`).
         [AgentType.OpenCode] = new("-m", "opencode/claude-haiku-4-5", "opencode/claude-sonnet-5", "opencode/claude-opus-5",
             ["opencode/claude-haiku-4-5", "opencode/claude-sonnet-5", "opencode/claude-opus-5", "opencode/gpt-5.1", "opencode/gemini-3-pro"]),

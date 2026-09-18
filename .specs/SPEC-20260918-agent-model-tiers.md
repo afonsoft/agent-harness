@@ -77,7 +77,7 @@ tests/Taskboard.Tests.Integration/                                 (request com 
 | CLI (`AgentType`) | Flag | Lite | Normal (default) | Ultra |
 |---|---|---|---|---|
 | Claude | `--model` | `haiku` | `sonnet` | `opus` |
-| Codex | `-m` | `gpt-5.1-codex-mini` | `gpt-5.1-codex` | `gpt-5.1-codex-max` |
+| Codex | `-m` | `gpt-5.6-luna` | `gpt-5.6-luna` | `gpt-5.6-luna` |
 | OpenCode | `-m` | `opencode/claude-haiku-4-5` | `opencode/claude-sonnet-5` | `opencode/claude-opus-5` |
 | Devin | `--model` | `haiku` | `swe` | `opus` |
 | Antigravity (`agy`) | `--model` | `gemini-3.8-flash-low` | `gemini-3.1-pro-low` | `gemini-3.1-pro-high` |
@@ -90,7 +90,7 @@ tests/Taskboard.Tests.Integration/                                 (request com 
 | Qwen | `-m`/`--model` | `qwen3-coder-flash` | `qwen3-coder-plus` | `qwen3-max` |
 | Kiro (`kiro-cli`) | — | *CLI-managed* | | |
 
-_Validado na implementação:_ Claude/Codex/OpenCode/Devin/Antigravity conferidos contra `--help` e `models list` no host; Kimi/Grok/Aider/Copilot/Qwen marcados `// validate` no código (CLIs não instalados no host).
+_Validado na implementação:_ Claude/Codex/OpenCode/Devin/Antigravity conferidos contra `--help` e `models list` no host; Kimi/Grok/Aider/Copilot/Qwen marcados `// validate` no código (CLIs não instalados no host). **Codex (smoke test 2026-09-18):** a conta ChatGPT do host rejeita toda a família `gpt-5.1*` ("not supported when using Codex with a ChatGPT account"); `gpt-5.6-luna` (o modelo do `~/.codex/config.toml`) é o único validado — os três tiers apontam para ele até a conta ganhar variantes; os nomes `gpt-5.1*` ficam no catálogo para contas API-key.
 
 - **Input → Output:** `(AgentType, AgentModelTier) → string? modelName` (null quando CLI-managed).
 

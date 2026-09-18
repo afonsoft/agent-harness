@@ -86,7 +86,7 @@ public class AgentCliInvocationTests
     [Theory]
     [InlineData(AgentType.Devin, "devin --respect-workspace-trust false --model swe -p <prompt>")]
     [InlineData(AgentType.Claude, "claude --dangerously-skip-permissions --model sonnet -p <prompt>")]
-    [InlineData(AgentType.Codex, "codex exec --approve-for-me --skip-git-repo-check -m gpt-5.1-codex <prompt>")]
+    [InlineData(AgentType.Codex, "codex exec --approve-for-me --skip-git-repo-check -m gpt-5.6-luna <prompt>")]
     [InlineData(AgentType.OpenCode, "opencode run --auto -m opencode/claude-sonnet-5 <prompt>")]
     [InlineData(AgentType.Antigravity, "agy --dangerously-skip-permissions --model gemini-3.1-pro-low -p <prompt>")]
     [InlineData(AgentType.Kimi, "kimi --model kimi-k2 -p <prompt>")]
@@ -147,8 +147,8 @@ public class AgentCliModelTests
     [Theory]
     [InlineData(AgentType.Claude, AgentModelTier.Lite, "--model", "haiku")]
     [InlineData(AgentType.Claude, AgentModelTier.Ultra, "--model", "opus")]
-    [InlineData(AgentType.Codex, AgentModelTier.Lite, "-m", "gpt-5.1-codex-mini")]
-    [InlineData(AgentType.Codex, AgentModelTier.Ultra, "-m", "gpt-5.1-codex-max")]
+    [InlineData(AgentType.Codex, AgentModelTier.Lite, "-m", "gpt-5.6-luna")]
+    [InlineData(AgentType.Codex, AgentModelTier.Ultra, "-m", "gpt-5.6-luna")]
     public void Dado_Tier_Quando_BuildArguments_Entao_ArgvContemFlagEModelo(
         AgentType type, AgentModelTier tier, string flag, string model)
     {
