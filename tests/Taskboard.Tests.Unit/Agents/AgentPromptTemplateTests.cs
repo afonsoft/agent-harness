@@ -58,22 +58,23 @@ public class AgentPromptTemplateTests
 public class AgentCliInvocationTests
 {
     [Theory]
-    [InlineData(AgentType.Devin, "devin --respect-workspace-trust false -p <prompt>")]
-    [InlineData(AgentType.Claude, "claude --dangerously-skip-permissions -p <prompt>")]
-    [InlineData(AgentType.Codex, "codex exec --approve-for-me --skip-git-repo-check <prompt>")]
-    [InlineData(AgentType.OpenCode, "opencode run <prompt>")]
-    [InlineData(AgentType.Antigravity, "agy -p <prompt>")]
-    [InlineData(AgentType.Kimi, "kimi -p <prompt>")]
-    [InlineData(AgentType.Grok, "grok -p <prompt>")]
-    [InlineData(AgentType.Aider, "aider --yes-always --message <prompt>")]
+    [InlineData(AgentType.Devin, "devin --respect-workspace-trust false --model swe -p <prompt>")]
+    [InlineData(AgentType.Claude, "claude --dangerously-skip-permissions --model sonnet -p <prompt>")]
+    [InlineData(AgentType.Codex, "codex exec --approve-for-me --skip-git-repo-check -m gpt-5.1-codex <prompt>")]
+    [InlineData(AgentType.OpenCode, "opencode run -m opencode/claude-sonnet-5 <prompt>")]
+    [InlineData(AgentType.Antigravity, "agy --model gemini-3.1-pro-low -p <prompt>")]
+    [InlineData(AgentType.Kimi, "kimi --model kimi-k2 -p <prompt>")]
+    [InlineData(AgentType.Grok, "grok --model grok-4 -p <prompt>")]
+    [InlineData(AgentType.Aider, "aider --yes-always --model sonnet --message <prompt>")]
     [InlineData(AgentType.Cline, "cline <prompt>")]
     [InlineData(AgentType.Continue, "cn --auto -p <prompt>")]
-    [InlineData(AgentType.Copilot, "copilot --allow-all-tools -p <prompt>")]
-    [InlineData(AgentType.Qwen, "qwen -p <prompt>")]
+    [InlineData(AgentType.Copilot, "copilot --allow-all-tools --model claude-sonnet-4-5 -p <prompt>")]
+    [InlineData(AgentType.Qwen, "qwen -m qwen3-coder-plus -p <prompt>")]
     [InlineData(AgentType.Kiro, "kiro-cli chat --no-interactive --trust-all-tools <prompt>")]
     public void Dado_Agente_Quando_Preview_Entao_ComandoEsperado(AgentType type, string expected)
     {
         // Covers RF-003: preview espelha o template real do adapter.
+        // Default tier = Normal (SPEC-20260918-agent-model-tiers RF-002).
         AgentCliInvocation.PreviewCommandLine(type).ShouldBe(expected);
     }
 
@@ -83,8 +84,66 @@ public class AgentCliInvocationTests
         foreach (var kind in Enum.GetValues<AgentCliKind>())
         {
             var type = AgentCliMap.AgentTypeFor(kind)!.Value;
-            var args = AgentCliInvocation.BuildArguments(type, "P");
-            args.Last().ShouldBe("P", $"{type} deve receber o prompt como último argumento");
+            foreach (var tier in Enum.GetValues<AgentModelTier>())
+            {
+                var args = AgentCliInvocation.BuildArguments(type, "P", tier);
+                args.Last().ShouldBe("P", $"{type} deve receber o prompt como último argumento");
+            }
+        }
+    }
+}
+
+public class AgentCliModelTests
+{
+    [Theory]
+    [InlineData(AgentType.Claude, AgentModelTier.Lite, "haiku")]
+    [InlineData(AgentType.Claude, AgentModelTier.Normal, "sonnet")]
+    [InlineData(AgentType.Claude, AgentModelTier.Ultra, "opus")]
+    [InlineData(AgentType.Devin, AgentModelTier.Normal, "swe")]
+    [InlineData(AgentType.OpenCode, AgentModelTier.Ultra, "opencode/claude-opus-5")]
+    public void Dado_CliComTabela_Quando_ModelFor_Entao_RetornaModelo(AgentType type, AgentModelTier tier, string expected)
+    {
+        AgentCliModels.ModelFor(type, tier).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(AgentType.Cline)]
+    [InlineData(AgentType.Continue)]
+    [InlineData(AgentType.Kiro)]
+    [InlineData(AgentType.OpenHands)]
+    public void Dado_CliSemFlag_Quando_ModelFor_Entao_Null(AgentType type)
+    {
+        // CLIs sem flag de modelo headless ficam "gerenciados pela CLI" — nunca recebem --model.
+        AgentCliModels.SupportsModelSelection(type).ShouldBeFalse();
+        AgentCliModels.ModelFor(type, AgentModelTier.Ultra).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(AgentType.Claude, AgentModelTier.Lite, "--model", "haiku")]
+    [InlineData(AgentType.Claude, AgentModelTier.Ultra, "--model", "opus")]
+    [InlineData(AgentType.Codex, AgentModelTier.Lite, "-m", "gpt-5.1-codex-mini")]
+    [InlineData(AgentType.Codex, AgentModelTier.Ultra, "-m", "gpt-5.1-codex-max")]
+    public void Dado_Tier_Quando_BuildArguments_Entao_ArgvContemFlagEModelo(
+        AgentType type, AgentModelTier tier, string flag, string model)
+    {
+        var args = AgentCliInvocation.BuildArguments(type, "P", tier);
+        var flagIndex = args.ToList().IndexOf(flag);
+        flagIndex.ShouldBeGreaterThanOrEqualTo(0);
+        args[flagIndex + 1].ShouldBe(model);
+    }
+
+    [Theory]
+    [InlineData(AgentType.Cline)]
+    [InlineData(AgentType.Continue)]
+    [InlineData(AgentType.Kiro)]
+    public void Dado_CliGerenciado_Quando_BuildArguments_Entao_ArgvInalterado(AgentType type)
+    {
+        // SPEC RF-002: CLI-managed nunca recebe flag de modelo, em qualquer tier.
+        foreach (var tier in Enum.GetValues<AgentModelTier>())
+        {
+            var args = AgentCliInvocation.BuildArguments(type, "P", tier);
+            args.ShouldNotContain("--model");
+            args.ShouldNotContain("-m");
         }
     }
 }

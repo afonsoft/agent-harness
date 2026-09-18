@@ -5,7 +5,8 @@ namespace Taskboard.Application.Contracts.Agents;
 /// <summary>
 /// Single source of truth for each agent CLI's non-interactive invocation:
 /// executable name plus the argument template that carries the prompt
-/// (SPEC-20260918-agent-execution-ux RF-003).
+/// (SPEC-20260918-agent-execution-ux RF-003) and the model flag
+/// (SPEC-20260918-agent-model-tiers RF-002).
 /// </summary>
 public static class AgentCliInvocation
 {
@@ -34,45 +35,67 @@ public static class AgentCliInvocation
     /// <summary>
     /// Argument template per CLI. The prompt is always the last argument and is
     /// passed through the process argument list (never shell-interpolated).
+    /// The model flag sits in the position each CLI expects — before the flag
+    /// that introduces the prompt, never after it.
     /// </summary>
-    public static IReadOnlyList<string> BuildArguments(AgentType agentType, string prompt) => agentType switch
+    public static IReadOnlyList<string> BuildArguments(
+        AgentType agentType,
+        string prompt,
+        AgentModelTier tier = AgentModelTier.Normal)
     {
-        // devin [PATH]... requires -p/--print for non-interactive mode; without it the prompt becomes a PATH.
-        // --respect-workspace-trust false: print mode fails in an untrusted directory.
-        AgentType.Devin => ["--respect-workspace-trust", "false", "-p", prompt],
-        // claude -p for non-interactive mode; without a TTY permissions must be bypassed.
-        AgentType.Claude => ["--dangerously-skip-permissions", "-p", prompt],
-        // codex exec is the non-interactive mode; --approve-for-me auto-approves via workspace-write sandbox.
-        AgentType.Codex => ["exec", "--approve-for-me", "--skip-git-repo-check", prompt],
-        // opencode run executes a message and exits.
-        AgentType.OpenCode => ["run", prompt],
-        // agy -p/--print takes the prompt as the flag value and exits.
-        AgentType.Antigravity => ["-p", prompt],
-        // kimi -p/--print runs the prompt headlessly and exits.
-        AgentType.Kimi => ["-p", prompt],
-        // grok -p runs headless; the CLI is non-interactive when a prompt is given.
-        AgentType.Grok => ["-p", prompt],
-        // aider --message runs one-shot; --yes-always confirms all prompts without a TTY.
-        AgentType.Aider => ["--yes-always", "--message", prompt],
-        // cline <prompt> starts in act mode with auto-approve enabled by default.
-        AgentType.Cline => [prompt],
-        // cn -p is headless print mode; --auto approves tool calls.
-        AgentType.Continue => ["--auto", "-p", prompt],
-        // copilot -p is programmatic mode; --allow-all-tools removes interactive approvals.
-        AgentType.Copilot => ["--allow-all-tools", "-p", prompt],
-        // qwen -p/--prompt runs headlessly (gemini-cli fork semantics).
-        AgentType.Qwen => ["-p", prompt],
-        // kiro-cli chat --no-interactive executes the prompt and exits; --trust-all-tools
-        // pre-approves tool use so no TTY approval is needed.
-        AgentType.Kiro => ["chat", "--no-interactive", "--trust-all-tools", prompt],
-        _ => [prompt]
-    };
+        var model = ModelArguments(agentType, tier);
+        return agentType switch
+        {
+            // devin [PATH]... requires -p/--print for non-interactive mode; without it the prompt becomes a PATH.
+            // --respect-workspace-trust false: print mode fails in an untrusted directory.
+            AgentType.Devin => ["--respect-workspace-trust", "false", .. model, "-p", prompt],
+            // claude -p for non-interactive mode; without a TTY permissions must be bypassed.
+            AgentType.Claude => ["--dangerously-skip-permissions", .. model, "-p", prompt],
+            // codex exec is the non-interactive mode; --approve-for-me auto-approves via workspace-write sandbox.
+            AgentType.Codex => ["exec", "--approve-for-me", "--skip-git-repo-check", .. model, prompt],
+            // opencode run executes a message and exits.
+            AgentType.OpenCode => ["run", .. model, prompt],
+            // agy -p/--print takes the prompt as the flag value and exits.
+            AgentType.Antigravity => [.. model, "-p", prompt],
+            // kimi -p/--print runs the prompt headlessly and exits.
+            AgentType.Kimi => [.. model, "-p", prompt],
+            // grok -p runs headless; the CLI is non-interactive when a prompt is given.
+            AgentType.Grok => [.. model, "-p", prompt],
+            // aider --message runs one-shot; --yes-always confirms all prompts without a TTY.
+            AgentType.Aider => ["--yes-always", .. model, "--message", prompt],
+            // cline <prompt> starts in act mode with auto-approve enabled by default.
+            AgentType.Cline => [prompt],
+            // cn -p is headless print mode; --auto approves tool calls.
+            AgentType.Continue => ["--auto", "-p", prompt],
+            // copilot -p is programmatic mode; --allow-all-tools removes interactive approvals.
+            AgentType.Copilot => ["--allow-all-tools", .. model, "-p", prompt],
+            // qwen -p/--prompt runs headlessly (gemini-cli fork semantics).
+            AgentType.Qwen => [.. model, "-p", prompt],
+            // kiro-cli chat --no-interactive executes the prompt and exits; --trust-all-tools
+            // pre-approves tool use so no TTY approval is needed.
+            AgentType.Kiro => ["chat", "--no-interactive", "--trust-all-tools", prompt],
+            _ => [prompt]
+        };
+    }
 
-    /// <summary>Full command line for preview, e.g. <c>devin -p &lt;prompt&gt;</c>.</summary>
-    public static string PreviewCommandLine(AgentType agentType)
+    /// <summary>Full command line for preview, e.g. <c>devin --model swe -p &lt;prompt&gt;</c>.</summary>
+    public static string PreviewCommandLine(
+        AgentType agentType,
+        AgentModelTier tier = AgentModelTier.Normal)
     {
         var executable = ExecutableName(agentType) ?? agentType.ToString().ToLowerInvariant();
-        var arguments = BuildArguments(agentType, "<prompt>");
+        var arguments = BuildArguments(agentType, "<prompt>", tier);
         return $"{executable} {string.Join(' ', arguments)}";
+    }
+
+    /// <summary>
+    /// `[flag, model]` for CLIs with a curated mapping, empty for CLI-managed
+    /// ones (Cline, Continue, Kiro, OpenHands) — they never get a model flag.
+    /// </summary>
+    private static string[] ModelArguments(AgentType agentType, AgentModelTier tier)
+    {
+        var flag = AgentCliModels.ModelFlag(agentType);
+        var model = AgentCliModels.ModelFor(agentType, tier);
+        return flag is not null && model is not null ? [flag, model] : [];
     }
 }

@@ -15,9 +15,9 @@ public sealed class EfCoreAgentRunRepository : IAgentRunRepository
         _context = context;
     }
 
-    public async Task<AgentRunDto> EnqueueAsync(string issueId, AgentType agentType, CancellationToken cancellationToken = default)
+    public async Task<AgentRunDto> EnqueueAsync(string issueId, AgentType agentType, AgentModelTier? modelTier = null, string? modelName = null, CancellationToken cancellationToken = default)
     {
-        var entity = new AgentRun(Guid.NewGuid(), issueId, agentType, DateTimeOffset.UtcNow);
+        var entity = new AgentRun(Guid.NewGuid(), issueId, agentType, DateTimeOffset.UtcNow, modelTier, modelName);
         await _context.AgentRuns.AddAsync(entity, cancellationToken).ConfigureAwait(false);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(entity);
@@ -76,5 +76,5 @@ public sealed class EfCoreAgentRunRepository : IAgentRunRepository
     }
 
     private static AgentRunDto ToDto(AgentRun run) =>
-        new(run.Id, run.IssueId, run.AgentType, run.State, run.StartedAt, run.FinishedAt);
+        new(run.Id, run.IssueId, run.AgentType, run.State, run.StartedAt, run.FinishedAt, run.ModelTier, run.ModelName);
 }

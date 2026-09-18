@@ -59,7 +59,7 @@
 - Queues background execution and streams stdout/stderr/system logs
 - SignalR hub: `/agent-log-hub`
 - Successful execution moves the issue from `In Progress` to `Review`
-- Issue modal: `Agent Config` tab (repo link, per-CLI argv preview, prompt editor), `Logs do Agente` tab with persistent Clear (`DELETE /api/agents/logs/{issueId}`), `Histórico` tab — unified timeline of board mutations (column moves, edits, closes persisted as `IssueHistoryEvent`) merged with agent runs (`GET /api/github/issues/{issueId}/history`), and `Comentários` tab — lists/posts GitHub issue comments; the rendered agent prompt automatically appends them as a bounded `Comments:` section (agent-to-agent handoff channel)
+- Issue modal (~80vw): `Agent Config` tab (repo link, agent CLI + **model tier** Lite/Normal/Ultra combo mapped to real models per CLI — disabled "managed by CLI" for CLIs without a model flag — per-CLI argv preview reflecting the tier, prompt editor), `Logs do Agente` tab with persistent Clear (`DELETE /api/agents/logs/{issueId}`), `Histórico` tab — unified timeline of board mutations (column moves, edits, closes persisted as `IssueHistoryEvent`) merged with agent runs (`GET /api/github/issues/{issueId}/history`), and `Comentários` tab — lists/posts GitHub issue comments; the rendered agent prompt automatically appends them as a bounded `Comments:` section (agent-to-agent handoff channel)
 - Global default prompt template on `/agents` (`GET`/`PUT /api/agents/prompt-template`) with `{repoUrl}`/`{issueTitle}`/`{issueBody}` placeholders
 
 ## Agent CLIs & Terminal

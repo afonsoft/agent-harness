@@ -21,6 +21,7 @@ public sealed class AgentRunConfiguration : IEntityTypeConfiguration<AgentRun>
             .HasConversion(
                 v => v.HasValue ? v.Value.ToUnixTimeMilliseconds() : (long?)null,
                 v => v.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(v.Value) : (DateTimeOffset?)null);
+        builder.Property(x => x.ModelName).HasMaxLength(255);
 
         builder.HasIndex(x => x.IssueId);
     }
