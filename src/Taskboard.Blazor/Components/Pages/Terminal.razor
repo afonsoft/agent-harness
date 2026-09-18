@@ -6,63 +6,74 @@
 
 <PageTitle>Terminal - Taskboard</PageTitle>
 
-<h1 class="h4 fw-bold mb-1">Terminal</h1>
-<p class="small text-body-secondary mb-2">Interactive shell sessions (bash), one per tab. Ctrl+C copies when text is selected and sends SIGINT otherwise; Ctrl+V / Shift+Insert paste.</p>
+<div class="terminal-page">
+    <h1 class="h4 fw-bold mb-1">Terminal</h1>
+    <p class="small text-body-secondary mb-2">Interactive shell sessions (bash), one per tab. Ctrl+C copies when text is selected and sends SIGINT otherwise; Ctrl+V / Shift+Insert paste.</p>
 
-@if (!string.IsNullOrEmpty(_error))
-{
-    <Alert Color="AlertColor.Danger" Dismissable="false">
-        <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
-    </Alert>
-}
-
-<div class="terminal-tabstrip" role="tablist">
-    @foreach (var tab in _tabs)
+    @if (!string.IsNullOrEmpty(_error))
     {
-        <div class="terminal-tab @(tab == _activeTab ? "active" : "") state-@tab.State.ToString().ToLowerInvariant()" role="tab" aria-selected="@(tab == _activeTab)">
-            <button type="button" class="terminal-tab-label" @onclick="() => ActivateTabAsync(tab)">
-                <span class="terminal-tab-dot"></span>@tab.Title
+        <Alert Color="AlertColor.Danger" Dismissable="false">
+            <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
+        </Alert>
+    }
+
+    <ul class="nav nav-tabs terminal-tabstrip flex-nowrap" role="tablist">
+        @foreach (var tab in _tabs)
+        {
+            <li class="nav-item">
+                <div class="nav-link terminal-tab @(tab == _activeTab ? "active" : "") state-@tab.State.ToString().ToLowerInvariant()"
+                     role="tab" aria-selected="@(tab == _activeTab)" @onclick="() => ActivateTabAsync(tab)">
+                    <span class="terminal-tab-dot"></span>
+                    <span class="terminal-tab-title">@tab.Title</span>
+                    <button type="button" class="btn-close terminal-tab-close" title="Close tab" aria-label="Close tab"
+                            @onclick="() => CloseTabAsync(tab)" @onclick:stopPropagation></button>
+                </div>
+            </li>
+        }
+        <li class="nav-item">
+            <button type="button" class="nav-link terminal-tab-new" title="@(_tabs.Count >= MaxTabs ? $"Maximum of {MaxTabs} tabs" : "New terminal tab")"
+                    disabled="@(_tabs.Count >= MaxTabs)" @onclick="() => OpenTabAsync(null)">
+                <Icon Name="IconName.Plus" />
             </button>
-            <button type="button" class="terminal-tab-close" title="Close tab" @onclick="() => CloseTabAsync(tab)" @onclick:stopPropagation>×</button>
+        </li>
+    </ul>
+
+    @if (_tabs.Count == 0)
+    {
+        <div class="terminal-empty text-body-secondary small">
+            <p class="mb-2">No terminal sessions.</p>
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="() => OpenTabAsync(null)">New terminal</Button>
         </div>
     }
-    <button type="button" class="terminal-tab-new" title="@(_tabs.Count >= MaxTabs ? $"Maximum of {MaxTabs} tabs" : "New terminal tab")"
-            disabled="@(_tabs.Count >= MaxTabs)" @onclick="() => OpenTabAsync(null)">+</button>
-</div>
-
-@if (_tabs.Count == 0)
-{
-    <div class="terminal-empty text-body-secondary small">
-        <p class="mb-2">No terminal sessions.</p>
-        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="() => OpenTabAsync(null)">New terminal</Button>
-    </div>
-}
-else
-{
-    @foreach (var tab in _tabs)
+    else
     {
-        <div class="terminal-pane @(tab == _activeTab ? "" : "d-none")">
-            @if (tab.State == TabState.Closed)
+        <div class="terminal-body">
+            @foreach (var tab in _tabs)
             {
-                <Alert Color="AlertColor.Warning" Dismissable="false" class="py-1 mb-1 small">
-                    <Icon Name="IconName.InfoCircleFill" class="me-1" />Session ended: @tab.CloseReason
-                    <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="() => ReopenTabAsync(tab)">Reopen</Button>
-                </Alert>
-            }
-            else if (tab.State == TabState.Connecting)
-            {
-                <div class="d-flex align-items-center gap-2 mb-1 text-body-secondary small">
-                    <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Connecting…
+                <div class="terminal-pane @(tab == _activeTab ? "" : "d-none")">
+                    @if (tab.State == TabState.Closed)
+                    {
+                        <Alert Color="AlertColor.Warning" Dismissable="false" class="py-1 mb-1 small">
+                            <Icon Name="IconName.InfoCircleFill" class="me-1" />Session ended: @tab.CloseReason
+                            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="() => ReopenTabAsync(tab)">Reopen</Button>
+                        </Alert>
+                    }
+                    else if (tab.State == TabState.Connecting)
+                    {
+                        <div class="d-flex align-items-center gap-2 mb-1 text-body-secondary small">
+                            <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Connecting…
+                        </div>
+                    }
+                    else if (tab.State == TabState.Error)
+                    {
+                        <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">@tab.CloseReason</Alert>
+                    }
+                    <div id="@tab.ElementId" class="terminal-host" @onclick="() => FocusTabAsync(tab)"></div>
                 </div>
             }
-            else if (tab.State == TabState.Error)
-            {
-                <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">@tab.CloseReason</Alert>
-            }
-            <div id="@tab.ElementId" class="terminal-host" @onclick="() => FocusTabAsync(tab)"></div>
         </div>
     }
-}
+</div>
 
 @code {
     private const int MaxTabs = 8; // mirrors TerminalSessionManager.MaxSessionsPerUser
