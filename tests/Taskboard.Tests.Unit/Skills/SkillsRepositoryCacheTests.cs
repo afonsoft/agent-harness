@@ -89,6 +89,30 @@ public class SkillsRepositoryCacheTests : IDisposable
     }
 
     [Fact]
+    public void Dado_ArquivoReadOnlyNoCache_Quando_EnsureAccessible_Entao_Healthy()
+    {
+        // Regression: git marks .git/objects/pack files read-only (444) by
+        // design — a legitimately read-only file in a writable tree is
+        // healthy; git replaces files via unlink+create in the parent dir
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var packDir = Path.Join(_cache, ".git", "objects", "pack");
+        Directory.CreateDirectory(packDir);
+        var pack = Path.Join(packDir, "pack-abc123.pack");
+        File.WriteAllText(pack, "x");
+        File.SetUnixFileMode(pack,
+            UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+
+        var result = SkillsRepository.EnsureAccessible(_cache, NullLogger.Instance);
+
+        result.ShouldBe(CachePrepareResult.Healthy);
+        Directory.EnumerateDirectories(_root, "skills-cache.inaccessible-*").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Dado_CacheSemPermissao_Quando_EnsureAccessible_Entao_RecoveredERenomeia()
     {
         // Covers RF-001 + AC1: an unreadable cache is moved aside, never deleted
