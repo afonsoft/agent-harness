@@ -1,4 +1,4 @@
-# taskboard-ai
+# Harness
 
 [![.NET Build and Test](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml)
 [![Code Quality](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml)
@@ -7,11 +7,21 @@
 
 > **Default language:** English (en-us). See [README.pt-br.md](README.pt-br.md) for the Portuguese version.
 
-A local-first, AI-native taskboard inspired by `dashi-taskboard`, rewritten in **C# 14 / .NET 10**.
+**Harness** is a local-first, AI-native workbench for orchestrating AI coding agents — built on **C# 14 / .NET 10**. (Repository and technical identifiers keep the `taskboard-ai` name.)
 
 ## Overview
 
-`taskboard-ai` is a local-first issue board for developers and AI agents. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, AI chat integration, and a Blazor WebAssembly web UI — all implemented in .NET 10 with ABP N-Layer / DDD.
+Harness turns GitHub issues into a Kanban board driven by AI agent CLIs. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, AI chat integration, a multi-tab terminal, an embedded VS Code web editor (code-server), and a Blazor WebAssembly UI — all implemented in .NET 10 with ABP N-Layer / DDD.
+
+Key capabilities:
+
+- **GitHub Kanban board** — label-backed columns, drag & drop, priorities, markdown bodies, issue comments (post from the UI straight to GitHub), and a unified per-issue history timeline (board mutations + agent runs).
+- **Agent orchestration** — run any of 13 agent CLIs (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) against an issue, with per-issue prompts, a `Comments:` handoff section auto-appended to the prompt, SignalR log streaming, and persistent run history.
+- **Model tiers** — a Lite/Normal/Ultra selector per CLI maps to real models (e.g. Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.1-codex-mini`/`-codex`/`-codex-max`, Devin `haiku`/`swe`/`opus`); CLIs without a model flag stay CLI-managed.
+- **CLI Agents admin** — install/authenticate CLIs from the UI with terminal-style install logs; enable/disable per agent.
+- **Skills & MCP/RAG settings** — install the `afonsoft/skills` catalog from the UI and provision a RAG MCP server (URL + key) into every supported agent config.
+- **VS Code Web** — managed code-server at `/vscode/` (readiness-gated proxy, port forwarding via `VSCODE_PROXY_URI`), plus an "Open in VS Code" deep link per issue.
+- **Terminal** — multiple interactive bash PTY tabs over SignalR.
 
 ## Tech Stack
 
@@ -96,15 +106,15 @@ Set `GITHUB_TOKEN` before starting the server:
 export GITHUB_TOKEN=your-github-token
 ```
 
-Open `/github-board` to view GitHub issues as a Kanban board. Drag an issue to **In Progress**, select an installed agent, and follow execution in the **Logs** tab. Supported CLIs include Devin, Claude, Codex, OpenCode, and OpenHands. Real-time agent logs are streamed through the SignalR hub at `/agent-log-hub`.
+Open `/github-board` to view GitHub issues as a Kanban board. Drag an issue to **In Progress**, pick an agent CLI and model tier, and follow execution in the **Logs** tab. Real-time agent logs are streamed through the SignalR hub at `/agent-log-hub`.
 
 ## Recent Highlights
 
-- Agent orchestration with CLI detection and SignalR log streaming.
-- SQLite persistence for `AgentLogMessage` via EF Core.
-- JSON-RPC ACP adapter over stdin/stdout for agent communication.
-- `.devin/` harness for Devin CLI and `~/.gemini/skills/` for Google Antigravity.
-- Refined GitHub Actions with cache, concurrency, permissions, SonarCloud, and CodeQL.
+- Lite/Normal/Ultra model tiers mapped to real models per CLI.
+- GitHub issue comments as the agent handoff channel (UI tab + auto `Comments:` prompt section + MCP/taskctl).
+- Unified issue history: board mutations + agent runs in one timeline.
+- VS Code Web (managed code-server) with per-issue deep links and port forwarding.
+- Multi-tab PTY terminal and CLI Agents admin page with install logs.
 
 ## Build Order
 

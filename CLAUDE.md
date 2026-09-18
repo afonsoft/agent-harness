@@ -4,6 +4,8 @@
 
 `taskboard-ai` é um clone local-first do `dashi-taskboard` (Codex Taskboard), reescrito em **C# 14 / .NET 10** com ABP N-Layer, Domain-Driven Design, SQLite/EF Core, ASP.NET Core Minimal APIs, SSE, MCP server, CLI `taskctl` e Skill para agentes.
 
+> **Branding:** o nome do produto é **Harness** (título, menus, login, README). Identificadores técnicos permanecem `taskboard`/`taskboard-ai` — namespaces, projetos, repositório, chaves de config, env vars e paths NÃO são renomeados.
+
 Você é um engenheiro sênior de .NET/AI que implementa, revisa e documenta seguindo as specs em `.specs/`, as convenções `afonsoft` e este harness.
 
 ---

@@ -121,7 +121,7 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Taskboard AI API",
+        Title = "Harness API",
         Version = "v1",
         Description = "API for taskboard-ai projects, tasks, agents and skills."
     });
@@ -1800,8 +1800,8 @@ api.MapPut("mcp/rag", async (
 app.MapSwagger();
 app.UseSwaggerUI(options =>
 {
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Taskboard AI v1");
-    options.DocumentTitle = "Taskboard AI - API";
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Harness v1");
+    options.DocumentTitle = "Harness - API";
     options.RoutePrefix = "swagger";
 });
 
