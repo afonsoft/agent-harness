@@ -137,6 +137,24 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             string repositoryFullName, int issueNumber, string resolution,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(Issue);
+
+        private readonly List<Taskboard.GitHub.IssueCommentDto> _comments = [];
+
+        public Task<IReadOnlyList<Taskboard.GitHub.IssueCommentDto>> GetIssueCommentsAsync(
+            string repositoryFullName, int issueNumber, int take = 50,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Taskboard.GitHub.IssueCommentDto>>(_comments);
+
+        public Task<Taskboard.GitHub.IssueCommentDto> AddIssueCommentAsync(
+            string repositoryFullName, int issueNumber, string body,
+            CancellationToken cancellationToken = default)
+        {
+            var comment = new Taskboard.GitHub.IssueCommentDto(
+                _comments.Count + 1, "itest-bot", body, DateTimeOffset.UtcNow, null,
+                $"https://github.com/{repositoryFullName}/issues/{issueNumber}#comment");
+            _comments.Add(comment);
+            return Task.FromResult(comment);
+        }
     }
 
     /// <summary>Reports all known CLIs as installed + authenticated (deterministic eligibility).</summary>

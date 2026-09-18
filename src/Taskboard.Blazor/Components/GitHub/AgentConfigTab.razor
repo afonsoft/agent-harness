@@ -1,6 +1,8 @@
 @using System.Globalization
+@using System.Text
 @inject IAgentOrchestrationService OrchestrationService
 @inject IAgentPromptTemplateService PromptTemplateService
+@inject IGitHubService GitHub
 @inject ToastService ToastService
 @inject IJSRuntime JS
 
@@ -148,6 +150,7 @@ else if (_agents is not null)
                     : (string.IsNullOrWhiteSpace(Issue.Body)
                         ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
                         : Issue.Body);
+                _prompt += await BuildCommentsSectionAsync();
             }
         }
         catch (Exception ex)
@@ -157,6 +160,46 @@ else if (_agents is not null)
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    // SPEC-20260918-github-comments-history RF-005: comments are the handoff
+    // channel — the rendered prompt carries them as a bounded "Comments:"
+    // section. A fetch failure must never block the run.
+    private async Task<string> BuildCommentsSectionAsync()
+    {
+        const int maxChars = 3000;
+        try
+        {
+            if (Issue is null || string.IsNullOrWhiteSpace(RepositoryFullName))
+            {
+                return string.Empty;
+            }
+
+            var comments = await GitHub.GetIssueCommentsAsync(RepositoryFullName, Issue.Number, take: 20);
+            if (comments.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var sb = new StringBuilder("\n\nComments:\n");
+            foreach (var c in comments)
+            {
+                var line = $"- {c.AuthorLogin ?? "unknown"} ({c.CreatedAt:yyyy-MM-dd}): {c.Body}\n";
+                if (sb.Length + line.Length > maxChars)
+                {
+                    sb.Append("- …\n");
+                    break;
+                }
+
+                sb.Append(line);
+            }
+
+            return sb.ToString();
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 

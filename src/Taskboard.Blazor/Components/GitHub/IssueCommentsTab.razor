@@ -1,0 +1,122 @@
+@using System.Globalization
+@using Taskboard.GitHub
+@inject IGitHubService GitHub
+@inject ToastService ToastService
+
+@*
+    SPEC-20260918-github-comments-history RF-004: GitHub issue comments are the
+    handoff channel between humans and agents — list them, post new ones.
+*@
+
+<div class="pt-3">
+    @if (_loading)
+    {
+        <div class="d-flex align-items-center gap-2 text-body-secondary small">
+            <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Carregando comentários…
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="small text-danger">@_error</div>
+    }
+    else
+    {
+        @if (_comments.Count == 0)
+        {
+            <div class="small text-body-secondary mb-2">Nenhum comentário nesta issue.</div>
+        }
+        else
+        {
+            <ul class="list-unstyled mb-3">
+                @foreach (var c in _comments)
+                {
+                    <li class="py-2 border-bottom">
+                        <div class="d-flex justify-content-between small text-body-secondary">
+                            <span><Icon Name="IconName.PersonCircle" class="me-1" />@(c.AuthorLogin ?? "unknown")</span>
+                            <span>@c.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)</span>
+                        </div>
+                        <div class="small mt-1" style="white-space: pre-wrap;">@c.Body</div>
+                    </li>
+                }
+            </ul>
+        }
+
+        <div class="mb-2">
+            <label for="issue-comment-body" class="form-label small">Novo comentário <span class="text-body-secondary">(publicado no GitHub)</span></label>
+            <textarea id="issue-comment-body" class="form-control" rows="3" @bind="_draft"
+                      placeholder="Deixe contexto para o próximo agente ou etapa…"></textarea>
+        </div>
+        <div class="d-flex justify-content-end">
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="PostAsync"
+                    Disabled="@(_posting || string.IsNullOrWhiteSpace(_draft))">
+                @if (_posting)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
+                }
+                Comentar
+            </Button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string RepositoryFullName { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public int IssueNumber { get; set; }
+
+    private IReadOnlyList<IssueCommentDto> _comments = [];
+    private bool _loading = true;
+    private bool _posting;
+    private string? _error;
+    private string _draft = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _comments = await GitHub.GetIssueCommentsAsync(RepositoryFullName, IssueNumber);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Não foi possível carregar os comentários: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PostAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft))
+        {
+            return;
+        }
+
+        _posting = true;
+        try
+        {
+            await GitHub.AddIssueCommentAsync(RepositoryFullName, IssueNumber, _draft.Trim());
+            _draft = string.Empty;
+            ToastService.Notify(new(ToastType.Success, "Comentário publicado no GitHub."));
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Falha ao comentar: {ex.Message}"));
+        }
+        finally
+        {
+            _posting = false;
+        }
+    }
+}

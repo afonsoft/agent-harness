@@ -177,6 +177,20 @@ Without `--after`, `comment list` returns the full list. Its response includes `
 
 Each comment JSON object independently records the most recent conversation that created or changed that comment as `threadId`. Comment operations never change the parent issue's `threadId`.
 
+## GitHub board issues
+
+GitHub-board cards live on a separate surface (`/api/github/...`), identified by the GitHub issue id and `owner/repo` + issue number — distinct from local `TASK-<project>-<n>` issues.
+
+```bash
+taskctl ghissue:history <issueId> [--take 50] [--json]
+taskctl ghissue:comments owner/name <issueNumber> [--take 50] [--json]
+taskctl ghissue:comment owner/name <issueNumber> "<body>" [--json]
+```
+
+- `ghissue:history` returns the unified timeline (newest first): column moves, edits, closes, and agent runs for that issue.
+- `ghissue:comments` lists GitHub issue comments chronologically (author, body, timestamps, `htmlUrl`).
+- `ghissue:comment` publishes a comment to GitHub. Comments are the **agent handoff channel**: read history + comments before taking an issue, and post a summary comment when finishing a stage so the next agent or step keeps the context.
+
 ## Attachments
 
 Issue descriptions and comments may contain inline images at exact positions in their Markdown:
