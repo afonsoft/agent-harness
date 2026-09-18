@@ -1608,6 +1608,7 @@ agents.MapPut("{agentType}/models", async (
 // installed; 422 for CLI-managed agents.
 agents.MapGet("{agentType}/models/available", async (
     AgentType agentType,
+    bool refresh,
     IAgentModelCatalogService modelCatalog,
     CancellationToken ct) =>
 {
@@ -1616,7 +1617,7 @@ agents.MapGet("{agentType}/models/available", async (
         return Results.UnprocessableEntity(new { error = "model-selection-unsupported", agentType = agentType.ToString() });
     }
 
-    return Results.Ok(new AvailableAgentModelsResponse(await modelCatalog.ListAvailableAsync(agentType, ct)));
+    return Results.Ok(new AvailableAgentModelsResponse(await modelCatalog.ListAvailableAsync(agentType, refresh, ct)));
 });
 
 agents.MapDelete("{agentType}/models", async (

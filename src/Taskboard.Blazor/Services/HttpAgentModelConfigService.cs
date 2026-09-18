@@ -39,10 +39,11 @@ public sealed class HttpAgentModelConfigService(HttpClient http) : IAgentModelCo
     }
 
     public async Task<IReadOnlyList<string>> ListAvailableAsync(
-        AgentType agentType, CancellationToken cancellationToken = default)
+        AgentType agentType, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         var response = await http.GetFromJsonAsync<AvailableAgentModelsResponse>(
-            $"/api/agents/{agentType}/models/available", cancellationToken);
+            $"/api/agents/{agentType}/models/available{(forceRefresh ? "?refresh=true" : string.Empty)}",
+            cancellationToken);
         return response?.Models ?? [];
     }
 }
