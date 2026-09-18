@@ -33,7 +33,7 @@ public class TomlConfigMergerTests : IDisposable
     {
         var outcome = TomlConfigMerger.Merge(_path, "knowledge", "https://rag/mcp", "aft_key123456");
 
-        outcome.ShouldBe(MergeOutcome.Updated);
+        outcome.ShouldBe(MergeOutcome.Created);
         var root = Read();
         var server = (TomlTable)((TomlTable)root["mcp_servers"])["knowledge"];
         server["url"].ShouldBe("https://rag/mcp");
@@ -79,6 +79,18 @@ public class TomlConfigMergerTests : IDisposable
 
         outcome.ShouldBe(MergeOutcome.NoChange);
         File.Exists(_path + ".bak").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Dado_EntryComUrlDiferente_Quando_Upsert_Entao_Updated()
+    {
+        // Covers SPEC-20260918-rag-mcp-sync RF-003: overwrite reports Updated, not Created
+        TomlConfigMerger.Merge(_path, "knowledge", "https://old/mcp", "key12345678");
+
+        var outcome = TomlConfigMerger.Merge(_path, "knowledge", "https://rag/mcp", "key12345678");
+
+        outcome.ShouldBe(MergeOutcome.Updated);
+        TomlConfigMerger.ReadManagedUrl(_path, "knowledge").ShouldBe("https://rag/mcp");
     }
 
     [Fact]

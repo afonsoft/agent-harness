@@ -182,10 +182,17 @@
                         <p class="small text-body-secondary mt-1 mb-0">Leave blank to keep the stored key.</p>
                     </div>
 
-                    @if (string.IsNullOrWhiteSpace(_ragUrl))
+                    @if (string.IsNullOrWhiteSpace(_ragUrlSaved))
                     {
                         <div class="alert alert-warning mt-2 mb-0">
-                            No MCP URL configured — sync runs in <strong>remove</strong> mode and nothing is installed.
+                            No MCP URL saved — Sync stays disabled until you save one (Save &amp; Sync).
+                        </div>
+                    }
+                    else if (!string.Equals(_ragUrl.Trim(), _ragUrlSaved, StringComparison.Ordinal))
+                    {
+                        <div class="alert alert-info mt-2 mb-0">
+                            Unsaved changes — Sync provisions the <strong>saved</strong> URL
+                            (<code>@_ragUrlSaved</code>); use Save &amp; Sync to apply the form values.
                         </div>
                     }
 
@@ -208,8 +215,22 @@
 
                     <div class="d-flex flex-wrap gap-2 mt-3">
                         <button type="button" class="btn btn-outline-primary" disabled="@_ragBusy" @onclick="SaveRagAsync">Save &amp; Sync</button>
-                        <button type="button" class="btn btn-outline-secondary" disabled="@_ragBusy" @onclick="SyncMcpAsync">Sync</button>
+                        <button type="button" class="btn btn-outline-secondary"
+                                disabled="@(_ragBusy || string.IsNullOrWhiteSpace(_ragUrlSaved))"
+                                title="@(string.IsNullOrWhiteSpace(_ragUrlSaved) ? "Save a URL first" : "Provision the saved configuration into all agent CLIs")"
+                                @onclick="SyncMcpAsync">Sync</button>
                         <button type="button" class="btn btn-outline-secondary" disabled="@_ragBusy" @onclick="VerifyMcpAsync">Verify</button>
+                        @if (!_ragRemoveConfirm)
+                        {
+                            <button type="button" class="btn btn-outline-danger" disabled="@_ragBusy"
+                                    title="Remove the MCP server from every agent CLI config"
+                                    @onclick="() => _ragRemoveConfirm = true">Remove</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-danger" disabled="@_ragBusy" @onclick="RemoveMcpAsync">Confirm removal</button>
+                            <button type="button" class="btn btn-outline-secondary" disabled="@_ragBusy" @onclick="() => _ragRemoveConfirm = false">Cancel</button>
+                        }
                     </div>
 
                     <div class="mt-3">
@@ -420,9 +441,11 @@
     private IReadOnlyList<OperationLogEntry> _mcpLog = [];
     private string _ragName = "knowledge";
     private string _ragUrl = string.Empty;
+    private string? _ragUrlSaved;
     private string _ragApiKey = string.Empty;
     private bool _ragKeySet;
     private bool _ragBusy;
+    private bool _ragRemoveConfirm;
     private string? _ragError;
     private string _ragKeyInputType = "password";
     private string _ragKeyToggleLabel = "Show";
@@ -699,6 +722,7 @@
     private static string GetMcpBadgeClass(McpAgentResult agent) => agent.State switch
     {
         McpAgentState.Configured => "text-bg-success",
+        McpAgentState.Updated => "text-bg-info",
         McpAgentState.Failed => "text-bg-danger",
         McpAgentState.Repaired => "text-bg-warning",
         _ => "text-bg-secondary"
@@ -710,6 +734,7 @@
     private static string GetMcpBadgeLabel(McpAgentResult agent) => agent.State switch
     {
         McpAgentState.Configured => "configured",
+        McpAgentState.Updated => "updated",
         McpAgentState.Repaired => "repaired",
         McpAgentState.Removed => "removed",
         McpAgentState.Failed => "error",
@@ -759,7 +784,14 @@
         _ragBusy = true;
         try
         {
-            _mcpStatus = await Client.SyncMcpAsync();
+            var (status, error) = await Client.SyncMcpAsync();
+            if (error is not null)
+            {
+                ToastService.Notify(new(ToastType.Danger, error));
+                return;
+            }
+
+            _mcpStatus = status;
             ToastService.Notify(new(ToastType.Info, "MCP provisioning started"));
             if (_mcpStatus?.State == McpProvisionState.Running)
             {
@@ -769,6 +801,36 @@
         catch (Exception ex)
         {
             ToastService.Notify(new(ToastType.Danger, $"Failed to start MCP sync: {ex.Message}"));
+        }
+        finally
+        {
+            _ragBusy = false;
+        }
+    }
+
+    private async Task RemoveMcpAsync()
+    {
+        _ragBusy = true;
+        try
+        {
+            var (status, error) = await Client.RemoveMcpAsync();
+            if (error is not null)
+            {
+                ToastService.Notify(new(ToastType.Danger, error));
+                return;
+            }
+
+            _ragRemoveConfirm = false;
+            _mcpStatus = status;
+            ToastService.Notify(new(ToastType.Info, "MCP removal started — un-provisioning all agent CLIs"));
+            if (_mcpStatus?.State == McpProvisionState.Running)
+            {
+                StartStatusPolling();
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to start MCP removal: {ex.Message}"));
         }
         finally
         {
@@ -805,7 +867,8 @@
             }
 
             _ragName = _configEntries.FirstOrDefault(e => e.Key == RagServerNameKey)?.EffectiveValue ?? "knowledge";
-            _ragUrl = _configEntries.FirstOrDefault(e => e.Key == RagUrlKey)?.EffectiveValue ?? string.Empty;
+            _ragUrlSaved = _configEntries.FirstOrDefault(e => e.Key == RagUrlKey)?.EffectiveValue;
+            _ragUrl = _ragUrlSaved ?? string.Empty;
             _ragKeySet = _configEntries.FirstOrDefault(e => e.Key == RagApiKeyKey)?.EffectiveValue is not null;
         }
         catch (Exception ex)

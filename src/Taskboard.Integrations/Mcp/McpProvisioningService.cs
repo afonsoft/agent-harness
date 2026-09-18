@@ -94,18 +94,23 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             run?.Error);
     }
 
-    public void RequestProvision(IReadOnlyCollection<AgentType>? agents = null)
-    {
-        if (!_gate.Wait(0))
-        {
-            return;
-        }
+    public void RequestProvision(IReadOnlyCollection<AgentType>? agents = null) =>
+        RequestCore(agents, forceRemove: false);
 
+    public void RequestRemoval(IReadOnlyCollection<AgentType>? agents = null) =>
+        RequestCore(agents, forceRemove: true);
+
+    private void RequestCore(IReadOnlyCollection<AgentType>? agents, bool forceRemove)
+    {
+        // Queued, never dropped: a remove requested while a provision is still
+        // running must execute after it — dropping it silently left stale
+        // entries (SPEC-20260918-rag-mcp-sync).
         _ = Task.Run(async () =>
         {
+            await _gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                await ProvisionCoreAsync(agents, CancellationToken.None).ConfigureAwait(false);
+                await ProvisionCoreAsync(agents, forceRemove, CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
@@ -116,6 +121,7 @@ public sealed class McpProvisioningService : IMcpProvisioningService
 
     public async Task<McpProvisionStatus> ProvisionAsync(
         IReadOnlyCollection<AgentType>? agents = null,
+        bool forceRemove = false,
         CancellationToken cancellationToken = default)
     {
         if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
@@ -125,7 +131,7 @@ public sealed class McpProvisioningService : IMcpProvisioningService
 
         try
         {
-            return await ProvisionCoreAsync(agents, cancellationToken).ConfigureAwait(false);
+            return await ProvisionCoreAsync(agents, forceRemove, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -135,6 +141,7 @@ public sealed class McpProvisioningService : IMcpProvisioningService
 
     private async Task<McpProvisionStatus> ProvisionCoreAsync(
         IReadOnlyCollection<AgentType>? agents,
+        bool forceRemove,
         CancellationToken cancellationToken)
     {
         var started = DateTimeOffset.UtcNow;
@@ -149,9 +156,16 @@ public sealed class McpProvisioningService : IMcpProvisioningService
         {
             var targets = agents ?? await _enabledAgentsProvider(cancellationToken).ConfigureAwait(false);
             config = ResolveConfig();
+            if (forceRemove)
+            {
+                config = config with { Url = null, ApiKey = null };
+            }
+
+            var mode = string.IsNullOrWhiteSpace(config.Url)
+                ? forceRemove ? "remove (explicit)" : "remove"
+                : "configure";
             _log?.Info(
-                $"MCP provision started — name '{config.Name}', " +
-                $"{(string.IsNullOrWhiteSpace(config.Url) ? "remove" : "configure")} mode, " +
+                $"MCP provision started — name '{config.Name}', {mode} mode, " +
                 $"{targets.Count} target(s).");
             foreach (var agent in targets.Distinct())
             {
@@ -252,7 +266,8 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             var (exitCode, output) = await _agyRunner(agy, args, cancellationToken).ConfigureAwait(false);
             return exitCode == 0
                 ? new McpAgentResult(
-                    AgentType.Antigravity, true, displayPath, "http", McpAgentState.Configured, null)
+                    AgentType.Antigravity, true, displayPath, "http",
+                    existing is null ? McpAgentState.Configured : McpAgentState.Updated, null)
                 : new McpAgentResult(
                     AgentType.Antigravity, false, displayPath, null, McpAgentState.Failed,
                     Sanitize(output, config.ApiKey));
@@ -325,7 +340,8 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             var (exitCode, output) = await _agyRunner(cline, args, cancellationToken).ConfigureAwait(false);
             return exitCode == 0
                 ? new McpAgentResult(
-                    AgentType.Cline, true, displayPath, "http", McpAgentState.Configured, null)
+                    AgentType.Cline, true, displayPath, "http",
+                    existing is null ? McpAgentState.Configured : McpAgentState.Updated, null)
                 : new McpAgentResult(
                     AgentType.Cline, false, displayPath, null, McpAgentState.Failed,
                     Sanitize(output, config.ApiKey));
@@ -401,7 +417,8 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
 
             return new McpAgentResult(
-                AgentType.Continue, true, filePath, "streamable-http", McpAgentState.Configured, null);
+                AgentType.Continue, true, filePath, "streamable-http",
+                existing is null ? McpAgentState.Configured : McpAgentState.Updated, null);
         }
         catch (Exception ex)
         {
@@ -468,6 +485,7 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             {
                 MergeOutcome.Repaired => McpAgentState.Repaired,
                 MergeOutcome.Removed => McpAgentState.Removed,
+                MergeOutcome.Updated => McpAgentState.Updated,
                 MergeOutcome.NoChange when removing => McpAgentState.NotConfigured,
                 _ => McpAgentState.Configured
             };

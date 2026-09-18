@@ -80,6 +80,6 @@
 ## Settings: Skills & RAG MCP
 
 - Agent Skills: global `npx skills add` + `install.sh --all` install, verify and per-agent sync with a live process log (`GET /api/skills/log`)
-- RAG / Knowledge MCP: provisions the configured server into every enabled CLI config — JSON/TOML merge for Devin, Claude, Codex, OpenCode, OpenHands, Kimi, Grok, Qwen, Copilot and Kiro; `agy mcp add/remove` for Antigravity; `cline mcp add/remove` for Cline; JSON file drop into `~/.continue/mcpServers/` for Continue (Aider has no MCP support) — with a live process log (`GET /api/mcp/log`); API keys never surface in status or logs
+- RAG / Knowledge MCP: provisions the configured server into every enabled CLI config — JSON/TOML merge for Devin, Claude, Codex, OpenCode, OpenHands, Kimi, Grok, Qwen, Copilot and Kiro; `agy mcp add/remove` for Antigravity; `cline mcp add/remove` for Cline; JSON file drop into `~/.continue/mcpServers/` for Continue (Aider has no MCP support) — with a live process log (`GET /api/mcp/log`); API keys never surface in status or logs. **Sync** provisions the saved URL (blocked while none is saved — it never silently removes); **Remove** is the explicit un-provision action; per-agent badges distinguish `configured`/`updated`/`removed`/`failed`
 
 See `.specs/SPEC-*.md` for full requirements.

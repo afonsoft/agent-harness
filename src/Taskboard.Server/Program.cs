@@ -1816,9 +1816,36 @@ api.MapGet("mcp/status", (IMcpProvisioningService mcp) =>
     Results.Ok(mcp.GetStatus()))
     .RequireAuthorization();
 
-api.MapPost("mcp/sync", (IMcpProvisioningService mcp) =>
+api.MapPost("mcp/sync", IResult (
+    IMcpProvisioningService mcp,
+    SqliteConfigurationProvider overridesProvider) =>
 {
+    // Reload DB overrides first so a URL written outside PUT mcp/rag is honored.
+    overridesProvider.Reload();
+    if (string.IsNullOrWhiteSpace(mcp.GetStatus().ConfiguredUrl))
+    {
+        // SPEC-20260918-rag-mcp-sync RF-001: Sync never silently removes —
+        // un-provisioning is the explicit POST mcp/remove action.
+        return Results.BadRequest(new
+        {
+            error = new
+            {
+                code = "rag-not-configured",
+                message = "No RAG MCP URL saved — save it first with 'Save & Sync' (removal is the explicit Remove action)."
+            }
+        });
+    }
+
     mcp.RequestProvision();
+    return Results.Json(mcp.GetStatus(), statusCode: StatusCodes.Status202Accepted);
+}).RequireAuthorization();
+
+api.MapPost("mcp/remove", (
+    IMcpProvisioningService mcp,
+    SqliteConfigurationProvider overridesProvider) =>
+{
+    overridesProvider.Reload();
+    mcp.RequestRemoval();
     return Results.Json(mcp.GetStatus(), statusCode: StatusCodes.Status202Accepted);
 }).RequireAuthorization();
 
@@ -1834,7 +1861,20 @@ api.MapPut("mcp/rag", async (
     IMcpProvisioningService mcp,
     CancellationToken ct) =>
 {
-    // null = keep the stored value; "" clears it (URL clear removes the entry).
+    // null = keep the stored value; "" clears it — except URL: clearing used to
+    // mean "remove everywhere", which is now the explicit POST mcp/remove action.
+    if (request.Url is not null && string.IsNullOrWhiteSpace(request.Url))
+    {
+        return Results.BadRequest(new
+        {
+            error = new
+            {
+                code = "rag-url-required",
+                message = "URL cannot be empty — to un-provision the MCP server use the Remove action."
+            }
+        });
+    }
+
     var writes = new List<(string Key, string Value)>();
     if (request.Name is not null)
     {

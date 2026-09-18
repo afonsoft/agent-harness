@@ -16,10 +16,18 @@ public interface IMcpProvisioningService
     McpProvisionStatus GetStatus();
 
     /// <summary>
-    /// Starts a provision pass in the background for <paramref name="agents"/>
-    /// (or all enabled agents when null). Concurrent requests coalesce.
+    /// Queues a provision pass in the background for <paramref name="agents"/>
+    /// (or all enabled agents when null). Requests run in order after any
+    /// in-flight pass.
     /// </summary>
     void RequestProvision(IReadOnlyCollection<AgentType>? agents = null);
+
+    /// <summary>
+    /// Queues a removal pass in the background — un-provisions the managed
+    /// entry from every target regardless of the stored URL
+    /// (SPEC-20260918-rag-mcp-sync: removal is always an explicit action).
+    /// </summary>
+    void RequestRemoval(IReadOnlyCollection<AgentType>? agents = null);
 
     /// <summary>
     /// Runs the provision pass synchronously. When a run is in flight, returns
@@ -27,5 +35,6 @@ public interface IMcpProvisioningService
     /// </summary>
     Task<McpProvisionStatus> ProvisionAsync(
         IReadOnlyCollection<AgentType>? agents = null,
+        bool forceRemove = false,
         CancellationToken cancellationToken = default);
 }
