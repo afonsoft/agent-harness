@@ -105,7 +105,7 @@ docs/features.md · features.pt-br.md · api.md · api.pt-br.md
 
 ### RF-005: `CodeServerProcessManager`
 - **Description:** Singleton que sobe `code-server --bind-addr 127.0.0.1:<Port> --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --app-name Taskboard` com env `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` (links do painel de portas corretos sob o subpath) lazy na primeira necessidade (request ao proxy ou `EnsureStarted` da página); monitora exit; expõe `Status` (`Stopped|Starting|Running|Failed`) + linhas recentes de stdout/stderr.
-- **Rules:** `Port` = `Taskboard:Vscode:Port` default `8377`; **sem `--base-path`** — code-server é path-agnóstico (URLs relativas); o proxy remove o prefixo `/vscode` e o browser resolve os assets sob `/vscode/` (trailing slash obrigatória — `GET /vscode` redireciona). Nunca bind em interface não-loopback; kill do filho no shutdown do host (`IAsyncDisposable`).
+- **Rules:** `Port` = `Taskboard:Vscode:Port` default `8377`; **sem `--base-path`** — code-server é path-agnóstico (URLs relativas); o proxy remove o prefixo `/vscode` e o browser resolve os assets sob `/vscode/` (trailing slash obrigatória — `GET /vscode` redireciona). Nunca bind em interface não-loopback; kill do filho no shutdown do host (`IAsyncDisposable`). `EnsureStartedAsync` aguarda a porta aceitar conexão (probe TCP a cada 250ms, timeout 30s) — processo vivo ≠ escutando; `Running` só vira `true` após o bind, evitando 502 de race no primeiro request ao proxy.
 - **Input → Output:** `EnsureStartedAsync() → status/url`; exit inesperado → `Failed` + últimas linhas.
 
 ### RF-006: Proxy autenticado `/vscode/{**}`
