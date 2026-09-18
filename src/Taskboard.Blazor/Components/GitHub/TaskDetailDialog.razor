@@ -104,7 +104,7 @@
         <Content>
             @if (Issue is not null)
             {
-                <AgentConfigTab Issue="Issue" RepositoryFullName="RepositoryFullName" OnExecuted="OnAgentExecutedAsync" />
+                <AgentConfigTab Issue="Issue" RepositoryFullName="@RepositoryFullName" OnExecuted="OnAgentExecutedAsync" />
             }
         </Content>
     </Tab>
