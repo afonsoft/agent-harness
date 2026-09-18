@@ -102,7 +102,9 @@ public class CodeServerProcessManagerTests : IDisposable
         args.ShouldContain("127.0.0.1:18777");
         args.ShouldContain("--auth");
         args.ShouldContain("none");
+        args.ShouldContain("--disable-workspace-trust");
         args.ShouldNotContain("0.0.0.0");
+        captured.Environment["VSCODE_PROXY_URI"].ShouldBe("/vscode/proxy/{{port}}");
         captured.WorkingDirectory.ShouldBe(Path.Join(_home, "repos"));
         captured.RedirectStandardOutput.ShouldBeTrue();
     }

@@ -73,7 +73,7 @@
 
 - `/editor` page (left menu "VS Code"): VS Code Web via managed `code-server` — embedded iframe, path toolbar, open-in-new-tab; defaults to `$HOME`, `?repo=owner/name` opens the card's repo workdir
 - Managed install: `POST /api/vscode/install` runs the allowlisted standalone installer in the background with a live log console (`GET /api/vscode/install/status`)
-- code-server runs as a lazy child process bound to `127.0.0.1` with `--auth none`, reachable only through the authenticated YARP proxy at `/vscode/{**}` (WebSocket-enabled, prefix stripped)
+- code-server runs as a lazy child process bound to `127.0.0.1` with `--auth none --disable-workspace-trust --app-name Taskboard`, reachable only through the authenticated YARP proxy at `/vscode/{**}` (WebSocket-enabled, prefix stripped); `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` keeps port-forward links working under the subpath
 - Workspace root `Taskboard:WorkspaceRoot` (default `~/repos`, auto-created): default cwd for agent runs and clones; card workdir resolves to `<root>/<repo>` (sanitized, traversal-proof) via `GET /api/vscode/workdir`
 - "Open in VS Code" on the issue detail dialog jumps to `/editor?repo=<fullName>` — watch/edit the same files the agent is working on
 
