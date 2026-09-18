@@ -21,13 +21,24 @@ public static class AgentPromptTemplate
         Issue: {issueTitle}
 
         {issueBody}
+
+        {issueComments}
         """;
 
-    /// <summary>Substitutes <c>{repoUrl}</c>, <c>{issueTitle}</c> and <c>{issueBody}</c>.</summary>
-    public static string Render(string template, string? repoUrl, string? issueTitle, string? issueBody) =>
+    /// <summary>
+    /// Returns true when the template carries the <c>{issueComments}</c>
+    /// placeholder (older overrides may not).
+    /// </summary>
+    public static bool HasCommentsPlaceholder(string template) =>
+        template.Contains("{issueComments}", StringComparison.Ordinal);
+
+    /// <summary>Substitutes <c>{repoUrl}</c>, <c>{issueTitle}</c>, <c>{issueBody}</c> and <c>{issueComments}</c>.</summary>
+    public static string Render(
+        string template, string? repoUrl, string? issueTitle, string? issueBody, string? issueComments = null) =>
         template
             .Replace("{repoUrl}", repoUrl ?? string.Empty, StringComparison.Ordinal)
             .Replace("{issueTitle}", issueTitle ?? string.Empty, StringComparison.Ordinal)
             .Replace("{issueBody}", issueBody ?? string.Empty, StringComparison.Ordinal)
+            .Replace("{issueComments}", issueComments ?? string.Empty, StringComparison.Ordinal)
             .Trim();
 }

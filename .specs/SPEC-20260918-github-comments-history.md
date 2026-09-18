@@ -31,7 +31,7 @@ Agentes rodam "cegos" ao histórico da issue: o prompt carrega só título+corpo
 - `manage-taskboard` skill: documentar histórico e comentários (endpoints novos) no SKILL.md/references.
 - MCP `TaskboardTools`: novas tools `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`.
 - `taskctl`: comandos `issue history` e `issue comment` (list/create) para issues do board GitHub.
-- `AgentConfigTab`: ao renderizar o prompt, anexa seção `Comments:` automática com os comentários da issue (quando existirem).
+- `AgentConfigTab`: ao renderizar o prompt, substitui o placeholder `{issueComments}` pela seção `Comments:` com os comentários da issue (quando existirem). Templates/Overrides antigos sem o placeholder recebem a seção anexada ao final (fallback).
 - Testes unit + integration; docs bilíngues.
 
 **Out of scope:**
@@ -97,7 +97,7 @@ docs/api.md, docs/api.pt-br.md, docs/features.md, docs/features.pt-br.md
 - **Rules:** refresh após postar; estados loading/empty/erro; `body` plain-text (GitHub renderiza markdown server-side); contador de comentários no card apenas se vier "de graça" no `IssueDto` — senão fora de escopo (evitar N+1 por card).
 
 ### RF-005: Comentários no prompt do agente (seção automática)
-- **Description:** `AgentConfigTab` busca os comentários da issue ao montar o prompt e anexa uma seção `Comments:` (cronológica, `autor — data: body` resumido) **após** `{issueBody}`, somente quando houver comentários. Cap de tamanho: truncar para caber no prompt (ex.: últimos N comentários, ~2-3k chars).
+- **Description:** `AgentConfigTab` busca os comentários da issue ao montar o prompt e injeta uma seção `Comments:` (cronológica, `autor — data: body` resumido) via placeholder `{issueComments}` **após** `{issueBody}`, somente quando houver comentários. O builtin termina com `{issueComments}`; overrides antigos sem o placeholder recebem append ao final. Cap de tamanho: truncar para caber no prompt (ex.: últimos N comentários, ~2-3k chars).
 - **Rules:** seção automática (aprovado — sem placeholder novo); ausência de comentários → sem seção; falha no fetch de comentários não bloqueia a execução (prompt sem a seção + aviso no console/toast informativo, não erro fatal).
 
 ### RF-006: Skill `manage-taskboard` atualizada
@@ -141,7 +141,7 @@ docs/api.md, docs/api.pt-br.md, docs/features.md, docs/features.pt-br.md
 
 1. **T1** — `IssueCommentDto` + `IGitHubService` comments + endpoints + fake + testes integration.
 2. **T2** — UI: aba Comentários no dialog (lista + postar) + `HttpGitHubService`/`TaskboardClient`.
-3. **T3** — `AgentConfigTab`: fetch + seção `Comments:` automática no prompt + teste do append.
+3. **T3** — `AgentConfigTab`: fetch + seção `Comments:` via placeholder `{issueComments}` (fallback append) + testes do placeholder.
 4. **T4** — MCP: 3 tools novas + client calls + smoke local.
 5. **T5** — taskctl: comandos history/comment + api client + smoke.
 6. **T6** — Skill manage-taskboard atualizada (SKILL.md + references/cli.md).

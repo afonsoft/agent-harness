@@ -111,7 +111,8 @@
         <h2 class="h6 fw-semibold mb-1">Default agent prompt</h2>
         <p class="small text-body-secondary">
             Preenche o prompt da aba <em>Agent Config</em> de cada issue. Placeholders:
-            <code>{repoUrl}</code> (URL de clone), <code>{issueTitle}</code>, <code>{issueBody}</code>.
+            <code>{repoUrl}</code> (URL de clone), <code>{issueTitle}</code>, <code>{issueBody}</code>,
+            <code>{issueComments}</code> (comentários do GitHub — handoff entre agentes).
         </p>
         <textarea class="form-control font-monospace" rows="8" @bind="_template"
                   placeholder="@_builtinTemplate" disabled="@_templateLoading"></textarea>

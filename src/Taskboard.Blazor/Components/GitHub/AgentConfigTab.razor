@@ -167,12 +167,25 @@ else if (_agents is not null)
             else
             {
                 var template = await LoadTemplateAsync();
-                _prompt = !string.IsNullOrWhiteSpace(template)
-                    ? AgentPromptTemplate.Render(template, RepoCloneUrl, Issue.Title, Issue.Body)
-                    : (string.IsNullOrWhiteSpace(Issue.Body)
+                var commentsSection = await BuildCommentsSectionAsync();
+                if (!string.IsNullOrWhiteSpace(template))
+                {
+                    _prompt = AgentPromptTemplate.Render(
+                        template, RepoCloneUrl, Issue.Title, Issue.Body, commentsSection.TrimStart());
+                    // Older overrides may lack {issueComments} — append so the
+                    // handoff channel still reaches the agent (SPEC-20260918-github-comments-history RF-005).
+                    if (!AgentPromptTemplate.HasCommentsPlaceholder(template))
+                    {
+                        _prompt += commentsSection;
+                    }
+                }
+                else
+                {
+                    _prompt = string.IsNullOrWhiteSpace(Issue.Body)
                         ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
-                        : Issue.Body);
-                _prompt += await BuildCommentsSectionAsync();
+                        : Issue.Body;
+                    _prompt += commentsSection;
+                }
             }
         }
         catch (Exception ex)
