@@ -718,12 +718,34 @@ body {
     top: 0.5rem;
 }
 
+/* Terminal page — fills the available height of .app-main */
+.terminal-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.terminal-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.terminal-pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+}
+
 .terminal-host {
     background: #0d1117;
     border: 1px solid var(--bs-border-color, #30363d);
     border-radius: 0.5rem;
-    height: 65vh;
-    min-height: 320px;
+    flex: 1;
+    min-height: 200px;
     overflow: hidden;
     padding: 0.5rem;
 }
@@ -732,108 +754,91 @@ body {
     height: 100%;
 }
 
-/* Terminal tabs (SPEC-20260917-terminal-tabs) */
+/* xterm viewport: keep the gutter blended with the theme and slim the
+   scrollbar so it reads as part of the terminal, not an overlay. FitAddon
+   already reserves scrollBarWidth, so a thinner bar just frees columns. */
+.terminal-host .xterm-viewport {
+    background-color: #0d1117;
+    scrollbar-color: #30363d #0d1117;
+    scrollbar-width: thin;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar {
+    width: 0.625rem;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border: 2px solid #0d1117;
+    border-radius: 0.375rem;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* Terminal tabs (SPEC-20260917-terminal-tabs) — Bootstrap nav-tabs */
 .terminal-tabstrip {
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
     margin-bottom: 0.5rem;
     overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    flex-shrink: 0;
 }
 
 .terminal-tab {
-    display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    background: var(--bs-tertiary-bg, #161b22);
-    border: 1px solid var(--bs-border-color, #30363d);
-    border-bottom: none;
-    border-radius: 0.375rem 0.375rem 0 0;
-    padding: 0.15rem 0.25rem 0.15rem 0.625rem;
-    color: var(--bs-secondary-color, #8b949e);
-    font-size: 0.8125rem;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 0.5rem;
+    user-select: none;
     white-space: nowrap;
 }
 
 .terminal-tab.active {
-    background: #0d1117;
-    color: var(--bs-body-color, #e6edf3);
-    border-color: var(--bs-border-color, #30363d);
-}
-
-.terminal-tab-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    background: none;
-    border: none;
-    color: inherit;
-    padding: 0.125rem 0.25rem;
-    font: inherit;
-    cursor: pointer;
+    box-shadow: inset 0 2px 0 var(--bs-primary);
+    font-weight: 600;
 }
 
 .terminal-tab-dot {
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 50%;
-    background: #6e7681;
+    background: var(--bs-secondary-color);
     display: inline-block;
+    flex-shrink: 0;
 }
 
 .terminal-tab.state-open .terminal-tab-dot {
-    background: #3fb950;
+    background: var(--bs-success);
 }
 
 .terminal-tab.state-connecting .terminal-tab-dot {
-    background: #d29922;
+    background: var(--bs-warning);
 }
 
 .terminal-tab.state-closed .terminal-tab-dot,
 .terminal-tab.state-error .terminal-tab-dot {
-    background: #f85149;
+    background: var(--bs-danger);
 }
 
 .terminal-tab-close {
-    background: none;
-    border: none;
-    color: inherit;
-    font-size: 1rem;
-    line-height: 1;
-    padding: 0 0.25rem;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    opacity: 0.6;
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    opacity: 0.55;
+    padding: 0.2rem;
 }
 
 .terminal-tab-close:hover {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.terminal-tab-new {
-    background: none;
-    border: 1px dashed var(--bs-border-color, #30363d);
-    border-radius: 0.375rem;
-    color: var(--bs-secondary-color, #8b949e);
-    font-size: 1rem;
-    line-height: 1.2;
-    padding: 0.1rem 0.6rem;
-    cursor: pointer;
-}
-
-.terminal-tab-new:hover:not(:disabled) {
-    color: var(--bs-body-color, #e6edf3);
-    border-style: solid;
 }
 
 .terminal-tab-new:disabled {
     opacity: 0.4;
-    cursor: not-allowed;
-}
-
-.terminal-pane {
-    position: relative;
 }
 
 .terminal-empty {
