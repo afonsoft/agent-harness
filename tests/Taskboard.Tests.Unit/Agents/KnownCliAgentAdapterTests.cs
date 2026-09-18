@@ -123,6 +123,37 @@ public class KnownCliAgentAdapterTests
     }
 
     [Fact]
+    public void Dado_RepoPathVazio_Quando_MontarComando_Entao_UsaWorkspaceRoot()
+    {
+        var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");
+        var home = Directory.CreateTempSubdirectory("taskboard-ws-tests-");
+        var executablePath = Path.Combine(directory.FullName, "codex");
+        File.WriteAllText(executablePath, "#!/bin/sh\n");
+        SetExecutable(executablePath);
+
+        var previousPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", directory.FullName);
+            var workspace = new Taskboard.Integrations.Workspace.WorkspaceService(
+                null, home.FullName,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Workspace.WorkspaceService>.Instance);
+            var request = CriarRequest(AgentType.Codex) with { RepoPath = "" };
+
+            var command = new KnownCliAgentAdapter(workspace).BuildCommand(request);
+
+            command.WorkingDirectory.ShouldBe(Path.Combine(home.FullName, "repos"));
+            Directory.Exists(command.WorkingDirectory).ShouldBeTrue();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", previousPath);
+            Directory.Delete(directory.FullName, recursive: true);
+            Directory.Delete(home.FullName, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Dado_ExecutavelAusenteNoPath_Quando_MontarComando_Entao_LancaFileNotFoundException()
     {
         var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");

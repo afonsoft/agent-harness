@@ -35,12 +35,16 @@ using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
 using Taskboard.Integrations.Skills;
+using Taskboard.Integrations.Vscode;
+using Taskboard.Integrations.Workspace;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
+using Taskboard.Application.Contracts.Vscode;
+using Yarp.ReverseProxy.Configuration;
 using Taskboard.Application.Settings;
 using Taskboard.GitHub;
 using Taskboard.Json;
@@ -132,7 +136,8 @@ builder.Services.AddSingleton<ISkillDiscoveryService>(sp => new SkillDiscoverySe
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<RuntimeConfigurationService>();
 builder.Services.AddSingleton<IAgentAcpClient, JsonRpcAcpClient>();
-builder.Services.AddSingleton<IAgentAdapter, KnownCliAgentAdapter>();
+builder.Services.AddSingleton<IAgentAdapter>(sp =>
+    new KnownCliAgentAdapter(sp.GetRequiredService<WorkspaceService>()));
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
@@ -183,6 +188,59 @@ builder.Services.AddSingleton(sp => new PtySessionFactory(
     homeDir,
     sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton<TerminalSessionManager>();
+
+// SPEC-20260917-vscode-web-workspace: ~/repos workspace + code-server managed process.
+var vscodePort = builder.Configuration.GetValue("Taskboard:Vscode:Port", CodeServerProcessManager.DefaultPort);
+
+builder.Services.AddSingleton(sp =>
+{
+    var workspace = new WorkspaceService(
+        builder.Configuration["Taskboard:WorkspaceRoot"],
+        homeDir,
+        sp.GetRequiredService<ILogger<WorkspaceService>>());
+    workspace.EnsureRoot();
+    return workspace;
+});
+
+builder.Services.AddSingleton<IVscodeInstallService>(sp => new VscodeInstallService(
+    homeDir,
+    sp.GetRequiredService<ILogger<VscodeInstallService>>()));
+
+builder.Services.AddSingleton(sp => new CodeServerProcessManager(
+    homeDir,
+    vscodePort,
+    sp.GetRequiredService<WorkspaceService>(),
+    sp.GetRequiredService<ILogger<CodeServerProcessManager>>()));
+builder.Services.AddSingleton<ICodeServerManager>(sp => sp.GetRequiredService<CodeServerProcessManager>());
+
+// YARP: /vscode/** → loopback code-server (auth'd by the app; code-server itself
+// runs --auth none and is never reachable off-box).
+builder.Services.AddReverseProxy()
+    .LoadFromMemory(
+        [
+            new RouteConfig
+            {
+                RouteId = "vscode",
+                ClusterId = "vscode",
+                AuthorizationPolicy = "Default",
+                Match = new RouteMatch { Path = "/vscode/{**catch-all}" },
+                Transforms =
+                [
+                    new Dictionary<string, string> { ["PathRemovePrefix"] = "/vscode" },
+                    new Dictionary<string, string> { ["RequestHeader"] = "X-Forwarded-Prefix", ["Set"] = "/vscode" }
+                ]
+            }
+        ],
+        [
+            new ClusterConfig
+            {
+                ClusterId = "vscode",
+                Destinations = new Dictionary<string, DestinationConfig>
+                {
+                    ["d1"] = new() { Address = $"http://127.0.0.1:{vscodePort}/" }
+                }
+            }
+        ]);
 
 // Opt-out switch for environments where a background git clone must not run
 // (tests, air-gapped hosts). Default: enabled.
@@ -1114,6 +1172,32 @@ app.MapFrameworkAssetsApi();
 app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
 app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
 
+// SPEC-20260917-vscode-web-workspace RF-006: ensure code-server is up before the
+// proxy forwards; without the binary a friendly 503 beats a raw 502.
+app.UseWhen(
+    ctx => ctx.Request.Path.StartsWithSegments("/vscode", StringComparison.OrdinalIgnoreCase),
+    branch => branch.Use(async (ctx, next) =>
+    {
+        var manager = ctx.RequestServices.GetRequiredService<ICodeServerManager>();
+        var status = await manager.EnsureStartedAsync(ctx.RequestAborted);
+        if (!status.Running)
+        {
+            ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await ctx.Response.WriteAsync(
+                status.Installed
+                    ? "code-server failed to start — check GET /api/vscode/status."
+                    : "code-server is not installed — install it from the VS Code page.");
+            return;
+        }
+
+        await next();
+    }));
+
+// code-server needs a trailing slash (relative URLs) — redirect before proxying.
+app.MapGet("/vscode", (HttpContext ctx) => Results.Redirect($"/vscode/{ctx.Request.QueryString}"))
+    .RequireAuthorization();
+app.MapReverseProxy();
+
 api.MapGet("settings", async (SettingsService settings, CancellationToken ct) =>
 {
     var result = await settings.GetSettingsAsync(ct);
@@ -1500,6 +1584,38 @@ api.MapGet("agent-clis/{kind}/install/status", (
     }
 
     return Results.Ok(installs.GetStatus(parsed));
+}).RequireAuthorization();
+
+// SPEC-20260917-vscode-web-workspace RF-004/RF-006/RF-008: editor status, managed
+// install and per-card workdir resolution.
+api.MapGet("vscode/status", async (ICodeServerManager manager, CancellationToken ct) =>
+    Results.Ok(await manager.GetStatusAsync(ct)))
+    .RequireAuthorization();
+
+api.MapPost("vscode/install", async (IVscodeInstallService installs, CancellationToken ct) =>
+{
+    var status = await installs.StartInstallAsync(ct);
+    return status.State == AgentCliInstallState.Running
+        ? Results.Json(status, statusCode: StatusCodes.Status202Accepted)
+        : Results.Ok(status);
+}).RequireAuthorization();
+
+api.MapGet("vscode/install/status", (IVscodeInstallService installs) =>
+    Results.Ok(installs.GetStatus()))
+    .RequireAuthorization();
+
+api.MapGet("vscode/workdir", (string repo, WorkspaceService workspace) =>
+{
+    // Only 'owner/name' shapes resolve — anything else is a 404 rather than a
+    // surprising path under the root.
+    var parts = repo.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length != 2)
+    {
+        return Results.NotFound();
+    }
+
+    var path = workspace.ResolveCardWorkdir(repo, out var exists);
+    return Results.Ok(new VscodeWorkdir(path, exists));
 }).RequireAuthorization();
 
 api.MapGet("mcp/status", (IMcpProvisioningService mcp) =>

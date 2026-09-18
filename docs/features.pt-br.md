@@ -69,6 +69,14 @@
 - Página `/terminal`: bash PTYs interativos via SignalR (`/terminal-hub`) com xterm.js — **múltiplas sessões em abas** (até 8 por usuário, `Open()` retorna `sessionId` roteado na mesma conexão), timeout de 30 min ocioso por aba, fechar/reabrir por aba, `?cmd=` pré-preenche a primeira aba; teclas de terminal nativo: Ctrl+C copia a seleção (ou envia SIGINT), Ctrl+V / Ctrl+Shift+V / Shift+Insert colam, flag `Taskboard:Terminal:Enabled`
 - A imagem Docker traz Node.js LTS + os cinco CLIs com `HOME=/data/home` para credenciais persistirem no volume `/data`
 
+## VS Code Web e Workspace
+
+- Página `/editor` (menu lateral "VS Code"): VS Code Web via `code-server` gerenciado — iframe embutido, toolbar de caminho, abrir em nova aba; abre em `$HOME` por padrão, `?repo=owner/name` abre o workdir do repo do card
+- Instalação gerenciada: `POST /api/vscode/install` executa o instalador standalone allowlisted em background com console de log ao vivo (`GET /api/vscode/install/status`)
+- code-server roda como processo filho lazy em `127.0.0.1` com `--auth none`, acessível apenas pelo proxy YARP autenticado em `/vscode/{**}` (com WebSocket, prefixo removido)
+- Workspace root `Taskboard:WorkspaceRoot` (padrão `~/repos`, criado automaticamente): cwd default dos agent runs e clones; workdir do card resolve para `<root>/<repo>` (sanitizado, sem traversal) via `GET /api/vscode/workdir`
+- "Open in VS Code" no dialog da issue abre `/editor?repo=<fullName>` — veja e edite os mesmos arquivos que o agente está alterando
+
 ## Settings: Skills e RAG MCP
 
 - Agent Skills: instalação global `npx skills add` + `install.sh --all`, verificação e sync por agente com log de processo ao vivo (`GET /api/skills/log`)

@@ -299,6 +299,39 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<AgentCliInstallStatus>(
             $"/api/agent-clis/{kind.ToString().ToLowerInvariant()}/install/status", cancellationToken);
 
+    /// <summary>Status do code-server (instalado/versão/rodando) — SPEC-20260917-vscode-web-workspace.</summary>
+    public async Task<Taskboard.Application.Contracts.Vscode.VscodeStatus?> GetVscodeStatusAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<Taskboard.Application.Contracts.Vscode.VscodeStatus>(
+            "/api/vscode/status", cancellationToken);
+
+    /// <summary>Dispara a instalação gerenciada do code-server (202 Accepted).</summary>
+    public async Task<Taskboard.Application.Contracts.Vscode.VscodeInstallStatus?> StartVscodeInstallAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/vscode/install", null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<Taskboard.Application.Contracts.Vscode.VscodeInstallStatus>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Snapshot do último run de instalação do code-server.</summary>
+    public async Task<Taskboard.Application.Contracts.Vscode.VscodeInstallStatus?> GetVscodeInstallStatusAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<Taskboard.Application.Contracts.Vscode.VscodeInstallStatus>(
+            "/api/vscode/install/status", cancellationToken);
+
+    /// <summary>Workdir resolvido de um card (owner/name) sob o workspace root.</summary>
+    public async Task<Taskboard.Application.Contracts.Vscode.VscodeWorkdir?> GetVscodeWorkdirAsync(
+        string repositoryFullName, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/vscode/workdir?repo={Uri.EscapeDataString(repositoryFullName)}", cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<Taskboard.Application.Contracts.Vscode.VscodeWorkdir>(cancellationToken)
+            : null;
+    }
+
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try

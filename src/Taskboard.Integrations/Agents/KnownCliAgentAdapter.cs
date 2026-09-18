@@ -1,6 +1,7 @@
 using System.Text;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Integrations.Workspace;
 
 namespace Taskboard.Integrations.Agents;
 
@@ -9,6 +10,13 @@ namespace Taskboard.Integrations.Agents;
 /// </summary>
 public sealed class KnownCliAgentAdapter : IAgentAdapter
 {
+    private readonly WorkspaceService? _workspace;
+
+    public KnownCliAgentAdapter(WorkspaceService? workspace = null)
+    {
+        _workspace = workspace;
+    }
+
     public bool CanHandle(AgentType agentType) => AgentCliInvocation.ExecutableName(agentType) is not null;
 
     public AgentCommand BuildCommand(AgentExecutionRequest request)
@@ -20,9 +28,9 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
                              ?? throw new FileNotFoundException($"Executable '{name}' not found in PATH.");
 
         var prompt = BuildPrompt(request);
-        var workingDirectory = string.IsNullOrWhiteSpace(request.RepoPath)
-            ? Environment.CurrentDirectory
-            : request.RepoPath;
+        var workingDirectory = !string.IsNullOrWhiteSpace(request.RepoPath)
+            ? request.RepoPath
+            : _workspace?.EnsureRoot() ?? Environment.CurrentDirectory;
 
         return new AgentCommand(
             executablePath,

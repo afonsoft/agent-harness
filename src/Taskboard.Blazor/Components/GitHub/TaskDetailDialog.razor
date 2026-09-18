@@ -91,6 +91,9 @@
                     <a href="@Issue?.HtmlUrl" target="_blank" class="d-block mt-3">
                         <Icon Name="IconName.BoxArrowUpRight" class="me-1" />Abrir no GitHub
                     </a>
+                    <a href="/editor?repo=@Uri.EscapeDataString(RepositoryFullName)" target="_blank" class="d-block mt-2">
+                        <Icon Name="IconName.CodeSlash" class="me-1" />Open in VS Code
+                    </a>
                     <div class="d-flex justify-content-end mt-4 pt-3 border-top">
                         <Button Color="ButtonColor.Primary" @onclick="() => _showMoveSheet = true">
                             <Icon Name="IconName.ArrowLeftRight" class="me-1" />Mover para…

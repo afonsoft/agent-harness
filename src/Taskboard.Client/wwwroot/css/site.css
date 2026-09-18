@@ -1249,3 +1249,11 @@ body {
     white-space: pre-wrap;
     word-break: break-all;
 }
+
+/* VS Code Web embed (SPEC-20260917-vscode-web-workspace) */
+.vscode-frame {
+    width: 100%;
+    height: calc(100vh - 220px);
+    min-height: 420px;
+    background: var(--bs-body-bg);
+}
