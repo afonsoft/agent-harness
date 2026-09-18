@@ -83,6 +83,57 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task<IssueDto> UpdateIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string? title,
+        string? body,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var request = new HttpRequestMessage(HttpMethod.Patch,
+            $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}")
+        {
+            Content = JsonContent.Create(new UpdateIssueRequest(title, body)),
+        };
+        var response = await http.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<IssueResponse>(cancellationToken);
+        return result!.Issue;
+    }
+
+    public async Task<IssueDto> SetIssuePriorityAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string priority,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.PutAsJsonAsync(
+            $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}/priority",
+            new SetPriorityRequest(priority),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<IssueResponse>(cancellationToken);
+        return result!.Issue;
+    }
+
+    public async Task<IssueDto> CloseIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string resolution,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.PostAsJsonAsync(
+            $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}/close",
+            new CloseIssueRequest(resolution),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<IssueResponse>(cancellationToken);
+        return result!.Issue;
+    }
+
     private static (string Owner, string Repo) SplitFullName(string fullName)
     {
         var parts = fullName.Split('/', 2, StringSplitOptions.TrimEntries);
@@ -109,6 +160,9 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
     private sealed record UpdateColumnRequest(GitHubBoardColumn? OldColumn, GitHubBoardColumn NewColumn);
     private sealed record CreateIssueRequest(string Title, string? Body, GitHubBoardColumn InitialColumn);
     private sealed record AddLabelsRequest(IReadOnlyCollection<string> Labels);
+    private sealed record UpdateIssueRequest(string? Title, string? Body);
+    private sealed record SetPriorityRequest(string Priority);
+    private sealed record CloseIssueRequest(string Resolution);
     private sealed record ErrorEnvelope(ErrorBody? Error);
     private sealed record ErrorBody(string Code, string Message);
 }

@@ -154,6 +154,89 @@ public sealed class GitHubService : IGitHubService
         await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, labels.ToArray());
     }
 
+    /// <inheritdoc />
+    public async Task<IssueDto> UpdateIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string? title,
+        string? body,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var update = new IssueUpdate { Body = body };
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            update.Title = title;
+        }
+
+        var issue = await _client.Issue.Update(owner, name, issueNumber, update);
+        return MapToDto(issue, repositoryFullName);
+    }
+
+    /// <inheritdoc />
+    public async Task<IssueDto> SetIssuePriorityAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string priority,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+        var normalized = GitHubBoardColumnExtensions.NormalizePriority(priority)
+            ?? throw new ArgumentOutOfRangeException(nameof(priority), priority, "Unknown priority.");
+
+        var issue = await _client.Issue.Get(owner, name, issueNumber);
+        foreach (var label in issue.Labels.Select(l => l.Name).Where(GitHubBoardColumnExtensions.IsPriorityLabel))
+        {
+            try
+            {
+                await _client.Issue.Labels.RemoveFromIssue(owner, name, issueNumber, label);
+            }
+            catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // Label já removida; prossegue.
+            }
+        }
+
+        var newLabel = GitHubBoardColumnExtensions.ToPriorityLabel(normalized);
+        if (newLabel is not null)
+        {
+            await EnsureLabelExistsAsync(owner, name, newLabel, cancellationToken);
+            await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, [newLabel]);
+        }
+
+        var updated = await _client.Issue.Get(owner, name, issueNumber);
+        return MapToDto(updated, repositoryFullName);
+    }
+
+    /// <inheritdoc />
+    public async Task<IssueDto> CloseIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string resolution,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        if (string.Equals(resolution, "canceled", StringComparison.OrdinalIgnoreCase))
+        {
+            var label = GitHubBoardColumn.Canceled.ToLabel();
+            await EnsureLabelExistsAsync(owner, name, label, cancellationToken);
+            await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, [label]);
+        }
+        else if (!string.Equals(resolution, "archived", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "Resolution must be 'canceled' or 'archived'.");
+        }
+
+        var closed = await _client.Issue.Update(owner, name, issueNumber,
+            new IssueUpdate { State = ItemState.Closed });
+        return MapToDto(closed, repositoryFullName);
+    }
+
     private async Task EnsureLabelExistsAsync(string owner, string name, string label, CancellationToken cancellationToken = default)
     {
         try

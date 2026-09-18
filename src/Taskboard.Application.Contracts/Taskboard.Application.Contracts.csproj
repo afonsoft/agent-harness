@@ -5,6 +5,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="HtmlSanitizer" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Taskboard.Domain.Shared/Taskboard.Domain.Shared.csproj" />

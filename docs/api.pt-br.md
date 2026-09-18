@@ -145,6 +145,21 @@ POST   /terminal-hub/negotiate   (hub SignalR)
 
 `/terminal-hub` é um hub SignalR que transmite um bash PTY interativo (`script -qfc`, `TERM=xterm-256color`) para a página `/terminal` — uma sessão por usuário autenticado, reconexões substituem a sessão anterior, sessões ociosas fecham após 30 minutos. Métodos do hub: `Input(string)`, `Resize(int cols, int rows)`; callbacks do cliente: `output(string)`, `closed(string reason)`. Controlado por `Taskboard:Terminal:Enabled` (padrão `true`, env `TASKBOARD_TERMINAL_ENABLED`, editável em runtime).
 
+### Kanban GitHub
+
+```http
+GET   /api/github/repositories
+GET   /api/github/repos/{owner}/{repo}/issues
+POST  /api/github/repos/{owner}/{repo}/issues
+PATCH /api/github/repos/{owner}/{repo}/issues/{number}
+PUT   /api/github/repos/{owner}/{repo}/issues/{number}/column
+PUT   /api/github/repos/{owner}/{repo}/issues/{number}/priority
+POST  /api/github/repos/{owner}/{repo}/issues/{number}/labels
+POST  /api/github/repos/{owner}/{repo}/issues/{number}/close
+```
+
+O estado do kanban é baseado em labels: `PATCH .../issues/{n}` edita `{ title?, body }` (corpo markdown renderizado sanitizado na UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` troca as labels `priority:*` (`none` remove); `POST .../close` `{ "resolution": "canceled|archived" }` fecha a issue — `canceled` também aplica a label `canceled` (coluna Canceled), `archived` fecha sem label de coluna (Archived). Todos retornam `200 { issue }`; enum inválido → `400`, issue desconhecida → `404`, anônimo → `401`.
+
 ### Orquestração de Agentes
 
 ```http

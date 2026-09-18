@@ -850,3 +850,270 @@ body {
         margin-inline: -0.75rem;
     }
 }
+
+/* SPEC-20260918-kanban-card-ux — drag animations, rich card, move sheet, markdown */
+
+.task-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.task-card-dragging {
+    transform: scale(1.02) rotate(0.5deg);
+    opacity: 0.85;
+    box-shadow: var(--bs-box-shadow-lg);
+    cursor: grabbing;
+}
+
+.kanban-column {
+    transition: background-color 0.15s ease, outline-color 0.15s ease;
+    border-radius: var(--bs-border-radius);
+    outline: 2px dashed transparent;
+    outline-offset: -2px;
+}
+
+.kanban-column-drop-target {
+    background-color: rgba(var(--bs-primary-rgb), 0.06);
+    outline-color: var(--bs-primary);
+}
+
+.task-card-placeholder {
+    border: 2px dashed var(--bs-primary);
+    border-radius: var(--bs-border-radius);
+    background-color: rgba(var(--bs-primary-rgb), 0.08);
+    min-height: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.task-number {
+    color: var(--bs-secondary-color);
+    font-weight: 500;
+}
+
+.task-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+.task-label-chip {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 9999px;
+    border: 1px solid var(--bs-border-color);
+    color: var(--bs-secondary-color);
+    background: var(--bs-body-bg);
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-assignee {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 9999px;
+    background: var(--bs-secondary-bg);
+    color: var(--bs-secondary-color);
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
+.task-meta-time {
+    font-size: 0.72rem;
+}
+
+/* Move sheet (RF-007) — overlay inline que empilha sobre o dialog */
+
+.move-issue-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1090;
+    padding: 1rem;
+}
+
+.move-issue-sheet {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    box-shadow: var(--bs-box-shadow-lg);
+    padding: 1rem;
+    width: min(22rem, 100%);
+    max-height: min(70vh, 32rem);
+    overflow-y: auto;
+}
+
+.move-issue-title {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.move-issue-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.move-issue-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    text-align: left;
+}
+
+.move-issue-option:hover:not(:disabled) {
+    background: var(--bs-secondary-bg);
+}
+
+.move-issue-option:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.move-issue-current {
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+}
+
+.move-issue-divider {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--bs-secondary-color);
+    margin: 0.75rem 0 0.5rem;
+}
+
+@media (max-width: 575.98px) {
+    .move-issue-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .move-issue-sheet {
+        width: 100%;
+        border-radius: var(--bs-border-radius-lg) var(--bs-border-radius-lg) 0 0;
+        max-height: 80dvh;
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    }
+}
+
+/* Markdown rendering (RF-005/RF-009) */
+
+.markdown-body {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    overflow-wrap: break-word;
+}
+
+.markdown-body > :first-child { margin-top: 0; }
+.markdown-body > :last-child { margin-bottom: 0; }
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3,
+.markdown-body h4, .markdown-body h5, .markdown-body h6 {
+    margin: 0.9em 0 0.4em;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.markdown-body h1 { font-size: 1.35rem; }
+.markdown-body h2 { font-size: 1.2rem; }
+.markdown-body h3 { font-size: 1.05rem; }
+.markdown-body h4, .markdown-body h5, .markdown-body h6 { font-size: 0.95rem; }
+
+.markdown-body p { margin-bottom: 0.6em; }
+
+.markdown-body ul, .markdown-body ol {
+    padding-left: 1.4rem;
+    margin-bottom: 0.6em;
+}
+
+.markdown-body pre {
+    background: var(--bs-secondary-bg);
+    border-radius: var(--bs-border-radius);
+    padding: 0.65rem;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin-bottom: 0.6em;
+}
+
+.markdown-body code {
+    font-size: 0.85em;
+    background: var(--bs-secondary-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.3em;
+}
+
+.markdown-body pre code {
+    background: transparent;
+    padding: 0;
+}
+
+.markdown-body blockquote {
+    border-left: 3px solid var(--bs-border-color);
+    padding-left: 0.75rem;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.6em;
+}
+
+.markdown-body a { color: var(--bs-link-color); }
+
+.markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.6em;
+    font-size: 0.85rem;
+}
+
+.markdown-body th, .markdown-body td {
+    border: 1px solid var(--bs-border-color);
+    padding: 0.35rem 0.5rem;
+}
+
+.markdown-body img { max-width: 100%; height: auto; }
+
+.markdown-body input[type="checkbox"] { margin-right: 0.35rem; }
+
+.markdown-body hr {
+    border: 0;
+    border-top: 1px solid var(--bs-border-color);
+    margin: 0.9em 0;
+}
+
+.new-task-preview {
+    min-height: 9rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem;
+    overflow-y: auto;
+    max-height: 18rem;
+}
+
+/* 44px touch targets no menu do card */
+.task-card-actions .dropdown-item {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .task-card,
+    .task-card-dragging,
+    .kanban-column {
+        transition: none;
+        transform: none;
+    }
+}

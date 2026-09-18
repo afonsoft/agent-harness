@@ -38,7 +38,78 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IAgentCliStatusService>();
             services.AddSingleton<IAgentCliStatusService>(new FakeAgentCliStatusService());
+            services.RemoveAll<Taskboard.GitHub.IGitHubService>();
+            services.AddSingleton<Taskboard.GitHub.IGitHubService>(new FakeGitHubService());
         });
+    }
+
+    /// <summary>
+    /// Deterministic GitHub stub — issue mutations are recorded in memory so
+    /// endpoint tests never hit api.github.com (SPEC-20260918-kanban-card-ux).
+    /// </summary>
+    private sealed class FakeGitHubService : Taskboard.GitHub.IGitHubService
+    {
+        private static readonly Taskboard.GitHub.IssueDto Issue = new(
+            Id: 1,
+            Number: 42,
+            Title: "itest issue",
+            Body: "body",
+            State: "open",
+            Url: "https://api.github.com/x",
+            HtmlUrl: "https://github.com/x",
+            Labels: ["todo"],
+            Column: Taskboard.GitHub.GitHubBoardColumn.Todo,
+            AssigneeLogin: null,
+            Priority: "None",
+            CreatedAt: DateTimeOffset.UtcNow,
+            UpdatedAt: DateTimeOffset.UtcNow,
+            ClosedAt: null);
+
+        public void SetToken(string token)
+        {
+        }
+
+        public Task<IReadOnlyList<Taskboard.GitHub.RepositoryDto>> GetRepositoriesAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Taskboard.GitHub.RepositoryDto>>([]);
+
+        public Task<IReadOnlyList<Taskboard.GitHub.IssueDto>> GetIssuesAsync(
+            string repositoryFullName, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Taskboard.GitHub.IssueDto>>([Issue]);
+
+        public Task<Taskboard.GitHub.IssueDto> UpdateIssueColumnAsync(
+            string repositoryFullName, int issueNumber,
+            Taskboard.GitHub.GitHubBoardColumn? oldColumn,
+            Taskboard.GitHub.GitHubBoardColumn newColumn,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Issue);
+
+        public Task<Taskboard.GitHub.IssueDto> CreateIssueAsync(
+            string repositoryFullName, string title, string? body,
+            Taskboard.GitHub.GitHubBoardColumn initialColumn,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Issue);
+
+        public Task AddLabelsToIssueAsync(
+            string repositoryFullName, int issueNumber,
+            IReadOnlyCollection<string> labels,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<Taskboard.GitHub.IssueDto> UpdateIssueAsync(
+            string repositoryFullName, int issueNumber, string? title, string? body,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Issue);
+
+        public Task<Taskboard.GitHub.IssueDto> SetIssuePriorityAsync(
+            string repositoryFullName, int issueNumber, string priority,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Issue);
+
+        public Task<Taskboard.GitHub.IssueDto> CloseIssueAsync(
+            string repositoryFullName, int issueNumber, string resolution,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Issue);
     }
 
     /// <summary>Reports all known CLIs as installed + authenticated (deterministic eligibility).</summary>

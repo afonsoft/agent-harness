@@ -8,8 +8,32 @@
 </div>
 
 <div class="mb-3">
-    <label for="new-task-body" class="form-label">Descrição</label>
-    <textarea id="new-task-body" class="form-control" rows="5" @bind="_body"></textarea>
+    <label class="form-label">Descrição (markdown)</label>
+    <Tabs EnableFadeEffect="false">
+        <Tab Title="Escrever" IsActive="true">
+            <Content>
+                <div class="pt-2">
+                    <textarea id="new-task-body" class="form-control" rows="6" @bind="_body"
+                              aria-label="Descrição da tarefa em markdown"
+                              placeholder="## Contexto&#10;&#10;- item&#10;&#10;```bash&#10;comando&#10;```"></textarea>
+                </div>
+            </Content>
+        </Tab>
+        <Tab Title="Visualizar">
+            <Content>
+                <div class="pt-2 markdown-body new-task-preview">
+                    @if (string.IsNullOrWhiteSpace(_body))
+                    {
+                        <span class="text-body-secondary">Nada para visualizar.</span>
+                    }
+                    else
+                    {
+                        @((MarkupString)MarkdownRenderer.ToSafeHtml(_body))
+                    }
+                </div>
+            </Content>
+        </Tab>
+    </Tabs>
 </div>
 
 <div class="mb-3">
