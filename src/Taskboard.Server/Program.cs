@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -365,6 +366,13 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var app = builder.Build();
+
+// Behind nginx/Cloudflare: honor X-Forwarded-Proto/For (loopback proxy is
+// trusted by default) so redirects and cookie policies see the real scheme.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
 
 app.UseExceptionHandler();
 app.UseCors("Dev");
@@ -1172,12 +1180,22 @@ app.MapFrameworkAssetsApi();
 app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
 app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
 
-// SPEC-20260917-vscode-web-workspace RF-006: ensure code-server is up before the
-// proxy forwards; without the binary a friendly 503 beats a raw 502.
+// SPEC-20260917-vscode-web-workspace RF-006: /vscode mount handling lives in
+// middleware (not an endpoint) because endpoint routing ignores the trailing
+// slash — MapGet("/vscode") would also match /vscode/ and redirect it to
+// itself forever. Exact "/vscode" redirects to "/vscode/" (code-server needs
+// the trailing slash for relative URLs); everything else is ensured-started
+// then proxied; a friendly 503 beats a raw 502.
 app.UseWhen(
     ctx => ctx.Request.Path.StartsWithSegments("/vscode", StringComparison.OrdinalIgnoreCase),
     branch => branch.Use(async (ctx, next) =>
     {
+        if (string.Equals(ctx.Request.Path.Value, "/vscode", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Response.Redirect($"/vscode/{ctx.Request.QueryString}");
+            return;
+        }
+
         var manager = ctx.RequestServices.GetRequiredService<ICodeServerManager>();
         var status = await manager.EnsureStartedAsync(ctx.RequestAborted);
         if (!status.Running)
@@ -1193,9 +1211,6 @@ app.UseWhen(
         await next();
     }));
 
-// code-server needs a trailing slash (relative URLs) — redirect before proxying.
-app.MapGet("/vscode", (HttpContext ctx) => Results.Redirect($"/vscode/{ctx.Request.QueryString}"))
-    .RequireAuthorization();
 app.MapReverseProxy();
 
 api.MapGet("settings", async (SettingsService settings, CancellationToken ct) =>
