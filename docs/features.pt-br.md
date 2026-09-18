@@ -59,7 +59,7 @@
 - Enfileira a execução em background e transmite logs de stdout/stderr/system
 - Hub SignalR: `/agent-log-hub`
 - Uma execução bem-sucedida move a issue de `In Progress` para `Review`
-- Modal de issue: aba `Agent Config` (link do repositório, preview do argv por CLI, editor de prompt), aba `Logs do Agente` com Limpar persistente (`DELETE /api/agents/logs/{issueId}`) e aba `Histórico` — timeline unificada das mutações do board (movimentações de coluna, edições, fechamentos persistidos como `IssueHistoryEvent`) combinada com as execuções de agente (`GET /api/github/issues/{issueId}/history`)
+- Modal de issue: aba `Agent Config` (link do repositório, preview do argv por CLI, editor de prompt), aba `Logs do Agente` com Limpar persistente (`DELETE /api/agents/logs/{issueId}`), aba `Histórico` — timeline unificada das mutações do board (movimentações de coluna, edições, fechamentos persistidos como `IssueHistoryEvent`) combinada com as execuções de agente (`GET /api/github/issues/{issueId}/history`), e aba `Comentários` — lista/posta comentários da issue no GitHub; o prompt do agente renderizado anexa os comentários automaticamente numa seção `Comments:` limitada (canal de handoff entre agentes)
 - Prompt padrão global na página `/agents` (`GET`/`PUT /api/agents/prompt-template`) com placeholders `{repoUrl}`/`{issueTitle}`/`{issueBody}`
 
 ## CLIs de Agentes e Terminal

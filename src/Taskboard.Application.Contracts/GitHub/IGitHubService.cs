@@ -53,4 +53,14 @@ public interface IGitHubService
     /// <c>archived</c> fecha sem label de coluna (coluna Archived).
     /// </summary>
     Task<IssueDto> CloseIssueAsync(string repositoryFullName, int issueNumber, string resolution, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lista os comentários de uma issue em ordem cronológica (mais antigo primeiro).
+    /// </summary>
+    Task<IReadOnlyList<IssueCommentDto>> GetIssueCommentsAsync(string repositoryFullName, int issueNumber, int take = 50, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adiciona um comentário a uma issue existente.
+    /// </summary>
+    Task<IssueCommentDto> AddIssueCommentAsync(string repositoryFullName, int issueNumber, string body, CancellationToken cancellationToken = default);
 }

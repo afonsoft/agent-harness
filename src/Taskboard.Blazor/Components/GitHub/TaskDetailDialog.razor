@@ -129,6 +129,14 @@
             }
         </Content>
     </Tab>
+    <Tab Title="Comentários">
+        <Content>
+            @if (Issue is not null)
+            {
+                <IssueCommentsTab RepositoryFullName="@RepositoryFullName" IssueNumber="Issue.Number" />
+            }
+        </Content>
+    </Tab>
 </Tabs>
 
 @if (_showMoveSheet && Issue is not null)
