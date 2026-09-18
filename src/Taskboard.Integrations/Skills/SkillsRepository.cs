@@ -127,23 +127,36 @@ internal static class SkillsRepository
     }
 
     /// <summary>
-    /// Probes whether every file and subdirectory of the cache is readable and
-    /// writable by the current process. A foreign-owned tree (e.g. root-owned
-    /// files) fails the probe even when the top-level directory is writable,
-    /// because git checkout/reset rewrites tracked files.
+    /// Probes whether the cache tree is usable by the current process: every
+    /// directory must be traversable and writable — git replaces files via
+    /// unlink+create, so directory writability is what checkout/reset needs —
+    /// and every file must be readable for hashing, copying and bash.
+    /// Read-only files in a writable tree are fine: git marks pack files
+    /// read-only (444) by design.
     /// </summary>
     private static bool IsUsable(string cacheDirectory)
     {
         try
         {
-            // Enumerating throws on any unreadable subdirectory; opening each
-            // file for writing covers git fetch/reset and script chmod.
-            foreach (var file in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))
+            if (!CanWriteInside(cacheDirectory))
             {
-                using var stream = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                return false;
             }
 
-            return CanWriteInside(cacheDirectory);
+            foreach (var dir in Directory.EnumerateDirectories(cacheDirectory, "*", SearchOption.AllDirectories))
+            {
+                if (!CanWriteInside(dir))
+                {
+                    return false;
+                }
+            }
+
+            foreach (var file in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))
+            {
+                using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+
+            return true;
         }
         catch (Exception)
         {
