@@ -27,10 +27,10 @@ public class SettingsServiceTests
     }
 
     private static AgentCliStatus Authenticated(AgentCliKind kind) =>
-        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.Authenticated, "~", "login", "install");
+        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.Authenticated, "~", "login", "install", "npm", true);
 
     private static AgentCliStatus NotAuthenticated(AgentCliKind kind) =>
-        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.NotAuthenticated, "~", "login", "install");
+        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.NotAuthenticated, "~", "login", "install", "npm", true);
 
     [Fact]
     public async Task Dado_PreferenciasExistentes_Quando_Obter_Entao_RetornaTemaEAgentesAutenticados()

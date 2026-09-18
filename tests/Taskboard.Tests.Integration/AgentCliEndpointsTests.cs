@@ -54,7 +54,7 @@ public class AgentCliEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonArray>();
         body.ShouldNotBeNull();
-        body!.Count.ShouldBe(5);
+        body!.Count.ShouldBe(Enum.GetValues<Taskboard.Agents.AgentCliKind>().Length);
         foreach (var entry in body)
         {
             entry?["displayName"]?.GetValue<string>().ShouldNotBeNullOrWhiteSpace();
@@ -95,6 +95,62 @@ public class AgentCliEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         var completed = await Task.WhenAny(markerSeen.Task, Task.Delay(TimeSpan.FromSeconds(15)));
         completed.ShouldBe(markerSeen.Task, "o input deve ecoar a saída do bash de volta ao cliente");
         await connection.StopAsync();
+    }
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_PostInstall_Entao_Retorna401()
+    {
+        var response = await _client.PostAsync("/api/agent-clis/cline/install", null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_KindInvalido_Quando_PostInstall_Entao_Retorna404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsync("/api/agent-clis/no-such-cli/install", null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_PostInstall_Entao_RetornaStatus()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsync("/api/agent-clis/cline/install", null);
+
+        response.StatusCode.ShouldBeOneOf(HttpStatusCode.OK, HttpStatusCode.Accepted);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body.ShouldNotBeNull();
+        body!["kind"]?.GetValue<int>().ShouldBe((int)Taskboard.Agents.AgentCliKind.Cline);
+        body["state"]?.GetValue<int>().ShouldBe((int)Taskboard.Application.Contracts.Agents.AgentCliInstallState.Succeeded);
+        body["lines"].ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_GetInstallStatus_Entao_RetornaSnapshot()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agent-clis/cline/install/status");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body!["state"].ShouldNotBeNull();
+        body["lines"].ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_KindInvalido_Quando_GetInstallStatus_Entao_Retorna404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agent-clis/nope/install/status");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     private static HubConnection CreateHubConnection(TaskboardWebApplicationFactory factory) =>

@@ -175,6 +175,10 @@ builder.Services.AddSingleton<IAgentCliStatusService>(sp => new AgentCliStatusSe
     homeDir,
     sp.GetRequiredService<ILogger<AgentCliStatusService>>()));
 
+builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstallService(
+    homeDir,
+    sp.GetRequiredService<ILogger<AgentCliInstallService>>()));
+
 builder.Services.AddSingleton(sp => new PtySessionFactory(
     homeDir,
     sp.GetRequiredService<ILoggerFactory>()));
@@ -1465,6 +1469,37 @@ api.MapGet("skills/log", (SkillsOperationLog log) =>
 api.MapGet("agent-clis", async (IAgentCliStatusService agentClis, CancellationToken ct) =>
     Results.Ok(await agentClis.GetStatusAsync(ct)))
     .RequireAuthorization();
+
+// SPEC-20260918-cli-agents-expansion RF-004/RF-005: managed install runs.
+api.MapPost("agent-clis/{kind}/install", async (
+    string kind,
+    IAgentCliInstallService installs,
+    CancellationToken ct) =>
+{
+    if (!Enum.TryParse<AgentCliKind>(kind, ignoreCase: true, out var parsed)
+        || AgentCliMap.GetSpec(parsed) is null)
+    {
+        return Results.NotFound();
+    }
+
+    var status = await installs.StartInstallAsync(parsed, ct);
+    return status.State == AgentCliInstallState.Running
+        ? Results.Json(status, statusCode: StatusCodes.Status202Accepted)
+        : Results.Ok(status);
+}).RequireAuthorization();
+
+api.MapGet("agent-clis/{kind}/install/status", (
+    string kind,
+    IAgentCliInstallService installs) =>
+{
+    if (!Enum.TryParse<AgentCliKind>(kind, ignoreCase: true, out var parsed)
+        || AgentCliMap.GetSpec(parsed) is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(installs.GetStatus(parsed));
+}).RequireAuthorization();
 
 api.MapGet("mcp/status", (IMcpProvisioningService mcp) =>
     Results.Ok(mcp.GetStatus()))

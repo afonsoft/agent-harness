@@ -38,6 +38,8 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IAgentCliStatusService>();
             services.AddSingleton<IAgentCliStatusService>(new FakeAgentCliStatusService());
+            services.RemoveAll<IAgentCliInstallService>();
+            services.AddSingleton<IAgentCliInstallService>(new FakeAgentCliInstallService());
             services.RemoveAll<Taskboard.GitHub.IGitHubService>();
             services.AddSingleton<Taskboard.GitHub.IGitHubService>(new FakeGitHubService());
         });
@@ -126,8 +128,26 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
                     AgentCliAuthStatus.Authenticated,
                     kv.Value.ConfigDirDisplay,
                     kv.Value.LoginCommand,
-                    kv.Value.InstallHint))
+                    kv.Value.InstallHint,
+                    kv.Value.Install.RequiredTool,
+                    PrerequisiteMet: true))
                 .ToList());
+    }
+
+    /// <summary>
+    /// Deterministic install stub — endpoint tests must never run real
+    /// npm/curl installs on the host (SPEC-20260918-cli-agents-expansion).
+    /// </summary>
+    private sealed class FakeAgentCliInstallService : IAgentCliInstallService
+    {
+        public Task<AgentCliInstallStatus> StartInstallAsync(
+            AgentCliKind kind, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AgentCliInstallStatus(
+                kind, AgentCliInstallState.Succeeded, DateTimeOffset.UtcNow, 0,
+                [new AgentCliInstallLine(DateTimeOffset.UtcNow, "info", "fake install completed")]));
+
+        public AgentCliInstallStatus GetStatus(AgentCliKind kind) =>
+            new(kind, AgentCliInstallState.Succeeded, DateTimeOffset.UtcNow, 0, []);
     }
 
     // A single login is shared across tests — /api/login is rate limited to 5/minute.

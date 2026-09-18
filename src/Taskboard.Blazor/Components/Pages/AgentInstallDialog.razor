@@ -1,0 +1,110 @@
+@inject TaskboardClient Client
+@implements IDisposable
+
+@*
+    SPEC-20260918-cli-agents-expansion RF-008: install popup com console ao vivo.
+    Polling do status do run; fecha sozinho em sucesso (via OnFinished),
+    permanece aberto com erro em falha.
+*@
+
+<div class="d-flex align-items-center gap-2 mb-2">
+    <strong>@DisplayName</strong>
+    @switch (_status?.State)
+    {
+        case AgentCliInstallState.Running:
+            <Badge Color="BadgeColor.Info"><Spinner Size="SpinnerSize.Small" Class="me-1" />Installing</Badge>
+            break;
+        case AgentCliInstallState.Succeeded:
+            <Badge Color="BadgeColor.Success">Installed</Badge>
+            break;
+        case AgentCliInstallState.Failed:
+            <Badge Color="BadgeColor.Danger">Failed</Badge>
+            break;
+        default:
+            <Badge Color="BadgeColor.Secondary">Queued</Badge>
+            break;
+    }
+</div>
+
+@if (_status?.Lines is { Count: > 0 } lines)
+{
+    <div class="agent-log-console">
+        @foreach (var line in lines)
+        {
+            <div class="agent-log-line @LineClass(line)">
+                <span class="agent-log-timestamp">@line.AtUtc.LocalDateTime.ToString("HH:mm:ss")</span>
+                <span class="agent-log-content">@line.Content</span>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <p class="small text-body-secondary">Starting install...</p>
+}
+
+@if (_status?.State == AgentCliInstallState.Failed)
+{
+    <div class="d-flex justify-content-end mt-3">
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="CloseAsync">Fechar</Button>
+    </div>
+}
+
+@code {
+    [Parameter] public Taskboard.Agents.AgentCliKind Kind { get; set; }
+    [Parameter] public string DisplayName { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnFinished { get; set; }
+
+    private AgentCliInstallStatus? _status;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+        _status = await Client.StartAgentCliInstallAsync(Kind, _cts.Token);
+        _ = PollAsync(_cts.Token);
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(1000, cancellationToken);
+                _status = await Client.GetAgentCliInstallStatusAsync(Kind, cancellationToken);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                continue; // transient poll failure — retry next tick.
+            }
+
+            if (_status?.State == AgentCliInstallState.Succeeded)
+            {
+                await OnFinished.InvokeAsync();
+                return;
+            }
+
+            if (_status?.State == AgentCliInstallState.Failed)
+            {
+                return; // stays open with the error visible.
+            }
+        }
+    }
+
+    private async Task CloseAsync() => await OnFinished.InvokeAsync();
+
+    private static string LineClass(AgentCliInstallLine line) => line.Stream switch
+    {
+        "stderr" => "agent-log-stderr",
+        "info" => "agent-log-system",
+        _ => string.Empty
+    };
+
+    public void Dispose() => _cts?.Cancel();
+}

@@ -16,6 +16,15 @@ public static class AgentSkillDirectoryMap
             [AgentType.Codex] = [".codex/skills"],
             [AgentType.OpenCode] = [".opencode/skills", ".config/opencode/skills"],
             [AgentType.OpenHands] = [".openhands/skills"],
+            [AgentType.Kimi] = [".kimi-code/skills"],
+            [AgentType.Grok] = [".grok/skills"],
+            // Aider has no agent-skills concept — mapped to empty so sync skips it.
+            [AgentType.Aider] = [],
+            [AgentType.Cline] = [".cline/skills"],
+            [AgentType.Continue] = [".continue/skills"],
+            [AgentType.Copilot] = [".copilot/skills"],
+            [AgentType.Qwen] = [".qwen/skills"],
+            [AgentType.Kiro] = [".kiro/skills"],
         };
 
     /// <summary>

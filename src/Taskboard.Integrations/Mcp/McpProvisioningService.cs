@@ -185,15 +185,14 @@ public sealed class McpProvisioningService : IMcpProvisioningService
         return GetStatus();
     }
 
-    private Task<McpAgentResult> ProvisionAgentAsync(AgentType agent, RagConfig config, CancellationToken cancellationToken)
-    {
-        if (agent == AgentType.Antigravity)
+    private Task<McpAgentResult> ProvisionAgentAsync(AgentType agent, RagConfig config, CancellationToken cancellationToken) =>
+        agent switch
         {
-            return ProvisionAntigravityAsync(config, cancellationToken);
-        }
-
-        return Task.FromResult(ProvisionAgent(agent, config));
-    }
+            AgentType.Antigravity => ProvisionAntigravityAsync(config, cancellationToken),
+            AgentType.Cline => ProvisionClineAsync(config, cancellationToken),
+            AgentType.Continue => Task.FromResult(ProvisionContinue(config)),
+            _ => Task.FromResult(ProvisionAgent(agent, config))
+        };
 
     /// <summary>
     /// Antigravity is provisioned through its official CLI (`agy mcp add/remove`),
@@ -263,6 +262,152 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             _logger.LogWarning(ex, "MCP provision failed for agent {Agent} via agy CLI.", AgentType.Antigravity);
             return new McpAgentResult(
                 AgentType.Antigravity, false, displayPath, null, McpAgentState.Failed,
+                Sanitize(ex.Message, config.ApiKey));
+        }
+    }
+
+    /// <summary>
+    /// Cline is provisioned through its official CLI (`cline mcp add/remove`),
+    /// which owns the format of <c>~/.cline/data/settings/cline_mcp_settings.json</c>.
+    /// </summary>
+    private async Task<McpAgentResult> ProvisionClineAsync(RagConfig config, CancellationToken cancellationToken)
+    {
+        const string displayPath = "~/.cline/data/settings/cline_mcp_settings.json";
+        var cline = _executableResolver("cline");
+        if (cline is null)
+        {
+            return new McpAgentResult(
+                AgentType.Cline, false, displayPath, null, McpAgentState.Skipped,
+                "cline CLI not found on PATH");
+        }
+
+        var target = AgentMcpConfigMap.GetTarget(AgentType.Cline)!;
+        var path = AgentMcpConfigMap.GetConfigPath(target, _homeDirectory);
+        var removing = string.IsNullOrWhiteSpace(config.Url);
+
+        try
+        {
+            var existing = JsonConfigMerger.ReadManagedUrl(
+                path, target.ContainerKey, config.Name, "url", "transport");
+            if (removing)
+            {
+                if (existing is null)
+                {
+                    return new McpAgentResult(
+                        AgentType.Cline, false, displayPath, null, McpAgentState.NotConfigured, null);
+                }
+
+                var (removeExit, removeOutput) = await _agyRunner(
+                    cline, ["mcp", "remove", config.Name], cancellationToken).ConfigureAwait(false);
+                return removeExit == 0
+                    ? new McpAgentResult(
+                        AgentType.Cline, false, displayPath, null, McpAgentState.Removed, null)
+                    : new McpAgentResult(
+                        AgentType.Cline, false, displayPath, null, McpAgentState.Failed,
+                        Sanitize(removeOutput, config.ApiKey));
+            }
+
+            if (existing is not null && existing.Equals(config.Url, StringComparison.Ordinal))
+            {
+                return new McpAgentResult(
+                    AgentType.Cline, true, displayPath, "http", McpAgentState.Configured, null);
+            }
+
+            var args = new List<string> { "mcp", "add", config.Name, "--transport", "http" };
+            if (!string.IsNullOrWhiteSpace(config.ApiKey))
+            {
+                args.AddRange(["--header", $"Authorization: Bearer {config.ApiKey}"]);
+            }
+
+            args.Add("--yes");
+            args.Add(config.Url!);
+
+            var (exitCode, output) = await _agyRunner(cline, args, cancellationToken).ConfigureAwait(false);
+            return exitCode == 0
+                ? new McpAgentResult(
+                    AgentType.Cline, true, displayPath, "http", McpAgentState.Configured, null)
+                : new McpAgentResult(
+                    AgentType.Cline, false, displayPath, null, McpAgentState.Failed,
+                    Sanitize(output, config.ApiKey));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "MCP provision failed for agent {Agent} via cline CLI.", AgentType.Cline);
+            return new McpAgentResult(
+                AgentType.Cline, false, displayPath, null, McpAgentState.Failed,
+                Sanitize(ex.Message, config.ApiKey));
+        }
+    }
+
+    /// <summary>
+    /// Continue picks up JSON MCP config files dropped into
+    /// <c>~/.continue/mcpServers/&lt;name&gt;.json</c> automatically — provisioning is a
+    /// file write/delete, no CLI invocation needed.
+    /// </summary>
+    private McpAgentResult ProvisionContinue(RagConfig config)
+    {
+        var target = AgentMcpConfigMap.GetTarget(AgentType.Continue)!;
+        var directory = AgentMcpConfigMap.GetConfigPath(target, _homeDirectory);
+        var filePath = Path.Join(directory, $"{config.Name}.json");
+        var removing = string.IsNullOrWhiteSpace(config.Url);
+
+        try
+        {
+            var existing = JsonConfigMerger.ReadManagedUrl(filePath, "mcpServers", config.Name);
+            if (removing)
+            {
+                if (!File.Exists(filePath))
+                {
+                    return new McpAgentResult(
+                        AgentType.Continue, false, filePath, null, McpAgentState.NotConfigured, null);
+                }
+
+                File.Delete(filePath);
+                return new McpAgentResult(
+                    AgentType.Continue, false, filePath, null, McpAgentState.Removed, null);
+            }
+
+            if (existing is not null && existing.Equals(config.Url, StringComparison.Ordinal))
+            {
+                return new McpAgentResult(
+                    AgentType.Continue, true, filePath, "streamable-http", McpAgentState.Configured, null);
+            }
+
+            var entry = new JsonObject
+            {
+                ["type"] = "streamable-http",
+                ["url"] = config.Url
+            };
+            if (!string.IsNullOrWhiteSpace(config.ApiKey))
+            {
+                entry["requestOptions"] = new JsonObject
+                {
+                    ["headers"] = new JsonObject
+                    {
+                        ["Authorization"] = $"Bearer {config.ApiKey}"
+                    }
+                };
+            }
+
+            var root = new JsonObject
+            {
+                ["mcpServers"] = new JsonObject
+                {
+                    [config.Name] = entry
+                }
+            };
+            SecureConfigWriter.WriteAtomic(
+                filePath,
+                root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n");
+
+            return new McpAgentResult(
+                AgentType.Continue, true, filePath, "streamable-http", McpAgentState.Configured, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "MCP provision failed for agent {Agent} at {Path}.", AgentType.Continue, filePath);
+            return new McpAgentResult(
+                AgentType.Continue, false, filePath, null, McpAgentState.Failed,
                 Sanitize(ex.Message, config.ApiKey));
         }
     }
@@ -347,20 +492,29 @@ public sealed class McpProvisioningService : IMcpProvisioningService
         }
 
         var path = AgentMcpConfigMap.GetConfigPath(target, _homeDirectory);
+        var readPath = target.Style == McpEntryStyle.Continue
+            ? Path.Join(path, $"{config.Name}.json")
+            : path;
         try
         {
-            if (!File.Exists(path) && Directory.Exists(path))
+            if (!File.Exists(readPath) && Directory.Exists(readPath))
             {
                 return new McpAgentResult(
-                    agent, false, path, null, McpAgentState.Failed,
+                    agent, false, readPath, null, McpAgentState.Failed,
                     "config path is a directory");
             }
 
             var url = target.Format == McpConfigFormat.Json
                 ? JsonConfigMerger.ReadManagedUrl(
-                    path, target.ContainerKey, config.Name,
-                    target.Style == McpEntryStyle.Antigravity ? "serverUrl" : "url")
-                : TomlConfigMerger.ReadManagedUrl(path, config.Name);
+                    readPath, target.ContainerKey, config.Name,
+                    target.Style switch
+                    {
+                        McpEntryStyle.Antigravity => "serverUrl",
+                        McpEntryStyle.Qwen => "httpUrl",
+                        _ => "url"
+                    },
+                    target.Style == McpEntryStyle.Cline ? "transport" : null)
+                : TomlConfigMerger.ReadManagedUrl(readPath, config.Name);
 
             var configured = url is not null
                 && config.Url is not null
@@ -401,6 +555,15 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 entry["enabled"] = true;
                 break;
             case McpEntryStyle.OpenHands:
+            case McpEntryStyle.Kimi:
+            case McpEntryStyle.Kiro:
+                entry["url"] = url;
+                break;
+            case McpEntryStyle.Qwen:
+                entry["httpUrl"] = url;
+                break;
+            case McpEntryStyle.Copilot:
+                entry["type"] = "http";
                 entry["url"] = url;
                 break;
             default:

@@ -16,7 +16,15 @@ public static class AgentCliInvocation
         [AgentType.Codex] = "codex",
         [AgentType.OpenCode] = "opencode",
         [AgentType.OpenHands] = "openhands",
-        [AgentType.Antigravity] = "agy"
+        [AgentType.Antigravity] = "agy",
+        [AgentType.Kimi] = "kimi",
+        [AgentType.Grok] = "grok",
+        [AgentType.Aider] = "aider",
+        [AgentType.Cline] = "cline",
+        [AgentType.Continue] = "cn",
+        [AgentType.Copilot] = "copilot",
+        [AgentType.Qwen] = "qwen",
+        [AgentType.Kiro] = "kiro-cli"
     };
 
     /// <summary>Executable name for <paramref name="agentType"/>, or null when unknown.</summary>
@@ -40,6 +48,23 @@ public static class AgentCliInvocation
         AgentType.OpenCode => ["run", prompt],
         // agy -p/--print takes the prompt as the flag value and exits.
         AgentType.Antigravity => ["-p", prompt],
+        // kimi -p/--print runs the prompt headlessly and exits.
+        AgentType.Kimi => ["-p", prompt],
+        // grok -p runs headless; the CLI is non-interactive when a prompt is given.
+        AgentType.Grok => ["-p", prompt],
+        // aider --message runs one-shot; --yes-always confirms all prompts without a TTY.
+        AgentType.Aider => ["--yes-always", "--message", prompt],
+        // cline <prompt> starts in act mode with auto-approve enabled by default.
+        AgentType.Cline => [prompt],
+        // cn -p is headless print mode; --auto approves tool calls.
+        AgentType.Continue => ["--auto", "-p", prompt],
+        // copilot -p is programmatic mode; --allow-all-tools removes interactive approvals.
+        AgentType.Copilot => ["--allow-all-tools", "-p", prompt],
+        // qwen -p/--prompt runs headlessly (gemini-cli fork semantics).
+        AgentType.Qwen => ["-p", prompt],
+        // kiro-cli chat --no-interactive executes the prompt and exits; --trust-all-tools
+        // pre-approves tool use so no TTY approval is needed.
+        AgentType.Kiro => ["chat", "--no-interactive", "--trust-all-tools", prompt],
         _ => [prompt]
     };
 

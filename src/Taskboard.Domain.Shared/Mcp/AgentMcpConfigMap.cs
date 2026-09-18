@@ -28,7 +28,25 @@ public enum McpEntryStyle
     Codex,
 
     /// <summary><c>{ serverUrl, headers }</c> — provisioned via <c>agy mcp add/remove</c>.</summary>
-    Antigravity
+    Antigravity,
+
+    /// <summary><c>{ url, headers }</c> — Kimi Code <c>mcp.json</c>.</summary>
+    Kimi,
+
+    /// <summary><c>{ httpUrl, headers }</c> — Qwen Code <c>settings.json</c>.</summary>
+    Qwen,
+
+    /// <summary><c>{ type: "http", url, headers }</c> — GitHub Copilot CLI <c>mcp-config.json</c>.</summary>
+    Copilot,
+
+    /// <summary><c>mcpServers.&lt;n&gt;.transport = { type, url }</c> — provisioned via <c>cline mcp add/remove</c>.</summary>
+    Cline,
+
+    /// <summary>JSON file dropped into <c>~/.continue/mcpServers/</c> (picked up automatically).</summary>
+    Continue,
+
+    /// <summary><c>{ url, headers }</c> — Kiro CLI <c>settings/mcp.json</c>.</summary>
+    Kiro
 }
 
 /// <summary>Where and how an agent CLI stores its MCP server list.</summary>
@@ -59,6 +77,20 @@ public static class AgentMcpConfigMap
                 ".openhands/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.OpenHands),
             [AgentType.Antigravity] = new(
                 ".gemini/config/mcp_config.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Antigravity),
+            [AgentType.Kimi] = new(
+                ".kimi-code/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Kimi),
+            [AgentType.Grok] = new(
+                ".grok/config.toml", McpConfigFormat.Toml, "mcp_servers", McpEntryStyle.Codex),
+            [AgentType.Qwen] = new(
+                ".qwen/settings.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Qwen),
+            [AgentType.Copilot] = new(
+                ".copilot/mcp-config.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Copilot),
+            [AgentType.Cline] = new(
+                ".cline/data/settings/cline_mcp_settings.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Cline),
+            [AgentType.Continue] = new(
+                ".continue/mcpServers", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Continue),
+            [AgentType.Kiro] = new(
+                ".kiro/settings/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Kiro),
         };
 
     /// <summary>

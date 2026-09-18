@@ -10,5 +10,13 @@ public enum AgentType
     Codex,
     OpenCode,
     OpenHands,
-    Antigravity
+    Antigravity,
+    Kimi,
+    Grok,
+    Aider,
+    Cline,
+    Continue,
+    Copilot,
+    Qwen,
+    Kiro
 }
