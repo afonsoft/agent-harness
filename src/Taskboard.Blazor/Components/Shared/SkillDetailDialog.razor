@@ -1,5 +1,8 @@
 @using Taskboard.Application.Contracts.Skills
+@using Taskboard.Rendering
 @inject TaskboardClient Client
+@inject ToastService ToastService
+@inject IJSRuntime JSRuntime
 
 @if (Skill is null)
 {
@@ -46,8 +49,31 @@ else
     }
 
     <div>
-        <h3 class="h6 fw-semibold mb-2">Content</h3>
-        <div class="code-block small overflow-y-auto" style="max-height: 16rem;">@Skill.Content</div>
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <h3 class="h6 fw-semibold mb-0">Content</h3>
+            <div class="d-flex align-items-center gap-2">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Content view">
+                    <button type="button" class="btn @(_showSource ? "btn-outline-secondary" : "btn-secondary")"
+                            @onclick="() => _showSource = false">Rendered</button>
+                    <button type="button" class="btn @(_showSource ? "btn-secondary" : "btn-outline-secondary")"
+                            @onclick="() => _showSource = true">Source</button>
+                </div>
+                <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" Outline="true"
+                        title="Copy content" @onclick="CopyContentAsync">
+                    <Icon Name="IconName.Clipboard" class="me-1" />Copy
+                </Button>
+            </div>
+        </div>
+        @if (_showSource)
+        {
+            <div class="code-block small overflow-y-auto" style="max-height: 24rem;">@Skill.Content</div>
+        }
+        else
+        {
+            <div class="markdown-body overflow-y-auto border rounded p-3" style="max-height: 24rem;">
+                @((MarkupString)MarkdownRenderer.ToSafeHtml(Skill.Content))
+            </div>
+        }
     </div>
 
     @if (_fileTree.Count > 0)
@@ -83,6 +109,13 @@ else
     private string? _fileContent;
     private string? _fileError;
     private bool _fileLoading;
+    private bool _showSource;
+
+    private async Task CopyContentAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", Skill.Content);
+        ToastService.Notify(new(ToastType.Success, "Skill content copied to clipboard"));
+    }
 
     protected override void OnParametersSet()
     {
