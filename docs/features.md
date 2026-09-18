@@ -54,7 +54,7 @@
 
 ## Agent Orchestration
 
-- Detects Devin, Claude, Codex, OpenCode, and OpenHands CLIs on the server `PATH`
+- Detects Devin, Claude, Codex, OpenCode, OpenHands, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen and Kiro CLIs on the server `PATH`
 - Selects an agent when an issue moves to `In Progress` or `Backlog`
 - Queues background execution and streams stdout/stderr/system logs
 - SignalR hub: `/agent-log-hub`
@@ -64,13 +64,14 @@
 
 ## Agent CLIs & Terminal
 
-- `/agents` page: install/auth status board for Claude Code, Codex, OpenCode, Devin CLI and Antigravity `agy` (`GET /api/agent-clis`)
+- `/agents` page: install/auth status board for 13 CLIs — Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`, Kimi Code, Grok, Aider, Cline, Continue, GitHub Copilot CLI, Qwen Code and Kiro CLI (`GET /api/agent-clis`)
+- Managed install from the UI: `POST /api/agent-clis/{kind}/install` runs the allowlisted install command (npm/pipx/curl) in the background with a live log console popup (`GET /api/agent-clis/{kind}/install/status`) — closes automatically on success; Login action appears once installed
 - `/terminal` page: interactive bash PTY over SignalR (`/terminal-hub`) with xterm.js — one session per user, 30 min idle timeout, `Taskboard:Terminal:Enabled` flag
 - Docker image ships Node.js LTS + the five CLIs with `HOME=/data/home` so credentials persist in the `/data` volume
 
 ## Settings: Skills & RAG MCP
 
 - Agent Skills: global `npx skills add` + `install.sh --all` install, verify and per-agent sync with a live process log (`GET /api/skills/log`)
-- RAG / Knowledge MCP: provisions the configured server into every enabled CLI config — JSON/TOML merge for Devin, Claude, Codex, OpenCode, OpenHands and `agy mcp add/remove` for Antigravity — with a live process log (`GET /api/mcp/log`); API keys never surface in status or logs
+- RAG / Knowledge MCP: provisions the configured server into every enabled CLI config — JSON/TOML merge for Devin, Claude, Codex, OpenCode, OpenHands, Kimi, Grok, Qwen, Copilot and Kiro; `agy mcp add/remove` for Antigravity; `cline mcp add/remove` for Cline; JSON file drop into `~/.continue/mcpServers/` for Continue (Aider has no MCP support) — with a live process log (`GET /api/mcp/log`); API keys never surface in status or logs
 
 See `.specs/SPEC-*.md` for full requirements.

@@ -48,9 +48,28 @@ public class AgentCliInvocationTests
     [InlineData(AgentType.Codex, "codex exec --approve-for-me --skip-git-repo-check <prompt>")]
     [InlineData(AgentType.OpenCode, "opencode run <prompt>")]
     [InlineData(AgentType.Antigravity, "agy -p <prompt>")]
+    [InlineData(AgentType.Kimi, "kimi -p <prompt>")]
+    [InlineData(AgentType.Grok, "grok -p <prompt>")]
+    [InlineData(AgentType.Aider, "aider --yes-always --message <prompt>")]
+    [InlineData(AgentType.Cline, "cline <prompt>")]
+    [InlineData(AgentType.Continue, "cn --auto -p <prompt>")]
+    [InlineData(AgentType.Copilot, "copilot --allow-all-tools -p <prompt>")]
+    [InlineData(AgentType.Qwen, "qwen -p <prompt>")]
+    [InlineData(AgentType.Kiro, "kiro-cli chat --no-interactive --trust-all-tools <prompt>")]
     public void Dado_Agente_Quando_Preview_Entao_ComandoEsperado(AgentType type, string expected)
     {
         // Covers RF-003: preview espelha o template real do adapter.
         AgentCliInvocation.PreviewCommandLine(type).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Dado_TodosOsTiposComCli_Quando_BuildArguments_Entao_PromptEhUltimoArgumento()
+    {
+        foreach (var kind in Enum.GetValues<AgentCliKind>())
+        {
+            var type = AgentCliMap.AgentTypeFor(kind)!.Value;
+            var args = AgentCliInvocation.BuildArguments(type, "P");
+            args.Last().ShouldBe("P", $"{type} deve receber o prompt como último argumento");
+        }
     }
 }

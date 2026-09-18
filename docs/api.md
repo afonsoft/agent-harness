@@ -132,16 +132,20 @@ POST   /api/mcp/sync
 PUT    /api/mcp/rag
 ```
 
-`PUT /api/mcp/rag` accepts `{ "name", "url", "apiKey" }` — `null` fields keep the stored value, an empty `url` removes the managed entry from every enabled agent's MCP config. Provisioning merges the managed `<name>` entry into `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json` and `~/.openhands/mcp.json` (atomic writes, `.bak` backups, `0600`). The API key is never returned by any endpoint. Configuration keys: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (env aliases `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persisted as SQLite configuration overrides.
+`PUT /api/mcp/rag` accepts `{ "name", "url", "apiKey" }` — `null` fields keep the stored value, an empty `url` removes the managed entry from every enabled agent's MCP config. Provisioning merges the managed `<name>` entry into `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json`, `~/.openhands/mcp.json`, `~/.kimi-code/mcp.json`, `~/.grok/config.toml`, `~/.qwen/settings.json`, `~/.copilot/mcp-config.json` and `~/.kiro/settings/mcp.json`; Antigravity and Cline are provisioned through their CLIs (`agy mcp add/remove`, `cline mcp add/remove`); Continue receives a JSON file at `~/.continue/mcpServers/<name>.json` (atomic writes, `.bak` backups, `0600`). The API key is never returned by any endpoint. Configuration keys: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (env aliases `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persisted as SQLite configuration overrides.
 
 ### CLI Agents & Terminal
 
 ```http
 GET    /api/agent-clis
+POST   /api/agent-clis/{kind}/install
+GET    /api/agent-clis/{kind}/install/status
 POST   /terminal-hub/negotiate   (SignalR hub)
 ```
 
-`GET /api/agent-clis` returns one entry per supported agent CLI (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`): `agent`, `displayName`, `binary`, `installed`, `version`, `authStatus` (`0` unknown / `1` authenticated / `2` not authenticated — credential-file existence probe only, contents are never read), `configDir`, `loginCommand`, `installHint`. Backed by `Taskboard:HomeDir` (default `$HOME`).
+`GET /api/agent-clis` returns one entry per supported agent CLI (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`, Kimi Code, Grok, Aider, Cline, Continue, GitHub Copilot CLI, Qwen Code, Kiro CLI): `agent`, `displayName`, `binary`, `installed`, `version`, `authStatus` (`0` unknown / `1` authenticated / `2` not authenticated — credential-file existence probe only, contents are never read), `configDir`, `loginCommand`, `installHint`, `requiredTool`, `prerequisiteMet`. Backed by `Taskboard:HomeDir` (default `$HOME`).
+
+`POST /api/agent-clis/{kind}/install` runs the fixed, server-side allowlisted install command for `{kind}` (case-insensitive CLI name — `cline`, `qwen`, `kiro`, ...) in the background: `202` while running, `200` when a previous run already finished, `404` for unknown kinds. `GET .../install/status` returns `{ kind, state (0 idle / 1 running / 2 succeeded / 3 failed), startedAtUtc, exitCode, lines: [{ atUtc, stream, content }] }` — a bounded in-memory buffer (~500 lines, sanitized) the UI polls to render the install popup.
 
 `/terminal-hub` is a SignalR hub streaming an interactive bash PTY (`script -qfc`, `TERM=xterm-256color`) to the `/terminal` page — one session per authenticated user, reconnects replace the previous session, idle sessions close after 30 minutes. Hub methods: `Input(string)`, `Resize(int cols, int rows)`; client callbacks: `output(string)`, `closed(string reason)`. Gated by `Taskboard:Terminal:Enabled` (default `true`, env `TASKBOARD_TERMINAL_ENABLED`, editable at runtime).
 

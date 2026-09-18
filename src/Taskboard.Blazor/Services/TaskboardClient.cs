@@ -282,6 +282,23 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentCliStatus>>("/api/agent-clis", cancellationToken)
         ?? [];
 
+    /// <summary>Inicia a instalação gerenciada de um CLI (SPEC-20260918-cli-agents-expansion).</summary>
+    public async Task<AgentCliInstallStatus?> StartAgentCliInstallAsync(
+        Taskboard.Agents.AgentCliKind kind, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/agent-clis/{kind.ToString().ToLowerInvariant()}/install", null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<AgentCliInstallStatus>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Snapshot do último run de instalação de um CLI.</summary>
+    public async Task<AgentCliInstallStatus?> GetAgentCliInstallStatusAsync(
+        Taskboard.Agents.AgentCliKind kind, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentCliInstallStatus>(
+            $"/api/agent-clis/{kind.ToString().ToLowerInvariant()}/install/status", cancellationToken);
+
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try

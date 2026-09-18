@@ -66,7 +66,9 @@ public sealed class AgentCliStatusService : IAgentCliStatusService
             installed ? auth : AgentCliAuthStatus.Unknown,
             spec.ConfigDirDisplay,
             spec.LoginCommand,
-            spec.InstallHint);
+            spec.InstallHint,
+            spec.Install.RequiredTool,
+            _locator(spec.Install.RequiredTool) is not null);
     }
 
     private AgentCliAuthStatus ProbeAuth(AgentCliSpec spec)

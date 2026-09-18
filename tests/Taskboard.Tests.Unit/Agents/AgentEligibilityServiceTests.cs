@@ -54,7 +54,7 @@ public class AgentEligibilityServiceTests
             statuses:
             [
                 new AgentCliStatus(AgentCliKind.Claude, "Claude", "claude", false, null,
-                    AgentCliAuthStatus.Unknown, "~", "claude", "install")
+                    AgentCliAuthStatus.Unknown, "~", "claude", "install", "npm", false)
             ],
             preferences: []);
 
@@ -95,8 +95,8 @@ public class AgentEligibilityServiceTests
     }
 
     private static AgentCliStatus Autenticado(AgentCliKind kind) =>
-        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.Authenticated, "~", "login", "install");
+        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.Authenticated, "~", "login", "install", "npm", true);
 
     private static AgentCliStatus NaoAutenticado(AgentCliKind kind) =>
-        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.NotAuthenticated, "~", "login", "install");
+        new(kind, kind.ToString(), "bin", true, "1.0", AgentCliAuthStatus.NotAuthenticated, "~", "login", "install", "npm", true);
 }

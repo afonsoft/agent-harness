@@ -6,6 +6,8 @@
 
 <PageTitle>CLI Agents - Taskboard</PageTitle>
 
+<Modal @ref="_installModal" Size="ModalSize.Large" IsScrollable="true" />
+
 <h1 class="h4 fw-bold mb-1">CLI Agents</h1>
 <p class="small text-body-secondary mb-4">Agent CLIs detected on this machine. Open a terminal to authenticate or manage each CLI.</p>
 
@@ -83,9 +85,12 @@
                                     }
                                     else
                                     {
-                                        <a class="btn btn-sm btn-outline-secondary" href="@TerminalUrl(agent.InstallHint)" title="@agent.InstallHint">
-                                            <Icon Name="IconName.Terminal" class="me-1" /> Install
-                                        </a>
+                                        <button class="btn btn-sm btn-primary"
+                                                disabled="@(!agent.PrerequisiteMet)"
+                                                title="@InstallButtonTitle(agent)"
+                                                @onclick="() => StartInstallAsync(agent)">
+                                            <Icon Name="IconName.Download" class="me-1" /> Install
+                                        </button>
                                     }
                                 </td>
                             </tr>
@@ -133,6 +138,7 @@
 </div>
 
 @code {
+    private Modal _installModal = default!;
     private IReadOnlyList<AgentCliStatus>? _agents;
     private bool _loading = true;
     private string? _error;
@@ -223,6 +229,29 @@
             _loading = false;
         }
     }
+
+    private async Task StartInstallAsync(AgentCliStatus agent)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            ["Kind"] = agent.Agent,
+            ["DisplayName"] = agent.DisplayName,
+            ["OnFinished"] = EventCallback.Factory.Create(this, OnInstallFinishedAsync)
+        };
+        await _installModal.ShowAsync<AgentInstallDialog>(
+            title: $"Install {agent.DisplayName}", parameters: parameters);
+    }
+
+    private async Task OnInstallFinishedAsync()
+    {
+        await _installModal.HideAsync();
+        await RefreshAsync();
+    }
+
+    private static string InstallButtonTitle(AgentCliStatus agent) =>
+        agent.PrerequisiteMet
+            ? agent.InstallHint
+            : $"Requires '{agent.RequiredTool}' on PATH — {agent.InstallHint}";
 
     private static string TerminalUrl(string command) =>
         $"/terminal?cmd={Uri.EscapeDataString(command)}";

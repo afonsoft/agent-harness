@@ -55,18 +55,29 @@ public class McpProvisioningServiceTests : IDisposable
     [Fact]
     public async Task Dado_ConfigRag_Quando_Provision_Entao_EscreveNosCincoClis()
     {
-        // Covers AC-1: all five agent configs get the managed entry with Bearer header
+        // Covers AC-1: all file-merge agent configs get the managed entry with Bearer header
         var service = CreateService(RagConfig());
 
         var status = await service.ProvisionAsync();
 
         status.State.ShouldBe(McpProvisionState.Succeeded);
-        status.Agents.Count.ShouldBe(6);
+        status.Agents.Count.ShouldBe(Enum.GetValues<AgentType>().Length);
+        var fileTargets = new[]
+        {
+            AgentType.Devin, AgentType.Claude, AgentType.Codex, AgentType.OpenCode,
+            AgentType.OpenHands, AgentType.Kimi, AgentType.Grok, AgentType.Qwen,
+            AgentType.Copilot, AgentType.Kiro, AgentType.Continue
+        };
         status.Agents
-            .Where(r => r.Agent != AgentType.Antigravity)
+            .Where(r => fileTargets.Contains(r.Agent))
             .ShouldAllBe(r => r.Configured && r.State == McpAgentState.Configured);
-        // Antigravity is provisioned via the agy CLI — absent in this test → Skipped.
+        // agy/cline são provisionados via CLI — ausentes no resolver deste teste → Skipped.
+        // Aider não suporta MCP → Skipped.
         status.Agents.Single(r => r.Agent == AgentType.Antigravity)
+            .State.ShouldBe(McpAgentState.Skipped);
+        status.Agents.Single(r => r.Agent == AgentType.Cline)
+            .State.ShouldBe(McpAgentState.Skipped);
+        status.Agents.Single(r => r.Agent == AgentType.Aider)
             .State.ShouldBe(McpAgentState.Skipped);
 
         var claude = Path.Join(_home, ".claude.json");
@@ -191,7 +202,10 @@ public class McpProvisioningServiceTests : IDisposable
         var status = service.GetStatus();
 
         status.Agents
+            .Where(r => r.Agent != AgentType.Aider)
             .ShouldAllBe(r => !r.Configured && r.State == McpAgentState.NotConfigured);
+        status.Agents.Single(r => r.Agent == AgentType.Aider)
+            .State.ShouldBe(McpAgentState.Skipped);
     }
 
     [Fact]
@@ -304,5 +318,205 @@ public class McpProvisioningServiceTests : IDisposable
         var agy = status.Agents.Single(r => r.Agent == AgentType.Antigravity);
         agy.Configured.ShouldBeTrue();
         agy.State.ShouldBe(McpAgentState.Configured);
+    }
+
+    [Fact]
+    public async Task Dado_ConfigRag_Quando_Provision_Entao_NovosClisFileMerge()
+    {
+        // Covers SPEC-20260918 RF-009: kimi/grok/qwen/copilot/kiro file-merge targets
+        var service = CreateService(RagConfig());
+
+        await service.ProvisionAsync();
+
+        var kimi = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadAllText(Path.Join(_home, ".kimi-code", "mcp.json")))!.AsObject();
+        var kimiEntry = kimi["mcpServers"]!.AsObject()["knowledge"]!.AsObject();
+        kimiEntry["url"]!.GetValue<string>().ShouldBe("https://rag.afonsoft.dev/mcp");
+        kimiEntry["headers"]!.AsObject()["Authorization"]!.GetValue<string>()
+            .ShouldBe("Bearer aft_testkey12345");
+
+        var qwen = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadAllText(Path.Join(_home, ".qwen", "settings.json")))!.AsObject();
+        var qwenEntry = qwen["mcpServers"]!.AsObject()["knowledge"]!.AsObject();
+        qwenEntry["httpUrl"]!.GetValue<string>().ShouldBe("https://rag.afonsoft.dev/mcp");
+
+        var copilot = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadAllText(Path.Join(_home, ".copilot", "mcp-config.json")))!.AsObject();
+        var copilotEntry = copilot["mcpServers"]!.AsObject()["knowledge"]!.AsObject();
+        copilotEntry["type"]!.GetValue<string>().ShouldBe("http");
+        copilotEntry["url"]!.GetValue<string>().ShouldBe("https://rag.afonsoft.dev/mcp");
+
+        var kiro = System.Text.Json.Nodes.JsonNode.Parse(
+            File.ReadAllText(Path.Join(_home, ".kiro", "settings", "mcp.json")))!.AsObject();
+        kiro["mcpServers"]!.AsObject()["knowledge"]!.AsObject()["url"]!
+            .GetValue<string>().ShouldBe("https://rag.afonsoft.dev/mcp");
+
+        var grok = File.ReadAllText(Path.Join(_home, ".grok", "config.toml"));
+        grok.ShouldContain("[mcp_servers.knowledge]");
+        grok.ShouldContain("https://rag.afonsoft.dev/mcp");
+    }
+
+    [Fact]
+    public async Task Dado_ClineDisponivel_Quando_Provision_Entao_AddViaCli()
+    {
+        // Covers RF-009: cline provisioned via `cline mcp add <name> --transport http --header ... --yes <url>`
+        List<string>? captured = null;
+        var service = CreateService(
+            RagConfig(),
+            executableResolver: exe => exe == "cline" ? "/usr/bin/cline" : null,
+            agyRunner: (_, args, _) =>
+            {
+                captured = [.. args];
+                return Task.FromResult((0, "Installed MCP server knowledge."));
+            });
+
+        var status = await service.ProvisionAsync([AgentType.Cline]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Cline).State.ShouldBe(McpAgentState.Configured);
+        captured.ShouldBe([
+            "mcp", "add", "knowledge", "--transport", "http",
+            "--header", "Authorization: Bearer aft_testkey12345",
+            "--yes", "https://rag.afonsoft.dev/mcp"]);
+    }
+
+    [Fact]
+    public async Task Dado_ClineAusente_Quando_Provision_Entao_Skipped()
+    {
+        var service = CreateService(RagConfig());
+
+        var status = await service.ProvisionAsync([AgentType.Cline]);
+
+        var result = status.Agents.Single(r => r.Agent == AgentType.Cline);
+        result.State.ShouldBe(McpAgentState.Skipped);
+        result.Error.ShouldNotBeNull().ShouldContain("cline");
+    }
+
+    [Fact]
+    public async Task Dado_ClineEntryExistente_Quando_Provision_Entao_NoOpSemChamarCli()
+    {
+        var dir = Path.Join(_home, ".cline", "data", "settings");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "cline_mcp_settings.json"), """
+            { "mcpServers": { "knowledge": { "transport": { "type": "streamableHttp", "url": "https://rag.afonsoft.dev/mcp" } } } }
+            """);
+
+        var called = false;
+        var service = CreateService(
+            RagConfig(),
+            executableResolver: _ => "/usr/bin/cline",
+            agyRunner: (_, _, _) =>
+            {
+                called = true;
+                return Task.FromResult((0, ""));
+            });
+
+        var status = await service.ProvisionAsync([AgentType.Cline]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Cline).State.ShouldBe(McpAgentState.Configured);
+        called.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_UrlVaziaEClineEntryExiste_Quando_Provision_Entao_RemoveViaCli()
+    {
+        var dir = Path.Join(_home, ".cline", "data", "settings");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "cline_mcp_settings.json"), """
+            { "mcpServers": { "knowledge": { "transport": { "type": "streamableHttp", "url": "https://rag.afonsoft.dev/mcp" } } } }
+            """);
+
+        List<string>? captured = null;
+        var service = CreateService(
+            RagConfig(url: null, apiKey: null),
+            executableResolver: _ => "/usr/bin/cline",
+            agyRunner: (_, args, _) =>
+            {
+                captured = [.. args];
+                return Task.FromResult((0, "Uninstalled MCP server knowledge."));
+            });
+
+        var status = await service.ProvisionAsync([AgentType.Cline]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Cline).State.ShouldBe(McpAgentState.Removed);
+        captured.ShouldBe(["mcp", "remove", "knowledge"]);
+    }
+
+    [Fact]
+    public async Task Dado_ConfigRag_Quando_ProvisionContinue_Entao_DropJsonFile()
+    {
+        // Covers RF-009: Continue picks up ~/.continue/mcpServers/<name>.json automatically
+        var service = CreateService(RagConfig());
+
+        var status = await service.ProvisionAsync([AgentType.Continue]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Continue).State.ShouldBe(McpAgentState.Configured);
+        var file = Path.Join(_home, ".continue", "mcpServers", "knowledge.json");
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file))!.AsObject();
+        var entry = json["mcpServers"]!.AsObject()["knowledge"]!.AsObject();
+        entry["type"]!.GetValue<string>().ShouldBe("streamable-http");
+        entry["url"]!.GetValue<string>().ShouldBe("https://rag.afonsoft.dev/mcp");
+        entry["requestOptions"]!.AsObject()["headers"]!.AsObject()["Authorization"]!
+            .GetValue<string>().ShouldBe("Bearer aft_testkey12345");
+    }
+
+    [Fact]
+    public async Task Dado_UrlVaziaEContinueFileExiste_Quando_Provision_Entao_DeletaArquivo()
+    {
+        var dir = Path.Join(_home, ".continue", "mcpServers");
+        Directory.CreateDirectory(dir);
+        var file = Path.Join(dir, "knowledge.json");
+        File.WriteAllText(file, """
+            { "mcpServers": { "knowledge": { "url": "https://rag.afonsoft.dev/mcp" } } }
+            """);
+
+        var service = CreateService(RagConfig(url: null, apiKey: null));
+        var status = await service.ProvisionAsync([AgentType.Continue]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Continue).State.ShouldBe(McpAgentState.Removed);
+        File.Exists(file).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_Aider_Quando_Provision_Entao_Skipped()
+    {
+        var service = CreateService(RagConfig());
+
+        var status = await service.ProvisionAsync([AgentType.Aider]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Aider).State.ShouldBe(McpAgentState.Skipped);
+    }
+
+    [Fact]
+    public void Dado_ClineConfigExistente_Quando_GetStatus_Entao_Configured()
+    {
+        var dir = Path.Join(_home, ".cline", "data", "settings");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "cline_mcp_settings.json"), """
+            { "mcpServers": { "knowledge": { "transport": { "type": "streamableHttp", "url": "https://rag.afonsoft.dev/mcp" } } } }
+            """);
+
+        var service = CreateService(RagConfig());
+
+        var status = service.GetStatus();
+
+        var cline = status.Agents.Single(r => r.Agent == AgentType.Cline);
+        cline.Configured.ShouldBeTrue();
+        cline.State.ShouldBe(McpAgentState.Configured);
+    }
+
+    [Fact]
+    public void Dado_QwenConfigExistente_Quando_GetStatus_Entao_Configured()
+    {
+        var dir = Path.Join(_home, ".qwen");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "settings.json"), """
+            { "mcpServers": { "knowledge": { "httpUrl": "https://rag.afonsoft.dev/mcp" } } }
+            """);
+
+        var service = CreateService(RagConfig());
+
+        var status = service.GetStatus();
+
+        status.Agents.Single(r => r.Agent == AgentType.Qwen).Configured.ShouldBeTrue();
     }
 }

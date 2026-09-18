@@ -23,4 +23,6 @@ public sealed record AgentCliStatus(
     AgentCliAuthStatus AuthStatus,
     string ConfigDir,
     string LoginCommand,
-    string InstallHint);
+    string InstallHint,
+    string RequiredTool,
+    bool PrerequisiteMet);
