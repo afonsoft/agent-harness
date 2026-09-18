@@ -1,6 +1,8 @@
 @page "/agents"
 @attribute [Authorize]
 @inject TaskboardClient Client
+@inject IAgentPromptTemplateService PromptTemplateService
+@inject ToastService ToastService
 
 <PageTitle>CLI Agents - Taskboard</PageTitle>
 
@@ -99,12 +101,110 @@
     </div>
 </div>
 
+<div class="card mt-4">
+    <div class="card-body">
+        <h2 class="h6 fw-semibold mb-1">Default agent prompt</h2>
+        <p class="small text-body-secondary">
+            Preenche o prompt da aba <em>Agent Config</em> de cada issue. Placeholders:
+            <code>{repoUrl}</code> (URL de clone), <code>{issueTitle}</code>, <code>{issueBody}</code>.
+        </p>
+        <textarea class="form-control font-monospace" rows="8" @bind="_template"
+                  placeholder="@_builtinTemplate" disabled="@_templateLoading"></textarea>
+        <div class="d-flex align-items-center gap-2 mt-2">
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SaveTemplateAsync" Disabled="_templateLoading">
+                @if (_templateSaving)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
+                }
+                Salvar prompt
+            </Button>
+            @if (_templateCustomized)
+            {
+                <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ResetTemplateAsync" Disabled="_templateLoading">
+                    Restaurar padrão
+                </Button>
+            }
+            @if (_templateCustomized)
+            {
+                <Badge Color="BadgeColor.Info">customizado</Badge>
+            }
+        </div>
+    </div>
+</div>
+
 @code {
     private IReadOnlyList<AgentCliStatus>? _agents;
     private bool _loading = true;
     private string? _error;
 
-    protected override async Task OnInitializedAsync() => await RefreshAsync();
+    private string _template = string.Empty;
+    private string _builtinTemplate = string.Empty;
+    private bool _templateLoading;
+    private bool _templateSaving;
+    private bool _templateCustomized;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(RefreshAsync(), LoadTemplateAsync());
+    }
+
+    private async Task LoadTemplateAsync()
+    {
+        _templateLoading = true;
+        try
+        {
+            var info = await PromptTemplateService.GetTemplateAsync();
+            _template = info.Template;
+            _builtinTemplate = info.Builtin;
+            _templateCustomized = info.Customized;
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao carregar prompt padrão: {ex.Message}"));
+        }
+        finally
+        {
+            _templateLoading = false;
+        }
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        _templateSaving = true;
+        try
+        {
+            await PromptTemplateService.SetTemplateAsync(_template);
+            ToastService.Notify(new(ToastType.Success, "Prompt padrão salvo."));
+            await LoadTemplateAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao salvar prompt: {ex.Message}"));
+        }
+        finally
+        {
+            _templateSaving = false;
+        }
+    }
+
+    private async Task ResetTemplateAsync()
+    {
+        _templateSaving = true;
+        try
+        {
+            await PromptTemplateService.SetTemplateAsync(null);
+            ToastService.Notify(new(ToastType.Success, "Prompt padrão restaurado."));
+            await LoadTemplateAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao restaurar prompt: {ex.Message}"));
+        }
+        finally
+        {
+            _templateSaving = false;
+        }
+    }
 
     private async Task RefreshAsync()
     {

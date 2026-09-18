@@ -67,6 +67,25 @@ public class AgentOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task Dado_LogsEmMemoria_Quando_Limpar_Entao_RemoveMemoriaEPersistido()
+    {
+        // Covers RF-002: Limpar remove logs da memória e do repositório.
+        var logRepository = Substitute.For<IAgentLogRepository>();
+        logRepository.GetByIssueIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentLogMessage>>([]));
+        var service = CriarService(agentLogRepository: logRepository);
+        var request = CriarRequest();
+
+        await service.EnqueueAsync(request);
+        (await service.GetLogsAsync(request.IssueId)).ShouldNotBeEmpty();
+
+        await service.ClearLogsAsync(request.IssueId);
+
+        (await service.GetLogsAsync(request.IssueId)).ShouldBeEmpty();
+        await logRepository.Received(1).DeleteByIssueIdAsync(request.IssueId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Dado_AgentesDescobertos_Quando_ConsultarDisponibilidade_Entao_MapeiaResultadoSemAlterarStatus()
     {
         var discoveryService = Substitute.For<IAgentDiscoveryService>();

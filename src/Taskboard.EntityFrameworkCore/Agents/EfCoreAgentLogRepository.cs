@@ -31,4 +31,12 @@ public sealed class EfCoreAgentLogRepository : IAgentLogRepository
 
         return logs.Select(l => new AgentLogMessage(l.Timestamp, l.IssueId, l.Stream, l.Content)).ToList();
     }
+
+    public async Task DeleteByIssueIdAsync(string issueId, CancellationToken cancellationToken = default)
+    {
+        await _context.AgentLogs
+            .Where(x => x.IssueId == issueId)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
 }

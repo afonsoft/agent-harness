@@ -59,11 +59,18 @@
 - Queues background execution and streams stdout/stderr/system logs
 - SignalR hub: `/agent-log-hub`
 - Successful execution moves the issue from `In Progress` to `Review`
+- Issue modal: `Agent Config` tab (repo link, per-CLI argv preview, prompt editor) and `Logs do Agente` tab with persistent Clear (`DELETE /api/agents/logs/{issueId}`)
+- Global default prompt template on `/agents` (`GET`/`PUT /api/agents/prompt-template`) with `{repoUrl}`/`{issueTitle}`/`{issueBody}` placeholders
 
 ## Agent CLIs & Terminal
 
 - `/agents` page: install/auth status board for Claude Code, Codex, OpenCode, Devin CLI and Antigravity `agy` (`GET /api/agent-clis`)
 - `/terminal` page: interactive bash PTY over SignalR (`/terminal-hub`) with xterm.js — one session per user, 30 min idle timeout, `Taskboard:Terminal:Enabled` flag
 - Docker image ships Node.js LTS + the five CLIs with `HOME=/data/home` so credentials persist in the `/data` volume
+
+## Settings: Skills & RAG MCP
+
+- Agent Skills: global `npx skills add` + `install.sh --all` install, verify and per-agent sync with a live process log (`GET /api/skills/log`)
+- RAG / Knowledge MCP: provisions the configured server into every enabled CLI config — JSON/TOML merge for Devin, Claude, Codex, OpenCode, OpenHands and `agy mcp add/remove` for Antigravity — with a live process log (`GET /api/mcp/log`); API keys never surface in status or logs
 
 See `.specs/SPEC-*.md` for full requirements.

@@ -25,7 +25,10 @@ public enum McpEntryStyle
     OpenHands,
 
     /// <summary>TOML <c>[mcp_servers.&lt;n&gt;]</c> + <c>[mcp_servers.&lt;n&gt;.headers]</c>.</summary>
-    Codex
+    Codex,
+
+    /// <summary><c>{ serverUrl, headers }</c> — provisioned via <c>agy mcp add/remove</c>.</summary>
+    Antigravity
 }
 
 /// <summary>Where and how an agent CLI stores its MCP server list.</summary>
@@ -54,6 +57,8 @@ public static class AgentMcpConfigMap
                 ".config/opencode/opencode.json", McpConfigFormat.Json, "mcp", McpEntryStyle.OpenCode),
             [AgentType.OpenHands] = new(
                 ".openhands/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.OpenHands),
+            [AgentType.Antigravity] = new(
+                ".gemini/config/mcp_config.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Antigravity),
         };
 
     /// <summary>

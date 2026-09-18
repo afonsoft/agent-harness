@@ -3,6 +3,7 @@ using System.Text.Json;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Mcp;
+using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Dtos;
@@ -238,6 +239,11 @@ public sealed class TaskboardClient
             : null;
     }
 
+    /// <summary>Log de processo das últimas instalações/sincronizações de skills.</summary>
+    public async Task<IReadOnlyList<OperationLogEntry>> GetSkillsLogAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<OperationLogEntry>>("/api/skills/log", cancellationToken)
+        ?? [];
+
     /// <summary>Status do provisionamento MCP por agente (SPEC-20260917-rag-mcp-provisioning).</summary>
     public async Task<McpProvisionStatus?> GetMcpStatusAsync(CancellationToken cancellationToken = default) =>
         await _httpClient.GetFromJsonAsync<McpProvisionStatus>("/api/mcp/status", cancellationToken);
@@ -265,6 +271,11 @@ public sealed class TaskboardClient
             ? await response.Content.ReadFromJsonAsync<McpProvisionStatus>(cancellationToken)
             : null;
     }
+
+    /// <summary>Log de processo das últimas execuções de provisionamento MCP.</summary>
+    public async Task<IReadOnlyList<OperationLogEntry>> GetMcpLogAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<OperationLogEntry>>("/api/mcp/log", cancellationToken)
+        ?? [];
 
     /// <summary>Status dos CLIs de agente (instalado/versão/auth) — SPEC-20260917-cli-agents-terminal.</summary>
     public async Task<IReadOnlyList<AgentCliStatus>> GetAgentClisAsync(CancellationToken cancellationToken = default) =>

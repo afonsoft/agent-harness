@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Blazor;
 using Taskboard.Blazor.Services;
 using Taskboard.GitHub;
@@ -30,5 +31,6 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
 
 builder.Services.AddScoped<IGitHubService, HttpGitHubService>();
 builder.Services.AddScoped<IAgentOrchestrationService, HttpAgentOrchestrationService>();
+builder.Services.AddScoped<IAgentPromptTemplateService, HttpAgentPromptTemplateService>();
 
 await builder.Build().RunAsync();

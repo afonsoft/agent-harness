@@ -3,6 +3,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Taskboard.Tests.Unit" />
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />
     <PackageReference Include="Octokit" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />

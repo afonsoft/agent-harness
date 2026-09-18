@@ -25,6 +25,11 @@ public interface IAgentOrchestrationService
     Task<IReadOnlyList<AgentLogMessage>> GetLogsAsync(string issueId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Remove o histórico de logs de uma issue (memória e persistido).
+    /// </summary>
+    Task ClearLogsAsync(string issueId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Solicita o cancelamento da execução de uma issue.
     /// </summary>
     Task CancelAsync(string issueId, CancellationToken cancellationToken = default);

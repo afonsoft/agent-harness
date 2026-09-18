@@ -4,8 +4,8 @@
 @inject ToastService ToastService
 
 <Modal @ref="_agentModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnAgentModalHidden" />
-<Modal @ref="_detailModal" Size="ModalSize.Large" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
-<Modal @ref="_newTaskModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnNewTaskModalHidden" />
+<Modal @ref="_detailModal" Size="ModalSize.Large" DialogCssClass="modal-70" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
+<Modal @ref="_newTaskModal" Size="ModalSize.Small" DialogCssClass="modal-70" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnNewTaskModalHidden" />
 
 @if (_isLoading)
 {

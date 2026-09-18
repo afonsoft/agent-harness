@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Mcp;
+using Taskboard.Application.Contracts.Operations;
+using Taskboard.Integrations.Agents;
 using Taskboard.Mcp;
 
 namespace Taskboard.Integrations.Mcp;
@@ -34,6 +37,9 @@ public sealed class McpProvisioningService : IMcpProvisioningService
     private readonly ILogger<McpProvisioningService> _logger;
     private readonly string _homeDirectory;
     private readonly Func<CancellationToken, Task<IReadOnlyCollection<AgentType>>> _enabledAgentsProvider;
+    private readonly Func<string, string?> _executableResolver;
+    private readonly Func<string, IReadOnlyList<string>, CancellationToken, Task<(int ExitCode, string Output)>> _agyRunner;
+    private readonly McpOperationLog? _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private volatile McpProvisionState _state = McpProvisionState.Idle;
@@ -43,12 +49,28 @@ public sealed class McpProvisioningService : IMcpProvisioningService
         IConfiguration configuration,
         ILogger<McpProvisioningService> logger,
         string homeDirectory,
-        Func<CancellationToken, Task<IReadOnlyCollection<AgentType>>> enabledAgentsProvider)
+        Func<CancellationToken, Task<IReadOnlyCollection<AgentType>>> enabledAgentsProvider,
+        McpOperationLog? log = null)
+        : this(configuration, logger, homeDirectory, enabledAgentsProvider, null, null, log)
+    {
+    }
+
+    internal McpProvisioningService(
+        IConfiguration configuration,
+        ILogger<McpProvisioningService> logger,
+        string homeDirectory,
+        Func<CancellationToken, Task<IReadOnlyCollection<AgentType>>> enabledAgentsProvider,
+        Func<string, string?>? executableResolver,
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<(int ExitCode, string Output)>>? agyRunner,
+        McpOperationLog? log = null)
     {
         _configuration = configuration;
         _logger = logger;
         _homeDirectory = homeDirectory;
         _enabledAgentsProvider = enabledAgentsProvider;
+        _executableResolver = executableResolver ?? PathSearch.FindExecutable;
+        _agyRunner = agyRunner ?? RunAgyMcpAsync;
+        _log = log;
     }
 
     public McpProvisionStatus GetStatus()
@@ -127,9 +149,23 @@ public sealed class McpProvisioningService : IMcpProvisioningService
         {
             var targets = agents ?? await _enabledAgentsProvider(cancellationToken).ConfigureAwait(false);
             config = ResolveConfig();
+            _log?.Info(
+                $"MCP provision started — name '{config.Name}', " +
+                $"{(string.IsNullOrWhiteSpace(config.Url) ? "remove" : "configure")} mode, " +
+                $"{targets.Count} target(s).");
             foreach (var agent in targets.Distinct())
             {
-                results.Add(ProvisionAgent(agent, config));
+                var result = await ProvisionAgentAsync(agent, config, cancellationToken).ConfigureAwait(false);
+                results.Add(result);
+                var line = $"{agent}: {result.State} — {result.Path}";
+                if (result.State == McpAgentState.Failed)
+                {
+                    _log?.Error($"{line} — {Sanitize(result.Error, config.ApiKey)}");
+                }
+                else
+                {
+                    _log?.Info(line);
+                }
             }
 
             _state = results.Any(r => r.State == McpAgentState.Failed)
@@ -141,10 +177,124 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             _logger.LogWarning(ex, "MCP provisioning failed.");
             _state = McpProvisionState.Failed;
             error = Sanitize(ex.Message, config?.ApiKey);
+            _log?.Error($"MCP provision failed: {error}");
         }
 
         _lastRun = new LastRun(started, stopwatch.ElapsedMilliseconds, results, error);
+        _log?.Info($"MCP provision finished: {_state} in {stopwatch.ElapsedMilliseconds} ms.");
         return GetStatus();
+    }
+
+    private Task<McpAgentResult> ProvisionAgentAsync(AgentType agent, RagConfig config, CancellationToken cancellationToken)
+    {
+        if (agent == AgentType.Antigravity)
+        {
+            return ProvisionAntigravityAsync(config, cancellationToken);
+        }
+
+        return Task.FromResult(ProvisionAgent(agent, config));
+    }
+
+    /// <summary>
+    /// Antigravity is provisioned through its official CLI (`agy mcp add/remove`),
+    /// which owns the format of <c>~/.gemini/config/mcp_config.json</c>.
+    /// </summary>
+    private async Task<McpAgentResult> ProvisionAntigravityAsync(RagConfig config, CancellationToken cancellationToken)
+    {
+        const string displayPath = "~/.gemini/config/mcp_config.json";
+        var agy = _executableResolver("agy");
+        if (agy is null)
+        {
+            return new McpAgentResult(
+                AgentType.Antigravity, false, displayPath, null, McpAgentState.Skipped,
+                "agy CLI not found on PATH");
+        }
+
+        var target = AgentMcpConfigMap.GetTarget(AgentType.Antigravity)!;
+        var path = AgentMcpConfigMap.GetConfigPath(target, _homeDirectory);
+        var removing = string.IsNullOrWhiteSpace(config.Url);
+
+        try
+        {
+            var existing = JsonConfigMerger.ReadManagedUrl(path, target.ContainerKey, config.Name, "serverUrl");
+            if (removing)
+            {
+                if (existing is null)
+                {
+                    return new McpAgentResult(
+                        AgentType.Antigravity, false, displayPath, null, McpAgentState.NotConfigured, null);
+                }
+
+                var (removeExit, removeOutput) = await _agyRunner(
+                    agy, ["mcp", "remove", config.Name], cancellationToken).ConfigureAwait(false);
+                return removeExit == 0
+                    ? new McpAgentResult(
+                        AgentType.Antigravity, false, displayPath, null, McpAgentState.Removed, null)
+                    : new McpAgentResult(
+                        AgentType.Antigravity, false, displayPath, null, McpAgentState.Failed,
+                        Sanitize(removeOutput, config.ApiKey));
+            }
+
+            if (existing is not null && existing.Equals(config.Url, StringComparison.Ordinal))
+            {
+                return new McpAgentResult(
+                    AgentType.Antigravity, true, displayPath, "http", McpAgentState.Configured, null);
+            }
+
+            var args = new List<string> { "mcp", "add", "-t", "http" };
+            if (!string.IsNullOrWhiteSpace(config.ApiKey))
+            {
+                args.AddRange(["-H", $"Authorization: Bearer {config.ApiKey}"]);
+            }
+
+            args.Add(config.Name);
+            args.Add(config.Url!);
+
+            var (exitCode, output) = await _agyRunner(agy, args, cancellationToken).ConfigureAwait(false);
+            return exitCode == 0
+                ? new McpAgentResult(
+                    AgentType.Antigravity, true, displayPath, "http", McpAgentState.Configured, null)
+                : new McpAgentResult(
+                    AgentType.Antigravity, false, displayPath, null, McpAgentState.Failed,
+                    Sanitize(output, config.ApiKey));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "MCP provision failed for agent {Agent} via agy CLI.", AgentType.Antigravity);
+            return new McpAgentResult(
+                AgentType.Antigravity, false, displayPath, null, McpAgentState.Failed,
+                Sanitize(ex.Message, config.ApiKey));
+        }
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunAgyMcpAsync(
+        string executable, IReadOnlyList<string> args, CancellationToken cancellationToken)
+    {
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            }
+        };
+        foreach (var arg in args)
+        {
+            process.StartInfo.ArgumentList.Add(arg);
+        }
+
+        var stdout = new StringBuilder();
+        var stderr = new StringBuilder();
+        process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        return (process.ExitCode, stdout.Append(stderr).ToString().Trim());
     }
 
     private McpAgentResult ProvisionAgent(AgentType agent, RagConfig config)
@@ -207,7 +357,9 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             }
 
             var url = target.Format == McpConfigFormat.Json
-                ? JsonConfigMerger.ReadManagedUrl(path, target.ContainerKey, config.Name)
+                ? JsonConfigMerger.ReadManagedUrl(
+                    path, target.ContainerKey, config.Name,
+                    target.Style == McpEntryStyle.Antigravity ? "serverUrl" : "url")
                 : TomlConfigMerger.ReadManagedUrl(path, config.Name);
 
             var configured = url is not null

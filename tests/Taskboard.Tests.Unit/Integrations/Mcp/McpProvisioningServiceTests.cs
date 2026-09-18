@@ -28,12 +28,16 @@ public class McpProvisioningServiceTests : IDisposable
 
     private McpProvisioningService CreateService(
         IConfiguration? configuration = null,
-        IReadOnlyCollection<AgentType>? enabled = null) =>
+        IReadOnlyCollection<AgentType>? enabled = null,
+        Func<string, string?>? executableResolver = null,
+        Func<string, IReadOnlyList<string>, CancellationToken, Task<(int ExitCode, string Output)>>? agyRunner = null) =>
         new(
             configuration ?? new ConfigurationBuilder().Build(),
             NullLogger<McpProvisioningService>.Instance,
             _home,
-            _ => Task.FromResult(enabled ?? (IReadOnlyCollection<AgentType>)Enum.GetValues<AgentType>()));
+            _ => Task.FromResult(enabled ?? (IReadOnlyCollection<AgentType>)Enum.GetValues<AgentType>()),
+            executableResolver ?? (_ => null),
+            agyRunner);
 
     private static IConfiguration RagConfig(
         string? name = "knowledge",
@@ -61,7 +65,7 @@ public class McpProvisioningServiceTests : IDisposable
         status.Agents
             .Where(r => r.Agent != AgentType.Antigravity)
             .ShouldAllBe(r => r.Configured && r.State == McpAgentState.Configured);
-        // Antigravity has no known MCP config target — Skipped, not an error.
+        // Antigravity is provisioned via the agy CLI — absent in this test → Skipped.
         status.Agents.Single(r => r.Agent == AgentType.Antigravity)
             .State.ShouldBe(McpAgentState.Skipped);
 
@@ -187,9 +191,118 @@ public class McpProvisioningServiceTests : IDisposable
         var status = service.GetStatus();
 
         status.Agents
-            .Where(r => r.Agent != AgentType.Antigravity)
             .ShouldAllBe(r => !r.Configured && r.State == McpAgentState.NotConfigured);
-        status.Agents.Single(r => r.Agent == AgentType.Antigravity)
-            .State.ShouldBe(McpAgentState.Skipped);
+    }
+
+    [Fact]
+    public async Task Dado_AgyDisponivel_Quando_Provision_Entao_AddComArgsCorretos()
+    {
+        // Covers RF-005: Antigravity provisioned via `agy mcp add -t http -H ... <name> <url>`
+        List<string>? captured = null;
+        var service = CreateService(
+            RagConfig(),
+            executableResolver: exe => exe == "agy" ? "/usr/bin/agy" : null,
+            agyRunner: (_, args, _) =>
+            {
+                captured = [.. args];
+                return Task.FromResult((0, "Added MCP server \"knowledge\" (http)"));
+            });
+
+        var status = await service.ProvisionAsync([AgentType.Antigravity]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Antigravity).State.ShouldBe(McpAgentState.Configured);
+        captured.ShouldNotBeNull();
+        captured.ShouldBe([
+            "mcp", "add", "-t", "http",
+            "-H", "Authorization: Bearer aft_testkey12345",
+            "knowledge", "https://rag.afonsoft.dev/mcp"]);
+    }
+
+    [Fact]
+    public async Task Dado_AgyEntryExistente_Quando_Provision_Entao_NoOpSemChamarCli()
+    {
+        // Covers idempotency: entry already matching → Configured without spawning agy
+        var dir = Path.Join(_home, ".gemini", "config");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "mcp_config.json"), """
+            { "mcpServers": { "knowledge": { "serverUrl": "https://rag.afonsoft.dev/mcp" } } }
+            """);
+
+        var called = false;
+        var service = CreateService(
+            RagConfig(),
+            executableResolver: _ => "/usr/bin/agy",
+            agyRunner: (_, _, _) =>
+            {
+                called = true;
+                return Task.FromResult((0, ""));
+            });
+
+        var status = await service.ProvisionAsync([AgentType.Antigravity]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Antigravity).State.ShouldBe(McpAgentState.Configured);
+        called.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_UrlVaziaEAgyEntryExiste_Quando_Provision_Entao_RemoveViaCli()
+    {
+        // Covers removal: `agy mcp remove <name>` when the managed entry exists
+        var dir = Path.Join(_home, ".gemini", "config");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "mcp_config.json"), """
+            { "mcpServers": { "knowledge": { "serverUrl": "https://rag.afonsoft.dev/mcp" } } }
+            """);
+
+        List<string>? captured = null;
+        var service = CreateService(
+            RagConfig(url: null, apiKey: null),
+            executableResolver: _ => "/usr/bin/agy",
+            agyRunner: (_, args, _) =>
+            {
+                captured = [.. args];
+                return Task.FromResult((0, "Removed MCP server \"knowledge\""));
+            });
+
+        var status = await service.ProvisionAsync([AgentType.Antigravity]);
+
+        status.Agents.Single(r => r.Agent == AgentType.Antigravity).State.ShouldBe(McpAgentState.Removed);
+        captured.ShouldBe(["mcp", "remove", "knowledge"]);
+    }
+
+    [Fact]
+    public async Task Dado_AgyFalha_Quando_Provision_Entao_FailedComApiKeySanitizada()
+    {
+        // Covers RF-009: agy stderr echoing the key must be redacted in results
+        var service = CreateService(
+            RagConfig(),
+            executableResolver: _ => "/usr/bin/agy",
+            agyRunner: (_, _, _) => Task.FromResult(
+                (1, "denied for Bearer aft_testkey12345")));
+
+        var status = await service.ProvisionAsync([AgentType.Antigravity]);
+
+        var result = status.Agents.Single(r => r.Agent == AgentType.Antigravity);
+        result.State.ShouldBe(McpAgentState.Failed);
+        result.Error.ShouldNotBeNull().ShouldNotContain("aft_testkey12345");
+    }
+
+    [Fact]
+    public void Dado_AgyConfigExistente_Quando_GetStatus_Entao_Configured()
+    {
+        // Covers status read: serverUrl match in mcp_config.json → Configured
+        var dir = Path.Join(_home, ".gemini", "config");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Join(dir, "mcp_config.json"), """
+            { "mcpServers": { "knowledge": { "serverUrl": "https://rag.afonsoft.dev/mcp" } } }
+            """);
+
+        var service = CreateService(RagConfig());
+
+        var status = service.GetStatus();
+
+        var agy = status.Agents.Single(r => r.Agent == AgentType.Antigravity);
+        agy.Configured.ShouldBeTrue();
+        agy.State.ShouldBe(McpAgentState.Configured);
     }
 }

@@ -40,6 +40,7 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Rag:Url",
             "Taskboard:Rag:ApiKey",
             "Taskboard:Terminal:Enabled",
+            "Taskboard:Agents:DefaultPrompt",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }
