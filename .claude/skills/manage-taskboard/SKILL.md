@@ -63,6 +63,23 @@ taskctl comment create --identifier TASK-local-1 --body "Investigando." --json
 taskctl attachment list --identifier TASK-local-1 --json
 ```
 
+### Board GitHub: histórico e comentários
+
+Issues do board GitHub (cards do Kanban) têm uma superfície própria, identificada pelo `issueId` numérico do GitHub e por `owner/repo` + número da issue:
+
+```bash
+# Timeline unificada da issue (movimentações de coluna + execuções de agente)
+taskctl ghissue:history <issueId> [--take 50] --json
+
+# Listar comentários da issue no GitHub (contexto deixado por humanos/agentes)
+taskctl ghissue:comments owner/name <issueNumber> [--take 50] --json
+
+# Publicar comentário na issue no GitHub (handoff para o próximo agente/etapa)
+taskctl ghissue:comment owner/name <issueNumber> "<body>" --json
+```
+
+**Convenção de handoff**: comentários na issue do GitHub são o canal de passagem de contexto entre agentes e etapas. Ao **assumir** uma issue, leia o histórico (`ghissue:history`) e os comentários (`ghissue:comments`) — o prompt gerado pela UI já injeta os comentários automaticamente na seção `Comments:`. Ao **concluir uma etapa**, publique um comentário (`ghissue:comment`) resumindo o que foi feito, decisões tomadas e o estado atual, para que o próximo agente ou etapa continue sem perda de contexto.
+
 ### Resolução de identificadores
 
 Use o identificador escopo-de-projeto `TASK-<projeto>-<número>` quando disponível. O `taskctl` resolve para o GUID interno automaticamente.
@@ -76,7 +93,7 @@ cd src/Taskboard.Mcp
 TASKBOARD_URL=http://127.0.0.1:47823 dotnet run
 ```
 
-O servidor usa transporte STDIO e expõe 13 tools.
+O servidor usa transporte STDIO e expõe 16 tools.
 
 ### Registrar no Claude Desktop
 

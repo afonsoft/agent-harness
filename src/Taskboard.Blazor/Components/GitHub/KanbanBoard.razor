@@ -4,7 +4,7 @@
 @inject ToastService ToastService
 
 <Modal @ref="_agentModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnAgentModalHidden" />
-<Modal @ref="_detailModal" Size="ModalSize.Large" DialogCssClass="modal-70" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
+<Modal @ref="_detailModal" Size="ModalSize.Large" DialogCssClass="modal-80" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
 <Modal @ref="_newTaskModal" Size="ModalSize.Small" DialogCssClass="modal-70" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnNewTaskModalHidden" />
 
 @if (_isLoading)
@@ -122,7 +122,7 @@ else if (_columns is not null)
                                         <span class="text-body-secondary">|</span>
                                         <span class="agent-badge @GetAgentBadgeClass(run!)"
                                               title="Agente: @GetAgentDisplayName(run!.AgentType) — @run!.State">
-                                            <Icon Name="IconName.Robot" />@GetAgentShortName(run!.AgentType)
+                                            <Icon Name="IconName.Robot" />@GetAgentShortName(run!.AgentType) · @GetAgentStateLabel(run!.State)
                                         </span>
                                     }
                                     <span class="task-meta-time ms-auto" title="@context.UpdatedAt">@RelativeTime(context.UpdatedAt ?? context.CreatedAt)</span>
@@ -250,6 +250,16 @@ else if (_columns is not null)
         AgentType.Devin => "Devin",
         AgentType.Antigravity => "AGY",
         _ => type.ToString()
+    };
+
+    private static string GetAgentStateLabel(AgentRunState state) => state switch
+    {
+        AgentRunState.Queued => "queued",
+        AgentRunState.Running => "running",
+        AgentRunState.Succeeded => "succeeded",
+        AgentRunState.Failed => "failed",
+        AgentRunState.Canceled => "canceled",
+        _ => state.ToString().ToLowerInvariant()
     };
 
     private static string GetAgentDisplayName(AgentType type)

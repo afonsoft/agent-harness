@@ -11,4 +11,5 @@ public sealed record AgentExecutionRequest(
     string? Branch,
     string? Scope,
     string Instructions,
-    AgentType AgentType);
+    AgentType AgentType,
+    AgentModelTier ModelTier = AgentModelTier.Normal);

@@ -134,6 +134,39 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         return result!.Issue;
     }
 
+    public async Task<IReadOnlyList<IssueCommentDto>> GetIssueCommentsAsync(
+        string repositoryFullName,
+        int issueNumber,
+        int take = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.GetAsync(
+            $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}/comments?take={take}",
+            cancellationToken);
+        await ThrowOnTokenMissingAsync(response, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<CommentsResponse>(cancellationToken);
+        return result?.Comments ?? [];
+    }
+
+    public async Task<IssueCommentDto> AddIssueCommentAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string body,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.PostAsJsonAsync(
+            $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}/comments",
+            new AddCommentRequest(body),
+            cancellationToken);
+        await ThrowOnTokenMissingAsync(response, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<CommentResponse>(cancellationToken);
+        return result!.Comment;
+    }
+
     private static (string Owner, string Repo) SplitFullName(string fullName)
     {
         var parts = fullName.Split('/', 2, StringSplitOptions.TrimEntries);
@@ -163,6 +196,9 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
     private sealed record UpdateIssueRequest(string? Title, string? Body);
     private sealed record SetPriorityRequest(string Priority);
     private sealed record CloseIssueRequest(string Resolution);
+    private sealed record CommentsResponse(List<IssueCommentDto> Comments);
+    private sealed record CommentResponse(IssueCommentDto Comment);
+    private sealed record AddCommentRequest(string Body);
     private sealed record ErrorEnvelope(ErrorBody? Error);
     private sealed record ErrorBody(string Code, string Message);
 }

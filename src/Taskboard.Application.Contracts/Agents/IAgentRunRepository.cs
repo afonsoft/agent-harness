@@ -8,7 +8,7 @@ namespace Taskboard.Application.Contracts.Agents;
 public interface IAgentRunRepository
 {
     /// <summary>Cria um run no estado <see cref="AgentRunState.Queued"/> e retorna seu DTO.</summary>
-    Task<AgentRunDto> EnqueueAsync(string issueId, AgentType agentType, CancellationToken cancellationToken = default);
+    Task<AgentRunDto> EnqueueAsync(string issueId, AgentType agentType, AgentModelTier? modelTier = null, string? modelName = null, CancellationToken cancellationToken = default);
 
     /// <summary>Transiciona o run para <see cref="AgentRunState.Running"/> (idempotente).</summary>
     Task MarkRunningAsync(Guid runId, CancellationToken cancellationToken = default);

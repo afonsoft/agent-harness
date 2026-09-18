@@ -36,6 +36,11 @@ internal static class Program
             config.AddCommand<AttachmentUploadCommand>("attachment:upload");
             config.AddCommand<AttachmentDownloadCommand>("attachment:download");
 
+            // GitHub board: history + comments (SPEC-20260918-github-comments-history)
+            config.AddCommand<GitHubIssueHistoryCommand>("ghissue:history");
+            config.AddCommand<GitHubIssueCommentListCommand>("ghissue:comments");
+            config.AddCommand<GitHubIssueCommentAddCommand>("ghissue:comment");
+
             config.AddCommand<CloudLoginCommand>("cloud:login");
             config.AddCommand<CloudStatusCommand>("cloud:status");
             config.AddCommand<CloudLogoutCommand>("cloud:logout");
@@ -835,5 +840,96 @@ public class ContextCurrentCommand : AsyncCommand<ContextCurrentSettings>
                 ["cloudUrl"] = config.CloudUrl,
             };
             return await Program.WriteOutputAsync(settings.Json, node);
+        }, cancellationToken);
+}
+
+// ---- GitHub board: issue history + comments (SPEC-20260918-github-comments-history RF-003) ----
+// These commands talk to the GitHub board surface (/api/github/...), identified
+// by owner/repo + issue number — distinct from local tasks (TASK-<project>-<n>).
+
+public class GitHubIssueHistorySettings : GlobalSettings
+{
+    [CommandArgument(0, "<issueId>")]
+    public string IssueId { get; set; } = default!;
+
+    [CommandOption("--take")]
+    public int? Take { get; set; }
+}
+
+public class GitHubIssueHistoryCommand : AsyncCommand<GitHubIssueHistorySettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueHistorySettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (client, ct) =>
+        {
+            var query = settings.Take is { } t ? $"?take={t}" : string.Empty;
+            var result = await client.GetAsync(
+                $"/api/github/issues/{Uri.EscapeDataString(settings.IssueId)}/history{query}", ct);
+            return await Program.WriteOutputAsync(settings.Json, result, "items");
+        }, cancellationToken);
+}
+
+public class GitHubIssueCommentListSettings : GlobalSettings
+{
+    [CommandArgument(0, "<repo>")]
+    public string Repo { get; set; } = default!;
+
+    [CommandArgument(1, "<number>")]
+    public int Number { get; set; }
+
+    [CommandOption("--take")]
+    public int? Take { get; set; }
+}
+
+public class GitHubIssueCommentListCommand : AsyncCommand<GitHubIssueCommentListSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueCommentListSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (client, ct) =>
+        {
+            var (owner, name) = SplitRepo(settings.Repo);
+            var query = settings.Take is { } t ? $"?take={t}" : string.Empty;
+            var result = await client.GetAsync(
+                $"/api/github/repos/{owner}/{name}/issues/{settings.Number}/comments{query}", ct);
+            return await Program.WriteOutputAsync(settings.Json, result, "comments");
+        }, cancellationToken);
+
+    internal static (string Owner, string Name) SplitRepo(string repo)
+    {
+        var parts = repo.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            throw new CliException(2, "Repositório deve ser 'owner/name'.");
+        }
+
+        return (Uri.EscapeDataString(parts[0]), Uri.EscapeDataString(parts[1]));
+    }
+}
+
+public class GitHubIssueCommentAddSettings : GlobalSettings
+{
+    [CommandArgument(0, "<repo>")]
+    public string Repo { get; set; } = default!;
+
+    [CommandArgument(1, "<number>")]
+    public int Number { get; set; }
+
+    [CommandArgument(2, "<body>")]
+    public string Body { get; set; } = default!;
+}
+
+public class GitHubIssueCommentAddCommand : AsyncCommand<GitHubIssueCommentAddSettings>
+{
+    protected override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueCommentAddSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (client, ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(settings.Body))
+            {
+                throw new CliException(2, "O corpo do comentário é obrigatório.");
+            }
+
+            var (owner, name) = GitHubIssueCommentListCommand.SplitRepo(settings.Repo);
+            var result = await client.PostAsync(
+                $"/api/github/repos/{owner}/{name}/issues/{settings.Number}/comments",
+                new AddIssueCommentRequest(settings.Body), ct);
+            return await Program.WriteOutputAsync(settings.Json, result, "comment");
         }, cancellationToken);
 }

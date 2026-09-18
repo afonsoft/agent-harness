@@ -237,6 +237,48 @@ public sealed class GitHubService : IGitHubService
         return MapToDto(closed, repositoryFullName);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<IssueCommentDto>> GetIssueCommentsAsync(
+        string repositoryFullName,
+        int issueNumber,
+        int take = 50,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var comments = await _client.Issue.Comment.GetAllForIssue(owner, name, issueNumber);
+        return comments
+            .OrderBy(c => c.CreatedAt)
+            .TakeLast(take)
+            .Select(MapToDto)
+            .ToList()
+            .AsReadOnly();
+    }
+
+    /// <inheritdoc />
+    public async Task<IssueCommentDto> AddIssueCommentAsync(
+        string repositoryFullName,
+        int issueNumber,
+        string body,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var comment = await _client.Issue.Comment.Create(owner, name, issueNumber, body);
+        return MapToDto(comment);
+    }
+
+    private static IssueCommentDto MapToDto(IssueComment comment) => new(
+        comment.Id,
+        comment.User?.Login,
+        comment.Body,
+        comment.CreatedAt,
+        comment.UpdatedAt,
+        comment.HtmlUrl);
+
     private async Task EnsureLabelExistsAsync(string owner, string name, string label, CancellationToken cancellationToken = default)
     {
         try

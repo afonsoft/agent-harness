@@ -228,7 +228,7 @@ public class AgentOrchestrationServiceTests
     public async Task Dado_AgenteElegivel_Quando_Enfileirar_Entao_CriaRunQueued()
     {
         var runRepository = Substitute.For<IAgentRunRepository>();
-        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new AgentRunDto(
                 Guid.NewGuid(), "issue-1", AgentType.Codex, AgentRunState.Queued,
                 DateTimeOffset.UtcNow, null)));
@@ -238,7 +238,7 @@ public class AgentOrchestrationServiceTests
         var queued = await service.EnqueueAsync(request);
 
         queued.ShouldBeTrue();
-        await runRepository.Received(1).EnqueueAsync(request.IssueId, AgentType.Codex, Arg.Any<CancellationToken>());
+        await runRepository.Received(1).EnqueueAsync(request.IssueId, AgentType.Codex, Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -282,9 +282,9 @@ public class AgentOrchestrationServiceTests
     {
         var repository = agentLogRepository ?? Substitute.For<IAgentLogRepository>();
         var runRepository = agentRunRepository ?? Substitute.For<IAgentRunRepository>();
-        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult(new AgentRunDto(
-                Guid.NewGuid(), call.Arg<string>(), call.Arg<AgentType>(), AgentRunState.Queued,
+                Guid.NewGuid(), call.ArgAt<string>(0), call.ArgAt<AgentType>(1), AgentRunState.Queued,
                 DateTimeOffset.UtcNow, null)));
         var eligibilityService = eligibility ?? EligibilityPadrao();
 

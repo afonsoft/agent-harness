@@ -180,12 +180,16 @@ PUT   /api/github/repos/{owner}/{repo}/issues/{number}/column
 PUT   /api/github/repos/{owner}/{repo}/issues/{number}/priority
 POST  /api/github/repos/{owner}/{repo}/issues/{number}/labels
 POST  /api/github/repos/{owner}/{repo}/issues/{number}/close
+GET   /api/github/repos/{owner}/{repo}/issues/{number}/comments?take=50
+POST  /api/github/repos/{owner}/{repo}/issues/{number}/comments
 GET   /api/github/issues/{issueId}/history?take=50
 ```
 
 O estado do kanban é baseado em labels: `PATCH .../issues/{n}` edita `{ title?, body }` (corpo markdown renderizado sanitizado na UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` troca as labels `priority:*` (`none` remove); `POST .../close` `{ "resolution": "canceled|archived" }` fecha a issue — `canceled` também aplica a label `canceled` (coluna Canceled), `archived` fecha sem label de coluna (Archived). Todos retornam `200 { issue }`; enum inválido → `400`, issue desconhecida → `404`, anônimo → `401`.
 
 Cada mutação do board também é persistida como `IssueHistoryEvent` (`column-moved` com `from`/`to`, `edited` com os campos alterados, `closed` com a resolução) indexada pelo id da issue do GitHub — best-effort, nunca falha a mutação. `GET .../issues/{issueId}/history` mescla esses eventos com os agent runs da issue em `200 { items: [{ kind, occurredAt, agentType?, agentRunState?, finishedAt?, from?, to?, detail? }] }` do mais recente ao mais antigo — os dados da aba `Histórico` no dialog da issue.
+
+Comentários da issue vivem no GitHub (nunca persistidos localmente): `GET .../issues/{n}/comments` retorna `200 { comments: [{ id, authorLogin, body, createdAt, updatedAt, htmlUrl }] }` em ordem cronológica, `POST` `{ "body" }` cria um (`400 { "error": "empty-body" }` em corpo vazio, `404 { "error": "issue-not-found" }`). A aba `Comentários` lista/posta, e o renderizador do prompt do agente anexa os comentários automaticamente numa seção `Comments:` limitada (~3k chars, omitida quando vazia, falha no fetch nunca bloqueia a execução).
 
 ### Orquestração de Agentes
 
@@ -199,6 +203,8 @@ POST   /api/agents/executions/{issueId}/cancel
 ```
 
 `GET /api/agents` lista apenas agentes *elegíveis* — instalados no PATH, com CLI autenticado (probe de credencial) e habilitados em Settings → Agents; agentes em execução aparecem como `Busy`. `POST /api/agents/executions` retorna `202` quando enfileirado ou `422 { "error": "agent-not-eligible" }` para agente desabilitado/não autenticado/não instalado.
+
+O body das execuções aceita `modelTier` opcional (`"lite" | "normal" | "ultra"`, padrão `"normal"` — ausente em payloads antigos): o servidor mapeia `(agentType, tier)` para um modelo concreto via a tabela curada `AgentCliModels` e injeta a flag de modelo do CLI no argv (`claude --model sonnet`, `codex -m gpt-5.1-codex`, `devin --model swe`, `agy --model gemini-3.1-pro-low`, `opencode -m opencode/claude-sonnet-5`, …). CLIs sem flag de modelo headless (Cline, Continue, Kiro, OpenHands) não recebem flag em nenhum tier. Itens de `GET /api/agents/runs` trazem `modelTier` e o `modelName` resolvido (null em runs antigas e agentes gerenciados pela CLI).
 
 `GET /api/agents/runs?issueId=` retorna os runs mais recentes da issue (`{ id, issueId, agentType, state, startedAt, finishedAt }`, mais novo primeiro; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` retorna o run mais recente por issue — usado para os badges de agente nos cards do kanban.
 
