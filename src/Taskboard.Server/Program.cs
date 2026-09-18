@@ -182,6 +182,7 @@ builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstall
 builder.Services.AddSingleton(sp => new PtySessionFactory(
     homeDir,
     sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddSingleton<TerminalSessionManager>();
 
 // Opt-out switch for environments where a background git clone must not run
 // (tests, air-gapped hosts). Default: enabled.

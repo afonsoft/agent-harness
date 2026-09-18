@@ -10,7 +10,7 @@ namespace Taskboard.Integrations.Terminal;
 /// <see cref="OutputReceived"/>; input is written verbatim to the shell's
 /// stdin (SPEC-20260917-cli-agents-terminal RF-005).
 /// </summary>
-public sealed class PtySession : IAsyncDisposable
+public sealed class PtySession : IPtySession
 {
     private readonly string _homeDirectory;
     private readonly ILogger _logger;

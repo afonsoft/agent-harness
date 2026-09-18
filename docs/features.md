@@ -66,7 +66,7 @@
 
 - `/agents` page: install/auth status board for 13 CLIs — Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`, Kimi Code, Grok, Aider, Cline, Continue, GitHub Copilot CLI, Qwen Code and Kiro CLI (`GET /api/agent-clis`)
 - Managed install from the UI: `POST /api/agent-clis/{kind}/install` runs the allowlisted install command (npm/pipx/curl) in the background with a live log console popup (`GET /api/agent-clis/{kind}/install/status`) — closes automatically on success; Login action appears once installed
-- `/terminal` page: interactive bash PTY over SignalR (`/terminal-hub`) with xterm.js — one session per user, 30 min idle timeout, `Taskboard:Terminal:Enabled` flag
+- `/terminal` page: interactive bash PTYs over SignalR (`/terminal-hub`) with xterm.js — **multiple tabbed sessions** (up to 8 per user, `Open()` returns a `sessionId` routed over one connection), per-tab 30 min idle timeout, per-tab close/reopen, `?cmd=` pre-fills the first tab; native terminal keys: Ctrl+C copies the selection (or sends SIGINT), Ctrl+V / Ctrl+Shift+V / Shift+Insert paste, `Taskboard:Terminal:Enabled` flag
 - Docker image ships Node.js LTS + the five CLIs with `HOME=/data/home` so credentials persist in the `/data` volume
 
 ## Settings: Skills & RAG MCP
