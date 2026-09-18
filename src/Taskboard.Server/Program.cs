@@ -23,6 +23,8 @@ using Taskboard.Application.AiChat;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Events;
+using Taskboard.Domain.Issues;
+using Taskboard.Issues;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
@@ -1354,10 +1356,13 @@ github.MapPut("repos/{owner}/{repo}/issues/{number:int}/column", async (
     int number,
     UpdateGitHubIssueColumnRequest request,
     IGitHubService gitHub,
+    IRepository<IssueHistoryEvent> history,
     CancellationToken ct) =>
 {
     var issue = await gitHub.UpdateIssueColumnAsync(
         $"{owner}/{repo}", number, request.OldColumn, request.NewColumn, ct);
+    await RecordIssueHistoryAsync(history, issue, $"{owner}/{repo}", IssueHistoryEventKind.ColumnMoved, ct,
+        from: request.OldColumn?.ToLabel(), to: request.NewColumn.ToLabel());
     return Results.Ok(new { issue });
 });
 
@@ -1380,12 +1385,20 @@ github.MapPatch("repos/{owner}/{repo}/issues/{number:int}", async (
     int number,
     UpdateGitHubIssueRequest request,
     IGitHubService gitHub,
+    IRepository<IssueHistoryEvent> history,
     CancellationToken ct) =>
 {
     try
     {
         var issue = await gitHub.UpdateIssueAsync(
             $"{owner}/{repo}", number, request.Title, request.Body, ct);
+        var changed = string.Join(", ", new[]
+            {
+                request.Title is not null ? "title" : null,
+                request.Body is not null ? "body" : null
+            }.Where(x => x is not null));
+        await RecordIssueHistoryAsync(history, issue, $"{owner}/{repo}", IssueHistoryEventKind.Edited, ct,
+            detail: string.IsNullOrEmpty(changed) ? null : changed);
         return Results.Ok(new { issue });
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -1425,6 +1438,7 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/close", async (
     int number,
     CloseGitHubIssueRequest request,
     IGitHubService gitHub,
+    IRepository<IssueHistoryEvent> history,
     CancellationToken ct) =>
 {
     if (!string.Equals(request.Resolution, "canceled", StringComparison.OrdinalIgnoreCase)
@@ -1437,12 +1451,56 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/close", async (
     {
         var issue = await gitHub.CloseIssueAsync(
             $"{owner}/{repo}", number, request.Resolution, ct);
+        await RecordIssueHistoryAsync(history, issue, $"{owner}/{repo}", IssueHistoryEventKind.Closed, ct,
+            detail: request.Resolution);
         return Results.Ok(new { issue });
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
         return Results.NotFound(new { error = "issue-not-found" });
     }
+});
+
+// Unified issue timeline: persisted board events + agent runs, newest first.
+github.MapGet("issues/{issueId}/history", async (
+    string issueId,
+    int? take,
+    IRepository<IssueHistoryEvent> history,
+    IAgentRunRepository runs,
+    CancellationToken ct) =>
+{
+    var events = await history.Query
+        .Where(e => e.IssueId == issueId)
+        .OrderByDescending(e => e.OccurredAt)
+        .Take(take ?? 50)
+        .ToListAsync(ct);
+
+    var agentRuns = await runs.GetByIssueIdAsync(issueId, take ?? 50, ct);
+
+    var items = events
+        .Select(e => new IssueHistoryItemDto(
+            e.Kind switch
+            {
+                IssueHistoryEventKind.ColumnMoved => IssueHistoryItemDto.ColumnMoved,
+                IssueHistoryEventKind.Edited => IssueHistoryItemDto.Edited,
+                IssueHistoryEventKind.Closed => IssueHistoryItemDto.Closed,
+                _ => "event"
+            },
+            e.OccurredAt,
+            From: e.From,
+            To: e.To,
+            Detail: e.Detail))
+        .Concat(agentRuns.Select(r => new IssueHistoryItemDto(
+            IssueHistoryItemDto.AgentRun,
+            r.StartedAt,
+            AgentType: r.AgentType,
+            AgentRunState: r.State,
+            FinishedAt: r.FinishedAt)))
+        .OrderByDescending(i => i.OccurredAt)
+        .Take(take ?? 50)
+        .ToList();
+
+    return Results.Ok(new { items });
 });
 
 var agents = api.MapGroup("agents").RequireAuthorization();
@@ -1633,6 +1691,20 @@ api.MapGet("vscode/workdir", (string repo, WorkspaceService workspace) =>
     return Results.Ok(new VscodeWorkdir(path, exists));
 }).RequireAuthorization();
 
+// Direct-to-editor deep link: resolves the card workdir and redirects into
+// the proxied code-server UI, skipping the /editor wrapper page entirely.
+api.MapGet("vscode/open", (string repo, WorkspaceService workspace) =>
+{
+    var parts = repo.Split('/', StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length != 2)
+    {
+        return Results.NotFound();
+    }
+
+    var path = workspace.ResolveCardWorkdir(repo, out _);
+    return Results.Redirect($"/vscode/?folder={Uri.EscapeDataString(path)}");
+}).RequireAuthorization();
+
 api.MapGet("mcp/status", (IMcpProvisioningService mcp) =>
     Results.Ok(mcp.GetStatus()))
     .RequireAuthorization();
@@ -1768,3 +1840,37 @@ static async System.Threading.Tasks.Task PublishEventsAsync(IEventStreamService 
     }
 }
 
+
+// Persists a board-side event on a GitHub issue (column move, edit, close)
+// so the issue's History tab can show what happened alongside agent runs.
+// Best-effort: a history write failure must not fail the mutation itself.
+static async System.Threading.Tasks.Task RecordIssueHistoryAsync(
+    IRepository<IssueHistoryEvent> history,
+    IssueDto issue,
+    string repository,
+    IssueHistoryEventKind kind,
+    CancellationToken ct,
+    string? from = null,
+    string? to = null,
+    string? detail = null)
+{
+    try
+    {
+        await history.AddAsync(
+            new IssueHistoryEvent(
+                Guid.NewGuid(),
+                issue.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                repository,
+                kind,
+                DateTimeOffset.UtcNow,
+                from,
+                to,
+                detail),
+            ct);
+        await history.SaveChangesAsync(ct);
+    }
+    catch
+    {
+        // History is auxiliary — never break the request over it.
+    }
+}

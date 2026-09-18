@@ -59,7 +59,7 @@
 - Queues background execution and streams stdout/stderr/system logs
 - SignalR hub: `/agent-log-hub`
 - Successful execution moves the issue from `In Progress` to `Review`
-- Issue modal: `Agent Config` tab (repo link, per-CLI argv preview, prompt editor) and `Logs do Agente` tab with persistent Clear (`DELETE /api/agents/logs/{issueId}`)
+- Issue modal: `Agent Config` tab (repo link, per-CLI argv preview, prompt editor), `Logs do Agente` tab with persistent Clear (`DELETE /api/agents/logs/{issueId}`), and `Histórico` tab — unified timeline of board mutations (column moves, edits, closes persisted as `IssueHistoryEvent`) merged with agent runs (`GET /api/github/issues/{issueId}/history`)
 - Global default prompt template on `/agents` (`GET`/`PUT /api/agents/prompt-template`) with `{repoUrl}`/`{issueTitle}`/`{issueBody}` placeholders
 
 ## Agent CLIs & Terminal
@@ -75,7 +75,7 @@
 - Managed install: `POST /api/vscode/install` runs the allowlisted standalone installer in the background with a live log console (`GET /api/vscode/install/status`)
 - code-server runs as a lazy child process bound to `127.0.0.1` with `--auth none --disable-workspace-trust --app-name Taskboard`, reachable only through the authenticated YARP proxy at `/vscode/{**}` (WebSocket-enabled, prefix stripped); `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` keeps port-forward links working under the subpath
 - Workspace root `Taskboard:WorkspaceRoot` (default `~/repos`, auto-created): default cwd for agent runs and clones; card workdir resolves to `<root>/<repo>` (sanitized, traversal-proof) via `GET /api/vscode/workdir`
-- "Open in VS Code" on the issue detail dialog jumps to `/editor?repo=<fullName>` — watch/edit the same files the agent is working on
+- "Open in VS Code" on the issue detail dialog opens the editor in a new browser tab via `GET /api/vscode/open?repo=<fullName>` → 302 to `/vscode/?folder=<card workdir>` — watch/edit the same files the agent is working on
 
 ## Settings: Skills & RAG MCP
 

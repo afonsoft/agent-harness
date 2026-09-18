@@ -91,7 +91,7 @@
                     <a href="@Issue?.HtmlUrl" target="_blank" class="d-block mt-3">
                         <Icon Name="IconName.BoxArrowUpRight" class="me-1" />Abrir no GitHub
                     </a>
-                    <a href="/editor?repo=@Uri.EscapeDataString(RepositoryFullName)" target="_blank" class="d-block mt-2">
+                    <a href="/api/vscode/open?repo=@Uri.EscapeDataString(RepositoryFullName)" target="_blank" class="d-block mt-2">
                         <Icon Name="IconName.CodeSlash" class="me-1" />Open in VS Code
                     </a>
                     <div class="d-flex justify-content-end mt-4 pt-3 border-top">
@@ -119,6 +119,14 @@
                     <TaskLogTab IssueId="@Issue.Id.ToString(CultureInfo.InvariantCulture)" />
                 }
             </div>
+        </Content>
+    </Tab>
+    <Tab Title="Histórico">
+        <Content>
+            @if (Issue is not null)
+            {
+                <IssueHistoryTab IssueId="@Issue.Id.ToString(CultureInfo.InvariantCulture)" />
+            }
         </Content>
     </Tab>
 </Tabs>

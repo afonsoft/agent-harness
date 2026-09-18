@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Taskboard.Domain.Agents;
 using Taskboard.Domain.Entities;
+using Taskboard.Domain.Issues;
 
 namespace Taskboard.EntityFrameworkCore.Data;
 
@@ -28,6 +29,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<AgentPreference> AgentPreferences => Set<AgentPreference>();
     public DbSet<AgentLog> AgentLogs => Set<AgentLog>();
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
+    public DbSet<IssueHistoryEvent> IssueHistoryEvents => Set<IssueHistoryEvent>();
     public DbSet<ConfigurationOverride> ConfigurationOverrides => Set<ConfigurationOverride>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

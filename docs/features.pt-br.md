@@ -59,7 +59,7 @@
 - Enfileira a execução em background e transmite logs de stdout/stderr/system
 - Hub SignalR: `/agent-log-hub`
 - Uma execução bem-sucedida move a issue de `In Progress` para `Review`
-- Modal de issue: aba `Agent Config` (link do repositório, preview do argv por CLI, editor de prompt) e aba `Logs do Agente` com Limpar persistente (`DELETE /api/agents/logs/{issueId}`)
+- Modal de issue: aba `Agent Config` (link do repositório, preview do argv por CLI, editor de prompt), aba `Logs do Agente` com Limpar persistente (`DELETE /api/agents/logs/{issueId}`) e aba `Histórico` — timeline unificada das mutações do board (movimentações de coluna, edições, fechamentos persistidos como `IssueHistoryEvent`) combinada com as execuções de agente (`GET /api/github/issues/{issueId}/history`)
 - Prompt padrão global na página `/agents` (`GET`/`PUT /api/agents/prompt-template`) com placeholders `{repoUrl}`/`{issueTitle}`/`{issueBody}`
 
 ## CLIs de Agentes e Terminal
@@ -75,7 +75,7 @@
 - Instalação gerenciada: `POST /api/vscode/install` executa o instalador standalone allowlisted em background com console de log ao vivo (`GET /api/vscode/install/status`)
 - code-server roda como processo filho lazy em `127.0.0.1` com `--auth none --disable-workspace-trust --app-name Taskboard`, acessível apenas pelo proxy YARP autenticado em `/vscode/{**}` (com WebSocket, prefixo removido); `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` mantém os links de portas funcionando sob o subpath
 - Workspace root `Taskboard:WorkspaceRoot` (padrão `~/repos`, criado automaticamente): cwd default dos agent runs e clones; workdir do card resolve para `<root>/<repo>` (sanitizado, sem traversal) via `GET /api/vscode/workdir`
-- "Open in VS Code" no dialog da issue abre `/editor?repo=<fullName>` — veja e edite os mesmos arquivos que o agente está alterando
+- "Open in VS Code" no dialog da issue abre o editor em nova aba do navegador via `GET /api/vscode/open?repo=<fullName>` → 302 para `/vscode/?folder=<workdir do card>` — veja e edite os mesmos arquivos que o agente está alterando
 
 ## Settings: Skills e RAG MCP
 
