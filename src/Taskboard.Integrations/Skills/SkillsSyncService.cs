@@ -120,7 +120,13 @@ public sealed class SkillsSyncService : ISkillsSyncService
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(timeout);
 
-            await EnsureCacheAsync(repository, token, timeoutSource.Token).ConfigureAwait(false);
+            var prepare = await EnsureCacheAsync(repository, token, timeoutSource.Token).ConfigureAwait(false);
+            if (prepare == CachePrepareResult.Recovered)
+            {
+                _log?.Info(
+                    "Skills cache was inaccessible — stale clone moved aside and re-cloned clean.");
+            }
+
             var skills = LoadSourceSkills();
             _log?.Info($"Skills cache updated — {skills.Count} skill(s) loaded.");
 
@@ -176,7 +182,8 @@ public sealed class SkillsSyncService : ISkillsSyncService
 
     internal static string NormalizeRepoUrl(string value) => SkillsRepository.NormalizeUrl(value);
 
-    private Task EnsureCacheAsync(string repository, string? token, CancellationToken cancellationToken) =>
+    private Task<CachePrepareResult> EnsureCacheAsync(
+        string repository, string? token, CancellationToken cancellationToken) =>
         SkillsRepository.EnsureCacheAsync(
             _cacheDirectory, repository, token, GitRunner.RunAsync, _logger, cancellationToken);
 

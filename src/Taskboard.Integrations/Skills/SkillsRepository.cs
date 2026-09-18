@@ -12,6 +12,16 @@ internal delegate Task<GitResult> GitExecutor(
     CancellationToken cancellationToken,
     params string[] args);
 
+/// <summary>Outcome of the cache accessibility pre-check (SPEC-20260918-skills-cache-permissions).</summary>
+internal enum CachePrepareResult
+{
+    /// <summary>The cache directory was missing or already usable.</summary>
+    Healthy,
+
+    /// <summary>An inaccessible cache was moved aside; a fresh clone is required.</summary>
+    Recovered
+}
+
 /// <summary>
 /// Shared resolution and cache management for the configured skills
 /// repository (SPEC-20260915-skills-repo-sync, SPEC-20260917-skills-installer).
@@ -81,11 +91,130 @@ internal static class SkillsRepository
     }
 
     /// <summary>
+    /// Ensures the cache directory is usable by the current process. A cache
+    /// left behind by another user (e.g. a previous run as root) is renamed
+    /// aside — never deleted — so a clean clone can take its place. Renaming
+    /// only requires write access on the parent directory, which belongs to
+    /// the service user. Stale <c>.inaccessible-*</c> directories are kept for
+    /// manual cleanup (SPEC-20260918-skills-cache-permissions).
+    /// </summary>
+    internal static CachePrepareResult EnsureAccessible(string cacheDirectory, ILogger logger)
+    {
+        if (!Directory.Exists(cacheDirectory) || IsUsable(cacheDirectory))
+        {
+            return CachePrepareResult.Healthy;
+        }
+
+        var quarantine = $"{cacheDirectory}.inaccessible-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}";
+        try
+        {
+            Directory.Move(cacheDirectory, quarantine);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Skills cache '{cacheDirectory}' is owned by another user and could not be moved aside. " +
+                $"Remove it or fix ownership manually (e.g. sudo chown -R {Environment.UserName} '{cacheDirectory}').",
+                ex);
+        }
+
+        logger.LogWarning(
+            "Skills cache {CacheDirectory} was inaccessible — moved to {Quarantine} for a fresh clone. " +
+            "The stale directory is kept for manual inspection/cleanup.",
+            cacheDirectory,
+            quarantine);
+        return CachePrepareResult.Recovered;
+    }
+
+    /// <summary>
+    /// Probes whether every file and subdirectory of the cache is readable and
+    /// writable by the current process. A foreign-owned tree (e.g. root-owned
+    /// files) fails the probe even when the top-level directory is writable,
+    /// because git checkout/reset rewrites tracked files.
+    /// </summary>
+    private static bool IsUsable(string cacheDirectory)
+    {
+        try
+        {
+            // Enumerating throws on any unreadable subdirectory; opening each
+            // file for writing covers git fetch/reset and script chmod.
+            foreach (var file in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))
+            {
+                using var stream = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            }
+
+            return CanWriteInside(cacheDirectory);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool CanWriteInside(string directory)
+    {
+        var probe = Path.Join(directory, $".access-probe-{Guid.NewGuid():N}");
+        try
+        {
+            File.WriteAllText(probe, "probe");
+            File.Delete(probe);
+            return true;
+        }
+        catch (Exception)
+        {
+            try
+            {
+                File.Delete(probe);
+            }
+            catch
+            {
+                // Probe file could not be created or removed — directory is not writable.
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Ensures every <c>*.sh</c> in the cache is executable — a legacy cache
+    /// may have lost the bit even though a fresh clone preserves it.
+    /// Idempotent: only touches files missing an execute bit.
+    /// </summary>
+    private static void EnsureScriptsExecutable(string cacheDirectory, ILogger logger)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        foreach (var script in Directory.EnumerateFiles(cacheDirectory, "*.sh", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var mode = File.GetUnixFileMode(script);
+                var executable = mode
+                    | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupExecute
+                    | UnixFileMode.OtherExecute;
+                if (mode != executable)
+                {
+                    File.SetUnixFileMode(script, executable);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not mark {Script} executable.", script);
+            }
+        }
+    }
+
+    /// <summary>
     /// Ensures <paramref name="cacheDirectory"/> holds an up-to-date clone of
     /// <paramref name="repository"/>. A cached clone whose origin differs is
-    /// deleted and re-cloned.
+    /// deleted and re-cloned. Returns the accessibility pre-check outcome so
+    /// callers can report a recovered cache (SPEC-20260918-skills-cache-permissions).
     /// </summary>
-    internal static async Task EnsureCacheAsync(
+    internal static async Task<CachePrepareResult> EnsureCacheAsync(
         string cacheDirectory,
         string repository,
         string? token,
@@ -93,6 +222,7 @@ internal static class SkillsRepository
         ILogger logger,
         CancellationToken cancellationToken)
     {
+        var prepare = EnsureAccessible(cacheDirectory, logger);
         var url = NormalizeUrl(repository);
         var gitDirectory = Path.Join(cacheDirectory, ".git");
 
@@ -146,5 +276,8 @@ internal static class SkillsRepository
                 throw new InvalidOperationException($"git reset failed: {reset.StdErr.Trim()}");
             }
         }
+
+        EnsureScriptsExecutable(cacheDirectory, logger);
+        return prepare;
     }
 }

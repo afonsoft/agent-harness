@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-skills-cache-permissions` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -95,7 +95,7 @@ Sem mudança de contrato HTTP. Comportamento interno dos endpoints existentes de
 
 ## 9. Definition of Done
 
-- [ ] Install/Sync com cache root-owned recupera e conclui.
-- [ ] Unit tests do caminho de recuperação; suites verdes.
+- [x] Install/Sync com cache root-owned recupera e conclui.
+- [x] Unit tests do caminho de recuperação; suites verdes.
 - [ ] Validado em produção: Install → `install-sh` Succeeded → Sync → Verify.
-- [ ] docs/features (en/pt-br) mencionam auto-recovery do cache; SPEC → Done.
+- [x] docs/features (en/pt-br) mencionam auto-recovery do cache; SPEC → Done.

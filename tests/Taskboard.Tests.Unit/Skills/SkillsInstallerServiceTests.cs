@@ -221,6 +221,45 @@ public class SkillsInstallerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_CacheInacessivel_Quando_Install_Entao_CachePrepareRecoveredEInstallOk()
+    {
+        // Covers RF-001/RF-004 + AC1: an inaccessible cache is moved aside,
+        // re-cloned and install-sh still succeeds — reported as cache-prepare
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var cache = Path.Join(_dataDir, "skills-cache");
+        Directory.CreateDirectory(cache);
+        File.WriteAllText(Path.Join(cache, "install.sh"), "#!/bin/sh\n");
+        File.SetUnixFileMode(cache, 0);
+
+        var runner = new FakeRunner
+        {
+            Handler = (exe, dir, args) => exe.EndsWith("git") ? GitHandler(dir, args) : new CommandResult(0, "", "")
+        };
+        var service = CreateService(runner);
+
+        var status = await service.InstallAsync();
+
+        status.State.ShouldBe(SkillsSyncState.Succeeded);
+        status.Steps.ShouldContain(s =>
+            s.Name == "cache-prepare" && s.State == SkillsInstallStepState.Succeeded);
+        status.Steps.ShouldContain(s =>
+            s.Name == "install-sh" && s.State == SkillsInstallStepState.Succeeded);
+        Directory.EnumerateDirectories(_dataDir, "skills-cache.inaccessible-*").ShouldNotBeEmpty();
+
+        // The fresh clone's install.sh must be executable (RF-002).
+        var mode = File.GetUnixFileMode(Path.Join(cache, "install.sh"));
+        mode.HasFlag(UnixFileMode.UserExecute).ShouldBeTrue();
+
+        File.SetUnixFileMode(
+            Directory.EnumerateDirectories(_dataDir, "skills-cache.inaccessible-*").Single(),
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    [Fact]
     public async Task Dado_InstallEmAndamento_Quando_SegundoInstall_Entao_Coalesce()
     {
         // Covers RF-006: concurrent installs coalesce — no second process spawn
