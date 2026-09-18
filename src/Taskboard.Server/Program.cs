@@ -1608,9 +1608,9 @@ agents.MapPut("{agentType}/models", async (
 // installed; 422 for CLI-managed agents.
 agents.MapGet("{agentType}/models/available", async (
     AgentType agentType,
-    bool refresh,
     IAgentModelCatalogService modelCatalog,
-    CancellationToken ct) =>
+    CancellationToken ct,
+    bool refresh = false) =>
 {
     if (!AgentCliModels.SupportsModelSelection(agentType))
     {
