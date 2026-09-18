@@ -98,14 +98,17 @@ public sealed class TimelineMetricsService(
                     gate.Release();
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // codeql[cs/catch-of-all-exceptions] — per-issue fetch is
+                // best-effort by design: a failure leaves the issue without
+                // transitions instead of failing the whole timeline (RF-006).
                 logger.LogWarning(
                     ex,
                     "Timeline events fetch failed for issue #{Number} in {Repository}.",
                     issue.Number,
-                    fullName);
-                return (IReadOnlyList<IssueLabelEventDto>)[];
+                    SanitizeForLog(fullName));
+                return Array.Empty<IssueLabelEventDto>();
             }
         });
 
@@ -256,13 +259,12 @@ public sealed class TimelineMetricsService(
     {
         var weekStart = WeekStart(now);
         var points = Enumerable.Range(0, ThroughputWeeks)
-            .Select(w => new ThroughputPointDto(DateOnly.FromDateTime(weekStart.AddDays(-7 * w).UtcDateTime), 0))
+            .Select(w => new ThroughputPointDto(DateOnly.FromDateTime(weekStart.AddDays(-7d * w).UtcDateTime), 0))
             .Reverse()
             .ToList();
 
-        foreach (var issue in closedInWindow)
+        foreach (var issueWeek in closedInWindow.Select(i => WeekStart(i.ClosedAt!.Value)))
         {
-            var issueWeek = WeekStart(issue.ClosedAt!.Value);
             var index = points.FindIndex(
                 p => p.WeekStart == DateOnly.FromDateTime(issueWeek.UtcDateTime));
             if (index >= 0)
@@ -273,6 +275,9 @@ public sealed class TimelineMetricsService(
 
         return points;
     }
+
+    private static string SanitizeForLog(string value) =>
+        value.Replace('\r', ' ').Replace('\n', ' ');
 
     private static DateTimeOffset WeekStart(DateTimeOffset value)
     {
