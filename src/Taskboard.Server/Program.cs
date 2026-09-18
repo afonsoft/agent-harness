@@ -1461,6 +1461,45 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/close", async (
     }
 });
 
+// SPEC-20260918-github-comments-history RF-001: issue comments are the
+// handoff channel between agents/humans — list chronological, create posts
+// straight to GitHub (never persisted locally; GitHub is the source of truth).
+github.MapGet("repos/{owner}/{repo}/issues/{number:int}/comments", async (
+    string owner,
+    string repo,
+    int number,
+    int? take,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    var comments = await gitHub.GetIssueCommentsAsync($"{owner}/{repo}", number, take ?? 50, ct);
+    return Results.Ok(new { comments });
+});
+
+github.MapPost("repos/{owner}/{repo}/issues/{number:int}/comments", async (
+    string owner,
+    string repo,
+    int number,
+    AddIssueCommentRequest request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Body))
+    {
+        return Results.BadRequest(new { error = "empty-body" });
+    }
+
+    try
+    {
+        var comment = await gitHub.AddIssueCommentAsync($"{owner}/{repo}", number, request.Body, ct);
+        return Results.Ok(new { comment });
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "issue-not-found" });
+    }
+});
+
 // Unified issue timeline: persisted board events + agent runs, newest first.
 github.MapGet("issues/{issueId}/history", async (
     string issueId,

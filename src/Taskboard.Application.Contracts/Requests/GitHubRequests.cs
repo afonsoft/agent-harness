@@ -13,3 +13,5 @@ public sealed record UpdateGitHubIssueRequest(string? Title, string? Body);
 public sealed record SetIssuePriorityRequest(string Priority);
 
 public sealed record CloseGitHubIssueRequest(string Resolution);
+
+public sealed record AddIssueCommentRequest(string? Body);

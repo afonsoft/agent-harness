@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-github-comments-history` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -156,10 +156,10 @@ docs/api.md, docs/api.pt-br.md, docs/features.md, docs/features.pt-br.md
 
 ## 9. Definition of Done
 
-- [ ] `GET`/`POST` comments funcionais com auth; 400/404 corretos.
-- [ ] Aba Comentários no dialog com postar→GitHub.
-- [ ] Prompt do agente inclui seção `Comments:` automática (cap de tamanho, ausente quando vazio).
-- [ ] MCP: `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`.
-- [ ] taskctl: `issue history`, `issue comment list/create` com `--json`.
-- [ ] SKILL.md/references do manage-taskboard documentam histórico + comentários + convenção de handoff.
-- [ ] Testes verdes; docs en/pt-br; PR merged + deploy.
+- [x] `GET`/`POST` comments funcionais com auth; 400/404 corretos.
+- [x] Aba Comentários no dialog com postar→GitHub.
+- [x] Prompt do agente inclui seção `Comments:` automática (cap de tamanho, ausente quando vazio).
+- [x] MCP: `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`.
+- [x] taskctl: `issue history`, `issue comment list/create` com `--json`.
+- [x] SKILL.md/references do manage-taskboard documentam histórico + comentários + convenção de handoff.
+- [x] Testes verdes; docs en/pt-br; PR merged + deploy.
