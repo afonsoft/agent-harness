@@ -14,8 +14,8 @@ public static class AgentPromptTemplate
     public const int MaxLength = 8192;
 
     public const string Builtin = """
-        Clone o repositório {repoUrl} dentro do diretório de trabalho atual e aplique as correções descritas na issue abaixo.
-        Use as skills disponíveis para otimizar o processo e consulte o MCP "knowledge" para contexto adicional quando necessário.
+        Clone the repository {repoUrl} into the current working directory (~/repos) and apply the fixes described in the issue below.
+        Use the available skills to optimize the process, consult the "knowledge" MCP for additional context when needed, and use the manage-taskboard skill to move and update the issue card.
 
         Issue: {issueTitle}
 
