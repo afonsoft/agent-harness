@@ -54,10 +54,13 @@ public static class AgentCliInvocation
             AgentType.Claude => ["--dangerously-skip-permissions", .. model, "-p", prompt],
             // codex exec is the non-interactive mode; --approve-for-me auto-approves via workspace-write sandbox.
             AgentType.Codex => ["exec", "--approve-for-me", "--skip-git-repo-check", .. model, prompt],
-            // opencode run executes a message and exits.
-            AgentType.OpenCode => ["run", .. model, prompt],
-            // agy -p/--print takes the prompt as the flag value and exits.
-            AgentType.Antigravity => [.. model, "-p", prompt],
+            // opencode run executes a message and exits; --auto approves
+            // permissions — headless mode cannot prompt and auto-denies.
+            AgentType.OpenCode => ["run", "--auto", .. model, prompt],
+            // agy -p/--print takes the prompt as the flag value and exits;
+            // --dangerously-skip-permissions auto-approves tools — headless
+            // mode cannot prompt and would auto-deny them otherwise.
+            AgentType.Antigravity => ["--dangerously-skip-permissions", .. model, "-p", prompt],
             // kimi -p/--print runs the prompt headlessly and exits.
             AgentType.Kimi => [.. model, "-p", prompt],
             // grok -p runs headless; the CLI is non-interactive when a prompt is given.
