@@ -1,12 +1,15 @@
 @using Taskboard.Agents
 @using Taskboard.Application.Contracts.Agents
 @inject IAgentModelConfigService ModelConfig
+@inject IAgentModelCatalogService ModelCatalog
 @inject ToastService ToastService
 
 @*
     SPEC-20260918-agent-model-config RF-007: per-CLI tier model configuration.
-    Each tier accepts a known model from the catalog (datalist) or any free
-    text — an empty field falls back to the curated default.
+    Each tier is an editable AutoComplete fed by the models the installed CLI
+    reports itself (`opencode models`, `devin models list`, `agy models`)
+    merged with the curated catalog — free text is still allowed, an empty
+    field falls back to the curated default.
 *@
 
 @if (_loading)
@@ -29,29 +32,35 @@ else if (_config is not null)
         }
     </div>
 
-    <datalist id="agent-model-catalog">
-        @foreach (var model in _config.Catalog)
-        {
-            <option value="@model"></option>
-        }
-    </datalist>
-
     @foreach (var tier in _tiers)
     {
         <div class="mb-3" @key="tier.Tier">
-            <label class="form-label small fw-semibold" for="model-@tier.Tier.ToString().ToLowerInvariant()">
+            <label class="form-label small fw-semibold">
                 @tier.Label
                 <span class="text-body-secondary fw-normal">— default: <code>@tier.Default</code></span>
             </label>
-            <input id="model-@tier.Tier.ToString().ToLowerInvariant()" type="text"
-                   class="form-control form-control-sm font-monospace" list="agent-model-catalog"
-                   placeholder="@tier.Default" @bind="tier.Value" />
+            <AutoComplete @bind-Value="tier.Value"
+                          TItem="ModelOption"
+                          DataProvider="ModelsDataProvider"
+                          PropertyName="@nameof(ModelOption.Name)"
+                          Placeholder="@tier.Default"
+                          EmptyText="Nenhum modelo encontrado"
+                          StringFilterOperator="StringFilterOperator.Contains"
+                          StringComparison="StringComparison.OrdinalIgnoreCase"
+                          OnChanged="(ModelOption picked) => tier.Value = picked.Name"
+                          Class="font-monospace" />
         </div>
     }
 
     <p class="small text-body-secondary">
         <Icon Name="IconName.InfoCircle" class="me-1" />
         Deixe em branco para usar o default curado. O modelo é passado à CLI via argumento na execução.
+        @if (_available is not null)
+        {
+            <span class="d-block mt-1">
+                @_available.Count modelo(s) reportado(s) pela CLI + catálogo curado.
+            </span>
+        }
     </p>
 
     <div class="d-flex justify-content-between pt-2 border-top">
@@ -83,12 +92,14 @@ else
     [Parameter] public string DisplayName { get; set; } = string.Empty;
     [Parameter] public EventCallback OnFinished { get; set; }
 
+    private sealed record ModelOption(string Name);
+
     private sealed class TierRow(AgentModelTier tier, string label)
     {
         public AgentModelTier Tier { get; } = tier;
         public string Label { get; } = label;
-        public string? Default { get; set; }
-        public string? Value { get; set; }
+        public string Default { get; set; } = "—";
+        public string Value { get; set; } = string.Empty;
     }
 
     private readonly TierRow[] _tiers =
@@ -99,6 +110,8 @@ else
     ];
 
     private AgentModelConfigDto? _config;
+    private IReadOnlyList<string>? _available;
+    private List<ModelOption> _suggestions = [];
     private bool _loading = true;
     private bool _saving;
     private string? _error;
@@ -108,12 +121,13 @@ else
         try
         {
             _config = await ModelConfig.GetConfigAsync(AgentType);
-            _tiers[0].Value = _config.Lite;
+            _tiers[0].Value = _config.Lite ?? string.Empty;
             _tiers[0].Default = _config.Defaults.Lite ?? "—";
-            _tiers[1].Value = _config.Normal;
+            _tiers[1].Value = _config.Normal ?? string.Empty;
             _tiers[1].Default = _config.Defaults.Normal ?? "—";
-            _tiers[2].Value = _config.Ultra;
+            _tiers[2].Value = _config.Ultra ?? string.Empty;
             _tiers[2].Default = _config.Defaults.Ultra ?? "—";
+            _suggestions = BuildSuggestions();
         }
         catch (Exception ex)
         {
@@ -123,6 +137,49 @@ else
         {
             _loading = false;
         }
+
+        _ = RefreshAvailableAsync();
+    }
+
+    // Probing the CLI (`opencode models`, `devin models list`, `agy models`)
+    // can take a few seconds — the dialog renders immediately with the
+    // curated catalog and the dropdown gains the CLI-reported ids when the
+    // probe returns (failures keep the curated list only).
+    private async Task RefreshAvailableAsync()
+    {
+        try
+        {
+            _available = await ModelCatalog.ListAvailableAsync(AgentType);
+            _suggestions = BuildSuggestions();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            _available = [];
+        }
+    }
+
+    private List<ModelOption> BuildSuggestions() =>
+        (_available ?? [])
+            .Concat(_config?.Catalog ?? [])
+            .Concat(_tiers.Select(t => t.Value).Where(v => !string.IsNullOrWhiteSpace(v)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(name => new ModelOption(name))
+            .ToList();
+
+    private Task<AutoCompleteDataProviderResult<ModelOption>> ModelsDataProvider(
+        AutoCompleteDataProviderRequest<ModelOption> request)
+    {
+        var filter = request.Filter?.Value;
+        var matches = _suggestions
+            .Where(m => string.IsNullOrEmpty(filter) || m.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .Take(200)
+            .ToList();
+        return Task.FromResult(new AutoCompleteDataProviderResult<ModelOption>
+        {
+            Data = matches,
+            TotalCount = matches.Count,
+        });
     }
 
     private async Task SaveAsync()

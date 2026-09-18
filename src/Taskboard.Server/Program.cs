@@ -184,6 +184,10 @@ builder.Services.AddSingleton<IAgentCliStatusService>(sp => new AgentCliStatusSe
     homeDir,
     sp.GetRequiredService<ILogger<AgentCliStatusService>>()));
 
+builder.Services.AddSingleton<IAgentModelCatalogService>(sp => new AgentModelCatalogService(
+    homeDir,
+    sp.GetRequiredService<ILogger<AgentModelCatalogService>>()));
+
 builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstallService(
     homeDir,
     sp.GetRequiredService<ILogger<AgentCliInstallService>>()));
@@ -1596,6 +1600,23 @@ agents.MapPut("{agentType}/models", async (
     {
         return Results.BadRequest(new { error = "invalid-model", message = ex.Message });
     }
+});
+
+// Live model catalog reported by the installed CLI itself (e.g.
+// `opencode models`, `devin models list`, `agy models`) — feeds the editable
+// dropdown in the Models dialog. Empty when the CLI has no probe or is not
+// installed; 422 for CLI-managed agents.
+agents.MapGet("{agentType}/models/available", async (
+    AgentType agentType,
+    IAgentModelCatalogService modelCatalog,
+    CancellationToken ct) =>
+{
+    if (!AgentCliModels.SupportsModelSelection(agentType))
+    {
+        return Results.UnprocessableEntity(new { error = "model-selection-unsupported", agentType = agentType.ToString() });
+    }
+
+    return Results.Ok(new AvailableAgentModelsResponse(await modelCatalog.ListAvailableAsync(agentType, ct)));
 });
 
 agents.MapDelete("{agentType}/models", async (

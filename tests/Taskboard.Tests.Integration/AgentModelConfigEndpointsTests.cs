@@ -80,6 +80,40 @@ public class AgentModelConfigEndpointsTests : IClassFixture<TaskboardWebApplicat
     }
 
     [Fact]
+    public async Task Dado_CliSemProbe_Quando_GetAvailable_Entao_200ListaVazia()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        // Claude supports --model but has no headless model-list command;
+        // on CI no CLI is installed anyway, so the list is empty either way.
+        var response = await client.GetAsync("/api/agents/Claude/models/available");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body?["models"]?.AsArray().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_CliGerenciada_Quando_GetAvailable_Entao_422()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agents/Cline/models/available");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body?["error"]?.GetValue<string>().ShouldBe("model-selection-unsupported");
+    }
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_GetAvailable_Entao_401()
+    {
+        var response = await _client.GetAsync("/api/agents/OpenCode/models/available");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task Dado_ModeloMuitoLongo_Quando_Put_Entao_400()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
