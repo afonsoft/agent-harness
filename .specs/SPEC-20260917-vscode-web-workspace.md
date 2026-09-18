@@ -26,7 +26,7 @@ Hoje `AgentExecutionRequest.RepoPath` vem de `DefaultRepoPath`, que **nunca é p
 **In scope:**
 - `Taskboard:WorkspaceRoot` (default `~/repos`, criado se inexistente) como cwd default dos agent runs.
 - Instalação gerenciada do **code-server** via allowlist + status (`POST /api/vscode/install`, `GET /api/vscode/status`).
-- `CodeServerProcessManager`: spawn lazy de `code-server --bind-addr 127.0.0.1:<port> --auth none`, lifecycle filho do `taskboard-server`.
+- `CodeServerProcessManager`: spawn lazy de `code-server --bind-addr 127.0.0.1:<port> --auth none --disable-workspace-trust --app-name Taskboard` com `VSCODE_PROXY_URI=/vscode/proxy/{{port}}`, lifecycle filho do `taskboard-server`.
 - Proxy **YARP** `/vscode/{**}` → loopback code-server, protegido pela auth do Taskboard (suporte WebSocket obrigatório).
 - Página `/editor` com iframe + toolbar (caminho, abrir em nova aba) + item "VS Code" no menu lateral (abre em `$HOME`). `/vscode` fica reservado ao proxy.
 - Botão **"Open in VS Code"** no card em execução e no `TaskDetailDialog`, resolvendo `~/repos/<repo-name>`.
@@ -104,7 +104,7 @@ docs/features.md · features.pt-br.md · api.md · api.pt-br.md
 - **Input → Output:** POST → `202` running / `200` final / status; probe: `code-server` no PATH ou `~/.local/bin/code-server`, `code-server --version` bounded.
 
 ### RF-005: `CodeServerProcessManager`
-- **Description:** Singleton que sobe `code-server --bind-addr 127.0.0.1:<Port> --auth none --disable-telemetry` lazy na primeira necessidade (request ao proxy ou `EnsureStarted` da página); monitora exit; expõe `Status` (`Stopped|Starting|Running|Failed`) + linhas recentes de stdout/stderr.
+- **Description:** Singleton que sobe `code-server --bind-addr 127.0.0.1:<Port> --auth none --disable-telemetry --disable-update-check --disable-workspace-trust --app-name Taskboard` com env `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` (links do painel de portas corretos sob o subpath) lazy na primeira necessidade (request ao proxy ou `EnsureStarted` da página); monitora exit; expõe `Status` (`Stopped|Starting|Running|Failed`) + linhas recentes de stdout/stderr.
 - **Rules:** `Port` = `Taskboard:Vscode:Port` default `8377`; **sem `--base-path`** — code-server é path-agnóstico (URLs relativas); o proxy remove o prefixo `/vscode` e o browser resolve os assets sob `/vscode/` (trailing slash obrigatória — `GET /vscode` redireciona). Nunca bind em interface não-loopback; kill do filho no shutdown do host (`IAsyncDisposable`).
 - **Input → Output:** `EnsureStartedAsync() → status/url`; exit inesperado → `Failed` + últimas linhas.
 

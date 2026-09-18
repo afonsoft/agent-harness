@@ -20,6 +20,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
 
     private readonly string _homeDirectory;
     private readonly int _port;
+    private readonly string _publicPathPrefix;
     private readonly WorkspaceService _workspace;
     private readonly ILogger<CodeServerProcessManager> _logger;
     private readonly Func<string, string?> _locator;
@@ -38,10 +39,12 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
         ILogger<CodeServerProcessManager> logger,
         Func<string, string?>? executableLocator = null,
         IStreamingProcessRunner? runner = null,
-        Func<ProcessStartInfo, Process?>? processStarter = null)
+        Func<ProcessStartInfo, Process?>? processStarter = null,
+        string publicPathPrefix = "/vscode")
     {
         _homeDirectory = homeDirectory;
         _port = port;
+        _publicPathPrefix = publicPathPrefix;
         _workspace = workspace;
         _logger = logger;
         _locator = executableLocator ?? PathSearch.FindExecutable;
@@ -133,6 +136,14 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
             startInfo.ArgumentList.Add("none");
             startInfo.ArgumentList.Add("--disable-telemetry");
             startInfo.ArgumentList.Add("--disable-update-check");
+            // Agent runs keep cloning fresh repos under the workspace root;
+            // without this every new folder opens in Restricted Mode.
+            startInfo.ArgumentList.Add("--disable-workspace-trust");
+            startInfo.ArgumentList.Add("--app-name");
+            startInfo.ArgumentList.Add("Taskboard");
+            // code-server is mounted at a subpath — without this its ports
+            // panel and /proxy/<port> links point at the domain root and 404.
+            startInfo.Environment["VSCODE_PROXY_URI"] = _publicPathPrefix + "/proxy/{{port}}";
 
             try
             {
