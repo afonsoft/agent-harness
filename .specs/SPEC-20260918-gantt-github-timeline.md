@@ -106,4 +106,4 @@ GET /api/github/{owner}/{repo}/metrics?days=90
 - [x] Tela mostra timeline real do repo com métricas corretas sobre dados fake/reais.
 - [x] Unit + integration verdes; `dotnet build` limpo. (462 unit + 147 integration)
 - [x] docs/features.md + api.md en/pt-br atualizados; SPEC → Done.
-- [ ] Deploy + verificação em produção.
+- [x] Deploy + verificação em produção. (`afonsoft/taskboard-ai`: 118 issues, throughput 12/38/68 por semana, métricas calculadas — PR #118)
