@@ -38,6 +38,21 @@ public class AgentPromptTemplateTests
         rendered.ShouldContain("skills");
         rendered.ShouldContain("knowledge");
     }
+
+    [Fact]
+    public void Dado_Builtin_Quando_Renderizar_Entao_InstruiOrchestratorManageTaskboardERepos()
+    {
+        // SPEC-20260918-orchestrator-default-prompt RF-001: a skill orchestrator
+        // gerencia o processo; clone em ~/repos; manage-taskboard movimenta o card.
+        var rendered = AgentPromptTemplate.Render(
+            AgentPromptTemplate.Builtin, "u", "t", "b");
+
+        rendered.ShouldContain("orchestrator");
+        rendered.ShouldContain("~/repos");
+        rendered.ShouldContain("manage-taskboard");
+        rendered.ShouldContain("Issue: t");
+        rendered.ShouldContain("b");
+    }
 }
 
 public class AgentCliInvocationTests
