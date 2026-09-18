@@ -89,8 +89,8 @@ public class KnownCliAgentAdapterTests
 
     [Theory]
     [InlineData(AgentType.Claude, new[] { "--dangerously-skip-permissions", "--model", "sonnet", "-p" })]
-    [InlineData(AgentType.OpenCode, new[] { "run", "-m", "opencode/claude-sonnet-5" })]
-    [InlineData(AgentType.Antigravity, new[] { "--model", "gemini-3.1-pro-low", "-p" })]
+    [InlineData(AgentType.OpenCode, new[] { "run", "--auto", "-m", "opencode/claude-sonnet-5" })]
+    [InlineData(AgentType.Antigravity, new[] { "--dangerously-skip-permissions", "--model", "gemini-3.1-pro-low", "-p" })]
     public void Dado_CliConhecido_Quando_MontarComando_Entao_PromptEhUltimoArgumento(AgentType agentType, string[] prefix)
     {
         var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");
