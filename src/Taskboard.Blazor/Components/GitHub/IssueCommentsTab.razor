@@ -1,5 +1,6 @@
 @using System.Globalization
 @using Taskboard.GitHub
+@using Taskboard.Rendering
 @inject IGitHubService GitHub
 @inject ToastService ToastService
 
@@ -27,6 +28,14 @@
         }
         else
         {
+            <div class="d-flex justify-content-end mb-1">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Comment view">
+                    <button type="button" class="btn @(_showSource ? "btn-outline-secondary" : "btn-secondary")"
+                            @onclick="() => _showSource = false">Rendered</button>
+                    <button type="button" class="btn @(_showSource ? "btn-secondary" : "btn-outline-secondary")"
+                            @onclick="() => _showSource = true">Source</button>
+                </div>
+            </div>
             <ul class="list-unstyled mb-3">
                 @foreach (var c in _comments)
                 {
@@ -35,7 +44,16 @@
                             <span><Icon Name="IconName.PersonCircle" class="me-1" />@(c.AuthorLogin ?? "unknown")</span>
                             <span>@c.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)</span>
                         </div>
-                        <div class="small mt-1" style="white-space: pre-wrap;">@c.Body</div>
+                        @if (_showSource)
+                        {
+                            <div class="small mt-1" style="white-space: pre-wrap;">@c.Body</div>
+                        }
+                        else
+                        {
+                            <div class="small mt-1 markdown-body">
+                                @((MarkupString)MarkdownRenderer.ToSafeHtml(c.Body ?? string.Empty))
+                            </div>
+                        }
                     </li>
                 }
             </ul>
@@ -68,6 +86,7 @@
 
     private IReadOnlyList<IssueCommentDto> _comments = [];
     private bool _loading = true;
+    private bool _showSource;
     private bool _posting;
     private string? _error;
     private string _draft = string.Empty;
