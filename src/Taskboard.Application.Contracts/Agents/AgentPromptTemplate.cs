@@ -14,7 +14,7 @@ public static class AgentPromptTemplate
     public const int MaxLength = 8192;
 
     public const string Builtin = """
-        Clone o repositório {repoUrl} e aplique as correções descritas na issue abaixo.
+        Clone o repositório {repoUrl} dentro do diretório de trabalho atual e aplique as correções descritas na issue abaixo.
         Use as skills disponíveis para otimizar o processo e consulte o MCP "knowledge" para contexto adicional quando necessário.
 
         Issue: {issueTitle}

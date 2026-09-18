@@ -1,0 +1,189 @@
+@page "/editor"
+@attribute [Authorize]
+@inject TaskboardClient Client
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+@*
+    SPEC-20260917-vscode-web-workspace RF-007/RF-008: VS Code Web (code-server)
+    embed via iframe na rota proxied /vscode/. A página Blazor fica em /editor
+    porque /vscode é reservado ao redirect+proxy do code-server.
+    Query: ?path=<abs path> (já resolvido server-side pelo caller) ou ?repo=owner/name.
+*@
+
+<PageTitle>VS Code - Taskboard</PageTitle>
+
+<div class="d-flex align-items-center gap-2 mb-1">
+    <h1 class="h4 fw-bold mb-0">VS Code</h1>
+    @if (_status is { Installed: true })
+    {
+        <Badge Color="BadgeColor.Success">code-server @_status.Version</Badge>
+        <Badge Color="@(_status.Running ? BadgeColor.Success : BadgeColor.Secondary)">
+            @(_status.Running ? "running" : "stopped")
+        </Badge>
+    }
+</div>
+
+@if (_loading)
+{
+    <p class="small text-body-secondary"><Spinner Size="SpinnerSize.Small" Class="me-1" />Checking code-server…</p>
+}
+else if (_status is not { Installed: true })
+{
+    <div class="border rounded p-4 text-center my-3" style="max-width: 640px;">
+        <Icon Name="IconName.CodeSlash" Style="font-size: 2rem;" class="text-body-secondary" />
+        <h2 class="h6 mt-2">code-server is not installed</h2>
+        <p class="small text-body-secondary">
+            VS Code Web runs as a managed child process bound to 127.0.0.1 — it is only
+            reachable through this authenticated app, never directly.
+        </p>
+        @if (_install?.State == AgentCliInstallState.Running)
+        {
+            <Button Color="ButtonColor.Primary" Disabled="true">
+                <Spinner Size="SpinnerSize.Small" Class="me-1" />Installing…
+            </Button>
+        }
+        else
+        {
+            <Button Color="ButtonColor.Primary" @onclick="StartInstallAsync">
+                <Icon Name="IconName.Download" class="me-1" />Install VS Code Web
+            </Button>
+        }
+        @if (_install?.Lines is { Count: > 0 } lines)
+        {
+            <div class="agent-log-console mt-3 text-start">
+                @foreach (var line in lines)
+                {
+                    <div class="agent-log-line @LineClass(line)">
+                        <span class="agent-log-timestamp">@line.AtUtc.LocalDateTime.ToString("HH:mm:ss")</span>
+                        <span class="agent-log-content">@line.Content</span>
+                    </div>
+                }
+            </div>
+        }
+        @if (_install?.State == AgentCliInstallState.Failed)
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false" Class="mt-2 mb-0">
+                Installation failed — see the log above. You can retry.
+            </Alert>
+        }
+    </div>
+}
+else
+{
+    <div class="d-flex align-items-center gap-2 small text-body-secondary mb-2">
+        <Icon Name="IconName.Folder2Open" />
+        <code>@_folder</code>
+        <a href="@EditorUrl" target="_blank" rel="noopener noreferrer" class="ms-auto">
+            <Icon Name="IconName.BoxArrowUpRight" /> Open in new tab
+        </a>
+    </div>
+    <iframe src="@EditorUrl" class="vscode-frame border rounded" title="VS Code Web"></iframe>
+}
+
+@code {
+    private VscodeStatus? _status;
+    private VscodeInstallStatus? _install;
+    private string? _folder;
+    private bool _loading = true;
+    private CancellationTokenSource? _cts;
+
+    private string EditorUrl =>
+        $"/vscode/?folder={Uri.EscapeDataString(_folder ?? _status?.HomeDirectory ?? "/")}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            _status = await Client.GetVscodeStatusAsync(_cts.Token);
+            _folder = await ResolveFolderAsync(_cts.Token);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<string?> ResolveFolderAsync(CancellationToken cancellationToken)
+    {
+        var parameters = ParseQuery(new Uri(NavigationManager.Uri).Query);
+
+        if (parameters.TryGetValue("repo", out var repo) && !string.IsNullOrWhiteSpace(repo))
+        {
+            var workdir = await Client.GetVscodeWorkdirAsync(repo.ToString(), cancellationToken);
+            if (workdir is not null)
+            {
+                return workdir.Path;
+            }
+        }
+
+        if (parameters.TryGetValue("path", out var path) && !string.IsNullOrWhiteSpace(path))
+        {
+            return path.ToString();
+        }
+
+        return _status?.HomeDirectory;
+    }
+
+    private async Task StartInstallAsync()
+    {
+        _install = await Client.StartVscodeInstallAsync(_cts!.Token);
+        _ = PollInstallAsync(_cts.Token);
+    }
+
+    private async Task PollInstallAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(1000, cancellationToken);
+                _install = await Client.GetVscodeInstallStatusAsync(cancellationToken);
+                if (_install?.State == AgentCliInstallState.Succeeded)
+                {
+                    _status = await Client.GetVscodeStatusAsync(cancellationToken);
+                    _folder ??= _status?.HomeDirectory;
+                }
+
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            if (_install?.State is AgentCliInstallState.Succeeded or AgentCliInstallState.Failed)
+            {
+                return;
+            }
+        }
+    }
+
+    private static Dictionary<string, string> ParseQuery(string query)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            var key = Uri.UnescapeDataString(eq < 0 ? pair : pair[..eq]);
+            result[key] = eq < 0 ? string.Empty : Uri.UnescapeDataString(pair[(eq + 1)..].Replace('+', ' '));
+        }
+
+        return result;
+    }
+
+    private static string LineClass(AgentCliInstallLine line) => line.Stream switch
+    {
+        "stderr" => "agent-log-stderr",
+        "info" => "agent-log-system",
+        _ => string.Empty
+    };
+
+    public void Dispose() => _cts?.Cancel();
+}

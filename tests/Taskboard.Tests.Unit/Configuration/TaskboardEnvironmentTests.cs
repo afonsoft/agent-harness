@@ -95,6 +95,8 @@ public class TaskboardEnvironmentTests
     public void GetServerUrls_WhenTaskboardPortIsSet_ShouldReturnLocalhostUrl()
     {
         // Covers FR-003: server URLs derive from TASKBOARD_PORT
+        // (ASPNETCORE_URLS may leak from the developer shell's deployed-server env)
+        using var _0 = ClearEnv("ASPNETCORE_URLS");
         using var _ = SetEnv("TASKBOARD_PORT", "8080");
 
         var urls = CreateSut().GetServerUrls();

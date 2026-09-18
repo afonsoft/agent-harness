@@ -149,6 +149,25 @@ POST   /terminal-hub/negotiate   (hub SignalR)
 
 `/terminal-hub` é um hub SignalR que transmite bash PTYs interativos (`script -qfc`, `TERM=xterm-256color`) para a página `/terminal` — **múltiplas sessões em abas** por usuário autenticado (máx. 8), cada uma identificada por `sessionId` e multiplexada numa única conexão; sessões fecham após 30 minutos ociosas ou quando a conexão termina. Métodos do hub: `Open() → string sessionId`, `Input(string sessionId, string data)`, `Resize(string sessionId, int cols, int rows)`, `Close(string sessionId)`; callbacks do cliente: `output(string sessionId, string chunk)`, `closed(string sessionId, string reason)` (`exited` / `idle-timeout` / `closed`). Controlado por `Taskboard:Terminal:Enabled` (padrão `true`, env `TASKBOARD_TERMINAL_ENABLED`, editável em runtime).
 
+### VS Code Web (code-server)
+
+```http
+GET    /api/vscode/status
+POST   /api/vscode/install
+GET    /api/vscode/install/status
+GET    /api/vscode/workdir?repo=owner/name
+GET    /vscode                  → 302 → /vscode/ (barra final exigida pelo code-server)
+GET    /vscode/{**}             → proxy reverso YARP → http://127.0.0.1:8377
+```
+
+`GET /api/vscode/status` retorna `{ installed, binaryPath?, version?, running, port, homeDirectory, workspaceRoot }`. `POST /api/vscode/install` executa o comando allowlisted fixo `bash -c "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone"` em background (`202`/`200`, mesmo contrato de `install/status` dos CLIs de agente — buffer limitado de ~500 linhas sanitizadas, sem argumentos do cliente). `GET /api/vscode/workdir?repo=owner/name` resolve o workdir do card sob o workspace root → `{ path, exists }` (cai para o root quando o diretório do repo ainda não existe; entrada fora do padrão `owner/name` → `404`).
+
+A rota `/vscode/{**}` é um proxy reverso YARP para o processo filho gerenciado `code-server` (`--bind-addr 127.0.0.1:<porta> --auth none --disable-telemetry`, spawn lazy e morto junto com o host): remove o prefixo `/vscode` (code-server é agnóstico de path — URLs relativas resolvem sob o `/vscode/` do browser), faz upgrade de WebSocket e exige a auth por cookie do app — a única porta de entrada, já que o code-server roda sem auth no loopback. `503` quando não instalado ou o processo falhou ao subir. Porta: `Taskboard:Vscode:Port` (padrão `8377`).
+
+### Workspace root
+
+`Taskboard:WorkspaceRoot` (padrão `~/repos`, criado sob demanda) é o diretório de trabalho default dos agent runs sem `RepoPath` explícito — clones caem em `<root>/<repo-name>` onde o nome é o último segmento de `owner/name` sanitizado para `[A-Za-z0-9._-]` (traversal não escapa do root). Os workdirs resolvidos alimentam o "Open in VS Code".
+
 ### Kanban GitHub
 
 ```http

@@ -17,7 +17,13 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
     private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(10);
 
     private static readonly Regex SecretPattern = new(
-        @"(?i)(api[_-]?key|access[_-]?token|secret|password|authorization)\s*[=:]\s*\S+|Bearer\s+\S+",
+        @"(?i)(api[_-]?key|access[_-]?token|secret|password|authorization)\s*[=:]\s*\S+",
+        RegexOptions.Compiled);
+
+    // Bearer tokens must be redacted before the key:value pass — otherwise
+    // "Authorization: Bearer tok" keeps the token ("Bearer" eaten as the value).
+    private static readonly Regex BearerPattern = new(
+        @"Bearer\s+\S+",
         RegexOptions.Compiled);
 
     private readonly ConcurrentDictionary<AgentCliKind, InstallRun> _runs = new();
@@ -107,10 +113,9 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
     }
 
     private static string Sanitize(string text) =>
-        SecretPattern.Replace(text, m =>
-            m.Value.Contains('=', StringComparison.Ordinal) || m.Value.Contains(':', StringComparison.Ordinal)
-                ? $"{m.Value.Split(['=', ':'], 2)[0]}=<redacted>"
-                : "Bearer <redacted>");
+        SecretPattern.Replace(
+            BearerPattern.Replace(text, "Bearer <redacted>"),
+            m => $"{m.Value.Split(['=', ':'], 2)[0]}=<redacted>");
 
     private sealed class InstallRun
     {

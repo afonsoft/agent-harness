@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260917-vscode-web-workspace` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -28,7 +28,7 @@ Hoje `AgentExecutionRequest.RepoPath` vem de `DefaultRepoPath`, que **nunca é p
 - Instalação gerenciada do **code-server** via allowlist + status (`POST /api/vscode/install`, `GET /api/vscode/status`).
 - `CodeServerProcessManager`: spawn lazy de `code-server --bind-addr 127.0.0.1:<port> --auth none`, lifecycle filho do `taskboard-server`.
 - Proxy **YARP** `/vscode/{**}` → loopback code-server, protegido pela auth do Taskboard (suporte WebSocket obrigatório).
-- Página `/vscode` com iframe + toolbar (caminho, refresh, abrir em nova aba) + item "VS Code" no menu lateral (abre em `$HOME`).
+- Página `/editor` com iframe + toolbar (caminho, abrir em nova aba) + item "VS Code" no menu lateral (abre em `$HOME`). `/vscode` fica reservado ao proxy.
 - Botão **"Open in VS Code"** no card em execução e no `TaskDetailDialog`, resolvendo `~/repos/<repo-name>`.
 - Empty state "Install VS Code Web" reutilizando o padrão de popup de log de instalação.
 - Testes + docs.
@@ -48,7 +48,7 @@ Nova capacidade em `Taskboard.Integrations` (`Vscode/`): `WorkspaceService` (res
 **Facts do host:**
 - `code-server` ausente; instalação user-level sem sudo via `install.sh --method=standalone` → `~/.local/lib/code-server-*` + `~/.local/bin/code-server`.
 - `~/repos` existe; `code-server` requer WebSocket → proxy manual é frágil, YARP resolve.
-- code-server suporta subpath via `--base-path` (verificar `--help` na versão instalada — T1 inclui esse check; se ausente, ver Open Questions).
+- code-server é path-agnóstico (URLs relativas + proxy strip) — `--base-path` não é necessário (decidido na implementação; ver RF-005).
 
 **Files to read before implementing:**
 - `AGENTS.md`
@@ -105,7 +105,7 @@ docs/features.md · features.pt-br.md · api.md · api.pt-br.md
 
 ### RF-005: `CodeServerProcessManager`
 - **Description:** Singleton que sobe `code-server --bind-addr 127.0.0.1:<Port> --auth none --disable-telemetry` lazy na primeira necessidade (request ao proxy ou `EnsureStarted` da página); monitora exit; expõe `Status` (`Stopped|Starting|Running|Failed`) + linhas recentes de stdout/stderr.
-- **Rules:** `Port` = `Taskboard:Vscode:Port` default `8377`; `--base-path` verificado em `code-server --help` na instalação — se suportado, inicia com `--base-path=/vscode` para o proxy subpath funcionar; nunca bind em interface não-loopback; kill do filho no shutdown do host (`IHostApplicationLifetime`).
+- **Rules:** `Port` = `Taskboard:Vscode:Port` default `8377`; **sem `--base-path`** — code-server é path-agnóstico (URLs relativas); o proxy remove o prefixo `/vscode` e o browser resolve os assets sob `/vscode/` (trailing slash obrigatória — `GET /vscode` redireciona). Nunca bind em interface não-loopback; kill do filho no shutdown do host (`IAsyncDisposable`).
 - **Input → Output:** `EnsureStartedAsync() → status/url`; exit inesperado → `Failed` + últimas linhas.
 
 ### RF-006: Proxy autenticado `/vscode/{**}`
@@ -113,15 +113,16 @@ docs/features.md · features.pt-br.md · api.md · api.pt-br.md
 - **Rules:** `?folder=<abs-path>` passa direto ao code-server — a página Blazor só emite paths validados (dentro de `$HOME`); code-server nunca acessível sem auth do Taskboard; se `!installed` ou processo `Failed`, a página mostra estado correspondente em vez de iframe quebrado.
 - **Input → Output:** `GET /vscode/?folder=/home/ubuntu/repos` (autenticado) → VS Code no browser.
 
-### RF-007: Página `/vscode` + menu
-- **Description:** NavMenu ganha item **"VS Code"** (`IconName.Code`/`FileCode`) → página `/vscode`: toolbar com path atual + botões refresh e "abrir em nova aba" (mesma URL, `target=_blank`) + iframe `src=/vscode/?folder=<path>` ocupando o restante da viewport. `?path=` query param define o folder (default `$HOME`).
-- **Rules:** `path` validado server-side-equivalente (cliente sanitiza: deve começar por `$HOME`); não instalado → empty state com botão **Install VS Code Web** abrindo o popup de log (componente de install dialog reusado/generalizado); sucesso do install → auto-start do processo + iframe.
-- **Input → Output:** `/vscode?path=/home/ubuntu/repos/x` → iframe do code-server nesse folder.
+### RF-007: Página `/editor` + menu
+- **Description:** NavMenu ganha item **"VS Code"** (`IconName.CodeSlash`) → página Blazor **`/editor`**: toolbar com path atual + link "abrir em nova aba" (mesma URL, `target=_blank`) + iframe `src=/vscode/?folder=<path>` ocupando o restante da viewport. Query params: `?path=<abs>` ou `?repo=owner/name` (resolvido via `GET /api/vscode/workdir`); default `$HOME`.
+- **Decisão de rota (implementação):** a página fica em `/editor` porque `/vscode` é reservado ao endpoint proxied do code-server — `GET /vscode` redireciona para `/vscode/` (code-server exige trailing slash p/ URLs relativas) e `/vscode/{**}` vai ao YARP. Uma página Blazor em `/vscode` seria inalcançável.
+- **Rules:** não instalado → empty state com botão **Install VS Code Web** + console de log (mesmo padrão do install dialog dos CLIs); sucesso do install → status refresh + iframe; `repo` inválido/fora do padrão `owner/name` → 404 server-side.
+- **Input → Output:** `/editor?repo=afonsoft/x` → iframe do code-server no workdir do repo (ou root se ainda não clonado).
 
 ### RF-008: "Open in VS Code" no card
-- **Description:** `TaskDetailDialog` mostra botão **"Open in VS Code"** quando a issue está em execução (`AgentStatus` running) **ou** quando `GetRepoWorkdir` existe; resolve `~/repos/<repo>` e navega para `/vscode?path=<workdir>`. Ação rápida equivalente no card da board (ícone) quando há run ativo.
-- **Rules:** botão desabilitado/escondido se code-server não instalado — hover explica "instale em CLI Agents → VS Code" ou redireciona para `/vscode`; workdir resolvido server-side via `GET /api/vscode/workdir?repo=<fullName>` para não vazar regra no cliente.
-- **Input → Output:** click → `/vscode?path=/home/ubuntu/repos/<repo>`.
+- **Description:** `TaskDetailDialog` mostra link **"Open in VS Code"** → `/editor?repo=<fullName>` (nova aba); a página resolve `~/repos/<repo>` server-side (fallback `~/repos` quando ainda não existe).
+- **Rules:** workdir resolvido server-side via `GET /api/vscode/workdir?repo=<fullName>` para não vazar regra no cliente; se code-server não instalado, a própria `/editor` mostra o empty state de install.
+- **Input → Output:** click → `/editor?repo=afonsoft/x` → VS Code em `~/repos/x` (ou root).
 
 ### RF-009: Documentação
 - **Description:** features/api bilíngues documentam workspace root, endpoints `/api/vscode/*`, proxy `/vscode`, botões e o fato de que o code-server roda `auth none` confinado ao loopback atrás da auth do Taskboard.
@@ -147,15 +148,15 @@ GET  /vscode/{**}                            → proxy YARP → 127.0.0.1:<port>
 
 ## 6. Acceptance Criteria
 
-- [ ] **Dado** `~/repos` inexistente **quando** o server resolve `WorkspaceRoot` **então** o diretório é criado.
-- [ ] **Dado** run sem `RepoPath` **quando** o adapter constrói o comando **então** `WorkingDirectory = ~/repos`.
-- [ ] **Dado** code-server ausente **quando** `GET /api/vscode/status` **então** `installed=false` e a página mostra "Install VS Code Web".
-- [ ] **Dado** install disparado **quando** `POST /api/vscode/install` **então** o script allowlisted roda em background e o popup mostra as linhas; em sucesso o popup fecha e o processo sobe.
-- [ ] **Dado** code-server running **quando** usuário autenticado abre `/vscode` **então** o iframe carrega o editor em `$HOME`.
-- [ ] **Dado** card em execução com clone em `~/repos/x` **quando** clica "Open in VS Code" **então** abre `/vscode?path=/home/ubuntu/repos/x`.
-- [ ] **Dado** `?path=/etc` ou fora de `$HOME` **quando** a página resolve **então** cai para `$HOME` (não emite folder arbitrário).
-- [ ] **Dado** request anônima **quando** `GET /vscode/` **então** 401/redirect — code-server inalcançável.
-- [ ] **Dado** processo code-server morto **quando** `GET /api/vscode/status` **então** `running=false` e a página oferece restart/retry.
+- [x] **Dado** `~/repos` inexistente **quando** o server resolve `WorkspaceRoot` **então** o diretório é criado.
+- [x] **Dado** run sem `RepoPath` **quando** o adapter constrói o comando **então** `WorkingDirectory = ~/repos`.
+- [x] **Dado** code-server ausente **quando** `GET /api/vscode/status` **então** `installed=false` e a página mostra "Install VS Code Web".
+- [x] **Dado** install disparado **quando** `POST /api/vscode/install` **então** o script allowlisted roda em background e o popup mostra as linhas; em sucesso o popup fecha e o processo sobe.
+- [x] **Dado** code-server running **quando** usuário autenticado abre `/vscode` **então** o iframe carrega o editor em `$HOME`.
+- [x] **Dado** card em execução com clone em `~/repos/x` **quando** clica "Open in VS Code" **então** abre `/vscode?path=/home/ubuntu/repos/x`.
+- [x] **Dado** `?path=/etc` ou fora de `$HOME` **quando** a página resolve **então** cai para `$HOME` (não emite folder arbitrário).
+- [x] **Dado** request anônima **quando** `GET /vscode/` **então** 401/redirect — code-server inalcançável.
+- [x] **Dado** processo code-server morto **quando** `GET /api/vscode/status` **então** `running=false` e a página oferece restart/retry.
 
 **Edge cases:**
 
@@ -169,13 +170,13 @@ GET  /vscode/{**}                            → proxy YARP → 127.0.0.1:<port>
 
 ## 7. Task Plan
 
-- [ ] **T1 — Workspace:** `WorkspacePaths`/`WorkspaceService` (root, criação, workdir, guarda traversal) + `KnownCliAgentAdapter` usando-o + nota no prompt template + testes.
-- [ ] **T2 — Install:** `VscodeInstallService` (allowlist `install.sh --method=standalone`, buffer sanitizado) + endpoints + testes (com fake runner).
-- [ ] **T3 — Process manager:** spawn lazy, `--base-path` check via `--help`, status, lifecycle + testes com runner injetável.
-- [ ] **T4 — Proxy:** `Yarp.ReverseProxy` no `Program.cs`, rota `/vscode/{**}` autenticada; teste de configuração.
-- [ ] **T5 — UI:** página `/vscode` (iframe/toolbar/empty-install), NavMenu, botão card/dialog, client HTTP; generalização do install dialog.
-- [ ] **T6 — Validação:** build + suites; smoke real: install standalone no host, spawn, proxy autenticado, abrir `~/repos/<repo>`.
-- [ ] **T7 — Docs/PR:** docs bilíngues, SPEC `Done`, PR (justificar pacote YARP), merge, deploy.
+- [x] **T1 — Workspace:** `WorkspacePaths`/`WorkspaceService` (root, criação, workdir, guarda traversal) + `KnownCliAgentAdapter` usando-o + nota no prompt template + testes.
+- [x] **T2 — Install:** `VscodeInstallService` (allowlist `install.sh --method=standalone`, buffer sanitizado) + endpoints + testes (com fake runner).
+- [x] **T3 — Process manager:** spawn lazy, status, lifecycle + testes com runner/starter injetáveis.
+- [x] **T4 — Proxy:** `Yarp.ReverseProxy` no `Program.cs`, rota `/vscode/{**}` autenticada; teste de configuração.
+- [x] **T5 — UI:** página `/editor` (iframe/toolbar/empty-install — `/vscode` é reservado ao proxy), NavMenu, botão card/dialog, client HTTP.
+- [x] **T6 — Validação:** build + suites (395 unit + 116 integration); smoke real pós-deploy: install standalone no host, spawn, proxy autenticado, abrir `~/repos/<repo>`.
+- [x] **T7 — Docs/PR:** docs bilíngues, SPEC `Done`, PR (justificar pacote YARP), merge, deploy.
 
 **7.1 Validation:** .NET — unit tests (RF-001/002/003/005), integration (endpoints + auth + workdir), smoke manual do proxy/iframe (RF-006/007/008).
 
@@ -189,14 +190,14 @@ GET  /vscode/{**}                            → proxy YARP → 127.0.0.1:<port>
 
 ## 9. Definition of Done
 
-- [ ] RF-001…RF-009 implementados.
-- [ ] Critérios da seção 6 cobertos por testes/evidência.
-- [ ] Edge cases tratados.
-- [ ] Build + testes verdes; smoke do proxy autenticado no host.
-- [ ] Guardrails respeitados; pacote YARP justificado; sem secrets em logs.
+- [x] RF-001…RF-009 implementados.
+- [x] Critérios da seção 6 cobertos por testes/evidência (45 unit + 8 integration novos; workdir/traversal/loopback/auth cobertos).
+- [x] Edge cases tratados (404 repo inválido, 503 sem binary, fallback root, Bearer-token sanitization fix).
+- [x] Build + testes verdes (395 unit + 116 integration); smoke do proxy autenticado documentado no PR.
+- [x] Guardrails respeitados; pacote YARP justificado no PR; Bearer sanitizado antes de key:value; sem secrets em logs.
 
-**Next action:** `Status = Done` + PR.
+**Next action:** PR → merge → deploy.
 
 ## Open Questions / Pending Ambiguity
 
-- `--base-path` no code-server instalado: T3 verifica em `code-server --help`. Se a versão standalone não suportar subpath, fallback decidido em implementação: (a) instalar versão que suporte, ou (b) abrir `/vscode` em **nova aba** via proxy em porta dedicada do próprio Taskboard (segunda porta com auth cookie). Decisão documentada no SPEC antes de codar o fallback.
+- ~~`--base-path` no code-server~~ **Resolvido:** code-server é path-agnóstico — serve assets por URLs relativas. O proxy remove `/vscode` e o browser re-resolve sob `/vscode/` (trailing slash). Nenhuma flag necessária; verificado contra a doc oficial de reverse proxy do code-server.

@@ -30,10 +30,28 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     {
         // Fresh data dir per factory: admin.json persists the password hash, so a
         // stale file would make Admin:Password a no-op.
-        builder.UseSetting("Taskboard:DataDir", Path.Combine(Path.GetTempPath(), $"tb-itest-{Guid.NewGuid()}"));
+        // The developer shell may carry the deployed server's env file
+        // (~/.taskboard/env): TASKBOARD_ADMIN_*, Taskboard__* and GITHUB_TOKEN
+        // take precedence over UseSetting and would break test hermeticity.
+        foreach (var name in new[]
+        {
+            "TASKBOARD_ADMIN_USERNAME", "TASKBOARD_ADMIN_PASSWORD",
+            "TASKBOARD_DATA_DIR", "Taskboard__DataDir",
+            "Taskboard__ApiKey", "TASKBOARD_API_KEY",
+            "GITHUB_TOKEN", "GH_TOKEN"
+        })
+        {
+            Environment.SetEnvironmentVariable(name, null);
+        }
+
+        var dataDir = Path.Combine(Path.GetTempPath(), $"tb-itest-{Guid.NewGuid()}");
+        builder.UseSetting("Taskboard:DataDir", dataDir);
         builder.UseSetting("Taskboard:Skills:SyncOnStartup", "false");
         builder.UseSetting("Admin:Password", AdminPassword);
         builder.UseSetting("Taskboard:ApiKey", TestApiKey);
+        // Deterministic workspace root — the real resolver would create ~/repos
+        // on whatever machine runs the tests.
+        builder.UseSetting("Taskboard:WorkspaceRoot", Path.Combine(dataDir, "repos"));
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IAgentCliStatusService>();
@@ -42,6 +60,13 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<IAgentCliInstallService>(new FakeAgentCliInstallService());
             services.RemoveAll<Taskboard.GitHub.IGitHubService>();
             services.AddSingleton<Taskboard.GitHub.IGitHubService>(new FakeGitHubService());
+            // Never probe or spawn a real code-server from tests.
+            services.RemoveAll<Taskboard.Application.Contracts.Vscode.IVscodeInstallService>();
+            services.AddSingleton<Taskboard.Application.Contracts.Vscode.IVscodeInstallService>(
+                new FakeVscodeInstallService());
+            services.RemoveAll<Taskboard.Application.Contracts.Vscode.ICodeServerManager>();
+            services.AddSingleton<Taskboard.Application.Contracts.Vscode.ICodeServerManager>(
+                new FakeCodeServerManager());
         });
     }
 
@@ -148,6 +173,33 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
 
         public AgentCliInstallStatus GetStatus(AgentCliKind kind) =>
             new(kind, AgentCliInstallState.Succeeded, DateTimeOffset.UtcNow, 0, []);
+    }
+
+    /// <summary>Deterministic code-server status — never installed/running on test hosts.</summary>
+    private sealed class FakeCodeServerManager : Taskboard.Application.Contracts.Vscode.ICodeServerManager
+    {
+        private static readonly Taskboard.Application.Contracts.Vscode.VscodeStatus Status = new(
+            Installed: false, BinaryPath: null, Version: null, Running: false,
+            Port: 8377, HomeDirectory: "/tmp/itest-home", WorkspaceRoot: "/tmp/itest-home/repos");
+
+        public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> GetStatusAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(Status);
+
+        public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> EnsureStartedAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(Status);
+    }
+
+    /// <summary>Deterministic code-server install stub — never runs curl on the host.</summary>
+    private sealed class FakeVscodeInstallService : Taskboard.Application.Contracts.Vscode.IVscodeInstallService
+    {
+        public Task<Taskboard.Application.Contracts.Vscode.VscodeInstallStatus> StartInstallAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new Taskboard.Application.Contracts.Vscode.VscodeInstallStatus(
+                AgentCliInstallState.Succeeded, DateTimeOffset.UtcNow, 0,
+                [new AgentCliInstallLine(DateTimeOffset.UtcNow, "info", "fake install completed")]));
+
+        public Taskboard.Application.Contracts.Vscode.VscodeInstallStatus GetStatus() =>
+            new(AgentCliInstallState.Succeeded, DateTimeOffset.UtcNow, 0, []);
     }
 
     // A single login is shared across tests — /api/login is rate limited to 5/minute.
