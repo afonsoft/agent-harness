@@ -35,3 +35,6 @@ public sealed record AgentModelConfigDto(
 
 /// <summary>Payload for saving a per-CLI model override (null = curated default).</summary>
 public sealed record SaveAgentModelConfigRequest(string? Lite, string? Normal, string? Ultra);
+
+/// <summary>Model ids reported by the installed CLI itself (empty when unavailable).</summary>
+public sealed record AvailableAgentModelsResponse(IReadOnlyList<string> Models);

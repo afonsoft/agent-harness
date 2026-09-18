@@ -49,6 +49,19 @@ public static class AgentCliModels
         // documented headless model flag → managed by the CLI itself.
     };
 
+    // CLIs that can report their own model list headless (host-verified
+    // 2026-09-18). Used to feed the Models dialog dropdown; CLIs without a
+    // probe keep the curated catalog only.
+    private static readonly Dictionary<AgentType, AgentModelListProbe> Probes = new()
+    {
+        // `opencode models` — one provider/model id per line.
+        [AgentType.OpenCode] = new(["models"], AgentModelListFormat.Lines),
+        // `agy models` — "id<TAB>Display Name" rows after a "Fetching…" banner.
+        [AgentType.Antigravity] = new(["models"], AgentModelListFormat.TabSeparated),
+        // `devin models list` — family headers + indented variant rows + aliases.
+        [AgentType.Devin] = new(["models", "list"], AgentModelListFormat.DevinModelsList),
+    };
+
     /// <summary>Whether the CLI accepts a headless model flag.</summary>
     public static bool SupportsModelSelection(AgentType agentType) =>
         Entries.ContainsKey(agentType);
@@ -60,6 +73,10 @@ public static class AgentCliModels
     /// <summary>Known model names for the picker (curated + extras); empty when CLI-managed.</summary>
     public static IReadOnlyList<string> Catalog(AgentType agentType) =>
         Entries.TryGetValue(agentType, out var entry) ? entry.Catalog : [];
+
+    /// <summary>Headless model-list probe for the CLI, or null when none is documented.</summary>
+    public static AgentModelListProbe? ModelListProbe(AgentType agentType) =>
+        Probes.TryGetValue(agentType, out var probe) ? probe : null;
 
     /// <summary>Resolved model name for the tier, or null when CLI-managed.</summary>
     public static string? ModelFor(AgentType agentType, AgentModelTier tier) =>

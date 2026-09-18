@@ -211,6 +211,8 @@ The executions body accepts an optional `modelTier` (`"lite" | "normal" | "ultra
 
 `GET /api/agents/{agentType}/models` returns the effective per-tier mapping (`lite`/`normal`/`ultra`), its `source` (`override` or `default`), the curated `defaults` and the known-model `catalog` for pickers; `422 { "error": "model-selection-unsupported" }` for CLI-managed agents. `PUT` saves a per-CLI override (`{ "lite", "normal", "ultra" }` — null slots keep the curated default, names ≤128 chars) and `DELETE` removes it; overrides win over the curated table at execution time.
 
+`GET /api/agents/{agentType}/models/available` returns `{ models: [...] }` — the model ids the installed CLI reports itself via its headless list command (`opencode models`, `devin models list`, `agy models`; bounded 10s probe, cached 5min). Empty array when the CLI has no documented probe (Claude, Codex, …), is not installed, or the probe fails; `422 model-selection-unsupported` for CLI-managed agents. The Models dialog merges these ids with the curated `catalog` in an editable autocomplete.
+
 `GET /api/agents/runs?issueId=` returns the issue's latest runs (`{ id, issueId, agentType, state, startedAt, finishedAt }`, newest first; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` returns the latest run per issue — used to render agent badges on the kanban cards.
 
 ## SSE

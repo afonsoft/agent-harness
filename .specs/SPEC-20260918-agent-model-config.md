@@ -33,12 +33,13 @@ O mapeamento tier→modelo vive hoje na tabela curada `AgentCliModels` (hardcode
 - `AgentExecutionRequest.ResolvedModelName` (opcional, default null) — modelo efetivo resolvido pela orquestração e propagado ao adapter.
 - `AgentCliInvocation.BuildArguments(..., string? modelName)` — nome explícito vence o curado.
 - Endpoints `GET/PUT/DELETE /api/agents/{agentType}/models` (auth).
-- Client `HttpAgentModelConfigService` + `AgentModelConfigDialog` (input com datalist dos modelos conhecidos + texto livre) + botão **Models** ao lado de Login (somente CLIs instaladas com suporte a flag).
+- Client `HttpAgentModelConfigService` + `AgentModelConfigDialog` (AutoComplete editável com busca, alimentado pelo catálogo curado + modelos reportados pela CLI instalada) + botão **Models** ao lado de Login (somente CLIs instaladas com suporte a flag).
+- `IAgentModelCatalogService` + `AgentModelCatalogService` (Integrations): probe headless `GET /api/agents/{type}/models/available` — `opencode models`, `devin models list`, `agy models` (10s timeout, cache 5min, parser por formato em `AgentModelListParser`).
 - Bug fixes (1) e (2) acima.
 
 **Out of scope:**
-- Descoberta dinâmica de modelos via CLI (`<cli> models` no servidor) — o catálogo é curado, com texto livre para qualquer nome.
 - Renomear tiers ou adicionar novos.
+- _(Implementado depois:_ descoberta dinâmica via `<cli> models` — RF-008._)_
 
 ## 3. Functional Requirements
 
@@ -48,7 +49,8 @@ O mapeamento tier→modelo vive hoje na tabela curada `AgentCliModels` (hardcode
 - **RF-004** `GET /api/agents/{type}/models` retorna `{ agentType, supportsModelSelection, source, lite, normal, ultra, defaults, catalog }`; `404` para tipo desconhecido, `422` para CLI-managed.
 - **RF-005** `PUT` valida strings não-vazias ≤128 chars (cada tier pode ser omitido → usa default); `DELETE` remove o override.
 - **RF-006** `AgentOrchestrationService.EnqueueAsync` resolve o modelo via o service (scope), grava em `AgentRun.ModelName` e propaga `ResolvedModelName` — argv e run record nunca divergem.
-- **RF-007** CLI Agents: botão **Models** (ícone engrenagem) na coluna Actions, visível apenas para `Installed && SupportsModelSelection`. Dialog mostra os 3 tiers com datalist do catálogo + texto livre, badge `Override|Default`, botões Salvar / Restaurar defaults / Cancelar.
+- **RF-007** CLI Agents: botão **Models** (ícone engrenagem) na coluna Actions, visível apenas para `Installed && SupportsModelSelection`. Dialog mostra os 3 tiers com **AutoComplete editável** (digitação livre + busca por conteúdo, `StringFilterOperator.Contains`), badge `Override|Default`, botões Salvar / Restaurar defaults / Cancelar.
+- **RF-008** `GET /api/agents/{type}/models/available` retorna `{ models }` — ids que a CLI instalada reporta headless (`opencode models` linhas, `devin models list` famílias/variantes/aliases, `agy models` `id<TAB>nome`; probe 10s, cache 5min, falha → `[]`). `422 model-selection-unsupported` para CLI-managed. O dialog mescla available + catálogo curado + valores atuais (distinct, case-insensitive) nas sugestões.
 
 ## 4. Technical Notes
 

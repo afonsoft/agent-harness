@@ -8,7 +8,7 @@ namespace Taskboard.Blazor.Services;
 /// <see cref="IAgentModelConfigService"/> backed by
 /// <c>/api/agents/{agentType}/models</c> (SPEC-20260918-agent-model-config).
 /// </summary>
-public sealed class HttpAgentModelConfigService(HttpClient http) : IAgentModelConfigService
+public sealed class HttpAgentModelConfigService(HttpClient http) : IAgentModelConfigService, IAgentModelCatalogService
 {
     public async Task<AgentModelConfigDto> GetConfigAsync(AgentType agentType, CancellationToken cancellationToken = default)
     {
@@ -36,5 +36,13 @@ public sealed class HttpAgentModelConfigService(HttpClient http) : IAgentModelCo
     {
         var config = await GetConfigAsync(agentType, cancellationToken);
         return new AgentModelTierSet(config.Lite, config.Normal, config.Ultra).For(tier);
+    }
+
+    public async Task<IReadOnlyList<string>> ListAvailableAsync(
+        AgentType agentType, CancellationToken cancellationToken = default)
+    {
+        var response = await http.GetFromJsonAsync<AvailableAgentModelsResponse>(
+            $"/api/agents/{agentType}/models/available", cancellationToken);
+        return response?.Models ?? [];
     }
 }
