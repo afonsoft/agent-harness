@@ -1,0 +1,168 @@
+@using Taskboard.Agents
+@using Taskboard.Application.Contracts.Agents
+@inject IAgentModelConfigService ModelConfig
+@inject ToastService ToastService
+
+@*
+    SPEC-20260918-agent-model-config RF-007: per-CLI tier model configuration.
+    Each tier accepts a known model from the catalog (datalist) or any free
+    text — an empty field falls back to the curated default.
+*@
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-body-secondary small">
+        <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Carregando configuração…
+    </div>
+}
+else if (_config is not null)
+{
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <strong>@DisplayName</strong>
+        @if (_config.Source == "override")
+        {
+            <Badge Color="BadgeColor.Info">Override</Badge>
+        }
+        else
+        {
+            <Badge Color="BadgeColor.Secondary">Default</Badge>
+        }
+    </div>
+
+    <datalist id="agent-model-catalog">
+        @foreach (var model in _config.Catalog)
+        {
+            <option value="@model"></option>
+        }
+    </datalist>
+
+    @foreach (var tier in _tiers)
+    {
+        <div class="mb-3" @key="tier.Tier">
+            <label class="form-label small fw-semibold" for="model-@tier.Tier.ToString().ToLowerInvariant()">
+                @tier.Label
+                <span class="text-body-secondary fw-normal">— default: <code>@tier.Default</code></span>
+            </label>
+            <input id="model-@tier.Tier.ToString().ToLowerInvariant()" type="text"
+                   class="form-control form-control-sm font-monospace" list="agent-model-catalog"
+                   placeholder="@tier.Default" @bind="tier.Value" />
+        </div>
+    }
+
+    <p class="small text-body-secondary">
+        <Icon Name="IconName.InfoCircle" class="me-1" />
+        Deixe em branco para usar o default curado. O modelo é passado à CLI via argumento na execução.
+    </p>
+
+    <div class="d-flex justify-content-between pt-2 border-top">
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ResetAsync"
+                Disabled="@(_saving || _config.Source != "override")">
+            Restaurar defaults
+        </Button>
+        <div class="d-flex gap-2">
+            <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="CloseAsync" Disabled="_saving">
+                Cancelar
+            </Button>
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SaveAsync" Disabled="_saving">
+                @if (_saving)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
+                }
+                Salvar
+            </Button>
+        </div>
+    </div>
+}
+else
+{
+    <div class="small text-danger">@_error</div>
+}
+
+@code {
+    [Parameter, EditorRequired] public AgentType AgentType { get; set; }
+    [Parameter] public string DisplayName { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnFinished { get; set; }
+
+    private sealed class TierRow(AgentModelTier tier, string label)
+    {
+        public AgentModelTier Tier { get; } = tier;
+        public string Label { get; } = label;
+        public string? Default { get; set; }
+        public string? Value { get; set; }
+    }
+
+    private readonly TierRow[] _tiers =
+    [
+        new(AgentModelTier.Lite, "Lite (mais barato)"),
+        new(AgentModelTier.Normal, "Normal (default)"),
+        new(AgentModelTier.Ultra, "Ultra (mais caro)"),
+    ];
+
+    private AgentModelConfigDto? _config;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _config = await ModelConfig.GetConfigAsync(AgentType);
+            _tiers[0].Value = _config.Lite;
+            _tiers[0].Default = _config.Defaults.Lite ?? "—";
+            _tiers[1].Value = _config.Normal;
+            _tiers[1].Default = _config.Defaults.Normal ?? "—";
+            _tiers[2].Value = _config.Ultra;
+            _tiers[2].Default = _config.Defaults.Ultra ?? "—";
+        }
+        catch (Exception ex)
+        {
+            _error = $"Não foi possível carregar a configuração: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            await ModelConfig.SetConfigAsync(AgentType,
+                new SaveAgentModelConfigRequest(_tiers[0].Value, _tiers[1].Value, _tiers[2].Value));
+            ToastService.Notify(new(ToastType.Success, $"Modelos de {DisplayName} salvos."));
+            await OnFinished.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Falha ao salvar: {ex.Message}"));
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        _saving = true;
+        try
+        {
+            await ModelConfig.DeleteConfigAsync(AgentType);
+            ToastService.Notify(new(ToastType.Success, $"Modelos de {DisplayName} restaurados para o default."));
+            await OnFinished.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Falha ao restaurar: {ex.Message}"));
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task CloseAsync() => await OnFinished.InvokeAsync();
+}

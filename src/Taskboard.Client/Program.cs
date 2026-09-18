@@ -31,6 +31,7 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
 
 builder.Services.AddScoped<IGitHubService, HttpGitHubService>();
 builder.Services.AddScoped<IAgentOrchestrationService, HttpAgentOrchestrationService>();
+builder.Services.AddScoped<IAgentModelConfigService, HttpAgentModelConfigService>();
 builder.Services.AddScoped<IAgentPromptTemplateService, HttpAgentPromptTemplateService>();
 
 await builder.Build().RunAsync();

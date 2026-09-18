@@ -7,6 +7,7 @@
 <PageTitle>CLI Agents - Harness</PageTitle>
 
 <Modal @ref="_installModal" Size="ModalSize.Large" IsScrollable="true" />
+<Modal @ref="_modelsModal" />
 
 <h1 class="h4 fw-bold mb-1">CLI Agents</h1>
 <p class="small text-body-secondary mb-4">Agent CLIs detected on this machine. Open a terminal to authenticate or manage each CLI.</p>
@@ -79,9 +80,19 @@
                                 <td class="text-end">
                                     @if (agent.Installed)
                                     {
-                                        <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(agent.LoginCommand)">
-                                            <Icon Name="IconName.Terminal" class="me-1" /> Login
-                                        </a>
+                                        <div class="d-inline-flex gap-1">
+                                            <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(agent.LoginCommand)">
+                                                <Icon Name="IconName.Terminal" class="me-1" /> Login
+                                            </a>
+                                            @if (SupportsModelSelection(agent))
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary"
+                                                        title="Configurar modelos Lite/Normal/Ultra"
+                                                        @onclick="() => StartModelConfigAsync(agent)">
+                                                    <Icon Name="IconName.Gear" class="me-1" /> Models
+                                                </button>
+                                            }
+                                        </div>
                                     }
                                     else
                                     {
@@ -140,6 +151,7 @@
 
 @code {
     private Modal _installModal = default!;
+    private Modal _modelsModal = default!;
     private IReadOnlyList<AgentCliStatus>? _agents;
     private bool _loading = true;
     private string? _error;
@@ -248,6 +260,29 @@
         await _installModal.HideAsync();
         await RefreshAsync();
     }
+
+    private static bool SupportsModelSelection(AgentCliStatus agent) =>
+        AgentCliMap.AgentTypeFor(agent.Agent) is { } type
+        && AgentCliModels.SupportsModelSelection(type);
+
+    private async Task StartModelConfigAsync(AgentCliStatus agent)
+    {
+        if (AgentCliMap.AgentTypeFor(agent.Agent) is not { } agentType)
+        {
+            return;
+        }
+
+        var parameters = new Dictionary<string, object>
+        {
+            ["AgentType"] = agentType,
+            ["DisplayName"] = agent.DisplayName,
+            ["OnFinished"] = EventCallback.Factory.Create(this, OnModelConfigFinishedAsync)
+        };
+        await _modelsModal.ShowAsync<AgentModelConfigDialog>(
+            title: $"Modelos — {agent.DisplayName}", parameters: parameters);
+    }
+
+    private async Task OnModelConfigFinishedAsync() => await _modelsModal.HideAsync();
 
     private static string InstallButtonTitle(AgentCliStatus agent) =>
         agent.PrerequisiteMet

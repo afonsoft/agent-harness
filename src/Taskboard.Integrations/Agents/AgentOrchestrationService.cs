@@ -77,6 +77,11 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             return false;
         }
 
+        // SPEC-20260918-agent-model-config RF-006: resolve the effective model
+        // (override ?? curated) once — the run record and the argv must agree.
+        var resolvedModel = await ResolveModelAsync(request, cancellationToken);
+        request = request with { ResolvedModelName = resolvedModel };
+
         var runId = await TryCreateRunAsync(request, cancellationToken);
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Queued {request.AgentType} for issue {request.IssueId}."));
         _channel.Writer.TryWrite(new QueuedJob(request, runId));
@@ -206,6 +211,28 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         return await eligibility.GetEligibleTypesAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Resolves the effective model name through the scoped
+    /// <see cref="IAgentModelConfigService"/> (override ?? curated). Failures
+    /// degrade to the curated table — model resolution never blocks a run.
+    /// </summary>
+    private async Task<string?> ResolveModelAsync(AgentExecutionRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var config = scope.ServiceProvider.GetRequiredService<IAgentModelConfigService>();
+            return await config.ResolveModelAsync(request.AgentType, request.ModelTier, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"Model config lookup failed ({ex.Message}); using curated default."));
+            return null;
+        }
+    }
+
     private async Task<Guid?> TryCreateRunAsync(AgentExecutionRequest request, CancellationToken cancellationToken)
     {
         try
@@ -216,7 +243,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
                 request.IssueId,
                 request.AgentType,
                 request.ModelTier,
-                AgentCliModels.ModelFor(request.AgentType, request.ModelTier),
+                request.ResolvedModelName ?? AgentCliModels.ModelFor(request.AgentType, request.ModelTier),
                 cancellationToken);
             return run.Id;
         }

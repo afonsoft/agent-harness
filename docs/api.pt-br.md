@@ -196,15 +196,20 @@ Comentários da issue vivem no GitHub (nunca persistidos localmente): `GET .../i
 ```http
 GET    /api/agents
 POST   /api/agents/executions
+GET    /api/agents/{agentType}/models
+PUT    /api/agents/{agentType}/models
+DELETE /api/agents/{agentType}/models
 GET    /api/agents/runs?issueId={id}&take={n}
 GET    /api/agents/runs/active
 GET    /api/agents/logs/{issueId}
 POST   /api/agents/executions/{issueId}/cancel
 ```
 
-`GET /api/agents` lista apenas agentes *elegíveis* — instalados no PATH, com CLI autenticado (probe de credencial) e habilitados em Settings → Agents; agentes em execução aparecem como `Busy`. `POST /api/agents/executions` retorna `202` quando enfileirado ou `422 { "error": "agent-not-eligible" }` para agente desabilitado/não autenticado/não instalado.
+`GET /api/agents` lista apenas agentes *elegíveis* — instalados no PATH, com CLI autenticado (probe de credencial) e habilitados em Settings → Agents; agentes em execução aparecem como `Busy`. `POST /api/agents/executions` retorna `400 { "error": "invalid-repository" }` quando `repositoryFullName` não é `owner/name`, `202` quando enfileirado ou `422 { "error": "agent-not-eligible" }` para agente desabilitado/não autenticado/não instalado.
 
 O body das execuções aceita `modelTier` opcional (`"lite" | "normal" | "ultra"`, padrão `"normal"` — ausente em payloads antigos): o servidor mapeia `(agentType, tier)` para um modelo concreto via a tabela curada `AgentCliModels` e injeta a flag de modelo do CLI no argv (`claude --model sonnet`, `codex -m gpt-5.1-codex`, `devin --model swe`, `agy --model gemini-3.1-pro-low`, `opencode -m opencode/claude-sonnet-5`, …). CLIs sem flag de modelo headless (Cline, Continue, Kiro, OpenHands) não recebem flag em nenhum tier. Itens de `GET /api/agents/runs` trazem `modelTier` e o `modelName` resolvido (null em runs antigas e agentes gerenciados pela CLI).
+
+`GET /api/agents/{agentType}/models` retorna o mapeamento efetivo por tier (`lite`/`normal`/`ultra`), a `source` (`override` ou `default`), os `defaults` curados e o `catalog` de modelos conhecidos para pickers; `422 { "error": "model-selection-unsupported" }` para CLIs gerenciadas. `PUT` salva override por CLI (`{ "lite", "normal", "ultra" }` — slots nulos mantêm o curado, nomes ≤128 chars) e `DELETE` o remove; overrides vencem a tabela curada na execução.
 
 `GET /api/agents/runs?issueId=` retorna os runs mais recentes da issue (`{ id, issueId, agentType, state, startedAt, finishedAt }`, mais novo primeiro; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` retorna o run mais recente por issue — usado para os badges de agente nos cards do kanban.
 
