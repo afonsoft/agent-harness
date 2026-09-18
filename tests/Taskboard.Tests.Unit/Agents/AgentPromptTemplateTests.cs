@@ -172,4 +172,28 @@ public class AgentCliModelTests
             args.ShouldNotContain("-m");
         }
     }
+
+    [Fact]
+    public void Dado_ModeloResolvido_Quando_BuildArguments_Entao_ExplicitoVenceCurado()
+    {
+        // SPEC-20260918-agent-model-config RF-002: o nome resolvido pela
+        // orquestração (override ?? curado) vence a tabela estática.
+        var args = AgentCliInvocation.BuildArguments(
+            AgentType.Claude, "P", AgentModelTier.Normal, "custom-model-x");
+
+        var flagIndex = args.ToList().IndexOf("--model");
+        flagIndex.ShouldBeGreaterThanOrEqualTo(0);
+        args[flagIndex + 1].ShouldBe("custom-model-x");
+    }
+
+    [Fact]
+    public void Dado_ModeloResolvidoEmCliGerenciada_Quando_BuildArguments_Entao_SemFlag()
+    {
+        // CLI-managed nunca recebe flag, mesmo com nome explícito.
+        var args = AgentCliInvocation.BuildArguments(
+            AgentType.Cline, "P", AgentModelTier.Ultra, "custom-model-x");
+
+        args.ShouldNotContain("--model");
+        args.ShouldNotContain("custom-model-x");
+    }
 }

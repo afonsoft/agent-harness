@@ -41,9 +41,10 @@ public static class AgentCliInvocation
     public static IReadOnlyList<string> BuildArguments(
         AgentType agentType,
         string prompt,
-        AgentModelTier tier = AgentModelTier.Normal)
+        AgentModelTier tier = AgentModelTier.Normal,
+        string? modelName = null)
     {
-        var model = ModelArguments(agentType, tier);
+        var model = ModelArguments(agentType, tier, modelName);
         return agentType switch
         {
             // devin [PATH]... requires -p/--print for non-interactive mode; without it the prompt becomes a PATH.
@@ -92,10 +93,14 @@ public static class AgentCliInvocation
     /// `[flag, model]` for CLIs with a curated mapping, empty for CLI-managed
     /// ones (Cline, Continue, Kiro, OpenHands) — they never get a model flag.
     /// </summary>
-    private static string[] ModelArguments(AgentType agentType, AgentModelTier tier)
+    private static string[] ModelArguments(AgentType agentType, AgentModelTier tier, string? modelName)
     {
         var flag = AgentCliModels.ModelFlag(agentType);
-        var model = AgentCliModels.ModelFor(agentType, tier);
+        // SPEC-20260918-agent-model-config RF-002: an explicitly resolved name
+        // (orchestration → override ?? curated) wins over the static table.
+        var model = string.IsNullOrWhiteSpace(modelName)
+            ? AgentCliModels.ModelFor(agentType, tier)
+            : modelName;
         return flag is not null && model is not null ? [flag, model] : [];
     }
 }

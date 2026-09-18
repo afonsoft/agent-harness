@@ -54,6 +54,27 @@ public class AgentRunEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
     }
 
     [Fact]
+    public async Task Dado_RepositorioInvalido_Quando_Enqueue_Entao_400SemRun()
+    {
+        // SPEC-20260918-agent-model-config RF-001: fail fast on a malformed
+        // repo slug (e.g. the literal placeholder "RepositoryFullName").
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var issueId = $"issue-badrepo-{Guid.NewGuid():N}";
+        var request = new AgentExecutionRequest(
+            issueId, 42, "RepositoryFullName", "/tmp", null, null, "instruções", AgentType.Codex);
+
+        var response = await client.PostAsJsonAsync("/api/agents/executions", request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body?["error"]?.GetValue<string>().ShouldBe("invalid-repository");
+
+        var runsResponse = await client.GetAsync($"/api/agents/runs?issueId={issueId}");
+        var runsBody = await runsResponse.Content.ReadFromJsonAsync<JsonObject>();
+        runsBody?["runs"]?.AsArray().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Dado_AgenteElegivel_Quando_Enqueue_Entao_202ERunPersistido()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

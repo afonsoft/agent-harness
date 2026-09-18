@@ -145,6 +145,7 @@ builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>(
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
+builder.Services.AddScoped<IAgentModelConfigService, AgentModelConfigService>();
 builder.Services.AddSingleton<IAgentOrchestrationService, AgentOrchestrationService>();
 builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequiredService<IAgentOrchestrationService>());
 
@@ -1555,10 +1556,55 @@ agents.MapPost("executions", async (
     IAgentOrchestrationService orchestration,
     CancellationToken ct) =>
 {
+    // SPEC-20260918-agent-model-config RF-001: fail fast on a malformed repo
+    // slug instead of burning an agent run and failing at move-to-review.
+    if (!IsGitHubRepoFullName(request.RepositoryFullName))
+    {
+        return Results.BadRequest(new { error = "invalid-repository" });
+    }
+
     var queued = await orchestration.EnqueueAsync(request, ct);
     return queued
         ? Results.Accepted()
         : Results.UnprocessableEntity(new { error = "agent-not-eligible", agentType = request.AgentType.ToString() });
+});
+
+// SPEC-20260918-agent-model-config: per-CLI tier model configuration.
+agents.MapGet("{agentType}/models", async (
+    AgentType agentType,
+    IAgentModelConfigService modelConfig,
+    CancellationToken ct) =>
+{
+    var config = await modelConfig.GetConfigAsync(agentType, ct);
+    return config.SupportsModelSelection
+        ? Results.Ok(config)
+        : Results.UnprocessableEntity(new { error = "model-selection-unsupported", agentType = agentType.ToString() });
+});
+
+agents.MapPut("{agentType}/models", async (
+    AgentType agentType,
+    SaveAgentModelConfigRequest body,
+    IAgentModelConfigService modelConfig,
+    CancellationToken ct) =>
+{
+    try
+    {
+        await modelConfig.SetConfigAsync(agentType, body, ct);
+        return Results.Ok(await modelConfig.GetConfigAsync(agentType, ct));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = "invalid-model", message = ex.Message });
+    }
+});
+
+agents.MapDelete("{agentType}/models", async (
+    AgentType agentType,
+    IAgentModelConfigService modelConfig,
+    CancellationToken ct) =>
+{
+    await modelConfig.DeleteConfigAsync(agentType, ct);
+    return Results.Ok(await modelConfig.GetConfigAsync(agentType, ct));
 });
 
 agents.MapGet("runs", async (
@@ -1913,3 +1959,7 @@ static async System.Threading.Tasks.Task RecordIssueHistoryAsync(
         // History is auxiliary — never break the request over it.
     }
 }
+
+static bool IsGitHubRepoFullName(string? value) =>
+    value is not null
+    && System.Text.RegularExpressions.Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");

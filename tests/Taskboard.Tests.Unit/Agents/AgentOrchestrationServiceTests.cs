@@ -288,10 +288,16 @@ public class AgentOrchestrationServiceTests
                 DateTimeOffset.UtcNow, null)));
         var eligibilityService = eligibility ?? EligibilityPadrao();
 
+        var modelConfig = Substitute.For<IAgentModelConfigService>();
+        modelConfig.ResolveModelAsync(
+                Arg.Any<AgentType>(), Arg.Any<AgentModelTier>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<string?>(null));
+
         var services = new ServiceCollection();
         services.AddScoped(_ => repository);
         services.AddScoped(_ => runRepository);
         services.AddScoped(_ => eligibilityService);
+        services.AddScoped(_ => modelConfig);
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         return new(
