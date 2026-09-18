@@ -53,6 +53,32 @@ public class AgentPromptTemplateTests
         rendered.ShouldContain("Issue: t");
         rendered.ShouldContain("b");
     }
+
+    [Fact]
+    public void Dado_TemplateComIssueComments_Quando_Renderizar_Entao_SubstituiComentarios()
+    {
+        var rendered = AgentPromptTemplate.Render(
+            "Issue: {issueTitle}\n{issueBody}\n\n{issueComments}",
+            "u", "T", "B", "Comments:\n- dev (2026-09-18): handoff note");
+
+        rendered.ShouldBe("Issue: T\nB\n\nComments:\n- dev (2026-09-18): handoff note");
+    }
+
+    [Fact]
+    public void Dado_TemplateComIssueComments_Quando_SemComentarios_Entao_PlaceholderVazio()
+    {
+        var rendered = AgentPromptTemplate.Render(
+            "{issueBody}\n\n{issueComments}", "u", "T", "B", null);
+
+        rendered.ShouldBe("B");
+    }
+
+    [Fact]
+    public void Dado_Builtin_Quando_Renderizar_Entao_TerminaComPlaceholderDeComentarios()
+    {
+        AgentPromptTemplate.Builtin.TrimEnd().ShouldEndWith("{issueComments}");
+        AgentPromptTemplate.HasCommentsPlaceholder(AgentPromptTemplate.Builtin).ShouldBeTrue();
+    }
 }
 
 public class AgentCliInvocationTests
