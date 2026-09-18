@@ -99,6 +99,15 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         return await repository.GetByIssueIdAsync(issueId, cancellationToken);
     }
 
+    public async Task ClearLogsAsync(string issueId, CancellationToken cancellationToken = default)
+    {
+        _logs.TryRemove(issueId, out _);
+
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAgentLogRepository>();
+        await repository.DeleteByIssueIdAsync(issueId, cancellationToken);
+    }
+
     public Task CancelAsync(string issueId, CancellationToken cancellationToken = default)
     {
         if (_running.TryGetValue(issueId, out var job))

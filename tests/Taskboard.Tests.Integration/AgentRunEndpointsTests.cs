@@ -83,6 +83,63 @@ public class AgentRunEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         active!.Any(r => r?["issueId"]?.GetValue<string>() == issueId).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task Dado_LogsDeIssue_Quando_Delete_Entao_204ELogsEsvaziados()
+    {
+        // Covers RF-002 / AC-2: DELETE limpa o histórico persistido.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var issueId = $"issue-clear-{Guid.NewGuid():N}";
+        await client.PostAsJsonAsync("/api/agents/executions", CriarRequest(issueId, AgentType.Codex));
+
+        var deleteResponse = await client.DeleteAsync($"/api/agents/logs/{issueId}");
+
+        deleteResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_DeleteLogs_Entao_Retorna401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.DeleteAsync("/api/agents/logs/issue-x");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_PromptTemplate_Quando_GetEPut_Entao_200E204()
+    {
+        // Covers RF-004: GET retorna template efetivo, PUT salva override.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var getResponse = await client.GetAsync("/api/agents/prompt-template");
+        getResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await getResponse.Content.ReadFromJsonAsync<JsonObject>();
+        body?["template"]?.GetValue<string>().ShouldNotBeNullOrEmpty();
+
+        var putResponse = await client.PutAsJsonAsync(
+            "/api/agents/prompt-template", new { template = "Clone {repoUrl}." });
+        putResponse.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        var getAfter = await client.GetAsync("/api/agents/prompt-template");
+        var bodyAfter = await getAfter.Content.ReadFromJsonAsync<JsonObject>();
+        bodyAfter?["template"]?.GetValue<string>().ShouldBe("Clone {repoUrl}.");
+        bodyAfter?["customized"]?.GetValue<bool>().ShouldBeTrue();
+
+        await client.PutAsJsonAsync("/api/agents/prompt-template", new { template = "" });
+    }
+
+    [Fact]
+    public async Task Dado_TemplateMuitoLongo_Quando_Put_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PutAsJsonAsync(
+            "/api/agents/prompt-template", new { template = new string('x', 9000) });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
     private static AgentExecutionRequest CriarRequest(string issueId, AgentType agentType) =>
         new(issueId, 42, "owner/repo", "/tmp", null, null, "instruções", agentType);
 }

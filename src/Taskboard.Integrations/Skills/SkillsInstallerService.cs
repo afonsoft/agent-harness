@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Integrations.Agents;
 using Taskboard.Skills;
@@ -38,6 +39,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
     private readonly Func<CancellationToken, Task<string?>>? _accessTokenProvider;
     private readonly ISkillsInstallRunner _runner;
     private readonly Func<string, string?> _locator;
+    private readonly SkillsOperationLog? _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private volatile SkillsSyncState _state = SkillsSyncState.Idle;
@@ -50,7 +52,8 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
         string homeDirectory,
         Func<CancellationToken, Task<string?>>? accessTokenProvider = null,
         ISkillsInstallRunner? runner = null,
-        Func<string, string?>? executableLocator = null)
+        Func<string, string?>? executableLocator = null,
+        SkillsOperationLog? log = null)
     {
         _configuration = configuration;
         _logger = logger;
@@ -60,6 +63,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
         _accessTokenProvider = accessTokenProvider;
         _runner = runner ?? ProcessSkillsInstallRunner.Instance;
         _locator = executableLocator ?? PathSearch.FindExecutable;
+        _log = log;
     }
 
     public SkillsInstallStatus GetStatus()
@@ -123,6 +127,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
     {
         var locations = ScanLocations();
         var total = locations.Sum(l => l.Count);
+        _log?.Info($"Skills verify: {total} skill(s) found in {locations.Count} location(s).");
 
         var manifest = InstallManifest.Load(_manifestPath) ?? new InstallManifest();
         manifest.SkillCount = total;
@@ -145,6 +150,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
         try
         {
             repository = SkillsRepository.Resolve(_configuration);
+            _log?.Info($"Skills install started — repository '{repository}'.");
 
             var missing = RequiredTools.Where(tool => _locator(tool) is null).ToList();
             if (missing.Count > 0)
@@ -205,6 +211,19 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
                 }
             }
 
+            foreach (var step in steps)
+            {
+                var line = $"Step {step.Name}: {step.State}";
+                if (step.State == SkillsInstallStepState.Failed)
+                {
+                    _log?.Error($"{line} — {Sanitize(step.Message)}");
+                }
+                else
+                {
+                    _log?.Info(step.Message is null ? line : $"{line} — {step.Message}");
+                }
+            }
+
             _state = steps.Any(s => s.State == SkillsInstallStepState.Failed)
                 ? SkillsSyncState.Failed
                 : SkillsSyncState.Succeeded;
@@ -220,10 +239,14 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
             _logger.LogWarning(ex, "Skills install failed for repository {Repository}.", repository);
             _state = SkillsSyncState.Failed;
             error = Sanitize(ex.Message);
+            _log?.Error($"Skills install failed: {error}");
         }
 
         var locations = ScanLocations();
         var total = locations.Sum(l => l.Count);
+        _log?.Info(
+            $"Skills install finished: {_state} — {total} skill(s) in " +
+            $"{locations.Count} location(s), {stopwatch.ElapsedMilliseconds} ms.");
 
         _lastRun = new LastRun(started, stopwatch.ElapsedMilliseconds, repository, steps, error);
         new InstallManifest

@@ -69,6 +69,9 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Terminal:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "TASKBOARD_TERMINAL_ENABLED", Validate: ValidateBoolean),
+        new("Taskboard:Agents:DefaultPrompt", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "TASKBOARD_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),
     ];
 
     private readonly IConfiguration _configuration;
@@ -262,6 +265,11 @@ public sealed class RuntimeConfigurationService
         bool.TryParse(value.Trim(), out _)
             ? null
             : "Value must be 'true' or 'false'.";
+
+    private static string? ValidateDefaultPrompt(string value) =>
+        value.Length <= Taskboard.Application.Contracts.Agents.AgentPromptTemplate.MaxLength
+            ? null
+            : $"Prompt template must be at most {Taskboard.Application.Contracts.Agents.AgentPromptTemplate.MaxLength} characters.";
 
     private static string? ValidateLogLevel(string value) =>
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)

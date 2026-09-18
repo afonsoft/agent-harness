@@ -38,6 +38,7 @@ using Taskboard.Integrations.Skills;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Mcp;
+using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Settings;
@@ -143,26 +144,32 @@ builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequire
 var homeDir = builder.Configuration["Taskboard:HomeDir"]
     ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+builder.Services.AddSingleton<SkillsOperationLog>();
+builder.Services.AddSingleton<McpOperationLog>();
+
 builder.Services.AddSingleton<ISkillsSyncService>(sp => new SkillsSyncService(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<ILogger<SkillsSyncService>>(),
     Path.Join(dataDir, "skills-cache"),
     homeDir,
     async ct => await ResolveEnabledAgentsAsync(sp, ct),
-    async ct => await ResolveGitHubTokenAsync(sp, ct)));
+    async ct => await ResolveGitHubTokenAsync(sp, ct),
+    sp.GetRequiredService<SkillsOperationLog>()));
 
 builder.Services.AddSingleton<ISkillsInstallerService>(sp => new SkillsInstallerService(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<ILogger<SkillsInstallerService>>(),
     dataDir,
     homeDir,
-    async ct => await ResolveGitHubTokenAsync(sp, ct)));
+    async ct => await ResolveGitHubTokenAsync(sp, ct),
+    log: sp.GetRequiredService<SkillsOperationLog>()));
 
 builder.Services.AddSingleton<IMcpProvisioningService>(sp => new McpProvisioningService(
     sp.GetRequiredService<IConfiguration>(),
     sp.GetRequiredService<ILogger<McpProvisioningService>>(),
     homeDir,
-    async ct => await ResolveEnabledAgentsAsync(sp, ct)));
+    async ct => await ResolveEnabledAgentsAsync(sp, ct),
+    sp.GetRequiredService<McpOperationLog>()));
 
 builder.Services.AddSingleton<IAgentCliStatusService>(sp => new AgentCliStatusService(
     homeDir,
@@ -1375,9 +1382,48 @@ agents.MapGet("logs/{issueId}", async (string issueId, IAgentOrchestrationServic
     return Results.Ok(new { logs });
 });
 
+agents.MapDelete("logs/{issueId}", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>
+{
+    await orchestration.ClearLogsAsync(issueId, ct);
+    return Results.NoContent();
+});
+
 agents.MapPost("executions/{issueId}/cancel", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>
 {
     await orchestration.CancelAsync(issueId, ct);
+    return Results.NoContent();
+});
+
+agents.MapGet("prompt-template", (IConfiguration configuration) =>
+{
+    var configured = configuration[AgentPromptTemplate.ConfigurationKey];
+    return Results.Ok(new
+    {
+        template = string.IsNullOrWhiteSpace(configured) ? AgentPromptTemplate.Builtin : configured,
+        builtin = AgentPromptTemplate.Builtin,
+        customized = !string.IsNullOrWhiteSpace(configured) && configured != AgentPromptTemplate.Builtin
+    });
+});
+
+agents.MapPut("prompt-template", async (
+    PromptTemplateRequest request,
+    RuntimeConfigurationService configuration,
+    SqliteConfigurationProvider overridesProvider,
+    CancellationToken ct) =>
+{
+    if (request.Template is { Length: > AgentPromptTemplate.MaxLength })
+    {
+        return Results.BadRequest(new { error = "template-too-long", max = AgentPromptTemplate.MaxLength });
+    }
+
+    var result = await configuration.SetOverrideAsync(
+        AgentPromptTemplate.ConfigurationKey, request.Template ?? string.Empty, ct);
+    if (result.Error is not ConfigurationWriteError.None)
+    {
+        return ConfigurationError(result);
+    }
+
+    overridesProvider.Reload();
     return Results.NoContent();
 });
 
@@ -1411,6 +1457,11 @@ api.MapPost("skills/install/verify", async (
     Results.Ok(await installer.VerifyAsync(ct)))
     .RequireAuthorization();
 
+// SPEC-20260918-agent-execution-ux RF-006: process log of install/sync runs.
+api.MapGet("skills/log", (SkillsOperationLog log) =>
+    Results.Ok(log.Snapshot()))
+    .RequireAuthorization();
+
 api.MapGet("agent-clis", async (IAgentCliStatusService agentClis, CancellationToken ct) =>
     Results.Ok(await agentClis.GetStatusAsync(ct)))
     .RequireAuthorization();
@@ -1424,6 +1475,11 @@ api.MapPost("mcp/sync", (IMcpProvisioningService mcp) =>
     mcp.RequestProvision();
     return Results.Json(mcp.GetStatus(), statusCode: StatusCodes.Status202Accepted);
 }).RequireAuthorization();
+
+// SPEC-20260918-agent-execution-ux RF-007: process log of provisioning runs.
+api.MapGet("mcp/log", (McpOperationLog log) =>
+    Results.Ok(log.Snapshot()))
+    .RequireAuthorization();
 
 api.MapPut("mcp/rag", async (
     SaveRagMcpRequest request,

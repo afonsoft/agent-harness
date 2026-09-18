@@ -14,4 +14,9 @@ public interface IAgentLogRepository
     /// Recupera as mensagens de log de uma issue, ordenadas por Timestamp.
     /// </summary>
     Task<IReadOnlyList<AgentLogMessage>> GetByIssueIdAsync(string issueId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Remove todas as mensagens de log de uma issue.
+    /// </summary>
+    Task DeleteByIssueIdAsync(string issueId, CancellationToken cancellationToken = default);
 }

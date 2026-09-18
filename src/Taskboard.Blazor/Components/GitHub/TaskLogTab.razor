@@ -6,9 +6,14 @@
 <div class="agent-log-tab">
     <div class="agent-log-header">
         <strong>Logs do Agente</strong>
-        <Button Color="ButtonColor.Danger" Outline="true" Size="ButtonSize.Small" @onclick="CancelAsync">
-            Cancelar
-        </Button>
+        <div class="d-flex gap-2">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ClearAsync" Disabled="_messages.Count == 0">
+                Limpar
+            </Button>
+            <Button Color="ButtonColor.Danger" Outline="true" Size="ButtonSize.Small" @onclick="CancelAsync">
+                Cancelar
+            </Button>
+        </div>
     </div>
 
     <div class="agent-log-console" id="log-console-@IssueId">
@@ -51,6 +56,19 @@
 
         await _hubConnection.StartAsync();
         await _hubConnection.InvokeAsync("SubscribeToIssue", IssueId);
+    }
+
+    private async Task ClearAsync()
+    {
+        try
+        {
+            await OrchestrationService.ClearLogsAsync(IssueId);
+            _messages.Clear();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao limpar logs: {ex.Message}"));
+        }
     }
 
     private async Task CancelAsync()

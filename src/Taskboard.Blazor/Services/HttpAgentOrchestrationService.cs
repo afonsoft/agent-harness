@@ -37,6 +37,13 @@ public sealed class HttpAgentOrchestrationService(HttpClient http) : IAgentOrche
         return result?.Logs ?? [];
     }
 
+    public async Task ClearLogsAsync(string issueId, CancellationToken cancellationToken = default)
+    {
+        var response = await http.DeleteAsync(
+            $"/api/agents/logs/{Uri.EscapeDataString(issueId)}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     public async Task CancelAsync(string issueId, CancellationToken cancellationToken = default)
     {
         var response = await http.PostAsync(

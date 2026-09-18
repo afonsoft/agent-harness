@@ -70,7 +70,7 @@ public static class JsonConfigMerger
     /// Returns the URL of the managed entry, or null when absent/missing file.
     /// Throws when the file exists but is not a JSON object.
     /// </summary>
-    public static string? ReadManagedUrl(string path, string containerKey, string name)
+    public static string? ReadManagedUrl(string path, string containerKey, string name, string urlKey = "url")
     {
         if (!File.Exists(path))
         {
@@ -81,7 +81,7 @@ public static class JsonConfigMerger
             ?? throw new InvalidDataException("config file is not a JSON object");
         return node[containerKey] is JsonObject container
             && container[name] is JsonObject entry
-                ? entry["url"]?.GetValue<string>()
+                ? entry[urlKey]?.GetValue<string>()
                 : null;
     }
 

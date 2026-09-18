@@ -1,5 +1,6 @@
 @using System.Globalization
 @inject IAgentOrchestrationService OrchestrationService
+@inject IAgentPromptTemplateService PromptTemplateService
 @inject ToastService ToastService
 @inject IJSRuntime JS
 
@@ -26,6 +27,18 @@ else if (_agents is { Count: 0 })
 else if (_agents is not null)
 {
     <div class="pt-3">
+        @if (!string.IsNullOrWhiteSpace(RepositoryFullName))
+        {
+            <div class="mb-3">
+                <label class="form-label">Repositório</label>
+                <div>
+                    <a href="https://github.com/@RepositoryFullName" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
+                        <i class="bi bi-github me-1"></i>@RepositoryFullName
+                    </a>
+                </div>
+            </div>
+        }
+
         <div class="mb-3">
             <label for="cfg-agent-select" class="form-label">Agente</label>
             <select id="cfg-agent-select" class="form-select" @bind="_selectedAgentType">
@@ -36,6 +49,11 @@ else if (_agents is not null)
                     </option>
                 }
             </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Comando</label>
+            <pre class="agent-command-preview border rounded p-2 mb-0 small"><code>@AgentCliInvocation.PreviewCommandLine(_selectedAgentType)</code></pre>
         </div>
 
         <div class="mb-3">
@@ -82,6 +100,24 @@ else if (_agents is not null)
     private AgentInfo? SelectedAgent =>
         _agents?.FirstOrDefault(a => a.Type == _selectedAgentType);
 
+    private string RepoCloneUrl =>
+        string.IsNullOrWhiteSpace(RepositoryFullName)
+            ? string.Empty
+            : $"https://github.com/{RepositoryFullName}.git";
+
+    private async Task<string?> LoadTemplateAsync()
+    {
+        try
+        {
+            var info = await PromptTemplateService.GetTemplateAsync();
+            return info.Template;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (Issue is null || _agents is not null)
@@ -100,11 +136,19 @@ else if (_agents is not null)
             }
 
             var saved = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-            _prompt = !string.IsNullOrWhiteSpace(saved)
-                ? saved
-                : (string.IsNullOrWhiteSpace(Issue.Body)
-                    ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
-                    : Issue.Body);
+            if (!string.IsNullOrWhiteSpace(saved))
+            {
+                _prompt = saved;
+            }
+            else
+            {
+                var template = await LoadTemplateAsync();
+                _prompt = !string.IsNullOrWhiteSpace(template)
+                    ? AgentPromptTemplate.Render(template, RepoCloneUrl, Issue.Title, Issue.Body)
+                    : (string.IsNullOrWhiteSpace(Issue.Body)
+                        ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
+                        : Issue.Body);
+            }
         }
         catch (Exception ex)
         {

@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Skills;
 
@@ -30,6 +31,7 @@ public sealed class SkillsSyncService : ISkillsSyncService
     private readonly string _homeDirectory;
     private readonly Func<CancellationToken, Task<IReadOnlyCollection<AgentType>>> _enabledAgentsProvider;
     private readonly Func<CancellationToken, Task<string?>>? _accessTokenProvider;
+    private readonly SkillsOperationLog? _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private volatile SkillsSyncStatus _status = SkillsSyncStatus.Empty;
@@ -42,7 +44,8 @@ public sealed class SkillsSyncService : ISkillsSyncService
         string cacheDirectory,
         string homeDirectory,
         Func<CancellationToken, Task<IReadOnlyCollection<AgentType>>> enabledAgentsProvider,
-        Func<CancellationToken, Task<string?>>? accessTokenProvider = null)
+        Func<CancellationToken, Task<string?>>? accessTokenProvider = null,
+        SkillsOperationLog? log = null)
     {
         _configuration = configuration;
         _logger = logger;
@@ -50,6 +53,7 @@ public sealed class SkillsSyncService : ISkillsSyncService
         _homeDirectory = homeDirectory;
         _enabledAgentsProvider = enabledAgentsProvider;
         _accessTokenProvider = accessTokenProvider;
+        _log = log;
     }
 
     public SkillsSyncStatus GetStatus() => _status;
@@ -110,24 +114,32 @@ public sealed class SkillsSyncService : ISkillsSyncService
                 ? null
                 : await _accessTokenProvider(cancellationToken).ConfigureAwait(false);
 
+            _log?.Info($"Skills sync started — repository '{repository}', {targets.Count} target(s).");
+
             var timeout = GetTimeout();
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(timeout);
 
             await EnsureCacheAsync(repository, token, timeoutSource.Token).ConfigureAwait(false);
             var skills = LoadSourceSkills();
+            _log?.Info($"Skills cache updated — {skills.Count} skill(s) loaded.");
 
             var results = new List<AgentSyncResult>();
             foreach (var agent in targets)
             {
                 try
                 {
-                    results.Add(SyncAgent(agent, skills, repository));
+                    var result = SyncAgent(agent, skills, repository);
+                    results.Add(result);
+                    _log?.Info(
+                        $"{result.AgentType}: +{result.Installed} installed, ~{result.Updated} updated, " +
+                        $"={result.Skipped} skipped.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Skills sync failed for agent {AgentType}.", agent);
                     results.Add(new AgentSyncResult(agent.ToString(), 0, 0, 0, ex.Message));
+                    _log?.Error($"{agent}: {ex.Message}");
                 }
             }
 
@@ -142,11 +154,13 @@ public sealed class SkillsSyncService : ISkillsSyncService
                 repository,
                 state == SkillsSyncState.Failed ? "One or more agents failed to synchronize." : null,
                 results);
+            _log?.Info($"Skills sync finished: {state} in {stopwatch.ElapsedMilliseconds} ms.");
             return _status;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Skills sync failed for repository {Repository}.", repository);
+            _log?.Error($"Skills sync failed: {ex.Message}");
             _status = new SkillsSyncStatus(
                 SkillsSyncState.Failed,
                 started,
