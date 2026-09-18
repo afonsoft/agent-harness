@@ -35,8 +35,24 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
             ? Environment.CurrentDirectory
             : request.RepoPath;
 
-        return new AgentCommand(executablePath, [prompt], workingDirectory);
+        return new AgentCommand(executablePath, BuildArguments(request.AgentType, prompt), workingDirectory);
     }
+
+    private static IReadOnlyList<string> BuildArguments(AgentType agentType, string prompt) => agentType switch
+    {
+        // devin [PATH]... exige -p/--print para modo não-interativo; sem ele o prompt vira PATH.
+        // --respect-workspace-trust false: print mode falha em diretório não confiável.
+        AgentType.Devin => ["--respect-workspace-trust", "false", "-p", prompt],
+        // claude -p para modo não-interativo; sem TTY as permissões precisam ser ignoradas.
+        AgentType.Claude => ["--dangerously-skip-permissions", "-p", prompt],
+        // codex exec é o modo não-interativo; --approve-for-me auto-aprova via sandbox workspace-write.
+        AgentType.Codex => ["exec", "--approve-for-me", "--skip-git-repo-check", prompt],
+        // opencode run executa uma mensagem e sai.
+        AgentType.OpenCode => ["run", prompt],
+        // agy -p/--print executa um prompt único e sai.
+        AgentType.Antigravity => ["-p", prompt],
+        _ => [prompt]
+    };
 
     private static string BuildPrompt(AgentExecutionRequest request)
     {
