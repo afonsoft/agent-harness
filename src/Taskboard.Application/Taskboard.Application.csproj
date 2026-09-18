@@ -3,6 +3,9 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Taskboard.Tests.Unit" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Taskboard.Domain.Shared/Taskboard.Domain.Shared.csproj" />
     <ProjectReference Include="../Taskboard.Domain/Taskboard.Domain.csproj" />
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />

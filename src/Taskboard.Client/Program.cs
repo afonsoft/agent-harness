@@ -30,6 +30,7 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
     sp.GetRequiredService<TaskboardAuthStateProvider>());
 
 builder.Services.AddScoped<IGitHubService, HttpGitHubService>();
+builder.Services.AddScoped<ITimelineMetricsService, HttpTimelineMetricsService>();
 builder.Services.AddScoped<IAgentOrchestrationService, HttpAgentOrchestrationService>();
 builder.Services.AddScoped<HttpAgentModelConfigService>();
 builder.Services.AddScoped<IAgentModelConfigService>(sp => sp.GetRequiredService<HttpAgentModelConfigService>());

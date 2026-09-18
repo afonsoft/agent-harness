@@ -1,66 +1,119 @@
 @page "/gantt"
 @attribute [Authorize]
-@inject TaskboardClient Client
+@inject IGitHubService GitHubService
+@inject ITimelineMetricsService Timeline
 
 <PageTitle>Gantt - Harness</PageTitle>
 
 <h1 class="h4 fw-bold mb-1">Gantt</h1>
-<p class="small text-body-secondary mb-4">Timeline de tarefas por projeto</p>
+<p class="small text-body-secondary mb-4">Issue timeline and kanban flow metrics</p>
 
 @if (_isLoading)
 {
-    <Loading Message="Carregando projetos..." />
-}
-else if (_errorMessage is not null)
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-else if (!_projects.Any())
-{
-    <EmptyState Message="Nenhum projeto encontrado." />
+    <Loading Message="Loading repositories..." />
 }
 else
 {
-    <div class="card">
-        <div class="card-body">
-            <div class="field mb-3" style="max-width: 320px;">
-                <label for="gantt-project">Projeto</label>
-                <select id="gantt-project" class="form-select form-select-sm" aria-label="Projeto"
-                        @bind="_selectedProjectId" @bind:after="OnProjectChangedAsync" disabled="@_isTasksLoading">
-                    @foreach (var project in _projects)
-                    {
-                        <option value="@project.Id">@project.Name</option>
-                    }
-                </select>
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="field" style="max-width: 320px;">
+                <label for="gantt-repo">Repository</label>
+                <RepositoryCombobox Id="gantt-repo"
+                                    AriaLabel="Repository"
+                                    Placeholder="owner/repo"
+                                    Repositories="@_repoNames"
+                                    Disabled="@_tokenMissing"
+                                    @bind-Value="_repoInput"
+                                    OnCommit="OnRepoCommitted" />
             </div>
+        </div>
+    </div>
 
-            @if (_isTasksLoading)
-            {
-                <Loading Message="Carregando tarefas..." />
-            }
-            else if (!_scheduled.Any() && !_unscheduled.Any())
-            {
-                <EmptyState Message="Nenhuma tarefa neste projeto." />
-            }
-            else
-            {
-                @if (_scheduled.Any())
-                {
-                    <div class="gantt-chart" role="img" aria-label="Timeline de tarefas">
+    @if (_repoWarning is not null)
+    {
+        <div class="alert alert-warning">@_repoWarning</div>
+    }
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+
+    @if (_isTimelineLoading)
+    {
+        <Loading Message="Loading timeline..." />
+    }
+    else if (_timeline is not null)
+    {
+        @if (_metrics is not null)
+        {
+            <div class="card mb-3">
+                <div class="card-body py-3">
+                    <div class="gantt-metrics">
+                        <div>
+                            <div class="gantt-metric-label">Lead time (avg)</div>
+                            <div class="gantt-metric-value">@FormatDays(_metrics.LeadTimeAvgDays)</div>
+                        </div>
+                        <div>
+                            <div class="gantt-metric-label">Lead time (median)</div>
+                            <div class="gantt-metric-value">@FormatDays(_metrics.LeadTimeMedianDays)</div>
+                        </div>
+                        <div>
+                            <div class="gantt-metric-label">Cycle time (avg)</div>
+                            <div class="gantt-metric-value">@FormatDays(_metrics.CycleTimeAvgDays)</div>
+                        </div>
+                        <div>
+                            <div class="gantt-metric-label">WIP</div>
+                            <div class="gantt-metric-value">@_metrics.Wip</div>
+                        </div>
+                        <div>
+                            <div class="gantt-metric-label">Aging (median)</div>
+                            <div class="gantt-metric-value">@FormatDays(_metrics.OpenMedianAgeDays)</div>
+                        </div>
+                        <div>
+                            <div class="gantt-metric-label">Throughput / week</div>
+                            <div class="gantt-throughput" title="@ThroughputTitle()">
+                                @foreach (var point in _metrics.ThroughputPerWeek)
+                                {
+                                    <div class="gantt-throughput-bar"
+                                         style="height: @ThroughputHeight(point)%"
+                                         title="@point.WeekStart.ToString("dd/MM") — @point.Closed closed"></div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (!_timeline.Issues.Any())
+        {
+            <EmptyState Message="No issues in this repository for the selected window." />
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="gantt-chart" role="img" aria-label="Issue timeline">
                         <div class="gantt-header">
                             <span>@_rangeStart.ToString("dd/MM/yyyy")</span>
                             <span>@_rangeEnd.ToString("dd/MM/yyyy")</span>
                         </div>
-                        @foreach (var task in _scheduled)
+                        @foreach (var issue in _timeline.Issues)
                         {
-                            <div class="gantt-row" @key="task.Id">
-                                <div class="gantt-label" title="@task.Title">@task.Identifier — @task.Title</div>
+                            <div class="gantt-row" @key="issue.Id">
+                                <div class="gantt-label" title="@issue.Title">#@issue.Number — @issue.Title</div>
                                 <div class="gantt-track">
-                                    <div class="gantt-bar @GetBarClass(task)"
-                                         style="@GetBarStyle(task)"
-                                         title="@GetBarTitle(task)"></div>
+                                    <div class="gantt-bar @GetBarClass(issue)"
+                                         style="@GetBarStyle(issue)"
+                                         title="@GetBarTitle(issue)"></div>
+                                    @if (GetMilestoneOffset(issue) is { } milestoneOffset)
+                                    {
+                                        <div class="gantt-milestone"
+                                             style="left: @Percent(milestoneOffset)%"
+                                             title="Milestone due @issue.MilestoneDueOn!.Value.ToString("dd/MM/yyyy")"></div>
+                                    }
                                 </div>
-                                <div class="gantt-dates small text-body-secondary">@GetBarTitle(task)</div>
+                                <div class="gantt-dates small text-body-secondary">@GetBarTitle(issue)</div>
                             </div>
                         }
                         @if (GetTodayOffset() is { } todayOffset)
@@ -68,66 +121,60 @@ else
                             <div class="gantt-row gantt-today-row" aria-hidden="true">
                                 <div class="gantt-label"></div>
                                 <div class="gantt-track">
-                                    <div class="gantt-today" style="left: @todayOffset.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)%"
-                                         title="Hoje"></div>
+                                    <div class="gantt-today" style="left: @Percent(todayOffset)%"
+                                         title="Today"></div>
                                 </div>
-                                <div class="gantt-dates small text-body-secondary">Hoje</div>
+                                <div class="gantt-dates small text-body-secondary">Today</div>
                             </div>
                         }
                     </div>
-                }
-                else
-                {
-                    <EmptyState Message="Nenhuma tarefa com datas definidas." />
-                }
-
-                @if (_unscheduled.Any())
-                {
-                    <h2 class="h6 mt-4 mb-2">Sem datas (@_unscheduled.Count)</h2>
-                    <ul class="small text-body-secondary mb-0">
-                        @foreach (var task in _unscheduled.Take(10))
-                        {
-                            <li>@task.Identifier — @task.Title</li>
-                        }
-                        @if (_unscheduled.Count > 10)
-                        {
-                            <li>… e mais @(_unscheduled.Count - 10)</li>
-                        }
-                    </ul>
-                }
-            }
-        </div>
-    </div>
+                </div>
+            </div>
+        }
+    }
+    else if (!_tokenMissing)
+    {
+        <EmptyState Message="Type or select a repository to load the timeline." />
+    }
 }
 
 @code {
+    private const int WindowDays = 90;
+
     private bool _isLoading = true;
-    private bool _isTasksLoading;
+    private bool _isTimelineLoading;
+    private bool _tokenMissing;
+    private string? _repoWarning;
     private string? _errorMessage;
-    private List<ProjectDto> _projects = [];
-    private string _selectedProjectId = string.Empty;
-    private List<TaskDto> _scheduled = [];
-    private List<TaskDto> _unscheduled = [];
+    private IReadOnlyList<string> _repoNames = [];
+    private string? _selectedRepo;
+    private string _repoInput = string.Empty;
+    private RepoTimelineDto? _timeline;
+    private RepoMetricsDto? _metrics;
     private DateTime _rangeStart;
-    private DateTime _rangeEnd = DateTime.Today;
+    private DateTime _rangeEnd;
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            var projects = await Client.GetProjectsAsync();
-            _projects = projects.ToList();
-
-            var first = _projects.FirstOrDefault();
-            if (first is not null)
+            var repositories = await GitHubService.GetRepositoriesAsync();
+            _repoNames = repositories.Select(r => r.FullName).OrderBy(n => n).ToList();
+            if (_repoNames.Count > 0)
             {
-                _selectedProjectId = first.Id;
-                await LoadTasksAsync();
+                _selectedRepo = _repoNames[0];
+                _repoInput = _selectedRepo;
+                await LoadTimelineAsync();
             }
+        }
+        catch (InvalidOperationException)
+        {
+            _tokenMissing = true;
+            _repoWarning = "GitHub token not configured. Set the GITHUB_TOKEN environment variable or configure it in Settings.";
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Erro ao carregar projetos: {ex.Message}";
+            _repoWarning = $"Could not load GitHub repositories: {ex.Message}. You can still type a repository name.";
         }
         finally
         {
@@ -135,83 +182,138 @@ else
         }
     }
 
-    private async Task OnProjectChangedAsync()
+    private async Task OnRepoCommitted(string value)
     {
-        await LoadTasksAsync();
+        if (value == _selectedRepo)
+        {
+            return;
+        }
+
+        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+        {
+            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
+            _repoInput = _selectedRepo ?? string.Empty;
+            return;
+        }
+
+        _repoWarning = null;
+        _selectedRepo = value;
+        await LoadTimelineAsync();
     }
 
-    private async Task LoadTasksAsync()
+    private async Task LoadTimelineAsync()
     {
-        _isTasksLoading = true;
+        if (_selectedRepo is null)
+        {
+            return;
+        }
+
+        _isTimelineLoading = true;
+        _errorMessage = null;
         try
         {
-            var tasks = await Client.GetTasksAsync(_selectedProjectId);
-            var active = tasks.Where(t => t.ArchivedAt is null).ToList();
-            _scheduled = active.Where(t => t.StartDate is not null || t.DueDate is not null)
-                .OrderBy(t => GetStart(t))
-                .ToList();
-            _unscheduled = active.Where(t => t.StartDate is null && t.DueDate is null)
-                .OrderBy(t => t.Identifier)
-                .ToList();
+            var parts = _selectedRepo.Split('/', 2);
+            var timelineTask = Timeline.GetTimelineAsync(parts[0], parts[1], WindowDays);
+            var metricsTask = Timeline.GetMetricsAsync(parts[0], parts[1], WindowDays);
+            await Task.WhenAll(timelineTask, metricsTask);
+            _timeline = timelineTask.Result;
+            _metrics = metricsTask.Result;
 
-            if (_scheduled.Any())
-            {
-                _rangeStart = _scheduled.Min(t => GetStart(t)).Date;
-                _rangeEnd = _scheduled.Max(t => GetEnd(t)).Date;
-                if (_rangeEnd <= _rangeStart)
-                {
-                    _rangeEnd = _rangeStart.AddDays(1);
-                }
-            }
+            _rangeEnd = DateTime.UtcNow.Date;
+            _rangeStart = _rangeEnd.AddDays(-WindowDays);
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Erro ao carregar tarefas: {ex.Message}";
+            _errorMessage = $"Error loading timeline: {ex.Message}";
+            _timeline = null;
+            _metrics = null;
         }
         finally
         {
-            _isTasksLoading = false;
+            _isTimelineLoading = false;
         }
     }
 
-    private static DateTime GetStart(TaskDto task) => (task.StartDate ?? task.DueDate)!.Value;
-    private static DateTime GetEnd(TaskDto task) => (task.DueDate ?? task.StartDate)!.Value;
-
-    private double GetBarLeft(TaskDto task)
+    private double GetBarLeft(IssueTimelineDto issue)
     {
         var total = (_rangeEnd - _rangeStart).TotalDays;
-        var offset = (GetStart(task).Date - _rangeStart).TotalDays;
-        return Math.Clamp(offset / total * 100, 0, 100);
+        var start = issue.CreatedAt.UtcDateTime.Date;
+        var offset = (start < _rangeStart ? _rangeStart : start) - _rangeStart;
+        return Math.Clamp(offset.TotalDays / total * 100, 0, 100);
     }
 
-    private double GetBarWidth(TaskDto task)
+    private double GetBarWidth(IssueTimelineDto issue)
     {
         var total = (_rangeEnd - _rangeStart).TotalDays;
-        var days = Math.Max((GetEnd(task).Date - GetStart(task).Date).TotalDays, 1);
-        return Math.Clamp(days / total * 100, 1, 100 - GetBarLeft(task));
+        var start = issue.CreatedAt.UtcDateTime.Date;
+        var end = issue.ClosedAt?.UtcDateTime.Date ?? _rangeEnd;
+        if (end > _rangeEnd)
+        {
+            end = _rangeEnd;
+        }
+
+        var days = Math.Max((end - (start < _rangeStart ? _rangeStart : start)).TotalDays, 1);
+        return Math.Clamp(days / total * 100, 1, 100 - GetBarLeft(issue));
     }
 
-    private string GetBarStyle(TaskDto task)
+    private string GetBarStyle(IssueTimelineDto issue) =>
+        $"left: {Percent(GetBarLeft(issue))}%; width: {Percent(GetBarWidth(issue))}%";
+
+    private string GetBarClass(IssueTimelineDto issue)
     {
-        var left = GetBarLeft(task).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-        var width = GetBarWidth(task).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
-        return $"left: {left}%; width: {width}%";
+        var open = issue.ClosedAt is null ? " gantt-bar-open" : string.Empty;
+        return $"gantt-col-{issue.Column.ToLowerInvariant()}{open}";
     }
 
-    private string GetBarClass(TaskDto task) => $"gantt-bar-{(task.Priority ?? "none").ToLowerInvariant()}";
-
-    private string GetBarTitle(TaskDto task) =>
-        $"{GetStart(task):dd/MM/yyyy} → {GetEnd(task):dd/MM/yyyy}";
-
-    private double? GetTodayOffset()
+    private static string GetBarTitle(IssueTimelineDto issue)
     {
-        if (!_scheduled.Any())
+        var end = issue.ClosedAt?.UtcDateTime.ToString("dd/MM/yyyy") ?? "today";
+        var lead = issue.ClosedAt is null
+            ? $"{(int)(DateTime.UtcNow - issue.CreatedAt).TotalDays}d open"
+            : $"{(int)(issue.ClosedAt.Value - issue.CreatedAt).TotalDays}d";
+        var assignee = issue.AssigneeLogin is null ? string.Empty : $" • @{issue.AssigneeLogin}";
+        return $"{issue.CreatedAt.UtcDateTime:dd/MM/yyyy} → {end} • {issue.Column}{assignee} • {lead}";
+    }
+
+    private double? GetMilestoneOffset(IssueTimelineDto issue)
+    {
+        if (issue.MilestoneDueOn is null)
         {
             return null;
         }
 
         var total = (_rangeEnd - _rangeStart).TotalDays;
-        var offset = (DateTime.Today - _rangeStart).TotalDays;
+        var offset = (issue.MilestoneDueOn.Value.UtcDateTime.Date - _rangeStart).TotalDays;
         return offset >= 0 && offset <= total ? offset / total * 100 : null;
     }
+
+    private double? GetTodayOffset()
+    {
+        if (_timeline is null || !_timeline.Issues.Any())
+        {
+            return null;
+        }
+
+        var total = (_rangeEnd - _rangeStart).TotalDays;
+        var offset = (DateTime.UtcNow.Date - _rangeStart).TotalDays;
+        return offset >= 0 && offset <= total ? offset / total * 100 : null;
+    }
+
+    private int ThroughputHeight(ThroughputPointDto point)
+    {
+        var max = _metrics?.ThroughputPerWeek.Max(p => p.Closed) ?? 0;
+        return max <= 0 ? 8 : Math.Max(8, point.Closed * 100 / max);
+    }
+
+    private string ThroughputTitle() =>
+        _metrics is null
+            ? string.Empty
+            : string.Join(" · ", _metrics.ThroughputPerWeek.Select(p => $"{p.WeekStart:dd/MM}: {p.Closed}"));
+
+    private static string FormatDays(double? days) =>
+        days is null ? "—" : $"{days.Value:F1}d";
+
+    private static string Percent(double value) =>
+        value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
 }

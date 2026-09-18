@@ -48,6 +48,7 @@
 - Sincronização Jira
 - Kanban GitHub em `/github-board` através de `IGitHubService`
 - Labels do board GitHub: `backlog`, `in-progress`, `review`, `done`
+- Gantt em `/gantt` alimentado pelas issues do GitHub: barras `createdAt → closedAt` (issues abertas vão até hoje com estilo "em andamento"), losangos de `due_on` do milestone, barras coloridas por coluna e painel de métricas de kanban — lead time (média/mediana), cycle time (primeira saída do backlog → done), WIP, aging mediano das abertas e throughput semanal — calculados no servidor a partir dos eventos `labeled`/`unlabeled` do timeline mesclados com os `IssueHistoryEvent` locais
 - Autenticação do GitHub através de `GITHUB_TOKEN`
 - Harness DeepSeek
 - Helpers de execução (`CodexExecutableResolver`, `ProcessTreeSignaler`, `ExecutableCommand`)

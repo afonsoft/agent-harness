@@ -20,6 +20,7 @@ using Taskboard;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
+using Taskboard.Application.GitHub;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Events;
@@ -146,6 +147,7 @@ builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
 builder.Services.AddScoped<IAgentModelConfigService, AgentModelConfigService>();
+builder.Services.AddScoped<ITimelineMetricsService, TimelineMetricsService>();
 builder.Services.AddSingleton<IAgentOrchestrationService, AgentOrchestrationService>();
 builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequiredService<IAgentOrchestrationService>());
 
@@ -1545,6 +1547,43 @@ github.MapGet("issues/{issueId}/history", async (
         .ToList();
 
     return Results.Ok(new { items });
+});
+
+// SPEC-20260918-gantt-github-timeline: Gantt data + kanban flow metrics.
+github.MapGet("repos/{owner}/{repo}/timeline", async (
+    string owner,
+    string repo,
+    int? days,
+    ITimelineMetricsService metrics,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var timeline = await metrics.GetTimelineAsync(owner, repo, days ?? 90, ct);
+        return Results.Ok(timeline);
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "repo-not-found" });
+    }
+});
+
+github.MapGet("repos/{owner}/{repo}/metrics", async (
+    string owner,
+    string repo,
+    int? days,
+    ITimelineMetricsService metrics,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var result = await metrics.GetMetricsAsync(owner, repo, days ?? 90, ct);
+        return Results.Ok(result);
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "repo-not-found" });
+    }
 });
 
 var agents = api.MapGroup("agents").RequireAuthorization();

@@ -271,6 +271,49 @@ public sealed class GitHubService : IGitHubService
         return MapToDto(comment);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<MilestoneDto>> GetMilestonesAsync(
+        string repositoryFullName,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var request = new MilestoneRequest { State = ItemStateFilter.All };
+        var milestones = await _client.Issue.Milestone.GetAllForRepository(owner, name, request);
+        return milestones
+            .OrderBy(m => m.Number)
+            .Select(m => new MilestoneDto(
+                m.Number,
+                m.Title,
+                m.DueOn,
+                m.State.StringValue))
+            .ToList()
+            .AsReadOnly();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<IssueLabelEventDto>> GetIssueTimelineEventsAsync(
+        string repositoryFullName,
+        int issueNumber,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var events = await _client.Issue.Events.GetAllForIssue(owner, name, issueNumber);
+        return events
+            .Where(e => e.Label is not null
+                && (e.Event == EventInfoState.Labeled || e.Event == EventInfoState.Unlabeled))
+            .Select(e => new IssueLabelEventDto(
+                e.CreatedAt,
+                e.Label.Name,
+                e.Event == EventInfoState.Labeled))
+            .OrderBy(e => e.At)
+            .ToList()
+            .AsReadOnly();
+    }
+
     private static IssueCommentDto MapToDto(IssueComment comment) => new(
         comment.Id,
         comment.User?.Login,
@@ -317,7 +360,9 @@ public sealed class GitHubService : IGitHubService
             GitHubBoardColumnExtensions.ResolvePriority(labels),
             issue.CreatedAt,
             issue.UpdatedAt,
-            issue.ClosedAt);
+            issue.ClosedAt,
+            issue.Milestone?.Number,
+            issue.Milestone?.DueOn);
 
         return dto with { Column = GitHubBoardGrouper.ResolveColumn(dto) };
     }

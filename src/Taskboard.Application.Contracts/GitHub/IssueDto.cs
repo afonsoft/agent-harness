@@ -17,4 +17,6 @@ public sealed record IssueDto(
     string Priority,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt,
-    DateTimeOffset? ClosedAt);
+    DateTimeOffset? ClosedAt,
+    int? MilestoneNumber = null,
+    DateTimeOffset? MilestoneDueOn = null);

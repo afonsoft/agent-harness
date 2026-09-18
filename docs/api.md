@@ -185,6 +185,8 @@ POST  /api/github/repos/{owner}/{repo}/issues/{number}/close
 GET   /api/github/repos/{owner}/{repo}/issues/{number}/comments?take=50
 POST  /api/github/repos/{owner}/{repo}/issues/{number}/comments
 GET   /api/github/issues/{issueId}/history?take=50
+GET   /api/github/repos/{owner}/{repo}/timeline?days=90
+GET   /api/github/repos/{owner}/{repo}/metrics?days=90
 ```
 
 Kanban state is label-backed: `PATCH .../issues/{n}` edits `{ title?, body }` (markdown body rendered sanitized in the UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` swaps the `priority:*` labels (`none` removes them); `POST .../close` `{ "resolution": "canceled|archived" }` closes the issue — `canceled` also applies the `canceled` label (Canceled column), `archived` closes without a column label (Archived). All return `200 { issue }`; invalid enum values → `400`, unknown issue → `404`, anonymous → `401`.
@@ -192,6 +194,8 @@ Kanban state is label-backed: `PATCH .../issues/{n}` edits `{ title?, body }` (m
 Every board-side mutation is also persisted as an `IssueHistoryEvent` (`column-moved` with `from`/`to`, `edited` with the changed fields, `closed` with the resolution) keyed by the GitHub issue id — best-effort, never fails the mutation. `GET .../issues/{issueId}/history` merges those events with the issue's agent runs into `200 { items: [{ kind, occurredAt, agentType?, agentRunState?, finishedAt?, from?, to?, detail? }] }` newest-first — the data behind the `Histórico` tab in the issue dialog.
 
 Issue comments live in GitHub (never persisted locally): `GET .../issues/{n}/comments` returns `200 { comments: [{ id, authorLogin, body, createdAt, updatedAt, htmlUrl }] }` chronological, `POST` `{ "body" }` creates one (`400 { "error": "empty-body" }` on blank, `404 { "error": "issue-not-found" }`). The `Comentários` tab lists/posts them, and the agent prompt renderer appends them automatically as a bounded `Comments:` section (~3k chars, omitted when empty, fetch failures never block the run).
+
+The Gantt timeline and kanban metrics come from `GET .../repos/{owner}/{repo}/timeline` → `200 { issues: [{ id, number, title, column, priority, assigneeLogin, createdAt, closedAt, milestoneNumber, milestoneDueOn, transitions: [{ at, from, to }] }], milestones: [{ number, title, dueOn, state }] }` and `GET .../repos/{owner}/{repo}/metrics` → `200 { leadTimeAvgDays, leadTimeMedianDays, cycleTimeAvgDays, throughputPerWeek: [{ weekStart, closed }], wip, openMedianAgeDays }`. Both take `days` (default 90) — issues closed before the window are excluded; transitions replay the issue's `labeled`/`unlabeled` GitHub events merged with local `IssueHistoryEvent` records (deduplicated by `(at, from, to)`); per-issue timeline fetches run bounded (≤8 concurrent) and best-effort. Unknown repo → `404 { "error": "repo-not-found" }`.
 
 ### Agent Orchestration
 

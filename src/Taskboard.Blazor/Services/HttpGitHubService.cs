@@ -167,6 +167,24 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         return result!.Comment;
     }
 
+    public async Task<IReadOnlyList<MilestoneDto>> GetMilestonesAsync(
+        string repositoryFullName,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var result = await http.GetFromJsonAsync<RepoTimelineDto>(
+            $"/api/github/repos/{owner}/{repo}/timeline?days=90",
+            cancellationToken);
+        return result?.Milestones ?? [];
+    }
+
+    public Task<IReadOnlyList<IssueLabelEventDto>> GetIssueTimelineEventsAsync(
+        string repositoryFullName,
+        int issueNumber,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "Raw label events are server-side only — the client reads the aggregated timeline via ITimelineMetricsService.");
+
     private static (string Owner, string Repo) SplitFullName(string fullName)
     {
         var parts = fullName.Split('/', 2, StringSplitOptions.TrimEntries);
