@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-gantt-github-timeline` |
 | Ticket | — |
-| Status | `Draft` |
+| Status | `Approved` |
 
 ## 1. User Story
 
