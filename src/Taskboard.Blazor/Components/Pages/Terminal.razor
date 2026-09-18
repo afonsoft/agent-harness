@@ -7,7 +7,7 @@
 <PageTitle>Terminal - Taskboard</PageTitle>
 
 <h1 class="h4 fw-bold mb-1">Terminal</h1>
-<p class="small text-body-secondary mb-3">Interactive shell session (bash). Use it to authenticate agent CLIs, e.g. <code>claude</code>, <code>codex</code>, <code>devin auth login</code>.</p>
+<p class="small text-body-secondary mb-2">Interactive shell sessions (bash), one per tab. Ctrl+C copies when text is selected and sends SIGINT otherwise; Ctrl+V / Shift+Insert paste.</p>
 
 @if (!string.IsNullOrEmpty(_error))
 {
@@ -15,33 +15,82 @@
         <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
     </Alert>
 }
-else if (_closed)
+
+<div class="terminal-tabstrip" role="tablist">
+    @foreach (var tab in _tabs)
+    {
+        <div class="terminal-tab @(tab == _activeTab ? "active" : "") state-@tab.State.ToString().ToLowerInvariant()" role="tab" aria-selected="@(tab == _activeTab)">
+            <button type="button" class="terminal-tab-label" @onclick="() => ActivateTabAsync(tab)">
+                <span class="terminal-tab-dot"></span>@tab.Title
+            </button>
+            <button type="button" class="terminal-tab-close" title="Close tab" @onclick="() => CloseTabAsync(tab)" @onclick:stopPropagation>×</button>
+        </div>
+    }
+    <button type="button" class="terminal-tab-new" title="@(_tabs.Count >= MaxTabs ? $"Maximum of {MaxTabs} tabs" : "New terminal tab")"
+            disabled="@(_tabs.Count >= MaxTabs)" @onclick="() => OpenTabAsync(null)">+</button>
+</div>
+
+@if (_tabs.Count == 0)
 {
-    <Alert Color="AlertColor.Warning" Dismissable="false">
-        <Icon Name="IconName.InfoCircleFill" class="me-2" />Session ended: @_closeReason
-        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-3" @onclick="ReconnectAsync">Reconnect</Button>
-    </Alert>
-}
-else if (!_connected)
-{
-    <div class="d-flex align-items-center gap-2 mb-2 text-body-secondary small">
-        <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Connecting to terminal…
+    <div class="terminal-empty text-body-secondary small">
+        <p class="mb-2">No terminal sessions.</p>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="() => OpenTabAsync(null)">New terminal</Button>
     </div>
 }
-
-<div id="terminal-host" class="terminal-host" @onclick="FocusTerminal"></div>
+else
+{
+    @foreach (var tab in _tabs)
+    {
+        <div class="terminal-pane @(tab == _activeTab ? "" : "d-none")">
+            @if (tab.State == TabState.Closed)
+            {
+                <Alert Color="AlertColor.Warning" Dismissable="false" class="py-1 mb-1 small">
+                    <Icon Name="IconName.InfoCircleFill" class="me-1" />Session ended: @tab.CloseReason
+                    <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="() => ReopenTabAsync(tab)">Reopen</Button>
+                </Alert>
+            }
+            else if (tab.State == TabState.Connecting)
+            {
+                <div class="d-flex align-items-center gap-2 mb-1 text-body-secondary small">
+                    <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" /> Connecting…
+                </div>
+            }
+            else if (tab.State == TabState.Error)
+            {
+                <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">@tab.CloseReason</Alert>
+            }
+            <div id="@tab.ElementId" class="terminal-host" @onclick="() => FocusTabAsync(tab)"></div>
+        </div>
+    }
+}
 
 @code {
+    private const int MaxTabs = 8; // mirrors TerminalSessionManager.MaxSessionsPerUser
+
+    private enum TabState { Connecting, Open, Closed, Error }
+
+    private sealed class TerminalTab
+    {
+        public required string Key { get; init; }
+        public required string ElementId { get; init; }
+        public required string Title { get; init; }
+        public string? SessionId { get; set; }
+        public TabState State { get; set; } = TabState.Connecting;
+        public string? CloseReason { get; set; }
+        public string? PendingCmd { get; set; }
+        public bool JsReady { get; set; }
+    }
+
     [SupplyParameterFromQuery(Name = "cmd")]
     public string? Cmd { get; set; }
 
+    private readonly List<TerminalTab> _tabs = new();
+    private TerminalTab? _activeTab;
     private HubConnection? _hub;
     private DotNetObjectReference<Terminal>? _selfRef;
-    private bool _connected;
-    private bool _closed;
     private string? _error;
-    private string? _closeReason;
-    private bool _cmdSent;
+    private int _tabCounter;
+    private bool _cmdConsumed;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -51,44 +100,56 @@ else if (!_connected)
         }
 
         _selfRef = DotNetObjectReference.Create(this);
-        var initialized = await JS.InvokeAsync<bool>("taskboardTerminal.init", "terminal-host", _selfRef);
-        if (!initialized)
-        {
-            _error = "Terminal emulator failed to initialize.";
-            StateHasChanged();
-            return;
-        }
-
-        await ConnectAsync();
+        await ConnectHubAsync();
+        await OpenTabAsync(_cmdConsumed ? null : Cmd);
+        _cmdConsumed = true;
     }
 
-    private async Task ConnectAsync()
+    private async Task ConnectHubAsync()
     {
         _hub = new HubConnectionBuilder()
             .WithUrl(NavigationManager.ToAbsoluteUri("/terminal-hub"))
             .WithAutomaticReconnect()
             .Build();
 
-        _hub.On<string>("output", data => JS.InvokeVoidAsync("taskboardTerminal.write", data));
-        _hub.On<string>("closed", reason =>
+        _hub.On<string, string>("output", (sessionId, data) =>
         {
-            _closed = true;
-            _closeReason = reason;
+            var tab = _tabs.FirstOrDefault(t => t.SessionId == sessionId);
+            if (tab is not null)
+            {
+                return JS.InvokeVoidAsync("taskboardTerminal.write", tab.ElementId, data).AsTask();
+            }
+            return Task.CompletedTask;
+        });
+
+        _hub.On<string, string>("closed", (sessionId, reason) =>
+        {
+            var tab = _tabs.FirstOrDefault(t => t.SessionId == sessionId);
+            if (tab is not null)
+            {
+                tab.State = TabState.Closed;
+                tab.CloseReason = reason;
+            }
             return InvokeAsync(StateHasChanged);
         });
+
         _hub.Reconnected += _ =>
         {
-            _closed = false;
-            _connected = true;
+            // New connectionId — previous sessions are gone server-side.
+            foreach (var tab in _tabs.Where(t => t.State == TabState.Open))
+            {
+                tab.State = TabState.Closed;
+                tab.CloseReason = "connection lost";
+            }
             return InvokeAsync(StateHasChanged);
         };
+
         _hub.Closed += _ =>
         {
-            _connected = false;
-            if (!_closed)
+            foreach (var tab in _tabs.Where(t => t.State == TabState.Open))
             {
-                _closed = true;
-                _closeReason = "connection lost";
+                tab.State = TabState.Closed;
+                tab.CloseReason = "connection lost";
             }
             return InvokeAsync(StateHasChanged);
         };
@@ -96,20 +157,79 @@ else if (!_connected)
         try
         {
             await _hub.StartAsync();
-            _connected = true;
-            _closed = false;
-
-            if (!_cmdSent && !string.IsNullOrWhiteSpace(Cmd))
-            {
-                _cmdSent = true;
-                await _hub.InvokeAsync("Input", Cmd);
-            }
-
-            await JS.InvokeVoidAsync("taskboardTerminal.focus");
         }
         catch (Exception ex)
         {
             _error = $"Could not open a terminal session: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task OpenTabAsync(string? cmd)
+    {
+        if (_tabs.Count >= MaxTabs)
+        {
+            return;
+        }
+
+        var key = Guid.NewGuid().ToString("N")[..8];
+        var tab = new TerminalTab
+        {
+            Key = key,
+            ElementId = $"terminal-host-{key}",
+            Title = $"Terminal {++_tabCounter}",
+            PendingCmd = cmd
+        };
+        _tabs.Add(tab);
+        _activeTab = tab;
+        StateHasChanged();
+        await Task.Yield(); // let the pane render before JS init
+
+        var initialized = await JS.InvokeAsync<bool>(
+            "taskboardTerminal.init", tab.ElementId, _selfRef, tab.Key);
+        if (!initialized)
+        {
+            tab.State = TabState.Error;
+            tab.CloseReason = "Terminal emulator failed to initialize.";
+            StateHasChanged();
+            return;
+        }
+        tab.JsReady = true;
+
+        await OpenSessionAsync(tab);
+    }
+
+    private async Task OpenSessionAsync(TerminalTab tab)
+    {
+        if (_hub is not { State: HubConnectionState.Connected })
+        {
+            tab.State = TabState.Error;
+            tab.CloseReason = "No connection to the server.";
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            tab.State = TabState.Connecting;
+            StateHasChanged();
+            tab.SessionId = await _hub.InvokeAsync<string>("Open");
+            tab.State = TabState.Open;
+            tab.CloseReason = null;
+
+            if (!string.IsNullOrWhiteSpace(tab.PendingCmd))
+            {
+                var cmd = tab.PendingCmd;
+                tab.PendingCmd = null;
+                await _hub.InvokeAsync("Input", tab.SessionId, cmd);
+            }
+
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
+        }
+        catch (Exception ex)
+        {
+            tab.State = TabState.Error;
+            tab.CloseReason = ex.Message;
         }
         finally
         {
@@ -117,41 +237,76 @@ else if (!_connected)
         }
     }
 
-    private async Task ReconnectAsync()
+    private async Task ReopenTabAsync(TerminalTab tab)
     {
-        _error = null;
-        _closed = false;
-        _closeReason = null;
-
-        if (_hub is not null)
-        {
-            await _hub.DisposeAsync();
-            _hub = null;
-        }
-
-        await ConnectAsync();
+        await JS.InvokeVoidAsync("taskboardTerminal.reset", tab.ElementId);
+        await OpenSessionAsync(tab);
     }
 
-    private async Task FocusTerminal()
+    private async Task ActivateTabAsync(TerminalTab tab)
     {
-        await JS.InvokeVoidAsync("taskboardTerminal.focus");
+        _activeTab = tab;
+        StateHasChanged();
+        await Task.Yield();
+        await JS.InvokeVoidAsync("taskboardTerminal.fitNow", tab.ElementId);
+        await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
+    }
+
+    private async Task CloseTabAsync(TerminalTab tab)
+    {
+        if (_hub is { State: HubConnectionState.Connected } && tab.SessionId is not null)
+        {
+            try
+            {
+                await _hub.InvokeAsync("Close", tab.SessionId);
+            }
+            catch
+            {
+                // Server already dropped it.
+            }
+        }
+
+        await JS.InvokeVoidAsync("taskboardTerminal.dispose", tab.ElementId);
+        var index = _tabs.IndexOf(tab);
+        _tabs.Remove(tab);
+
+        if (_activeTab == tab)
+        {
+            _activeTab = _tabs.ElementAtOrDefault(Math.Min(index, _tabs.Count - 1));
+            if (_activeTab is not null)
+            {
+                StateHasChanged();
+                await Task.Yield();
+                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", _activeTab.ElementId);
+                await JS.InvokeVoidAsync("taskboardTerminal.focus", _activeTab.ElementId);
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task FocusTabAsync(TerminalTab tab)
+    {
+        await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
     }
 
     [JSInvokable]
-    public async Task OnTerminalData(string data)
+    public async Task OnTerminalData(string tabKey, string data)
     {
-        if (_hub is { State: HubConnectionState.Connected })
+        var tab = _tabs.FirstOrDefault(t => t.Key == tabKey);
+        if (tab?.SessionId is not null && _hub is { State: HubConnectionState.Connected })
         {
-            await _hub.InvokeAsync("Input", data);
+            await _hub.InvokeAsync("Input", tab.SessionId, data);
         }
     }
 
     [JSInvokable]
-    public async Task OnTerminalResize(int cols, int rows)
+    public async Task OnTerminalResize(string tabKey, int cols, int rows)
     {
-        if (_hub is { State: HubConnectionState.Connected })
+        var tab = _tabs.FirstOrDefault(t => t.Key == tabKey);
+        if (tab?.SessionId is not null && _hub is { State: HubConnectionState.Connected })
         {
-            await _hub.InvokeAsync("Resize", cols, rows);
+            await _hub.InvokeAsync("Resize", tab.SessionId, cols, rows);
         }
     }
 
@@ -171,7 +326,7 @@ else if (!_connected)
 
         try
         {
-            await JS.InvokeVoidAsync("taskboardTerminal.dispose");
+            await JS.InvokeVoidAsync("taskboardTerminal.disposeAll");
         }
         catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
         {

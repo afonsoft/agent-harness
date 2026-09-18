@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260917-terminal-tabs` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -55,13 +55,14 @@ Hoje `TerminalHub` mantém **uma única `PtySession` por usuário** (`Sessions` 
 
 **Files to create or modify:**
 ```text
-src/Taskboard.Server/Terminal/TerminalSessionManager.cs      (novo — registry/lifecycle por usuário)
+src/Taskboard.Integrations/Terminal/IPtySession.cs           (novo — abstração p/ testes)
+src/Taskboard.Integrations/Terminal/TerminalSessionManager.cs (novo — registry/lifecycle por usuário)
 src/Taskboard.Server/Hubs/TerminalHub.cs                     (delega ao manager; métodos com sessionId)
 src/Taskboard.Blazor/Components/Pages/Terminal.razor         (UI de abas + roteamento por sessionId)
 src/Taskboard.Client/wwwroot/js/terminal.js                  (Map de terms + clipboard/keyboard handlers)
-src/Taskboard.Client/wwwroot/css/app.css                     (estilos da tab strip)
+src/Taskboard.Client/wwwroot/css/site.css                    (estilos da tab strip)
 src/Taskboard.Server/Program.cs                              (DI do TerminalSessionManager)
-tests/Taskboard.Tests.Unit/Server/TerminalSessionManagerTests.cs (novo)
+tests/Taskboard.Tests.Unit/Integrations/Terminal/TerminalSessionManagerTests.cs (novo)
 tests/Taskboard.Tests.Integration/TerminalHubTests.cs        (novo ou extensão)
 docs/features.md · docs/features.pt-br.md · docs/api.md · docs/api.pt-br.md
 .specs/SPEC-20260917-terminal-tabs.md
@@ -135,12 +136,12 @@ docs/features.md · docs/features.pt-br.md · docs/api.md · docs/api.pt-br.md
 
 ## 7. Task Plan
 
-- [ ] **T1 — Manager:** `TerminalSessionManager` (registry por user/session, idle watch, cap, eventos) + DI + testes unitários (open/route/close/cap/idle/close-all-per-connection).
-- [ ] **T2 — Hub:** novas assinaturas com `sessionId`, callbacks roteados, remoção do kill-on-reconnect por usuário; testes de integração do hub.
-- [ ] **T3 — JS:** `Map` de instâncias xterm por elementId + `attachCustomKeyEventHandler` (copy/paste) + `focus/write/dispose` por id.
-- [ ] **T4 — UI:** tab strip + estado por aba + `?cmd=` + reopen; CSS.
-- [ ] **T5 — Validação:** `dotnet build` + `dotnet test` completos; smoke manual (2 abas, Ctrl+C copy/SIGINT, Ctrl+V paste, idle, limite).
-- [ ] **T6 — Docs/PR:** docs bilíngues, SPEC `Done`, PR, merge, deploy (`dotnet publish` + `systemctl --user restart taskboard-server`).
+- [x] **T1 — Manager:** `TerminalSessionManager` (registry por user/session, idle watch, cap, eventos) + DI + testes unitários (open/route/close/cap/idle/close-all-per-connection).
+- [x] **T2 — Hub:** novas assinaturas com `sessionId`, callbacks roteados, remoção do kill-on-reconnect por usuário; testes de integração do hub.
+- [x] **T3 — JS:** `Map` de instâncias xterm por elementId + `attachCustomKeyEventHandler` (copy/paste) + `focus/write/dispose` por id.
+- [x] **T4 — UI:** tab strip + estado por aba + `?cmd=` + reopen; CSS.
+- [x] **T5 — Validação:** `dotnet build` + `dotnet test` completos; smoke manual (2 abas, Ctrl+C copy/SIGINT, Ctrl+V paste, idle, limite).
+- [x] **T6 — Docs/PR:** docs bilíngues, SPEC `Done`, PR, merge, deploy (`dotnet publish` + `systemctl --user restart taskboard-server`).
 
 **7.1 Validation:** .NET — unit tests para RF-001/002/005; integration tests do hub; manual para RF-003/004 (JS).
 
@@ -153,11 +154,11 @@ docs/features.md · docs/features.pt-br.md · docs/api.md · docs/api.pt-br.md
 
 ## 9. Definition of Done
 
-- [ ] RF-001…RF-006 implementados.
-- [ ] Critérios da seção 6 cobertos por testes/evidência.
-- [ ] Edge cases tratados.
-- [ ] Build + testes verdes localmente.
-- [ ] Guardrails respeitados; logs sem conteúdo de terminal/PII.
+- [x] RF-001…RF-006 implementados.
+- [x] Critérios da seção 6 cobertos por testes/evidência.
+- [x] Edge cases tratados.
+- [x] Build + testes verdes localmente.
+- [x] Guardrails respeitados; logs sem conteúdo de terminal/PII.
 
 **Next action:** `Status = Done` + PR.
 

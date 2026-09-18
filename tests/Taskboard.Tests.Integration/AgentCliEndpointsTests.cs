@@ -77,7 +77,7 @@ public class AgentCliEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         var output = new StringBuilder();
         var markerSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var marker = $"tb-hub-{Guid.NewGuid():N}";
-        connection.On<string>("output", chunk =>
+        connection.On<string, string>("output", (sessionId, chunk) =>
         {
             output.Append(chunk);
             if (output.ToString().Contains(marker, StringComparison.Ordinal))
@@ -90,8 +90,12 @@ public class AgentCliEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
 
         connection.State.ShouldBe(HubConnectionState.Connected);
 
+        // SPEC-20260917-terminal-tabs: sessions are explicit — Open() returns a sessionId.
+        var sessionId = await connection.InvokeAsync<string>("Open");
+        sessionId.ShouldNotBeNullOrEmpty();
+
         // The initial prompt may race the first poll — write fresh input instead.
-        await connection.InvokeAsync("Input", $"echo {marker}\n");
+        await connection.InvokeAsync("Input", sessionId, $"echo {marker}\n");
         var completed = await Task.WhenAny(markerSeen.Task, Task.Delay(TimeSpan.FromSeconds(15)));
         completed.ShouldBe(markerSeen.Task, "o input deve ecoar a saída do bash de volta ao cliente");
         await connection.StopAsync();
