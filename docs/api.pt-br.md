@@ -215,6 +215,19 @@ DELETE /api/harness/worktrees/{runId}?force={true|false}
 
 Quando um run enfileirado carrega `RepoPath` apontando para um repositório git, o `AgentOrchestrationService` isola automaticamente: o run executa com cwd dentro do worktree e `RetainOnFailure` ligado — sucesso marca `Completed` (mantido para revisão de diff), falha/cancelamento marca `RetainedForInspection`. Falha no isolamento degrada para execução direta e é registrada em log.
 
+### Harness — Contexto & Memória (E7)
+
+```http
+POST   /api/harness/context/compile
+POST   /api/harness/memory
+GET    /api/harness/memory?repositoryFullName={owner/name}&query={q}&take={n}
+DELETE /api/harness/memory/{id}
+```
+
+`POST context/compile` com body `{ worktreePath, agentType, maxTokenBudget }` → `200 { systemPrompt, estimatedTokens, injectedFiles, memoriesInjectedCount }`. Descobre arquivos de instrução (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.github/copilot-instructions.md`) recursivamente, injeta metadados `<env>`, branch/commit/status do git e o bloco `<project_memory>` (escopo pelo remote `origin`). Secrets de ambiente nunca entram no prompt.
+
+`POST memory` com body `{ repositoryFullName, topic, content, tags?, type? }` → `201` com o item persistido (`type`: `Fact` | `ArchitecturalDecision` | `LessonLearned`, padrão `Fact`). `GET` lista memórias por repositório — `query` ativa busca lexical ranqueada (tags > topic > content). `DELETE` remove por id → `204`. Registros de memória são apenas metadados — nunca armazene secrets.
+
 ## SSE
 
 ### Eventos globais

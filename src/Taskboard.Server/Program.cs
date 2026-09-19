@@ -485,6 +485,54 @@ harness.MapDelete("worktrees/{runId}", async (
     return Results.NoContent();
 });
 
+// SPEC-20260919-harness-context-memory §5: context compilation + memory API.
+harness.MapPost("context/compile", async (
+        CompileContextRequestDto request,
+        IContextCompiler compiler,
+        CancellationToken ct) =>
+    Results.Ok(await compiler.CompileAsync(
+        request.WorktreePath,
+        request.AgentType,
+        request.MaxTokenBudget,
+        ct)));
+
+harness.MapPost("memory", async (
+        AddMemoryRequestDto request,
+        IMemoryService memory,
+        CancellationToken ct) =>
+{
+    var type = Enum.TryParse<MemoryType>(request.Type, ignoreCase: true, out var parsed)
+        ? parsed
+        : MemoryType.Fact;
+    var item = await memory.AddMemoryAsync(
+        request.RepositoryFullName,
+        request.Topic,
+        request.Content,
+        request.Tags,
+        type,
+        ct);
+    return Results.Created($"/api/harness/memory/{item.Id}", item);
+});
+
+harness.MapGet("memory", async (
+    string repositoryFullName,
+    string? query,
+    int? take,
+    IMemoryService memory,
+    CancellationToken ct) =>
+    Results.Ok(string.IsNullOrWhiteSpace(query)
+        ? await memory.ListAsync(repositoryFullName, take ?? 100, ct)
+        : await memory.SearchAsync(repositoryFullName, query, take ?? 10, ct)));
+
+harness.MapDelete("memory/{id}", async (
+    string id,
+    IMemoryService memory,
+    CancellationToken ct) =>
+{
+    await memory.DeleteAsync(id, ct);
+    return Results.NoContent();
+});
+
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
 // RequireAuthorization (cookie or X-Api-Key).
 api.MapMcp("mcp");
