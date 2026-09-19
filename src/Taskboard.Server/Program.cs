@@ -1079,6 +1079,42 @@ github.MapGet("repos/{owner}/{repo}/metrics", async (
     }
 });
 
+github.MapGet("repos/{owner}/{repo}/workflows", async (
+    string owner,
+    string repo,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var workflows = await gitHub.GetWorkflowsAsync($"{owner}/{repo}", ct);
+        return Results.Ok(new { workflows });
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "repo-not-found" });
+    }
+});
+
+github.MapGet("repos/{owner}/{repo}/workflows/{workflowId:long}/runs", async (
+    string owner,
+    string repo,
+    long workflowId,
+    int? take,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var runs = await gitHub.GetWorkflowRunsAsync($"{owner}/{repo}", workflowId, take ?? 10, ct);
+        return Results.Ok(new { runs });
+    }
+    catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return Results.NotFound(new { error = "repo-not-found" });
+    }
+});
+
 var agents = api.MapGroup("agents").RequireAuthorization();
 
 agents.MapGet("", async (IAgentOrchestrationService orchestration, CancellationToken ct) =>

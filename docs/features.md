@@ -47,6 +47,7 @@
 - GitHub Kanban at `/github-board` through `IGitHubService`
 - GitHub board labels: `backlog`, `in-progress`, `review`, `done`
 - Gantt at `/gantt` backed by GitHub issues: bars `createdAt → closedAt` (open issues run to today with a distinct "in progress" style), milestone `due_on` diamonds, column-colored bars, and a kanban metrics panel — lead time (avg/median), cycle time (first backlog exit → done), WIP, median open-issue aging and weekly throughput — all computed server-side from `labeled`/`unlabeled` timeline events merged with local `IssueHistoryEvent` records
+- `/workflow` page: read-only GitHub Actions monitor per repository — workflow cards with last-run conclusion badges (live runs pulse and drive a 60s auto-refresh), expand shows the 10 latest runs (status, branch, SHA, actor, duration, ↗ link to GitHub)
 - GitHub authentication through `GITHUB_TOKEN`
 - DeepSeek harness
 - Execution helpers (`CodexExecutableResolver`, `ProcessTreeSignaler`, `ExecutableCommand`)

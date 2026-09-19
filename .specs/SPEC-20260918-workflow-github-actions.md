@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-workflow-github-actions` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -89,5 +89,6 @@ GET /api/github/{owner}/{repo}/workflows/{workflowId}/runs
 
 ## 9. Definition of Done
 
-- [ ] Tela mostra Actions reais dos repos configurados.
-- [ ] Suites verdes; docs en/pt-br; SPEC → Done; deploy verificado.
+- [x] Tela mostra Actions reais dos repos configurados.
+- [x] Suites verdes; docs en/pt-br; SPEC → Done.
+- [ ] Deploy verificado.
