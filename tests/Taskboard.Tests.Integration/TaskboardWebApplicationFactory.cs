@@ -54,6 +54,10 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("Taskboard:WorkspaceRoot", Path.Combine(dataDir, "repos"));
         builder.ConfigureServices(services =>
         {
+            // GET /api/agents must not depend on which CLIs happen to be on the
+            // host's PATH — report every known agent as Available.
+            services.RemoveAll<IAgentDiscoveryService>();
+            services.AddSingleton<IAgentDiscoveryService>(new FakeAgentDiscoveryService());
             services.RemoveAll<IAgentCliStatusService>();
             services.AddSingleton<IAgentCliStatusService>(new FakeAgentCliStatusService());
             services.RemoveAll<IAgentCliInstallService>();
@@ -203,6 +207,31 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             string repositoryFullName, long workflowId, int take = 10,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Taskboard.GitHub.WorkflowRunDto>>([WorkflowRun]);
+    }
+
+    /// <summary>Reports every known agent as Available — PATH-independent discovery.</summary>
+    private sealed class FakeAgentDiscoveryService : IAgentDiscoveryService
+    {
+        private static string BinaryFor(AgentType type)
+            => AgentCliMap.CliKindFor(type) is { } kind
+                ? AgentCliMap.All.First(kv => kv.Key == kind).Value.Binary
+                : type.ToString().ToLowerInvariant();
+
+        public Task<IReadOnlyList<AgentInfo>> DiscoverAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<AgentInfo>>(Enum.GetValues<AgentType>()
+                .Select(type => new AgentInfo(
+                    BinaryFor(type),
+                    $"/usr/bin/{BinaryFor(type)}",
+                    type,
+                    AgentStatus.Available,
+                    Version: "itest",
+                    Description: null,
+                    SupportsInteractiveSession: type is AgentType.OpenCode or AgentType.Claude
+                        or AgentType.Codex or AgentType.Devin))
+                .ToList());
+
+        public string? ResolveExecutablePath(AgentType agentType)
+            => $"/usr/bin/{BinaryFor(agentType)}";
     }
 
     /// <summary>Reports all known CLIs as installed + authenticated (deterministic eligibility).</summary>
