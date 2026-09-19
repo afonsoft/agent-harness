@@ -11,23 +11,27 @@ public static class CliDatabaseMap
 {
     private static readonly IReadOnlyList<CliDbSource> Empty = [];
 
+    private static readonly IReadOnlyList<string> GenericDenied =
+        ["credential", "credentials", "account", "account_state", "control_account", "permission", "auth", "tokens"];
+
     private static readonly IReadOnlyDictionary<AgentCliKind, IReadOnlyList<CliDbSource>> Sources =
         new Dictionary<AgentCliKind, IReadOnlyList<CliDbSource>>
         {
+            // Codex shards its state; `state_*.sqlite` holds the `threads` session table.
             [AgentCliKind.Codex] =
             [
                 new CliDbSource(
                     "codex-state",
-                    ".codex/*.sqlite",
-                    ["sessions", "threads", "logs", "goals", "memories"],
-                    ["credentials", "auth", "tokens"]),
+                    ".codex/state_*.sqlite",
+                    ["threads"],
+                    GenericDenied),
             ],
             [AgentCliKind.OpenCode] =
             [
                 new CliDbSource(
                     "opencode-db",
                     ".local/share/opencode/opencode.db",
-                    ["session", "message", "part", "project"],
+                    ["session"],
                     ["credential", "account", "account_state", "control_account", "permission"]),
             ],
             [AgentCliKind.Devin] =
@@ -36,36 +40,39 @@ public static class CliDatabaseMap
                     "devin-sessions",
                     ".local/share/devin/cli/sessions.db",
                     ["sessions"],
-                    ["credentials", "auth", "tokens"]),
+                    GenericDenied),
             ],
             [AgentCliKind.Antigravity] =
             [
                 new CliDbSource(
-                    "antigravity-conversations",
-                    ".gemini/antigravity-cli/conversations/*.db",
-                    ["conversation", "turn", "metadata"],
-                    ["credentials", "auth", "tokens"]),
-                new CliDbSource(
                     "antigravity-summaries",
                     ".gemini/antigravity-cli/conversation_summaries.db",
-                    ["summaries"],
-                    ["credentials", "auth", "tokens"]),
+                    ["conversation_summaries"],
+                    GenericDenied),
+                // Per-conversation DBs are registered for status reporting; the v1
+                // extractor only reads the summaries database.
+                new CliDbSource(
+                    "antigravity-conversations",
+                    ".gemini/antigravity-cli/conversations/*.db",
+                    ["steps", "gen_metadata", "trajectory_meta"],
+                    GenericDenied),
             ],
+            // `connectors.db` holds credentials — the pattern only matches event DBs.
             [AgentCliKind.Cline] =
             [
                 new CliDbSource(
-                    "cline-data",
-                    ".cline/data/db/*.db",
-                    ["tasks", "messages"],
-                    ["connectors", "credentials", "auth", "tokens"]),
+                    "cline-hub-events",
+                    ".cline/data/db/hub-events-*.db",
+                    ["hub_events"],
+                    ["connectors", .. GenericDenied]),
             ],
             [AgentCliKind.Claude] =
             [
                 new CliDbSource(
                     "claude-context-mode",
                     ".claude/context-mode/sessions/*.db",
-                    ["sessions", "checkpoints"],
-                    ["credentials", "auth", "tokens"],
+                    ["session_meta"],
+                    GenericDenied,
                     Experimental: true),
             ],
             [AgentCliKind.Kimi] = Empty,

@@ -18,8 +18,10 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
 {
     private static readonly Regex IdentifierPattern =
         new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    // Word-ish boundary on '_' separators: catches access_token, api_key,
+    // hashed_password, credential — but not metric columns like tokens_input.
     private static readonly Regex SecretColumnPattern =
-        new("token|secret|key|credential|password", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new("(^|_)(token|secret|key|credential|password|auth)(_|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex UnsafeWherePattern =
         new(";|'|\"|--|/\\*|\\*/|@__limit", RegexOptions.Compiled);
     private static readonly Regex OrderByPattern =

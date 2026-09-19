@@ -31,15 +31,41 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
     /// <summary>Sources this extractor reads — normally <see cref="CliDatabaseMap.SourcesFor"/>.</summary>
     protected abstract IReadOnlyList<CliDbSource> Sources { get; }
 
-    /// <summary>Extractor-specific whitelisted queries for one opened database file.</summary>
-    protected abstract Task ExtractSourceAsync(
+    /// <summary>
+    /// Extractor-specific whitelisted queries for one opened database file.
+    /// <paramref name="rowCursor"/> resumes inside this file (rowid watermark);
+    /// return the greatest rowid consumed so the caller can build the next cursor.
+    /// </summary>
+    protected abstract Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,
         string resolvedPath,
         CliDbSource source,
-        string? cursor,
+        long? rowCursor,
         List<CliSessionRecord> sessions,
         List<CliUsageRecord> usage,
         CancellationToken cancellationToken);
+
+    /// <summary>Opaque watermark format shared by all extractors: "{resolvedPath}|{rowid}".</summary>
+    protected static bool TryParseCursor(string? cursor, out string file, out long rowid)
+    {
+        file = string.Empty;
+        rowid = 0;
+        if (string.IsNullOrEmpty(cursor))
+        {
+            return false;
+        }
+
+        var sep = cursor.LastIndexOf('|');
+        if (sep <= 0 || !long.TryParse(cursor[(sep + 1)..], out rowid))
+        {
+            return false;
+        }
+
+        file = cursor[..sep];
+        return true;
+    }
+
+    protected static string FormatCursor(string file, long rowid) => $"{file}|{rowid}";
 
     public async Task<CliExtractionResult> ExtractSinceAsync(string? cursor, CancellationToken cancellationToken = default)
     {
@@ -51,6 +77,10 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
         var sawDrift = false;
         var sawError = false;
         var sawAny = false;
+        string? nextCursor = cursor;
+
+        TryParseCursor(cursor, out var cursorFile, out var cursorRowid);
+        var hasCursorFile = !string.IsNullOrEmpty(cursorFile);
 
         foreach (var source in Sources)
         {
@@ -64,6 +94,12 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
             foreach (var path in paths)
             {
                 sawAny = true;
+                // Resume semantics: skip files strictly before the cursor file.
+                if (hasCursorFile && string.CompareOrdinal(path, cursorFile) < 0)
+                {
+                    continue;
+                }
+
                 try
                 {
                     await using var conn = await _reader.OpenAsync(source, path, cancellationToken)
@@ -82,8 +118,11 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
                         continue;
                     }
 
-                    await ExtractSourceAsync(conn, path, source, cursor, sessions, usage, cancellationToken)
+                    var rowCursor = hasCursorFile && path == cursorFile ? cursorRowid : (long?)null;
+                    var lastRowid = await ExtractSourceAsync(
+                            conn, path, source, rowCursor, sessions, usage, cancellationToken)
                         .ConfigureAwait(false);
+                    nextCursor = FormatCursor(path, lastRowid ?? rowCursor ?? 0);
                     statuses.Add(CliDbSourceStatus.Available);
                 }
                 catch (CliDbAccessDeniedException ex)
@@ -102,7 +141,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
         }
 
         var status = ResolveAggregate(sawAny, sawDrift, sawError, copied, statuses);
-        return new CliExtractionResult(sessions, usage, cursor, status,
+        return new CliExtractionResult(sessions, usage, nextCursor, status,
             reasons.Count > 0 ? string.Join("; ", reasons) : null);
     }
 

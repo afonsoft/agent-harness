@@ -34,6 +34,8 @@ using Taskboard.EntityFrameworkCore.Harness;
 using Taskboard.Harness;
 using Taskboard.Application.Configuration;
 using Taskboard.Integrations.Agents;
+using Taskboard.Integrations.CliDb;
+using Taskboard.Integrations.CliDb.Extractors;
 using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
@@ -49,6 +51,7 @@ using Taskboard.Integrations.Vscode;
 using Taskboard.Integrations.Workspace;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.CliDb;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
@@ -189,6 +192,37 @@ builder.Services.AddSingleton<IProcessRunner, ProcessCommandRunner>();
 builder.Services.AddSingleton<IVerificationEngine, DotNetVerificationEngine>();
 builder.Services.AddScoped<IVerificationReportRepository, EfCoreVerificationReportRepository>();
 builder.Services.AddScoped<IVerificationLoop, VerificationLoop>();
+// SPEC-20260919-cli-db-reader: acesso read-only aos SQLite dos CLIs gerenciados.
+builder.Services.AddSingleton<ICliDatabaseLocator>(sp => new CliDatabaseLocator(
+    homeDir,
+    sp.GetRequiredService<ILogger<CliDatabaseLocator>>()));
+builder.Services.AddSingleton<ICliDatabaseReader>(sp => new SqliteCliDatabaseReader(
+    homeDir,
+    sp.GetRequiredService<ILogger<SqliteCliDatabaseReader>>()));
+builder.Services.AddSingleton<ICliDbExtractor>(sp => new CodexCliDbExtractor(
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<ICliDatabaseReader>(),
+    sp.GetRequiredService<ILogger<CodexCliDbExtractor>>()));
+builder.Services.AddSingleton<ICliDbExtractor>(sp => new OpenCodeCliDbExtractor(
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<ICliDatabaseReader>(),
+    sp.GetRequiredService<ILogger<OpenCodeCliDbExtractor>>()));
+builder.Services.AddSingleton<ICliDbExtractor>(sp => new DevinCliDbExtractor(
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<ICliDatabaseReader>(),
+    sp.GetRequiredService<ILogger<DevinCliDbExtractor>>()));
+builder.Services.AddSingleton<ICliDbExtractor>(sp => new AntigravityCliDbExtractor(
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<ICliDatabaseReader>(),
+    sp.GetRequiredService<ILogger<AntigravityCliDbExtractor>>()));
+builder.Services.AddSingleton<ICliDbExtractor>(sp => new ClineCliDbExtractor(
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<ICliDatabaseReader>(),
+    sp.GetRequiredService<ILogger<ClineCliDbExtractor>>()));
+builder.Services.AddSingleton<ICliDbExtractor>(sp => new ClaudeContextModeCliDbExtractor(
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<ICliDatabaseReader>(),
+    sp.GetRequiredService<ILogger<ClaudeContextModeCliDbExtractor>>()));
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();

@@ -157,17 +157,17 @@ public class CliDbFingerprintTests : IDisposable
         public override CliDbSchemaFingerprint ExpectedFingerprint => expected;
         protected override IReadOnlyList<CliDbSource> Sources => sources;
 
-        protected override Task ExtractSourceAsync(
+        protected override Task<long?> ExtractSourceAsync(
             ICliDbConnection conn,
             string resolvedPath,
             CliDbSource source,
-            string? cursor,
+            long? rowCursor,
             List<CliSessionRecord> sessions,
             List<CliUsageRecord> usage,
             CancellationToken cancellationToken)
         {
             ExtractedPaths.Add(resolvedPath);
-            return Task.CompletedTask;
+            return Task.FromResult<long?>(null);
         }
     }
 }
