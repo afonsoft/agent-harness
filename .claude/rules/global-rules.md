@@ -16,7 +16,7 @@ name: taskboard-ai-global
 1. **Secrets**: nunca logar, commitar ou expor tokens, senhas ou API keys.
 2. **Specs**: toda mudança de contrato/arquitetura deve ser refletida em `.specs/`.
 3. **Tests**: features/bugfixes precisam de testes (unit/integration).
-4. **Coverage**: manter ≥80% (meta 90%).
+4. **Coverage**: gate ratchet — `COVERAGE_THRESHOLD` em `dotnet.yml` nunca desce e sobe a cada sprint até ≥80% (meta 90%). Hoje: 65%.
 5. **Build**: `dotnet build` com `TreatWarningsAsErrors`.
 6. **Don't**: não criar `DEVIN.md`, `AGENTS.md`, `.cursorrules`, `.geminiignore`, etc.
 

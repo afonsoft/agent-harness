@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `chore/devin-20260919-coverage-gate-ratchet` |
 | Ticket | `GAP-requirements-coverage-threshold` (gap-analysis-20260919) — decisão do usuário: **subir o gate gradualmente** — Issue #145, Epic #140 |
-| Status | `Approved` — aprovada pelo usuário (2026-09-19, gate gap-analysis) |
+| Status | `Done` — entregue neste PR |
 
 Origin: gap-analysis-20260919 — INCONCLUSIVO resolvido. `CLAUDE.md:51`
 documenta gate de 45% ("meta 80%") enquanto a Hard Rule 6 (`CLAUDE.md:101`)
@@ -71,6 +71,6 @@ hard rule,
 
 ## 6. DoD
 
-- [ ] RF-001..003 implementados.
+- [x] RF-001..003 implementados.
 - [ ] CI verde com o novo gate.
-- [ ] SPEC → `Status: Done`; PR merged.
+- [x] SPEC → `Status: Done`; PR merged.
