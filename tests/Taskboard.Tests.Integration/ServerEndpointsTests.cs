@@ -118,6 +118,17 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     }
 
     [Fact]
+    public async Task Dado_EndpointRemovido_Quando_GetApiProjects_Entao_Retorna404NaoHtml()
+    {
+        var client = await ApiClientAsync();
+
+        var response = await client.GetAsync("/api/projects");
+
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.NotFound);
+        response.Content.Headers.ContentType?.MediaType.ShouldNotBe("text/html");
+    }
+
+    [Fact]
     public async Task Given_ServerRunning_When_GetBlazorWebJs_Then_Returns200()
     {
         // Regression: _framework/blazor.web.js must be served as a static web asset
