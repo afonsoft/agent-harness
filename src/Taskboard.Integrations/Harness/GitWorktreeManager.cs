@@ -147,6 +147,13 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         await _sessions.SetStatusAsync(runId, WorktreeStatus.Removed, cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task MarkCompletedAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        _ = await RequireSessionAsync(runId, cancellationToken);
+        await _sessions.SetStatusAsync(runId, WorktreeStatus.Completed, cancellationToken);
+    }
+
     /// <summary>Marks a run's worktree failed; honours <c>RetainOnFailure</c> (RF-004).</summary>
     public async Task MarkFailedAsync(string runId, CancellationToken cancellationToken = default)
     {

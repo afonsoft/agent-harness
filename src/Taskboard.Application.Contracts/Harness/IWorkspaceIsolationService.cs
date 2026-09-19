@@ -30,4 +30,10 @@ public interface IWorkspaceIsolationService
         string runId,
         bool force = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Marks the run's worktree as completed (kept for diff review).</summary>
+    Task MarkCompletedAsync(string runId, CancellationToken cancellationToken = default);
+
+    /// <summary>Marks the run's worktree as failed; honours <c>RetainOnFailure</c>.</summary>
+    Task MarkFailedAsync(string runId, CancellationToken cancellationToken = default);
 }
