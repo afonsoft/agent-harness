@@ -1,0 +1,97 @@
+@inject TaskboardClient Client
+
+@if (_models is null)
+{
+    <div class="d-flex align-items-center">
+        <Spinner Size="SpinnerSize.Small" Class="me-2" />
+        <span>Loading models...</span>
+    </div>
+}
+else
+{
+    <div class="mb-3">
+        <label for="thread-title" class="form-label">Title <span class="text-danger">*</span></label>
+        <input id="thread-title" type="text" class="form-control" @bind="_title" placeholder="e.g. Review sprint backlog" />
+    </div>
+
+    <div class="mb-3">
+        <label for="thread-model" class="form-label">Model</label>
+        <select id="thread-model" class="form-select" @bind="_modelId">
+            @foreach (var model in _models)
+            {
+                <option value="@model.Id">@model.Name (@model.Provider)</option>
+            }
+        </select>
+    </div>
+
+    @if (SelectedModel?.ReasoningEffortSupported == true)
+    {
+        <div class="mb-3">
+            <label for="thread-effort" class="form-label">Reasoning effort</label>
+            <select id="thread-effort" class="form-select" @bind="_reasoningEffort">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+            </select>
+        </div>
+    }
+
+    <div class="mb-3">
+        <label for="thread-sandbox" class="form-label">Sandbox</label>
+        <select id="thread-sandbox" class="form-select" @bind="_sandbox">
+            <option value="read-only">read-only</option>
+            <option value="workspace-write">workspace-write</option>
+            <option value="danger-full-access">danger-full-access</option>
+        </select>
+    </div>
+}
+
+<div class="d-flex justify-content-end gap-2 pt-3 border-top">
+    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">Cancel</Button>
+    <Button Color="ButtonColor.Primary" @onclick="ConfirmAsync" Disabled="@(!CanConfirm())">
+        Create thread
+    </Button>
+</div>
+
+@code {
+    [Parameter] public EventCallback<CreateAiChatThreadRequest> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private IReadOnlyList<AiChatModelDto>? _models;
+    private string _title = string.Empty;
+    private string _modelId = string.Empty;
+    private string _reasoningEffort = "medium";
+    private string _sandbox = "read-only";
+
+    private AiChatModelDto? SelectedModel => _models?.FirstOrDefault(m => m.Id == _modelId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _models = await Client.GetAiChatCatalogAsync();
+            _modelId = _models.FirstOrDefault()?.Id ?? string.Empty;
+        }
+        catch
+        {
+            _models = [];
+        }
+    }
+
+    private bool CanConfirm() =>
+        !string.IsNullOrWhiteSpace(_title) && !string.IsNullOrWhiteSpace(_modelId);
+
+    private async Task CancelAsync() => await OnCancel.InvokeAsync();
+
+    private async Task ConfirmAsync()
+    {
+        var model = SelectedModel;
+        var request = new CreateAiChatThreadRequest(
+            _title.Trim(),
+            _modelId,
+            model?.ReasoningEffortSupported == true ? _reasoningEffort : "none",
+            _sandbox);
+
+        await OnSubmit.InvokeAsync(request);
+    }
+}

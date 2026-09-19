@@ -529,10 +529,28 @@ api.MapPost("local/ai/threads", async (
     return Results.Created($"/api/local/ai/threads/{thread.Id}", new { thread });
 });
 
-api.MapGet("local/ai/threads/{id}/events", async (HttpResponse response, string id, IRepository<AiChatEvent> eventRepo, IThreadEventStreamService threadEvents, CancellationToken ct) =>
+api.MapDelete("local/ai/threads/{id}", async (
+    string id,
+    AiChatService aiChatService,
+    CancellationToken ct) =>
+{
+    var deleted = await aiChatService.DeleteThreadAsync(AiChatThreadId.From(id), ct);
+    return deleted
+        ? Results.NoContent()
+        : Results.NotFound(new { error = new { code = "THREAD_NOT_FOUND", message = $"Thread '{id}' not found." } });
+});
+
+api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpResponse response, string id, IRepository<AiChatEvent> eventRepo, IThreadEventStreamService threadEvents, CancellationToken ct) =>
 {
     var threadId = AiChatThreadId.From(id);
     var existing = await eventRepo.Query.Where(e => e.ThreadId == threadId).OrderBy(e => e.CreatedAt).Select(e => e.ToDto()).ToListAsync(ct);
+
+    // SPEC-20260918-ai-chat-threads: JSON snapshot for plain REST consumers;
+    // anything else gets the SSE stream (backlog replay + live events).
+    if (request.Headers.Accept.Any(a => a is not null && a.Contains("application/json", StringComparison.OrdinalIgnoreCase)))
+    {
+        return Results.Ok(new { events = existing });
+    }
 
     response.Headers.ContentType = "text/event-stream";
     response.Headers.CacheControl = "no-cache";
@@ -551,6 +569,8 @@ api.MapGet("local/ai/threads/{id}/events", async (HttpResponse response, string 
         await response.WriteAsync($"data: {JsonSerializer.Serialize(ev.Payload, ApiJsonOptions.Default)}\n\n", ct);
         await response.Body.FlushAsync(ct);
     }
+
+    return Results.Empty;
 });
 
 api.MapPost("local/ai/threads/{id}/events", async (

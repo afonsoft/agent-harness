@@ -14,7 +14,11 @@ PUT    /api/client-storage
 ```http
 GET    /api/local/ai/threads
 POST   /api/local/ai/threads
+DELETE /api/local/ai/threads/:id
 GET    /api/local/ai/threads/:id/events
+POST   /api/local/ai/threads/:id/events
+POST   /api/local/ai/threads/:id/runs
+PATCH  /api/local/ai/threads/:threadId/runs/:runId
 GET    /api/local/ai/catalog
 GET    /api/local/ai/composer/candidates
 POST   /api/local/ai/composer/rebind
@@ -188,6 +192,8 @@ Reserved stream for global events (no producers currently emit on it — per-thr
 GET /api/local/ai/threads/:id/events
 Accept: text/event-stream
 ```
+
+`GET .../events` is dual-mode: `Accept: application/json` returns a one-shot `200 { events: [{ id, threadId, role, content, createdAt }] }` snapshot; any other Accept streams SSE — the stored backlog replayed as `ai_chat.event` frames followed by live `ai_chat.event` (new messages, including streamed assistant deltas) and `ai_chat.run` (run status changes: `running`/`completed`/`failed`) frames. `POST .../events` `{ role: "user|assistant|activity|error", content }` persists and publishes an event; `POST .../runs` starts a background LLM run over the real event history (the assistant answers the latest user message — no fixed prompt is injected); `DELETE /api/local/ai/threads/:id` removes the thread with its events and runs (204 | 404).
 
 ## Error Contract
 

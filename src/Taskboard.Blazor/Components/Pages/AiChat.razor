@@ -1,38 +1,504 @@
 @page "/ai-chat"
 @attribute [Authorize]
+@implements IAsyncDisposable
+@using System.Text.Json
 @inject TaskboardClient Client
+@inject IAgentOrchestrationService OrchestrationService
+@inject IJSRuntime JS
+@inject ToastService ToastService
+
+<PageTitle>AI Chat - Harness</PageTitle>
 
 <h1 class="h4 fw-bold mb-1">AI Chat</h1>
-<p class="small text-body-secondary mb-4">Chat threads and models</p>
+<p class="small text-body-secondary mb-3">Chat threads and agent sub-tasks</p>
 
 @if (_threads is null)
 {
     <Loading Message="Loading threads..." />
 }
-else if (!_threads.Any())
-{
-    <EmptyState Message="No threads yet." />
-}
 else
 {
-    <div class="card">
-        <ul class="list-group list-group-flush">
-            @foreach (var thread in _threads)
+    <div class="ai-chat-layout">
+        <aside class="ai-chat-sidebar card">
+            <div class="card-body p-2">
+                <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" Class="w-100 mb-2" @onclick="ShowNewThreadAsync">
+                    + New thread
+                </Button>
+                @if (_threads.Count == 0)
+                {
+                    <div class="text-body-secondary small p-2">No threads yet.</div>
+                }
+                <ul class="ai-chat-thread-list list-unstyled mb-0">
+                    @foreach (var thread in OrderedThreads)
+                    {
+                        var isActive = thread.Id == _activeThreadId;
+                        <li class="ai-chat-thread-item @(isActive ? "active" : null)">
+                            <button type="button" class="ai-chat-thread-btn" @onclick="() => SelectThreadAsync(thread)">
+                                <span class="ai-chat-thread-title text-truncate">@thread.Title</span>
+                                <span class="ai-chat-thread-meta">
+                                    <span class="badge text-bg-secondary">@thread.Model</span>
+                                    @if (thread.Status == "running")
+                                    {
+                                        <span class="badge text-bg-warning ai-chat-badge-live">running</span>
+                                    }
+                                    else if (thread.Status == "failed")
+                                    {
+                                        <span class="badge text-bg-danger">failed</span>
+                                    }
+                                </span>
+                            </button>
+                            @if (_deleteConfirmId == thread.Id)
+                            {
+                                <span class="ai-chat-thread-confirm">
+                                    <button type="button" class="btn btn-sm btn-danger" @onclick="() => DeleteThreadAsync(thread)">Delete</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _deleteConfirmId = null">Cancel</button>
+                                </span>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-link text-danger ai-chat-thread-delete"
+                                        title="Delete thread" @onclick="() => _deleteConfirmId = thread.Id">
+                                    <Icon Name="IconName.Trash" />
+                                </button>
+                            }
+                        </li>
+                    }
+                </ul>
+            </div>
+        </aside>
+
+        <section class="ai-chat-main card">
+            @if (_activeThread is null)
             {
-                <li class="list-group-item d-flex align-items-center justify-content-between">
-                    <span>@thread.Title</span>
-                    <span class="badge text-bg-secondary">@thread.Model</span>
-                </li>
+                <div class="card-body">
+                    <EmptyState Message="Select a thread or create a new one." />
+                </div>
             }
-        </ul>
+            else
+            {
+                <div class="card-header d-flex align-items-center justify-content-between py-2">
+                    <div class="text-truncate">
+                        <strong>@_activeThread.Title</strong>
+                        <span class="text-body-secondary small ms-2">@_activeThread.Model</span>
+                    </div>
+                    @if (_running)
+                    {
+                        <span class="badge text-bg-warning ai-chat-badge-live">running</span>
+                    }
+                    else if (_activeThread.Status == "failed")
+                    {
+                        <span class="badge text-bg-danger">failed</span>
+                    }
+                </div>
+
+                @if (_sseError)
+                {
+                    <div class="alert alert-warning small py-1 px-3 mb-0 rounded-0">
+                        Live stream interrupted — retrying automatically.
+                    </div>
+                }
+
+                <div class="ai-chat-messages card-body" @ref="_messagesRef">
+                    @if (_events.Count == 0 && !_running)
+                    {
+                        <div class="text-body-secondary small">No messages yet — say something below.</div>
+                    }
+                    @foreach (var group in GroupedEvents)
+                    {
+                        @if (group.Role is "user")
+                        {
+                            <div class="ai-chat-msg ai-chat-msg-user">
+                                <div class="ai-chat-bubble">@group.Text</div>
+                            </div>
+                        }
+                        else if (group.Role is "assistant")
+                        {
+                            <div class="ai-chat-msg ai-chat-msg-assistant">
+                                <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(group.Text))</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ai-chat-msg ai-chat-msg-system">
+                                <span class="@(group.Role == "error" ? "text-danger" : "text-body-secondary")">@group.Text</span>
+                            </div>
+                        }
+                    }
+                    @if (_running)
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-assistant">
+                            <div class="ai-chat-bubble ai-chat-typing">
+                                <Spinner Size="SpinnerSize.Small" /> thinking…
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="card-footer p-2">
+                    <div class="d-flex gap-2 align-items-end">
+                        <textarea class="form-control ai-chat-composer" rows="2"
+                                  placeholder="@(_running ? "Waiting for the assistant…" : "Message…")"
+                                  disabled="@(_running || _sending)"
+                                  @bind="_composer"
+                                  @bind:event="oninput"
+                                  @onkeydown="OnComposerKeyDownAsync"></textarea>
+                        <div class="d-flex flex-column gap-1">
+                            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
+                                    Disabled="@(_running || _sending || string.IsNullOrWhiteSpace(_composer))"
+                                    @onclick="SendMessageAsync">Send</Button>
+                            <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                                    Disabled="@(_running || _sending)"
+                                    @onclick="ShowRunAgentAsync">Run agent</Button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </section>
     </div>
 }
 
+<Modal @ref="_newThreadModal" />
+<Modal @ref="_runAgentModal" />
+
 @code {
+    private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);
+
     private IReadOnlyCollection<AiChatThreadDto>? _threads;
+    private string? _activeThreadId;
+    private AiChatThreadDto? _activeThread;
+    private readonly List<AiChatEventDto> _events = [];
+    private readonly HashSet<string> _seenEventIds = new(StringComparer.Ordinal);
+    private string _composer = string.Empty;
+    private bool _running;
+    private bool _sending;
+    private bool _sseError;
+    private bool _scrollPending;
+    private string? _deleteConfirmId;
+    private ElementReference _messagesRef;
+    private Modal _newThreadModal = default!;
+    private Modal _runAgentModal = default!;
+    private DotNetObjectReference<AiChat>? _dotNetRef;
+    private CancellationTokenSource _disposeCts = new();
+
+    private IEnumerable<AiChatThreadDto> OrderedThreads =>
+        _threads?.OrderByDescending(t => t.UpdatedAt) ?? Enumerable.Empty<AiChatThreadDto>();
+
+    // Consecutive user/assistant events render as one bubble — the server stores
+    // one event per streamed delta, so grouping merges them into a growing
+    // message. System-level roles (activity/error) render one line each.
+    private IEnumerable<(string Role, string Text)> GroupedEvents
+    {
+        get
+        {
+            string? role = null;
+            var buffer = new System.Text.StringBuilder();
+            foreach (var ev in _events)
+            {
+                var normalized = ev.Role is "user" or "assistant" ? ev.Role : null;
+                if (normalized is null)
+                {
+                    if (role is not null)
+                    {
+                        yield return (role, buffer.ToString());
+                        buffer.Clear();
+                        role = null;
+                    }
+                    yield return (ev.Role, ev.Content);
+                    continue;
+                }
+
+                if (role is not null && normalized != role)
+                {
+                    yield return (role, buffer.ToString());
+                    buffer.Clear();
+                }
+                role = normalized;
+                buffer.Append(normalized == "assistant" ? ev.Content : ev.Content + "\n");
+            }
+            if (role is not null)
+            {
+                yield return (role, buffer.ToString());
+            }
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
-        _threads = await Client.GetAiChatThreadsAsync();
+        _dotNetRef = DotNetObjectReference.Create(this);
+        try
+        {
+            _threads = await Client.GetAiChatThreadsAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
+            _threads = [];
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollPending)
+        {
+            _scrollPending = false;
+            await JS.InvokeVoidAsync("taskboard.scrollToBottom", _messagesRef);
+        }
+    }
+
+    private async Task SelectThreadAsync(AiChatThreadDto thread)
+    {
+        _activeThread = thread;
+        _activeThreadId = thread.Id;
+        _events.Clear();
+        _seenEventIds.Clear();
+        _running = thread.Status == "running";
+        _sseError = false;
+        _scrollPending = true;
+
+        await JS.InvokeVoidAsync(
+            "taskboardSse.connect",
+            "ai-chat",
+            $"/api/local/ai/threads/{Uri.EscapeDataString(thread.Id)}/events",
+            _dotNetRef,
+            new[] { "ai_chat.event", "ai_chat.run" });
+    }
+
+    [JSInvokable]
+    public async Task OnSseEvent(string eventType, string data)
+    {
+        try
+        {
+            if (eventType == "ai_chat.event")
+            {
+                var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
+                if (ev is not null && _seenEventIds.Add(ev.Id))
+                {
+                    _events.Add(ev);
+                    _scrollPending = true;
+                }
+                _sseError = false;
+            }
+            else if (eventType == "ai_chat.run")
+            {
+                var run = JsonSerializer.Deserialize<AiChatRunDto>(data, SseJson);
+                if (run is not null)
+                {
+                    _running = run.Status == "running";
+                    _scrollPending = true;
+                }
+                _sseError = false;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnSseError()
+    {
+        _sseError = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnComposerKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_running && !_sending
+            && !string.IsNullOrWhiteSpace(_composer))
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private async Task SendMessageAsync()
+    {
+        var threadId = _activeThreadId;
+        var content = _composer.Trim();
+        if (threadId is null || content.Length == 0)
+        {
+            return;
+        }
+
+        _sending = true;
+        try
+        {
+            var posted = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
+            if (posted is null)
+            {
+                ToastService.Notify(new(ToastType.Danger, "Failed to post the message."));
+                return;
+            }
+
+            _composer = string.Empty;
+            _running = true;
+
+            var run = await Client.StartAiChatRunAsync(threadId);
+            if (run is null)
+            {
+                _running = false;
+                ToastService.Notify(new(ToastType.Danger, "Failed to start the assistant run."));
+            }
+        }
+        catch (Exception ex)
+        {
+            _running = false;
+            ToastService.Notify(new(ToastType.Danger, $"Send failed: {ex.Message}"));
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private async Task ShowNewThreadAsync()
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            ["OnSubmit"] = EventCallback.Factory.Create<CreateAiChatThreadRequest>(this, CreateThreadAsync),
+            ["OnCancel"] = EventCallback.Factory.Create(this, () => _newThreadModal.HideAsync())
+        };
+        await _newThreadModal.ShowAsync<NewThreadDialog>(title: "New thread", parameters: parameters);
+    }
+
+    private async Task CreateThreadAsync(CreateAiChatThreadRequest request)
+    {
+        var thread = await Client.CreateAiChatThreadAsync(request);
+        await _newThreadModal.HideAsync();
+        if (thread is null)
+        {
+            ToastService.Notify(new(ToastType.Danger, "Failed to create the thread."));
+            return;
+        }
+
+        _threads = (_threads ?? []).Concat([thread]).ToList();
+        await SelectThreadAsync(thread);
+    }
+
+    private async Task DeleteThreadAsync(AiChatThreadDto thread)
+    {
+        _deleteConfirmId = null;
+        var deleted = await Client.DeleteAiChatThreadAsync(thread.Id);
+        if (!deleted)
+        {
+            ToastService.Notify(new(ToastType.Danger, "Failed to delete the thread."));
+            return;
+        }
+
+        _threads = (_threads ?? []).Where(t => t.Id != thread.Id).ToList();
+        if (_activeThreadId == thread.Id)
+        {
+            await JS.InvokeVoidAsync("taskboardSse.disconnect", "ai-chat");
+            _activeThread = null;
+            _activeThreadId = null;
+            _events.Clear();
+            _seenEventIds.Clear();
+            _running = false;
+        }
+    }
+
+    private async Task ShowRunAgentAsync()
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            ["OnSubmit"] = EventCallback.Factory.Create<RunAgentDialog.RunAgentSelection>(this, QueueAgentAsync),
+            ["OnCancel"] = EventCallback.Factory.Create(this, () => _runAgentModal.HideAsync())
+        };
+        await _runAgentModal.ShowAsync<RunAgentDialog>(title: "Run agent on this thread", parameters: parameters);
+    }
+
+    private async Task QueueAgentAsync(RunAgentDialog.RunAgentSelection selection)
+    {
+        await _runAgentModal.HideAsync();
+        var threadId = _activeThreadId;
+        var threadTitle = _activeThread?.Title ?? "thread";
+        if (threadId is null)
+        {
+            return;
+        }
+
+        var issueId = $"thread-{threadId}";
+        var prompt = AgentThreadPromptBuilder.Build(threadTitle, selection.RepositoryFullName, _events);
+        var request = new AgentExecutionRequest(
+            issueId,
+            IssueNumber: 0,
+            selection.RepositoryFullName,
+            RepoPath: string.Empty,
+            Branch: null,
+            Scope: null,
+            prompt,
+            selection.AgentType,
+            selection.Tier);
+
+        bool queued;
+        try
+        {
+            queued = await OrchestrationService.EnqueueAsync(request);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to queue the agent: {ex.Message}"));
+            return;
+        }
+
+        if (!queued)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"{selection.AgentName} is not eligible right now (disabled or CLI not authenticated)."));
+            return;
+        }
+
+        await Client.PostAiChatEventAsync(
+            threadId,
+            new AddAiChatEventRequest("activity",
+                $"{selection.AgentName} queued for {selection.RepositoryFullName} (tier {selection.Tier})."));
+
+        _ = PollAgentRunAsync(issueId, threadId, selection.AgentName, selection.RepositoryFullName, _disposeCts.Token);
+    }
+
+    private async Task PollAgentRunAsync(
+        string issueId, string threadId, string agentName, string repo, CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+            var deadline = DateTime.UtcNow.AddMinutes(15);
+            while (DateTime.UtcNow < deadline && await timer.WaitForNextTickAsync(ct))
+            {
+                var runs = await OrchestrationService.GetRunsAsync(issueId, 1, ct);
+                var latest = runs.FirstOrDefault();
+                if (latest?.State is AgentRunState.Succeeded or AgentRunState.Failed or AgentRunState.Canceled)
+                {
+                    var ok = latest.State == AgentRunState.Succeeded;
+                    await Client.PostAiChatEventAsync(
+                        threadId,
+                        new AddAiChatEventRequest(ok ? "activity" : "error",
+                            $"{agentName} {latest.State.ToString().ToLowerInvariant()} on {repo}."),
+                        ct);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            // Status post-back is best-effort — the run itself is unaffected.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _disposeCts.CancelAsync();
+        _disposeCts.Dispose();
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardSse.disconnect", "ai-chat");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        _dotNetRef?.Dispose();
     }
 }

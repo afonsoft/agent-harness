@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-ai-chat-threads` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -100,6 +100,6 @@ POST   /api/agents/executions            { repositoryFullName, agentType, modelT
 
 ## 9. Definition of Done
 
-- [ ] Fluxo completo criar→conversar→sub-tarefa agente funciona fim-a-fim.
-- [ ] Unit + integration verdes; build limpo.
-- [ ] docs + SPEC → Done; deploy verificado.
+- [x] Fluxo completo criar→conversar→sub-tarefa agente funciona fim-a-fim.
+- [x] Unit + integration verdes; build limpo.
+- [x] docs + SPEC → Done; deploy verificado.
