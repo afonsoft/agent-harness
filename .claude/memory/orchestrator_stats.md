@@ -7,9 +7,9 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E7 Context & Memory (E6 merged via PR #177 / 4d70c26)`
+- **fase_atual**: `Phase 4 — E7 Context & Memory implementado (aguarda PR/merge)`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-harness-workspace-isolation`
+- **branch_trabalho**: `feature/devin-20260919-harness-context-memory`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
@@ -17,8 +17,8 @@
 
 | Epic | SPEC | Issue | Status |
 |---|---|---|---|
-| E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | implemented — S1..S5 done (#172-#176), PR pending |
-| E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | queued (blocked by #161) |
+| E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | merged via PR #177 (`4d70c26`) |
+| E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | implemented — S1..S4 done (#178-#181), SPEC Done, PR pending |
 | E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | queued (blocked by #161) |
 | E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | queued (blocked by #161) |
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | queued |
@@ -365,4 +365,18 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - `dotnet build` Debug: ✅ 0 warnings/0 errors · unit: ✅ 509 · integration: ✅ 159
 - Decisões: `git diff <base>` (two-dot) cobre mudanças commitadas+pendentes (RF-002); sanitize de branch exclui `.` (git rejeita `..`); isolamento é best-effort com fallback logado — nunca quebra orquestração.
 - QA self-review: edge `sessão-órfã` corrigido via `Reactivate` upsert (`a90a194`).
-- **PR #177** aberto → https://github.com/afonsoft/taskboard-ai/pull/177 (aguarda merge; fechar #172–#176 após merge).
+- **PR #177** merged → `4d70c26` (slices #172–#176 fechadas; CI: fix hermético de `TerminalDisabledTests` via `FakeAgentDiscoveryService`).
+
+### Phase 4 — E7 Context & Memory (branch `feature/devin-20260919-harness-context-memory`)
+
+| Slice | Issue | Commit | Entrega |
+|---|---|---|---|
+| S1 | #178 | `*` | `MemoryType`, `ProjectMemoryItem`, `IContextCompiler`/`IContextCompactor`/`IMemoryService`, EF config + migration `AddProjectMemoryItems`, `EfCoreMemoryService` |
+| S2 | #179 | `*` | `ProjectContextCompiler` — descoberta recursiva de instruction files, `<env>` + git context, `<project_memory>` via remote `origin` |
+| S3 | #180 | `0ddd55b` | `ContextCompactor` — trigger 80% budget, sumariza meio preservando system + últimas 5 turmas/última instrução user |
+| S4 | #181 | `2e25f76` | Endpoints `POST /api/harness/context/compile`, `POST/GET/DELETE /api/harness/memory`, docs, SPEC→Done |
+
+### Phase 7 — Verificação E7
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 527 · integration: ✅ 163
+- Fix em S4: `GET memory?take` obrigatório → `BadHttpRequestException` mapeada para 500 pelo `GlobalExceptionHandler`; `take` agora opcional (`int?`).
