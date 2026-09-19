@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / CLI Process Runner / dotnet CLI / xUnit / Coverage Ratchet / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-verification-loop` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#164 — E9](https://github.com/afonsoft/taskboard-ai/issues/164) |
+| Status | `Approved` |
 
 ---
 

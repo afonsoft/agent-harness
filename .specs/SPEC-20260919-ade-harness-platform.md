@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / ASP.NET Core / ABP N-Layer / Blazor WASM / SignalR / Git / MCP` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-harness-platform` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#171 — E16](https://github.com/afonsoft/taskboard-ai/issues/171) |
+| Status | `Approved` |
 
 ---
 

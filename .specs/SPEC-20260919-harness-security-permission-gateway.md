@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / AST Command Classifier / Security Sandbox / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-security-permission-gateway` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#163 — E8](https://github.com/afonsoft/taskboard-ai/issues/163) |
+| Status | `Approved` |
 
 ---
 

@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / OpenTelemetry / System.Diagnostics.Activity / Blazor WASM / SQLite / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-observability-finops` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#169 — E14](https://github.com/afonsoft/taskboard-ai/issues/169) |
+| Status | `Approved` |
 
 ---
 

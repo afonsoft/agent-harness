@@ -6,27 +6,36 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-19 UTC`
-- **fase_atual**: `Phase 3 - Fragmentação E5 (aguardando aprovação do plano)`
+- **iniciado_em**: `2026-09-19 UTC` (sessão 2)
+- **fase_atual**: `Phase 4 - Execução E6/S1`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-web-cli-agent` (a criar)
+- **branch_trabalho**: `feature/devin-20260919-harness-workspace-isolation`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
-### Epic em curso
+### Epics em curso (fila sequencial — todos SPECs aprovados 2026-09-19)
 
 | Epic | SPEC | Issue | Status |
 |---|---|---|---|
-| E5 - Web CLI Agent | `.specs/SPEC-20260919-web-cli-agent.md` (Approved) | #153 | queued — slices pendentes |
+| E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | in_progress — S1..S5 (#172-#176) |
+| E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | queued (blocked by #161) |
+| E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | queued (blocked by #161) |
+| E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | queued (blocked by #161) |
+| E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | queued |
+| E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
+| E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
+| E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
+| E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | queued (blocked by #167) |
+| E15 - Cockpit HITL | `SPEC-20260919-ade-cockpit-hitl` | #170 | queued (blocked by #167,#168,#169) |
+| E16 - Harness Platform (mestre) | `SPEC-20260919-ade-harness-platform` | #171 | queued (blocked by #170,#166,#163) |
 
 ```yaml
-fila_e5:
-  - { id: "E5/S1", task: "T1 Domain/contratos + migration AddWebCliAgent", depends_on: [], gate: "schema" }
-  - { id: "E5/S2", task: "T2 AcpSessionClient + capability nos adapters", depends_on: ["E5/S1"] }
-  - { id: "E5/S3", task: "T3 AgentSessionManager + PermissionGate + endpoints + SSE + flag", depends_on: ["E5/S2"], gate: "public-api" }
-  - { id: "E5/S4", task: "T4 UI: NewThreadDialog agent, ToolCallCard, PermissionPrompt, steer/queue + Stop", depends_on: ["E5/S3"] }
-  - { id: "E5/S5", task: "T5 fallback one-shot + supportsInteractiveSession em GET /api/agents", depends_on: ["E5/S3"] }
-  - { id: "E5/S6", task: "T6 build/test/docs, coverage gate, SPEC → Done + PR", depends_on: ["E5/S4", "E5/S5"] }
+fila_e6:
+  - { id: "E6/S1", task: "T1 Contracts & VOs (IWorkspaceIsolationService, WorktreeStatus, WorktreeSessionDto)", issue: 172, depends_on: [] }
+  - { id: "E6/S2", task: "T2 Git Command Runner (timeouts, exit codes, stdio assíncrono)", issue: 173, depends_on: ["E6/S1"] }
+  - { id: "E6/S3", task: "T3 GitWorktreeManager (create/diff/commit/cleanup)", issue: 174, depends_on: ["E6/S2"] }
+  - { id: "E6/S4", task: "T4 Integração com orquestrador de agentes (cwd=worktree)", issue: 175, depends_on: ["E6/S3"] }
+  - { id: "E6/S5", task: "T5 Verify: build/test/coverage gate, docs, SPEC→Done + PR", issue: 176, depends_on: ["E6/S4"] }
 ```
 
 ---

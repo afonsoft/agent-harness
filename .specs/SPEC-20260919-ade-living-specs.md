@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / Blazor WASM / Markdig / SQLite / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-living-specs` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#168 — E13](https://github.com/afonsoft/taskboard-ai/issues/168) |
+| Status | `Approved` |
 
 ---
 

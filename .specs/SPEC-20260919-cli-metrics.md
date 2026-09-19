@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / EF Core SQLite / Blazor WASM` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-cli-metrics` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#166 — E11](https://github.com/afonsoft/taskboard-ai/issues/166) |
+| Status | `Approved` |
 | Capability map | `.specs/CAPABILITY-MAP-cli-metrics.md` (module `cli-metrics`) |
 
 ## 1. User Story

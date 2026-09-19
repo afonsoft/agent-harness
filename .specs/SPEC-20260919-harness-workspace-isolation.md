@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / Git CLI / LibGit2Sharp or System.Diagnostics.Process / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-workspace-isolation` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#161 — E6](https://github.com/afonsoft/taskboard-ai/issues/161) |
+| Status | `Approved` |
 
 ---
 

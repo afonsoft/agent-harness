@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / Microsoft.Data.Sqlite / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-cli-db-reader` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#165 — E10](https://github.com/afonsoft/taskboard-ai/issues/165) |
+| Status | `Approved` |
 | Capability map | `.specs/CAPABILITY-MAP-cli-metrics.md` (module `cli-db-reader`) |
 
 ## 1. User Story
