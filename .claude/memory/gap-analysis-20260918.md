@@ -53,7 +53,14 @@ sidebar-icon-rail). Branch `main` @ `b5b62a2`, working tree limpo, `gh` autentic
 - S1 touch-targets: https://github.com/afonsoft/taskboard-ai/issues/127 (`slice`) → `.specs/SPEC-20260918-touch-targets.md`
 - S2 aichat-failed-state: https://github.com/afonsoft/taskboard-ai/issues/128 (`slice`) → `.specs/SPEC-20260918-aichat-thread-failed-state.md`
 
-## 6. Pendências
+## 6. Resultado da execução
 
-- INCONCLUSIVO `GAP-spec-contradiction-action-button-gap` aguarda decisão do usuário (alinhar AC-5 ao RF ou impor ≥8px) — não virou SPEC/Issue.
-- Execução dos 2 SPECs aprovados via orchestrator/implementação direta.
+- PR #129 merged (`789ae9d`) — touch-targets; slice #127 CLOSED.
+- PR #130 merged (`8ee81bc`) — aichat-thread-failed-state; slice #128 CLOSED.
+- PR #131 merged (`9f25eb5`) — SPECs → `Status: Done`.
+- Deploy: `taskboard-server` restarted 23:37 -03; regra CSS servida em `http://127.0.0.1:47823/css/site.css` (verificado via curl).
+- Epic #126 permanece `in_progress` aguardando a decisão do item INCONCLUSIVO.
+
+## 7. Pendências
+
+- INCONCLUSIVO `GAP-spec-contradiction-action-button-gap` aguarda decisão do usuário (alinhar AC-5 ao RF ou impor ≥8px) — não virou SPEC/Issue. Ao decidir, fechar ou atualizar o Epic #126.
