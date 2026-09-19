@@ -1333,3 +1333,18 @@ body {
     min-height: 420px;
     background: var(--bs-body-bg);
 }
+
+/* Workflow — GitHub Actions monitor (SPEC-20260918-workflow-github-actions) */
+.workflow-badge-live {
+    animation: workflow-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes workflow-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+.workflow-run-sha {
+    font-family: var(--bs-font-monospace);
+    font-size: 0.8rem;
+}

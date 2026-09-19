@@ -314,6 +314,93 @@ public sealed class GitHubService : IGitHubService
             .AsReadOnly();
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<WorkflowDto>> GetWorkflowsAsync(
+        string repositoryFullName,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var response = await _client.Actions.Workflows.List(owner, name);
+        var workflows = response.Workflows;
+
+        // Last-run fetch per workflow: capped at 20, at most 8 concurrent —
+        // repos with many workflows stay responsive (SPEC guardrail).
+        const int maxLastRunFetches = 20;
+        using var semaphore = new SemaphoreSlim(8);
+        var enriched = await Task.WhenAll(workflows.Take(maxLastRunFetches).Select(async w =>
+        {
+            WorkflowRunDto? lastRun = null;
+            try
+            {
+                await semaphore.WaitAsync(cancellationToken);
+                var runs = await _client.Actions.Workflows.Runs.ListByWorkflow(
+                    owner, name, w.Id, new WorkflowRunsRequest(), new ApiOptions { PageSize = 1 });
+                lastRun = runs.WorkflowRuns.FirstOrDefault() is { } r ? MapRun(r) : null;
+            }
+            catch (ApiException)
+            {
+                // Best-effort: a workflow whose runs are not listable keeps no badge.
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+
+            return MapWorkflow(w, lastRun);
+        }));
+
+        var rest = workflows.Skip(maxLastRunFetches).Select(w => MapWorkflow(w, null));
+        return enriched.Concat(rest)
+            .OrderByDescending(w => w.LastRun?.CreatedAt ?? DateTimeOffset.MinValue)
+            .ToList()
+            .AsReadOnly();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<WorkflowRunDto>> GetWorkflowRunsAsync(
+        string repositoryFullName,
+        long workflowId,
+        int take = 10,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        var runs = await _client.Actions.Workflows.Runs.ListByWorkflow(
+            owner, name, workflowId, new WorkflowRunsRequest(), new ApiOptions { PageSize = take });
+        return runs.WorkflowRuns
+            .Take(take)
+            .Select(MapRun)
+            .ToList()
+            .AsReadOnly();
+    }
+
+    private static WorkflowDto MapWorkflow(Workflow workflow, WorkflowRunDto? lastRun) => new(
+        workflow.Id,
+        workflow.Name,
+        workflow.Path,
+        workflow.State.StringValue,
+        workflow.HtmlUrl,
+        lastRun);
+
+    private static WorkflowRunDto MapRun(WorkflowRun run) => new(
+        run.Id,
+        run.Name,
+        run.DisplayTitle,
+        run.RunNumber,
+        run.Event,
+        run.Status.StringValue,
+        run.Conclusion?.StringValue,
+        run.HeadBranch,
+        run.HeadSha,
+        run.Actor?.Login,
+        run.CreatedAt,
+        run.UpdatedAt,
+        run.RunStartedAt,
+        run.HtmlUrl);
+
     private static IssueCommentDto MapToDto(IssueComment comment) => new(
         comment.Id,
         comment.User?.Login,

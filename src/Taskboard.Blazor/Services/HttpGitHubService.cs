@@ -185,6 +185,34 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         throw new NotSupportedException(
             "Raw label events are server-side only — the client reads the aggregated timeline via ITimelineMetricsService.");
 
+    public async Task<IReadOnlyList<WorkflowDto>> GetWorkflowsAsync(
+        string repositoryFullName,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.GetAsync($"/api/github/repos/{owner}/{repo}/workflows", cancellationToken);
+        await ThrowOnTokenMissingAsync(response, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<WorkflowsResponse>(cancellationToken);
+        return result?.Workflows ?? [];
+    }
+
+    public async Task<IReadOnlyList<WorkflowRunDto>> GetWorkflowRunsAsync(
+        string repositoryFullName,
+        long workflowId,
+        int take = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.GetAsync(
+            $"/api/github/repos/{owner}/{repo}/workflows/{workflowId}/runs?take={take}",
+            cancellationToken);
+        await ThrowOnTokenMissingAsync(response, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<WorkflowRunsResponse>(cancellationToken);
+        return result?.Runs ?? [];
+    }
+
     private static (string Owner, string Repo) SplitFullName(string fullName)
     {
         var parts = fullName.Split('/', 2, StringSplitOptions.TrimEntries);
@@ -216,6 +244,8 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
     private sealed record CloseIssueRequest(string Resolution);
     private sealed record CommentsResponse(List<IssueCommentDto> Comments);
     private sealed record CommentResponse(IssueCommentDto Comment);
+    private sealed record WorkflowsResponse(List<WorkflowDto> Workflows);
+    private sealed record WorkflowRunsResponse(List<WorkflowRunDto> Runs);
     private sealed record AddCommentRequest(string Body);
     private sealed record ErrorEnvelope(ErrorBody? Error);
     private sealed record ErrorBody(string Code, string Message);

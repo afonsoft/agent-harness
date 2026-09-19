@@ -1,83 +1,194 @@
 @page "/workflow"
 @attribute [Authorize]
-@inject TaskboardClient Client
+@implements IDisposable
+@inject IGitHubService GitHubService
 
 <PageTitle>Workflow - Harness</PageTitle>
 
-<h1 class="h4 fw-bold mb-1">Workflow</h1>
-<p class="small text-body-secondary mb-4">Workflow graphs per workspace (read-only)</p>
+<div class="d-flex align-items-center mb-1">
+    <h1 class="h4 fw-bold mb-0">Workflow</h1>
+    @if (_selectedRepo is not null)
+    {
+        <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="RefreshAsync" disabled="@_isLoadingWorkflows">
+            <Icon Name="IconName.ArrowClockwise" /> Refresh
+        </button>
+    }
+</div>
+<p class="small text-body-secondary mb-4">GitHub Actions runs per repository (read-only)</p>
 
 @if (_isLoading)
 {
-    <Loading Message="Carregando workflows..." />
-}
-else if (_errorMessage is not null)
-{
-    <div class="alert alert-danger">@_errorMessage</div>
-}
-else if (!_workspaces.Any())
-{
-    <EmptyState Message="Nenhum workflow configurado." />
+    <Loading Message="Loading repositories..." />
 }
 else
 {
-    @foreach (var workspace in _workspaces)
-    {
-        var graph = ParseGraph(workspace.Workspace);
-        <div class="card mb-3" @key="workspace.WorkspaceId">
-            <div class="card-header d-flex align-items-center">
-                <h2 class="h6 mb-0">@workspace.WorkspaceId</h2>
-                <span class="small text-body-secondary ms-auto">
-                    Atualizado em @workspace.UpdatedAt.ToString("g")
-                </span>
-            </div>
-            <div class="card-body">
-                @if (graph is null)
-                {
-                    <EmptyState Message="Workflow sem grafo definido." />
-                }
-                else
-                {
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        @for (var i = 0; i < graph.Value.Nodes.Count; i++)
-                        {
-                            var node = graph.Value.Nodes[i];
-                            <span class="badge text-bg-light border px-3 py-2">@node</span>
-                            @if (i < graph.Value.Nodes.Count - 1)
-                            {
-                                <Icon Name="IconName.ArrowRight" class="text-body-secondary" />
-                            }
-                        }
-                    </div>
-                    @if (graph.Value.Edges.Count > 0)
-                    {
-                        <ul class="small text-body-secondary mt-3 mb-0">
-                            @foreach (var edge in graph.Value.Edges)
-                            {
-                                <li>@edge</li>
-                            }
-                        </ul>
-                    }
-                }
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="field" style="max-width: 320px;">
+                <label for="workflow-repo">Repository</label>
+                <RepositoryCombobox Id="workflow-repo"
+                                    AriaLabel="Repository"
+                                    Placeholder="owner/repo"
+                                    Repositories="@_repoNames"
+                                    Disabled="@_tokenMissing"
+                                    @bind-Value="_repoInput"
+                                    OnCommit="OnRepoCommitted" />
             </div>
         </div>
+    </div>
+
+    @if (_repoWarning is not null)
+    {
+        <div class="alert alert-warning">@_repoWarning</div>
+    }
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger">@_errorMessage</div>
+    }
+
+    @if (_isLoadingWorkflows)
+    {
+        <Loading Message="Loading workflows..." />
+    }
+    else if (_workflows is not null)
+    {
+        @if (_workflows.Count == 0)
+        {
+            <EmptyState Message="No GitHub Actions workflows in this repository." />
+        }
+        else
+        {
+            @foreach (var workflow in _workflows)
+            {
+                var expanded = _expanded.Contains(workflow.Id);
+                <div class="card mb-2" @key="workflow.Id">
+                    <div class="card-header d-flex align-items-center gap-2 py-2" role="button" @onclick="() => ToggleWorkflowAsync(workflow)">
+                        <Icon Name="@(expanded ? IconName.ChevronDown : IconName.ChevronRight)" class="text-body-secondary" />
+                        <div class="me-auto">
+                            <span class="fw-semibold">@workflow.Name</span>
+                            <span class="small text-body-secondary ms-2">@ShortPath(workflow.Path)</span>
+                        </div>
+                        @if (workflow.State != "active")
+                        {
+                            <span class="badge text-bg-secondary">@workflow.State</span>
+                        }
+                        @if (workflow.LastRun is { } lastRun)
+                        {
+                            <span class="@WorkflowRunBadge.CssClass(lastRun.Status, lastRun.Conclusion)">
+                                @WorkflowRunBadge.Label(lastRun.Status, lastRun.Conclusion)
+                            </span>
+                            <span class="small text-body-secondary">@RelativeTime(lastRun.UpdatedAt)</span>
+                        }
+                        else
+                        {
+                            <span class="small text-body-secondary">No runs yet</span>
+                        }
+                        <a href="@workflow.HtmlUrl" target="_blank" rel="noopener" class="small" @onclick:stopPropagation="true">↗</a>
+                    </div>
+                    @if (expanded)
+                    {
+                        <div class="card-body p-0">
+                            @if (_runsLoading.Contains(workflow.Id))
+                            {
+                                <div class="p-3"><Loading Message="Loading runs..." /></div>
+                            }
+                            else if (_runs.TryGetValue(workflow.Id, out var runs))
+                            {
+                                @if (runs.Count == 0)
+                                {
+                                    <div class="p-3"><EmptyState Message="No runs for this workflow." /></div>
+                                }
+                                else
+                                {
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th class="ps-3">Run</th>
+                                                <th>Status</th>
+                                                <th>Branch</th>
+                                                <th>SHA</th>
+                                                <th>Actor</th>
+                                                <th>Duration</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var run in runs)
+                                            {
+                                                <tr @key="run.Id">
+                                                    <td class="ps-3">
+                                                        <span class="small">#@run.RunNumber</span>
+                                                        @if (!string.IsNullOrWhiteSpace(run.DisplayTitle))
+                                                        {
+                                                            <span class="small text-body-secondary ms-1">@Truncate(run.DisplayTitle, 60)</span>
+                                                        }
+                                                    </td>
+                                                    <td>
+                                                        <span class="@WorkflowRunBadge.CssClass(run.Status, run.Conclusion)">
+                                                            @WorkflowRunBadge.Label(run.Status, run.Conclusion)
+                                                        </span>
+                                                    </td>
+                                                    <td class="small">@run.HeadBranch</td>
+                                                    <td class="workflow-run-sha">@ShortSha(run.HeadSha)</td>
+                                                    <td class="small">@run.ActorLogin</td>
+                                                    <td class="small">@FormatDuration(run)</td>
+                                                    <td><a href="@run.HtmlUrl" target="_blank" rel="noopener" class="small">↗</a></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+    }
+    else if (_selectedRepo is null)
+    {
+        <EmptyState Message="Type or select a repository to load its workflows." />
     }
 }
 
 @code {
+    private static readonly TimeSpan AutoRefreshInterval = TimeSpan.FromSeconds(60);
+
     private bool _isLoading = true;
+    private bool _isLoadingWorkflows;
+    private bool _tokenMissing;
+    private string? _repoWarning;
     private string? _errorMessage;
-    private List<WorkflowWorkspaceDto> _workspaces = [];
+    private IReadOnlyList<string> _repoNames = [];
+    private string? _selectedRepo;
+    private string _repoInput = string.Empty;
+    private IReadOnlyList<WorkflowDto>? _workflows;
+    private readonly HashSet<long> _expanded = [];
+    private readonly HashSet<long> _runsLoading = [];
+    private readonly Dictionary<long, IReadOnlyList<WorkflowRunDto>> _runs = new();
+    private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            _workspaces = (await Client.GetWorkflowWorkspacesAsync()).ToList();
+            var repositories = await GitHubService.GetRepositoriesAsync();
+            _repoNames = repositories.Select(r => r.FullName).OrderBy(n => n).ToList();
+            if (_repoNames.Count > 0)
+            {
+                _selectedRepo = _repoNames[0];
+                _repoInput = _selectedRepo;
+                await LoadWorkflowsAsync();
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            _tokenMissing = true;
+            _repoWarning = "GitHub token not configured. Set the GITHUB_TOKEN environment variable or configure it in Settings.";
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Erro ao carregar workflows: {ex.Message}";
+            _repoWarning = $"Could not load GitHub repositories: {ex.Message}. You can still type a repository name.";
         }
         finally
         {
@@ -85,45 +196,172 @@ else
         }
     }
 
-    private static WorkflowGraph? ParseGraph(string workspaceJson)
+    private async Task OnRepoCommitted(string value)
     {
+        if (value == _selectedRepo)
+        {
+            return;
+        }
+
+        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+        {
+            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
+            _repoInput = _selectedRepo ?? string.Empty;
+            return;
+        }
+
+        _repoWarning = null;
+        _selectedRepo = value;
+        _expanded.Clear();
+        _runs.Clear();
+        await LoadWorkflowsAsync();
+    }
+
+    private Task RefreshAsync() => LoadWorkflowsAsync();
+
+    private async Task LoadWorkflowsAsync()
+    {
+        if (_selectedRepo is null)
+        {
+            return;
+        }
+
+        _isLoadingWorkflows = true;
+        _errorMessage = null;
         try
         {
-            using var document = System.Text.Json.JsonDocument.Parse(workspaceJson);
-            var root = document.RootElement;
-
-            var nodes = new List<string>();
-            if (root.TryGetProperty("nodes", out var nodesElement) && nodesElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+            _workflows = await GitHubService.GetWorkflowsAsync(_selectedRepo);
+            foreach (var id in _expanded.ToList())
             {
-                foreach (var node in nodesElement.EnumerateArray())
-                {
-                    nodes.Add(node.ValueKind == System.Text.Json.JsonValueKind.String
-                        ? node.GetString() ?? "?"
-                        : node.TryGetProperty("id", out var id) ? id.ToString() : node.TryGetProperty("name", out var name) ? name.ToString() : "?");
-                }
+                await LoadRunsAsync(id);
             }
 
-            var edges = new List<string>();
-            foreach (var key in new[] { "edges", "sequences" })
-            {
-                if (root.TryGetProperty(key, out var edgesElement) && edgesElement.ValueKind == System.Text.Json.JsonValueKind.Array)
-                {
-                    foreach (var edge in edgesElement.EnumerateArray())
-                    {
-                        edges.Add(edge.ValueKind == System.Text.Json.JsonValueKind.String
-                            ? edge.GetString() ?? "?"
-                            : edge.GetRawText());
-                    }
-                }
-            }
-
-            return nodes.Count == 0 && edges.Count == 0 ? null : new WorkflowGraph(nodes, edges);
+            UpdateRefreshTimer();
         }
-        catch (System.Text.Json.JsonException)
+        catch (Exception ex)
         {
-            return null;
+            _errorMessage = $"Could not load workflows: {ex.Message}";
+            _workflows = null;
+        }
+        finally
+        {
+            _isLoadingWorkflows = false;
         }
     }
 
-    private readonly record struct WorkflowGraph(IReadOnlyList<string> Nodes, IReadOnlyList<string> Edges);
+    private async Task ToggleWorkflowAsync(WorkflowDto workflow)
+    {
+        if (!_expanded.Add(workflow.Id))
+        {
+            _expanded.Remove(workflow.Id);
+            return;
+        }
+
+        await LoadRunsAsync(workflow.Id);
+    }
+
+    private async Task LoadRunsAsync(long workflowId)
+    {
+        if (_selectedRepo is null)
+        {
+            return;
+        }
+
+        _runsLoading.Add(workflowId);
+        try
+        {
+            _runs[workflowId] = await GitHubService.GetWorkflowRunsAsync(_selectedRepo, workflowId, 10);
+        }
+        catch (Exception)
+        {
+            _runs[workflowId] = [];
+        }
+        finally
+        {
+            _runsLoading.Remove(workflowId);
+        }
+    }
+
+    private void UpdateRefreshTimer()
+    {
+        var hasLive = _workflows?.Any(w => w.LastRun is { } r && WorkflowRunBadge.IsLive(r.Status)) == true
+            || _runs.Values.Any(rs => rs.Any(r => WorkflowRunBadge.IsLive(r.Status)));
+
+        if (hasLive && _refreshTimer is null)
+        {
+            _refreshTimer = new System.Threading.Timer(
+                _ => _ = InvokeAsync(async () =>
+                {
+                    await LoadWorkflowsAsync();
+                    StateHasChanged();
+                }),
+                null, AutoRefreshInterval, AutoRefreshInterval);
+        }
+        else if (!hasLive)
+        {
+            _refreshTimer?.Dispose();
+            _refreshTimer = null;
+        }
+    }
+
+    private static string ShortPath(string path)
+    {
+        var file = path.Split('/').LastOrDefault() ?? path;
+        return file;
+    }
+
+    private static string ShortSha(string? sha) =>
+        string.IsNullOrWhiteSpace(sha) ? "—" : sha[..Math.Min(7, sha.Length)];
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max] + "…";
+
+    private static string RelativeTime(DateTimeOffset at)
+    {
+        var elapsed = DateTimeOffset.UtcNow - at;
+        if (elapsed.TotalMinutes < 1)
+        {
+            return "just now";
+        }
+        if (elapsed.TotalHours < 1)
+        {
+            return $"{(int)elapsed.TotalMinutes}m ago";
+        }
+        if (elapsed.TotalDays < 1)
+        {
+            return $"{(int)elapsed.TotalHours}h ago";
+        }
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    private static string FormatDuration(WorkflowRunDto run)
+    {
+        if (WorkflowRunBadge.IsLive(run.Status))
+        {
+            var started = run.RunStartedAt == default ? run.CreatedAt : run.RunStartedAt;
+            var elapsed = DateTimeOffset.UtcNow - started;
+            return $"running {FormatSpan(elapsed)}";
+        }
+
+        return FormatSpan(run.UpdatedAt - run.CreatedAt);
+    }
+
+    private static string FormatSpan(TimeSpan span)
+    {
+        if (span.TotalMinutes < 1)
+        {
+            return $"{(int)span.TotalSeconds}s";
+        }
+        if (span.TotalHours < 1)
+        {
+            return $"{(int)span.TotalMinutes}m";
+        }
+        return $"{(int)span.TotalHours}h {span.Minutes}m";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
 }

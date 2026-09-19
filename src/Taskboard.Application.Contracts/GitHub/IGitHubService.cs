@@ -77,4 +77,16 @@ public interface IGitHubService
     /// retorna o que conseguir (rate limits não devem derrubar o conjunto).
     /// </summary>
     Task<IReadOnlyList<IssueLabelEventDto>> GetIssueTimelineEventsAsync(string repositoryFullName, int issueNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lista os workflows do GitHub Actions do repositório com o run mais
+    /// recente embutido em cada um (SPEC-20260918-workflow-github-actions).
+    /// Best-effort por workflow: falha no fetch do last-run não derruba a lista.
+    /// </summary>
+    Task<IReadOnlyList<WorkflowDto>> GetWorkflowsAsync(string repositoryFullName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Últimos <paramref name="take"/> runs de um workflow específico.
+    /// </summary>
+    Task<IReadOnlyList<WorkflowRunDto>> GetWorkflowRunsAsync(string repositoryFullName, long workflowId, int take = 10, CancellationToken cancellationToken = default);
 }
