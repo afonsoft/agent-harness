@@ -11,22 +11,7 @@ internal static class Program
     static async Task<int> Main(string[] args)
     {
         var app = new CommandApp<AppRootCommand>();
-        app.Configure(config =>
-        {
-            config.AddCommand<ContextCurrentCommand>("context:current");
-
-
-
-
-            // GitHub board: history + comments (SPEC-20260918-github-comments-history)
-            config.AddCommand<GitHubIssueHistoryCommand>("ghissue:history");
-            config.AddCommand<GitHubIssueCommentListCommand>("ghissue:comments");
-            config.AddCommand<GitHubIssueCommentAddCommand>("ghissue:comment");
-
-            config.AddCommand<CloudLoginCommand>("cloud:login");
-            config.AddCommand<CloudStatusCommand>("cloud:status");
-            config.AddCommand<CloudLogoutCommand>("cloud:logout");
-        });
+        app.Configure(ConfigureCommands);
 
         try
         {
@@ -37,6 +22,20 @@ internal static class Program
             await Console.Error.WriteLineAsync(ex.ToString());
             return 1;
         }
+    }
+
+    internal static void ConfigureCommands(IConfigurator config)
+    {
+        config.AddCommand<ContextCurrentCommand>("context:current");
+
+        // GitHub board: history + comments (SPEC-20260918-github-comments-history)
+        config.AddCommand<GitHubIssueHistoryCommand>("ghissue:history");
+        config.AddCommand<GitHubIssueCommentListCommand>("ghissue:comments");
+        config.AddCommand<GitHubIssueCommentAddCommand>("ghissue:comment");
+
+        config.AddCommand<CloudLoginCommand>("cloud:login");
+        config.AddCommand<CloudStatusCommand>("cloud:status");
+        config.AddCommand<CloudLogoutCommand>("cloud:logout");
     }
 
     internal static string ResolveBaseUrl(string? urlArg)
@@ -150,6 +149,8 @@ public class AppRootCommand : AsyncCommand<EmptySettings>
 
 public class CloudLoginSettings : GlobalSettings
 {
+    // Convention: CommandArgument names must be "<name>" or "[name]" — a bare
+    // name is parsed as markup and crashes every --help render (gotchas.md).
     [CommandArgument(0, "<url>")]
     public string? CloudUrlArg { get; set; }
 }

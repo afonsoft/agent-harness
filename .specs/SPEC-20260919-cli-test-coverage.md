@@ -36,8 +36,11 @@ guard de `CommandArgument`,
   referenciando `Taskboard.Cli` (avaliar se `Program`/commands são visíveis;
   caso contrário `InternalsVisibleTo` ou projeto `Taskboard.Cli.Tests` novo —
   decidir na implementação pelo caminho mais simples).
-- Pacote `Spectre.Console.Testing` (`CommandAppTester`) — **nova dependência
+- Pacote `Spectre.Console.Cli.Testing` (`CommandAppTester`) — **nova dependência
   NuGet, justificada**: é o harness oficial de testes do Spectre.Console.Cli.
+  (Nota de implementação: `CommandAppTester` vive no pacote
+  `Spectre.Console.Cli.Testing`, não em `Spectre.Console.Testing` — este último
+  só expõe `TestConsole`.)
 - Smoke tests: `--help` no root e em cada command group registrado em
   `Program.cs` (garante que nenhum `CommandArgument` cru quebra o parser —
   regressão direta do bug documentado em `gotchas.md`); `context:current`
@@ -62,7 +65,7 @@ guard de `CommandArgument`,
   `config.AddCommand<T>("name")` (`context:current` linha 16, etc.).
 - Convenção `CommandArgument`: `<nome>` obrigatório / `[nome]` opcional —
   cru = crash do `StyleParser` (`gotchas.md`).
-- `CommandAppTester` (Spectre.Console.Testing) instancia o app em memória e
+- `CommandAppTester` (Spectre.Console.Cli.Testing) instancia o app em memória e
   captura output/exit code — padrão oficial.
 - Hard rule: workflows `.github/**` intocados — o guard vive como teste, não CI.
 
@@ -81,10 +84,10 @@ guard de `CommandArgument`,
 - **AC-1** `dotnet test` inclui os novos testes de CLI, todos verdes.
 - **AC-2** Reintroduzir um `CommandArgument` cru derruba o teste do guard (RED demonstrável).
 - **AC-3** Nenhum arquivo em `.github/workflows/` modificado.
-- **AC-4** Nova dependência `Spectre.Console.Testing` justificada no PR (soft rule).
+- **AC-4** Nova dependência `Spectre.Console.Cli.Testing` justificada no PR (soft rule).
 
 ## 6. DoD
 
-- [ ] RF-001..005 implementados.
-- [ ] `dotnet build` clean; `dotnet test` verde (445+156 + novos).
+- [x] RF-001..005 implementados.
+- [x] `dotnet build` clean; `dotnet test` verde (460 unit + novos CLI).
 - [ ] SPEC → `Status: Done`; PR merged.
