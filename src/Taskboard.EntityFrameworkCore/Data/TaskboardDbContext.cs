@@ -24,6 +24,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ConfigurationOverride> ConfigurationOverrides => Set<ConfigurationOverride>();
     public DbSet<WorktreeSession> WorktreeSessions => Set<WorktreeSession>();
     public DbSet<ProjectMemoryItem> ProjectMemoryItems => Set<ProjectMemoryItem>();
+    public DbSet<VerificationReport> VerificationReports => Set<VerificationReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
