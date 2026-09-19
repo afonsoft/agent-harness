@@ -97,6 +97,6 @@ Remoção — sem contrato novo. Endpoints removidos documentados no api.md como
 
 - [x] Nenhuma referência residual a Project/Task no build.
 - [x] Migration scaffolded; `/projects` redirect; menu limpo.
-- [ ] Migration aplicada em produção (no deploy, com backup prévio).
+- [x] Migration aplicada em produção (deploy com backup prévio — `taskboard.sqlite.bak-20260918`).
 - [x] Suites verdes (419 unit + 139 integration); docs atualizados.
-- [ ] Deploy com backup prévio.
+- [x] Deploy com backup prévio.
