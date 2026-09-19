@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-context-memory` |
 | Ticket | [#162 — E7](https://github.com/afonsoft/taskboard-ai/issues/162) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -150,19 +150,19 @@ Content-Type: application/json
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um repositório com `AGENTS.md` e `CLAUDE.md`, **when** o compilador é executado, **then** as instruções do projeto são injetadas no início do prompt.
-- [ ] **Given** um histórico de mensagens que atinge 85% do limite de tokens, **when** `CompactIfNeededAsync` é chamado, **then** a contagem de tokens é reduzida para menos de 50% através da síntese das mensagens antigas.
-- [ ] **Given** uma lição persistida no banco com tag `tests`, **when** um novo run com escopo de testes é inicializado, **then** a lição aparece no bloco `<project_memory>`.
+- [x] **Given** um repositório com `AGENTS.md` e `CLAUDE.md`, **when** o compilador é executado, **then** as instruções do projeto são injetadas no início do prompt.
+- [x] **Given** um histórico de mensagens que atinge 85% do limite de tokens, **when** `CompactIfNeededAsync` é chamado, **then** a contagem de tokens é reduzida para menos de 50% através da síntese das mensagens antigas.
+- [x] **Given** uma lição persistida no banco com tag `tests`, **when** um novo run com escopo de testes é inicializado, **then** a lição aparece no bloco `<project_memory>`.
 
 ---
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contracts & DTOs:** Definir `IProjectContextCompiler`, `IContextCompactor`, `IMemoryService`.
-- [ ] **T2 — Prompt Compiler Implementation:** Implementar descoberta de arquivos de instrução e injeção de `<env>` e git context.
-- [ ] **T3 — Context Compactor:** Implementar estratégias de remoção de payload repetido e síntese de histórico.
-- [ ] **T4 — SQLite Memory Store:** Implementar repositório e endpoints REST de memórias cross-session.
-- [ ] **T5 — Testes Unitários:** Testes cobrindo token counting, compactação e compilação hierárquica.
+- [x] **T1 — Contracts & DTOs:** Definir `IProjectContextCompiler`, `IContextCompactor`, `IMemoryService`.
+- [x] **T2 — Prompt Compiler Implementation:** Implementar descoberta de arquivos de instrução e injeção de `<env>` e git context.
+- [x] **T3 — Context Compactor:** Implementar estratégias de remoção de payload repetido e síntese de histórico.
+- [x] **T4 — SQLite Memory Store:** Implementar repositório e endpoints REST de memórias cross-session.
+- [x] **T5 — Testes Unitários:** Testes cobrindo token counting, compactação e compilação hierárquica.
 
 ---
 
@@ -175,6 +175,6 @@ Content-Type: application/json
 
 ## 9. Definition of Done
 
-- [ ] Motor de compilação de contexto testado e aprovado com xUnit.
-- [ ] Compactador de histórico operacional em cenários de alta volumetria de mensagens.
-- [ ] Memória cross-session persistida em SQLite e recuperável por repositório.
+- [x] Motor de compilação de contexto testado e aprovado com xUnit.
+- [x] Compactador de histórico operacional em cenários de alta volumetria de mensagens.
+- [x] Memória cross-session persistida em SQLite e recuperável por repositório.

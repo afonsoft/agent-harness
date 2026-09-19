@@ -38,6 +38,7 @@ using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Harness;
+using Taskboard.Integrations.Harness.Context;
 using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
@@ -170,6 +171,12 @@ builder.Services.AddScoped<IWorkspaceIsolationService>(sp => new GitWorktreeMana
     sp.GetRequiredService<IWorktreeSessionRepository>(),
     WorktreePaths.ResolveRoot(homeDir),
     sp.GetRequiredService<ILogger<GitWorktreeManager>>()));
+builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
+builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
+    sp.GetRequiredService<IGitCommandRunner>(),
+    sp.GetService<IMemoryService>(),
+    sp.GetRequiredService<ILogger<ProjectContextCompiler>>()));
+builder.Services.AddSingleton<IContextCompactor, ContextCompactor>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -475,6 +482,54 @@ harness.MapDelete("worktrees/{runId}", async (
     CancellationToken ct) =>
 {
     await isolation.RemoveWorktreeAsync(runId, force, ct);
+    return Results.NoContent();
+});
+
+// SPEC-20260919-harness-context-memory §5: context compilation + memory API.
+harness.MapPost("context/compile", async (
+        CompileContextRequestDto request,
+        IContextCompiler compiler,
+        CancellationToken ct) =>
+    Results.Ok(await compiler.CompileAsync(
+        request.WorktreePath,
+        request.AgentType,
+        request.MaxTokenBudget,
+        ct)));
+
+harness.MapPost("memory", async (
+        AddMemoryRequestDto request,
+        IMemoryService memory,
+        CancellationToken ct) =>
+{
+    var type = Enum.TryParse<MemoryType>(request.Type, ignoreCase: true, out var parsed)
+        ? parsed
+        : MemoryType.Fact;
+    var item = await memory.AddMemoryAsync(
+        request.RepositoryFullName,
+        request.Topic,
+        request.Content,
+        request.Tags,
+        type,
+        ct);
+    return Results.Created($"/api/harness/memory/{item.Id}", item);
+});
+
+harness.MapGet("memory", async (
+    string repositoryFullName,
+    string? query,
+    int? take,
+    IMemoryService memory,
+    CancellationToken ct) =>
+    Results.Ok(string.IsNullOrWhiteSpace(query)
+        ? await memory.ListAsync(repositoryFullName, take ?? 100, ct)
+        : await memory.SearchAsync(repositoryFullName, query, take ?? 10, ct)));
+
+harness.MapDelete("memory/{id}", async (
+    string id,
+    IMemoryService memory,
+    CancellationToken ct) =>
+{
+    await memory.DeleteAsync(id, ct);
     return Results.NoContent();
 });
 
