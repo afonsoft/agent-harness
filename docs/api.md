@@ -227,6 +227,14 @@ DELETE /api/harness/memory/{id}
 
 `POST memory` body `{ repositoryFullName, topic, content, tags?, type? }` → `201` with the persisted item (`type`: `Fact` | `ArchitecturalDecision` | `LessonLearned`, default `Fact`). `GET` lists memories scoped to a repository — `query` switches to ranked lexical search (tags > topic > content). `DELETE` removes by id → `204`. Memory records are metadata only — never store secrets.
 
+### Harness — Security Gateway (E8)
+
+```http
+POST /api/harness/security/evaluate
+```
+
+Body `{ toolName, command, worktreePath, policy? }` (`policy`: `Strict` | `Standard` | `Autonomous`, default `Standard`) → `200 { allowed, riskLevel, requiresApproval, reason }`. `riskLevel`: `Safe` | `WorkspaceWrite` | `Dangerous`. File tools (`write_file`, `read_file`, …) are jail-validated against `worktreePath` — escapes return `400` with code `Taskboard:00025` (`SECURITY_ACCESS_DENIED`). Shell commands go through a lexer classifier (per-segment `&&`/`||`/`;`/`|`, quotes, redirects, env prefixes); jail-escaping targets are hard-denied (`allowed: false`, `requiresApproval: false`) — other `Dangerous` commands require approval under Strict/Standard and are blocked under Autonomous. Unknown binaries classify Dangerous (fail-closed). `IPermissionGateway.ScrubSecrets` masks known credential patterns (`ghp_…`, `github_pat_…`, `sk-…`, AWS keys, `Bearer` tokens, PEM keys) with `[REDACTED_SECRET]` for log/stream pipelines.
+
 ## SSE
 
 ### Global events

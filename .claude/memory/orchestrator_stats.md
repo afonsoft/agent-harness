@@ -7,9 +7,9 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E7 Context & Memory implementado (aguarda PR/merge)`
+- **fase_atual**: `Phase 4 — E8 Security Gateway implementado (aguarda PR/merge)`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-harness-context-memory`
+- **branch_trabalho**: `feature/devin-20260919-harness-security-gateway`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
@@ -18,8 +18,8 @@
 | Epic | SPEC | Issue | Status |
 |---|---|---|---|
 | E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | merged via PR #177 (`4d70c26`) |
-| E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | implemented — S1..S4 done (#178-#181), SPEC Done, PR pending |
-| E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | queued (blocked by #161) |
+| E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | merged via PR #183 (`c546ac0`) |
+| E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | implemented — S1..S5 done (#184-#188), SPEC Done, PR pending |
 | E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | queued (blocked by #161) |
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | queued |
 | E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
@@ -380,3 +380,18 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 527 · integration: ✅ 163
 - Fix em S4: `GET memory?take` obrigatório → `BadHttpRequestException` mapeada para 500 pelo `GlobalExceptionHandler`; `take` agora opcional (`int?`).
+- **PR #183** merged → `c546ac0` (slices #178–#182 fechadas).
+
+### Phase 4 — E8 Security Gateway (branch `feature/devin-20260919-harness-security-gateway`)
+
+| Slice | Issue | Commit | Entrega |
+|---|---|---|---|
+| S1 | #184 | `d77e72d` | `SecurityRiskLevel`, `SecurityPolicyMode`, `SecurityAccessDeniedException` (`Taskboard:00025`), `ICommandRiskClassifier`, `IPermissionGateway`, SecurityDtos |
+| S2 | #185 | `76e523a` | `DynamicCommandClassifier` — lexer por segmentos (quotes, chains, redirects, env), tabelas git/dotnet/npm/rm, fail-closed; paths resolvidos contra o jail |
+| S3 | #186 | `*` | `PathJailValidator` (canônico + symlink escape) + `SecretScrubber` (regex compiladas ghp_/pat_/sk-/AWS/Bearer/PEM) |
+| S4+S5 | #187/#188 | `*` | `PermissionGateway` (matriz de políticas; escape=jail deny duro), endpoint `POST /api/harness/security/evaluate`, docs, SPEC→Done |
+
+### Phase 7 — Verificação E8
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 611 · integration: ✅ 167
+- Decisões: `Classify(command, worktreePath)` path-aware resolve conflito RF-001 vs §5 (`rm -rf` dentro → WorkspaceWrite, fora → Dangerous); `EscapesSandbox` no assessment distingue deny duro de approvable.
