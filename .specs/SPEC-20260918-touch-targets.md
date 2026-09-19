@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260918-touch-targets` |
 | Ticket | `GAP-implementation-touch-targets-touch-viewports` (gap-analysis-20260918) |
-| Status | `Approved` — aprovada pelo usuário (2026-09-18) |
+| Status | `Done` — entregue e mergeada (2026-09-18) |
 
 Origin: gap-analysis-20260918 — `SPEC-20260918-sidebar-icon-rail` scope item
 "interactive targets ≥44px on touch viewports" (e AC-5) não foi implementado:
@@ -81,7 +81,7 @@ abaixo do mínimo de toque em 375px.
 
 ## 6. DoD
 
-- [ ] RF-001..004 implemented.
-- [ ] `dotnet build` clean; site.css served in production contains the rule.
-- [ ] Visual check at 375px: no layout breakage, no overlapping targets.
-- [ ] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.
+- [x] RF-001..004 implemented.
+- [x] `dotnet build` clean; site.css served in production contains the rule.
+- [x] Visual check at 375px: no layout breakage, no overlapping targets.
+- [x] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.

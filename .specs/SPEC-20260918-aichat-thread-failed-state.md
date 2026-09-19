@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260918-aichat-thread-failed-state` |
 | Ticket | `GAP-implementation-aichat-failed-thread-state` (gap-analysis-20260918) |
-| Status | `Approved` — aprovada pelo usuário (2026-09-18) |
+| Status | `Done` — entregue e mergeada (2026-09-18) |
 
 Origin: gap-analysis-20260918 — `SPEC-20260918-ai-chat-threads` AC5
 ("erro de provider/SSE mostra estado de erro na thread sem travar a página")
@@ -77,7 +77,7 @@ reloading the page.
 
 ## 6. DoD
 
-- [ ] RF-001..004 implemented.
-- [ ] Unit/component-level coverage where practical (or documented manual check).
-- [ ] `dotnet build` + suites green.
-- [ ] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.
+- [x] RF-001..004 implemented.
+- [x] Unit/component-level coverage where practical (or documented manual check).
+- [x] `dotnet build` + suites green.
+- [x] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.
