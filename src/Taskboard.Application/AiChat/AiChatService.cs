@@ -4,7 +4,6 @@ using Taskboard;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Mapping;
 using Taskboard.Domain.Entities;
-using Taskboard.Domain.Events;
 using Taskboard.Dtos;
 using Taskboard.Repositories;
 using Taskboard.Requests;
@@ -17,7 +16,6 @@ public sealed class AiChatService
     private readonly IRepository<AiChatThread> _threadRepo;
     private readonly IRepository<AiChatRun> _runRepo;
     private readonly IRepository<AiChatEvent> _eventRepo;
-    private readonly IRepository<Project> _projectRepo;
     private readonly ILLMProvider _llmProvider;
     private readonly IThreadEventStreamService _threadEvents;
 
@@ -25,14 +23,12 @@ public sealed class AiChatService
         IRepository<AiChatThread> threadRepo,
         IRepository<AiChatRun> runRepo,
         IRepository<AiChatEvent> eventRepo,
-        IRepository<Project> projectRepo,
         ILLMProvider llmProvider,
         IThreadEventStreamService threadEvents)
     {
         _threadRepo = threadRepo;
         _runRepo = runRepo;
         _eventRepo = eventRepo;
-        _projectRepo = projectRepo;
         _llmProvider = llmProvider;
         _threadEvents = threadEvents;
     }
@@ -42,19 +38,9 @@ public sealed class AiChatService
         Actor actor,
         CancellationToken ct = default)
     {
-        var project = request.OriginProjectId != null
-            ? await _projectRepo.GetAsync(ProjectId.From(request.OriginProjectId), ct)
-            : null;
-
-        if (request.OriginProjectId != null && project is null)
-        {
-            throw new DomainException(TaskboardDomainErrorCodes.EmptyProjectName, $"Project '{request.OriginProjectId}' not found.");
-        }
-
         var thread = AiChatThread.Create(
             AiChatThreadId.NewGuid(),
             request.Title,
-            project?.Id,
             ModelRef.From(request.Model),
             request.ReasoningEffort,
             Sandbox.From(request.Sandbox));

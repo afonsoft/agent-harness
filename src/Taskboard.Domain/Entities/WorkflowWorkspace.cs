@@ -3,7 +3,7 @@ using Taskboard.ValueObjects;
 
 namespace Taskboard.Domain.Entities;
 
-public sealed class WorkflowWorkspace : Entity<ProjectId>
+public sealed class WorkflowWorkspace : Entity<WorkspaceId>
 {
     public string Workspace { get; private set; } = default!;
     public DateTime UpdatedAt { get; private set; }
@@ -12,7 +12,7 @@ public sealed class WorkflowWorkspace : Entity<ProjectId>
     {
     }
 
-    private WorkflowWorkspace(ProjectId id, string workspace, DateTime updatedAt)
+    private WorkflowWorkspace(WorkspaceId id, string workspace, DateTime updatedAt)
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(workspace))
@@ -24,8 +24,8 @@ public sealed class WorkflowWorkspace : Entity<ProjectId>
         UpdatedAt = updatedAt;
     }
 
-    public static WorkflowWorkspace Create(ProjectId projectId, string workspace, DateTime? now = null)
-        => new(projectId, workspace, now ?? DateTime.UtcNow);
+    public static WorkflowWorkspace Create(WorkspaceId workspaceId, string workspace, DateTime? now = null)
+        => new(workspaceId, workspace, now ?? DateTime.UtcNow);
 
     public void Update(string workspace, DateTime? now = null)
     {

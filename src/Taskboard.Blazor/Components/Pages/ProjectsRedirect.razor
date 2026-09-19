@@ -1,0 +1,11 @@
+@page "/projects"
+@attribute [Authorize]
+@inject NavigationManager Navigation
+
+@* SPEC-20260918-projects-removal RF-001: the Projects page is gone — deep
+   links to /projects land on the GitHub board. *@
+
+@code {
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo("/", replace: true);
+}

@@ -1,6 +1,6 @@
 namespace Taskboard.Dtos;
 
 public sealed record WorkflowWorkspaceDto(
-    string ProjectId,
+    string WorkspaceId,
     string Workspace,
     DateTime UpdatedAt);

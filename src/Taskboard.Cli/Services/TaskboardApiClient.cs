@@ -65,15 +65,6 @@ public sealed class TaskboardApiClient
         }
     }
 
-    public async Task<JsonNode?> PostMultipartAsync(string path, MultipartFormDataContent content, CancellationToken ct = default)
-    {
-        var response = await SendAsync(() =>
-        {
-            var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
-            return request;
-        }, ct);
-        return await ReadJsonAsync(response, ct);
-    }
 
     public async Task DownloadAsync(string path, Stream destination, CancellationToken ct = default)
     {

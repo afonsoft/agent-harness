@@ -12,16 +12,7 @@ public sealed class TaskboardDbContext : DbContext
     {
     }
 
-    public DbSet<Project> Projects => Set<Project>();
-    public DbSet<Taskboard.Domain.Entities.Task> Tasks => Set<Taskboard.Domain.Entities.Task>();
-    public DbSet<Comment> Comments => Set<Comment>();
-    public DbSet<Attachment> Attachments => Set<Attachment>();
-    public DbSet<TaskActivity> TaskActivities => Set<TaskActivity>();
-    public DbSet<TaskRelation> TaskRelations => Set<TaskRelation>();
     public DbSet<WorkflowWorkspace> WorkflowWorkspaces => Set<WorkflowWorkspace>();
-    public DbSet<WorkflowNode> WorkflowNodes => Set<WorkflowNode>();
-    public DbSet<WorkflowSequence> WorkflowSequences => Set<WorkflowSequence>();
-    public DbSet<ProjectSummary> ProjectSummaries => Set<ProjectSummary>();
     public DbSet<AiChatThread> AiChatThreads => Set<AiChatThread>();
     public DbSet<AiChatRun> AiChatRuns => Set<AiChatRun>();
     public DbSet<AiChatEvent> AiChatEvents => Set<AiChatEvent>();

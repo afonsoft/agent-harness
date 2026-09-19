@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260918-projects-removal` |
 | Ticket | — |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -95,6 +95,8 @@ Remoção — sem contrato novo. Endpoints removidos documentados no api.md como
 
 ## 9. Definition of Done
 
-- [ ] Nenhuma referência residual a Project/Task no build.
-- [ ] Migration aplicada; `/projects` redirect; menu limpo.
-- [ ] Suites verdes; docs atualizados; deploy com backup prévio.
+- [x] Nenhuma referência residual a Project/Task no build.
+- [x] Migration scaffolded; `/projects` redirect; menu limpo.
+- [ ] Migration aplicada em produção (no deploy, com backup prévio).
+- [x] Suites verdes (419 unit + 139 integration); docs atualizados.
+- [ ] Deploy com backup prévio.

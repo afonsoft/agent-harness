@@ -2,11 +2,10 @@
 
 ## Board Principal
 
-- Projetos e tarefas com status, prioridades, labels
-- Board Kanban ordenado por `sort_order`
-- Comentários, anexos, relações e atividades de tarefas
+- Kanban baseado no GitHub: issues são a fonte de verdade (colunas via labels, prioridades via labels `priority:*`)
+- Mutações do board persistem `IssueHistoryEvent` para a timeline unificada
+- Comentários da issue no GitHub como canal de handoff entre agentes
 - Suporte a Markdown GFM + mermaid (read-only)
-- Concorrência otimista com coluna `version`
 
 ## Tempo Real
 
@@ -16,19 +15,18 @@
 
 ## Automação
 
-- Workspaces de workflow (config JSON do board)
-- Engine de control-flow
-- Auto-claim de `todo` → `in_progress` para agentes Codex
+- Workspaces de workflow (config JSON do board chaveada por id de workspace)
+- Execução de agentes sobre cards de issues do GitHub
 
 ## CLI
 
-`taskctl` — console System.CommandLine com subcomandos:
-- `project`, `issue`, `comment`, `attachment`, `label`, `ai`, `context`, `search`
+`taskctl` — console Spectre.Console.Cli com comandos:
+- `context:current`, `ghissue:history`, `ghissue:comments`, `ghissue:comment`, `cloud:login`, `cloud:status`, `cloud:logout`
 - Saída JSON via `--json`
 
 ## MCP Server
 
-13 tools expondo operações de projeto/issue/comentário/anexo/label/busca.
+4 tools: `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`.
 
 ## AI Chat
 
