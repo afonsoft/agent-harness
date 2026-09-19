@@ -13,6 +13,29 @@ window.taskboard = {
         if (el) {
             el.scrollTop = el.scrollHeight;
         }
+    },
+
+    // SPEC-20260918-sidebar-icon-rail RF-002: desktop icon-rail collapse.
+    // The html[data-sidebar-collapsed] attribute drives all rail CSS; it is
+    // updated even when localStorage is unavailable (private mode) so the
+    // toggle still works for the session.
+    getSidebarCollapsed: function () {
+        try {
+            return localStorage.getItem('harness.sidebar.collapsed') === 'true';
+        } catch (e) {
+            return false;
+        }
+    },
+
+    setSidebarCollapsed: function (collapsed) {
+        try {
+            localStorage.setItem('harness.sidebar.collapsed', collapsed ? 'true' : 'false');
+        } catch (e) { /* storage unavailable — session-only state */ }
+        if (collapsed) {
+            document.documentElement.dataset.sidebarCollapsed = 'true';
+        } else {
+            delete document.documentElement.dataset.sidebarCollapsed;
+        }
     }
 };
 

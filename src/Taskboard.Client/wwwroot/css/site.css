@@ -122,6 +122,102 @@ body {
     padding: 1.5rem;
 }
 
+.app-topbar-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--bs-emphasis-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Collapse toggle — desktop icon-rail (SPEC-20260918-sidebar-icon-rail) */
+
+.sidebar-collapse-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    border-radius: var(--bs-border-radius);
+    background: transparent;
+    color: var(--bs-secondary-color);
+    flex-shrink: 0;
+}
+
+    .sidebar-collapse-btn:hover {
+        background-color: var(--bs-tertiary-bg);
+        color: var(--bs-emphasis-color);
+    }
+
+/* Icon-only rail — desktop only; the html attribute is set pre-paint by an
+   inline index.html script and kept in sync by taskboard.setSidebarCollapsed. */
+
+@media (min-width: 992px) {
+    .app-sidebar {
+        transition: width 0.18s ease;
+    }
+
+    html[data-sidebar-collapsed] .app-sidebar {
+        width: 4.5rem;
+    }
+
+        html[data-sidebar-collapsed] .app-sidebar .app-sidebar-brand {
+            justify-content: center;
+            padding: 0;
+        }
+
+            html[data-sidebar-collapsed] .app-sidebar .app-sidebar-brand > svg,
+            html[data-sidebar-collapsed] .app-sidebar .app-sidebar-brand > span {
+                display: none;
+            }
+
+            html[data-sidebar-collapsed] .app-sidebar .app-sidebar-brand .sidebar-collapse-btn {
+                margin-left: 0 !important;
+            }
+
+        html[data-sidebar-collapsed] .app-sidebar .nav {
+            padding-left: 0.625rem;
+            padding-right: 0.625rem;
+        }
+
+        html[data-sidebar-collapsed] .app-sidebar .nav-link {
+            position: relative;
+            justify-content: center;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        html[data-sidebar-collapsed] .app-sidebar .nav-label {
+            display: none;
+        }
+
+        html[data-sidebar-collapsed] .app-sidebar .nav-link:hover::after,
+        html[data-sidebar-collapsed] .app-sidebar .nav-link:focus-visible::after {
+            content: attr(data-label);
+            position: absolute;
+            left: calc(100% + 12px);
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--bs-dark);
+            color: var(--bs-light);
+            padding: 0.3rem 0.65rem;
+            border-radius: var(--bs-border-radius);
+            font-size: 0.8rem;
+            white-space: nowrap;
+            z-index: 1100;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            pointer-events: none;
+        }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-sidebar {
+        transition: none;
+    }
+}
+
 /* Kanban board */
 
 .kanban-board-header {
