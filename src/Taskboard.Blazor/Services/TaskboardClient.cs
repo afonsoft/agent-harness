@@ -27,15 +27,6 @@ public sealed class TaskboardClient
     }
 
     /// <summary>
-    /// Retorna os workspaces de workflow registrados.
-    /// </summary>
-    public async Task<IReadOnlyList<WorkflowWorkspaceDto>> GetWorkflowWorkspacesAsync(CancellationToken cancellationToken = default)
-    {
-        var response = await _httpClient.GetFromJsonAsync<WorkflowWorkspaceListResponse>("/api/device-workspaces", cancellationToken);
-        return response?.Workspaces ?? [];
-    }
-
-    /// <summary>
     /// Retorna todas as threads de chat de IA.
     /// </summary>
     public async Task<IReadOnlyCollection<AiChatThreadDto>> GetAiChatThreadsAsync(CancellationToken cancellationToken = default)
@@ -375,7 +366,6 @@ public sealed class TaskboardClient
 
     private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);
 
-    private sealed record WorkflowWorkspaceListResponse(List<WorkflowWorkspaceDto> Workspaces);
     private sealed record AiChatThreadListResponse(List<AiChatThreadDto> Threads);
     private sealed record AiChatThreadResponse(AiChatThreadDto Thread);
     private sealed record AiChatCatalogResponse(List<AiChatModelDto> Models);

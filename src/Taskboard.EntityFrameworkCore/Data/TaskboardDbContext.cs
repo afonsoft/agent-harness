@@ -12,7 +12,6 @@ public sealed class TaskboardDbContext : DbContext
     {
     }
 
-    public DbSet<WorkflowWorkspace> WorkflowWorkspaces => Set<WorkflowWorkspace>();
     public DbSet<AiChatThread> AiChatThreads => Set<AiChatThread>();
     public DbSet<AiChatRun> AiChatRuns => Set<AiChatRun>();
     public DbSet<AiChatEvent> AiChatEvents => Set<AiChatEvent>();

@@ -104,7 +104,6 @@ builder.Services.AddSingleton<IEventStreamService, InMemoryEventStreamService>()
 builder.Services.AddSingleton<IThreadEventStreamService, InMemoryThreadEventStreamService>();
 builder.Services.AddSingleton<AiCatalogService>();
 builder.Services.AddSingleton<CloudSessionService>();
-builder.Services.AddSingleton<WorkflowCapabilityService>();
 builder.Services.AddSingleton<IJiraService, JiraService>();
 builder.Services.AddSingleton<IExecutableResolver, CodexExecutableResolver>();
 builder.Services.AddSingleton<IProcessTreeSignaler, ProcessTreeSignaler>();
@@ -657,44 +656,6 @@ api.MapPatch("local/ai/threads/{threadId}/runs/{runId}", async (
     await runRepo.SaveChangesAsync(ct);
 
     return Results.Ok(new { run = run.ToDto(), thread = thread.ToDto() });
-});
-
-api.MapGet("device-workspaces", async (IRepository<WorkflowWorkspace> workspaceRepo, CancellationToken ct) =>
-{
-    var workspaces = await workspaceRepo.ListAsync(ct);
-    return Results.Ok(new { workspaces = workspaces.Select(w => w.ToDto()) });
-});
-api.MapPut("device-workspaces", async (
-    UpdateDeviceWorkspaceRequest request,
-    IRepository<WorkflowWorkspace> workspaceRepo,
-    CancellationToken ct) =>
-{
-    var workspaceId = WorkspaceId.From(request.WorkspaceId);
-    var workspaceJson = request.Workspace.GetRawText();
-    var existing = await workspaceRepo.GetAsync(workspaceId, ct);
-    if (existing is null)
-    {
-        var workspace = WorkflowWorkspace.Create(workspaceId, workspaceJson);
-        await workspaceRepo.AddAsync(workspace, ct);
-    }
-    else
-    {
-        existing.Update(workspaceJson);
-        await workspaceRepo.UpdateAsync(existing, ct);
-    }
-
-    await workspaceRepo.SaveChangesAsync(ct);
-
-    var updated = await workspaceRepo.GetAsync(workspaceId, ct);
-    return Results.Ok(new { workspace = updated?.ToDto() });
-});
-
-api.MapGet("workflow-capabilities", (WorkflowCapabilityService capabilities) => Results.Ok(new { capabilities = capabilities.List() }));
-
-api.MapPut("workflow-capabilities", (UpdateWorkflowCapabilitiesRequest request, WorkflowCapabilityService capabilities) =>
-{
-    var capability = capabilities.Upsert(request);
-    return Results.Ok(new { capability });
 });
 
 app.MapGet("/api/events", async (HttpResponse response, IEventStreamService eventStream, CancellationToken ct) =>

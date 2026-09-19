@@ -33,10 +33,4 @@ public static class DomainMappingExtensions
             chatEvent.Role.Value,
             chatEvent.Content,
             chatEvent.CreatedAt);
-
-    public static WorkflowWorkspaceDto ToDto(this WorkflowWorkspace workspace)
-        => new(
-            workspace.Id.Value,
-            workspace.Workspace,
-            workspace.UpdatedAt);
 }

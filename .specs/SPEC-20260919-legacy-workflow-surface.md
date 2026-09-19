@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260919-legacy-workflow-surface` |
 | Ticket | `GAP-architecture-legacy-workflow-surface` (gap-analysis-20260919) — Issue #141, Epic #140 |
-| Status | `Approved` — aprovada pelo usuário (2026-09-19, gate gap-analysis) |
+| Status | `Done` — entregue neste PR |
 
 Origin: gap-analysis-20260919. `SPEC-20260918-workflow-github-actions`
 (§Out of scope, linha 36) deferiu explicitamente: "Remoção do

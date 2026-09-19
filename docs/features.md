@@ -15,7 +15,7 @@
 
 ## Automation
 
-- Workflow workspaces (JSON board config keyed by workspace id)
+- `/workflow` — read-only GitHub Actions monitor (workflows, runs, status, duration, direct links)
 - Agent execution against GitHub issue cards
 
 ## CLI
