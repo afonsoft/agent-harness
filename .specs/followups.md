@@ -4,15 +4,15 @@
 
 ### Bloqueantes (fazer antes de declarar a migração concluída)
 
-- [ ] **Remover duplicata de `context:current`** em `src/Taskboard.Cli/Program.cs`. Existe nas linhas 17 e 43; deletar a linha 43. Spectre lança em nomes de comando duplicados.
-- [ ] **Smoke tests:** `--help`, `project:list`, `issue:get <id>`, `cloud:status`.
+- [x] **Remover duplicata de `context:current`** em `src/Taskboard.Cli/Program.cs`. — removida antes do gap-analysis-20260919; `ConfigureCommands` registra cada comando uma única vez.
+- [x] **Smoke tests:** `--help`, `context:current`, `cloud:status` — `tests/Taskboard.Tests.Unit/Cli/CliSmokeTests.cs` (SPEC-20260919-cli-test-coverage). `project:list`/`issue:get` não existem mais (superados pelo board GitHub `ghissue:*`).
 - [ ] **Commit + push** (ver mensagem sugerida em `cli-migration.md`).
 
 ### Não bloqueantes
 
-- [ ] **Testes de CLI com `CommandAppTester`** — cobrir `--help` de cada grupo de comandos para regressar o bug do `CommandArgument`.
-- [ ] **Check de CI** para `[CommandArgument]` sem `<>`/`[]` (ver `gotchas.md`, seção "Prevenção").
-- [ ] **Comentário inline** em `Program.cs` acima do primeiro `CommandArgument` registrando a convenção de colchetes.
+- [x] **Testes de CLI com `CommandAppTester`** — `tests/Taskboard.Tests.Unit/Cli/CliSmokeTests.cs` cobre `--help` raiz e de cada comando (SPEC-20260919-cli-test-coverage).
+- [x] **Check para `[CommandArgument]` sem `<>`/`[]`** — implementado como teste de guarda por reflection (`Dado_CommandArgument_Quando_Registrado_Entao_PlaceholderUsaColchetes`) em vez de CI, pois `.github/workflows/**` é protegido por hard rule.
+- [x] **Comentário inline** em `Program.cs` acima do primeiro `CommandArgument` (`CloudLoginSettings`, linhas ~152-153).
 - [ ] **Decisão/ADR** registrando *por que* Spectre foi escolhido em vez de `System.CommandLine`.
 - [ ] **Revisar UX diff** com a CLI original — confirmar que nenhum comando foi perdido e que mudanças posicional → `--flag` foram intencionais.
 
