@@ -176,6 +176,7 @@ builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
     sp.GetRequiredService<IGitCommandRunner>(),
     sp.GetService<IMemoryService>(),
     sp.GetRequiredService<ILogger<ProjectContextCompiler>>()));
+builder.Services.AddSingleton<IContextCompactor, ContextCompactor>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
