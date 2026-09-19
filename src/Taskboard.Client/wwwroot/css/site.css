@@ -1097,6 +1097,20 @@ body {
     cursor: pointer;
 }
 
+/* SPEC-20260918-touch-targets: ≥44px interactive targets on touch/small viewports */
+@media (hover: none), (pointer: coarse), (max-width: 767.98px) {
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+    }
+
+    .btn-sm {
+        min-width: 44px;
+    }
+}
+
 .filter-chip {
     min-height: 44px;
 }
