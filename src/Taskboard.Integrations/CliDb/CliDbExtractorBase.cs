@@ -1,0 +1,126 @@
+using Microsoft.Extensions.Logging;
+using Taskboard.Agents;
+using Taskboard.Application.Contracts.CliDb;
+using Taskboard.Dtos;
+
+namespace Taskboard.Integrations.CliDb;
+
+/// <summary>
+/// Shared extraction flow: locate → open (ro/temp-copy) → fingerprint →
+/// drift check → extractor-specific queries. One broken/drifted source never
+/// affects the others and never throws into callers.
+/// SPEC-20260919-cli-db-reader RF-003/RF-006.
+/// </summary>
+public abstract class CliDbExtractorBase : ICliDbExtractor
+{
+    private readonly ICliDatabaseLocator _locator;
+    private readonly ICliDatabaseReader _reader;
+    private readonly ILogger _logger;
+
+    protected CliDbExtractorBase(
+        ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger logger)
+    {
+        _locator = locator;
+        _reader = reader;
+        _logger = logger;
+    }
+
+    public abstract AgentCliKind Kind { get; }
+    public abstract CliDbSchemaFingerprint ExpectedFingerprint { get; }
+
+    /// <summary>Sources this extractor reads — normally <see cref="CliDatabaseMap.SourcesFor"/>.</summary>
+    protected abstract IReadOnlyList<CliDbSource> Sources { get; }
+
+    /// <summary>Extractor-specific whitelisted queries for one opened database file.</summary>
+    protected abstract Task ExtractSourceAsync(
+        ICliDbConnection conn,
+        string resolvedPath,
+        CliDbSource source,
+        string? cursor,
+        List<CliSessionRecord> sessions,
+        List<CliUsageRecord> usage,
+        CancellationToken cancellationToken);
+
+    public async Task<CliExtractionResult> ExtractSinceAsync(string? cursor, CancellationToken cancellationToken = default)
+    {
+        var sessions = new List<CliSessionRecord>();
+        var usage = new List<CliUsageRecord>();
+        var statuses = new List<CliDbSourceStatus>();
+        var reasons = new List<string>();
+        var copied = false;
+        var sawDrift = false;
+        var sawError = false;
+        var sawAny = false;
+
+        foreach (var source in Sources)
+        {
+            var paths = _locator.Resolve(source);
+            if (paths.Count == 0)
+            {
+                statuses.Add(CliDbSourceStatus.Missing);
+                continue;
+            }
+
+            foreach (var path in paths)
+            {
+                sawAny = true;
+                try
+                {
+                    await using var conn = await _reader.OpenAsync(source, path, cancellationToken)
+                        .ConfigureAwait(false);
+                    copied |= conn.CopiedToTemp;
+
+                    var fingerprint = await conn.GetSchemaFingerprintAsync(
+                        source.WhitelistTables, cancellationToken).ConfigureAwait(false);
+                    if (!CliDbSchemaFingerprinter.Matches(ExpectedFingerprint, fingerprint, out var diff))
+                    {
+                        // Schema metadata only — row content is never logged.
+                        _logger.LogWarning(
+                            "CliDb schema drift on {Kind}/{Source}: {Diff}", Kind, source.Name, diff);
+                        reasons.Add($"{source.Name}: schema drifted ({diff})");
+                        sawDrift = true;
+                        continue;
+                    }
+
+                    await ExtractSourceAsync(conn, path, source, cursor, sessions, usage, cancellationToken)
+                        .ConfigureAwait(false);
+                    statuses.Add(CliDbSourceStatus.Available);
+                }
+                catch (CliDbAccessDeniedException ex)
+                {
+                    _logger.LogWarning("CliDb access denied on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+                    reasons.Add($"{source.Name}: {ex.Message}");
+                    sawError = true;
+                }
+                catch (CliDbReadException ex)
+                {
+                    _logger.LogWarning("CliDb read failed on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+                    reasons.Add($"{source.Name}: {ex.Message}");
+                    sawError = true;
+                }
+            }
+        }
+
+        var status = ResolveAggregate(sawAny, sawDrift, sawError, copied, statuses);
+        return new CliExtractionResult(sessions, usage, cursor, status,
+            reasons.Count > 0 ? string.Join("; ", reasons) : null);
+    }
+
+    private static CliDbSourceStatus ResolveAggregate(
+        bool sawAny, bool sawDrift, bool sawError, bool copied, List<CliDbSourceStatus> statuses)
+    {
+        if (!sawAny)
+        {
+            return CliDbSourceStatus.Missing;
+        }
+        if (statuses.Count == 0 && sawDrift && !sawError)
+        {
+            return CliDbSourceStatus.SchemaDrifted;
+        }
+        if (statuses.Count == 0 && sawError)
+        {
+            return CliDbSourceStatus.Error;
+        }
+        return copied ? CliDbSourceStatus.CopiedToTemp : CliDbSourceStatus.Available;
+    }
+}

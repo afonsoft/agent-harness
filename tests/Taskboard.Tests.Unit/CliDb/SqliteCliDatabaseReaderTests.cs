@@ -31,7 +31,7 @@ public class SqliteCliDatabaseReaderTests : IDisposable
     {
         var path = Path.Combine(_home, relPath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var conn = keepOpen ?? new SqliteConnection($"Data Source={path}");
+        var conn = keepOpen ?? new SqliteConnection($"Data Source={path};Pooling=false");
         conn.Open();
         using var cmd = conn.CreateCommand();
         if (wal)
@@ -131,7 +131,7 @@ public class SqliteCliDatabaseReaderTests : IDisposable
         {
             var dbPath = Path.Combine(_home, "wal.db");
             Directory.CreateDirectory(_home);
-            writer = new SqliteConnection($"Data Source={dbPath}");
+            writer = new SqliteConnection($"Data Source={dbPath};Pooling=false");
             path = CriarDb("wal.db", wal: true, keepOpen: writer);
             File.Exists(path + "-wal").ShouldBeTrue("fixture precisa de -wal presente");
         }
