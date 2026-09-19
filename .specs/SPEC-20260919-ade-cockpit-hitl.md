@@ -9,8 +9,8 @@
 | Stack | `Blazor WebAssembly / Blazor.Bootstrap / SignalR / Monaco or Diff2Html / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-cockpit-hitl` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#170 — E15](https://github.com/afonsoft/taskboard-ai/issues/170) |
+| Status | `Approved` |
 
 ---
 

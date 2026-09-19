@@ -199,6 +199,21 @@ The executions body accepts an optional `modelTier` (`"lite" | "normal" | "ultra
 
 `GET /api/agents/runs?issueId=` returns the issue's latest runs (`{ id, issueId, agentType, state, startedAt, finishedAt }`, newest first; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` returns the latest run per issue — used to render agent badges on the kanban cards.
 
+### Harness — Workspace Isolation (E6)
+
+```http
+POST   /api/harness/worktrees
+GET    /api/harness/worktrees/{runId}
+GET    /api/harness/worktrees/{runId}/diff
+DELETE /api/harness/worktrees/{runId}?force={true|false}
+```
+
+`POST` body `{ runId, repositoryPath, baseBranch?, taskSlug, retainOnFailure? }` → `201` with `{ worktreeId, runId, path, branch, status, repositoryPath, baseBranch, commitSha?, retainOnFailure, createdAt, updatedAt, version }`. Creates a dedicated `git worktree` under `~/.taskboard/worktrees/{runId}` on a new `feature/agent-{runId}-{slug}` branch (incremental suffix on collision); `baseBranch` defaults to `main` in the API and to `HEAD` when the agent orchestrator isolates a run itself. Idempotent per `runId` — a live session is reused.
+
+`GET .../diff` → `200 { filesChanged, insertions, deletions, files: [{ path, status }], patch }` — `git status --porcelain` + two-dot `git diff <base>` covering committed and pending changes. `DELETE` runs `git worktree remove` (`?force=true` adds `--force`), prunes and deletes the directory on lock, marks the session `Removed` → `204`. Unknown `runId` → `400`; worktree paths are confined to the approved root (traversal rejected).
+
+When a queued agent run carries a `RepoPath` pointing at a git repository, `AgentOrchestrationService` isolates it automatically: the run executes with cwd inside the worktree and `RetainOnFailure` on — success marks the session `Completed` (kept for diff review), failure/cancel marks `RetainedForInspection`. Isolation failure degrades to direct execution and is logged.
+
 ## SSE
 
 ### Global events

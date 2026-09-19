@@ -3,6 +3,8 @@ using NSubstitute;
 using Shouldly;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.Harness;
+using Taskboard.Dtos;
 using Taskboard.GitHub;
 using Taskboard.Integrations.Agents;
 using Xunit;
@@ -262,6 +264,152 @@ public class AgentOrchestrationServiceTests
         agents.ShouldHaveSingleItem().Type.ShouldBe(AgentType.Claude);
     }
 
+    [Fact]
+    public async Task Dado_RepoPath_Quando_ProcessarFila_Entao_ExecutaDentroDoWorktree()
+    {
+        var isolation = Substitute.For<IWorkspaceIsolationService>();
+        isolation.CreateWorktreeAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(CriarSession(call.ArgAt<string>(0), "/wt/s1")));
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(0, true)));
+        var service = CriarService(acpClient: acpClient, isolation: isolation);
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
+
+            await isolation.Received(1).CreateWorktreeAsync(
+                Arg.Any<string>(), request.RepoPath, Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            await acpClient.Received(1).ExecuteAsync(
+                Arg.Is<AgentExecutionRequest>(r => r.RepoPath == "/wt/s1" && r.Branch == "feature/agent-x-y"),
+                Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>());
+            await isolation.Received(1).MarkCompletedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Dado_RepoPathVazio_Quando_ProcessarFila_Entao_NaoCriaWorktree()
+    {
+        var isolation = Substitute.For<IWorkspaceIsolationService>();
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(0, true)));
+        var service = CriarService(acpClient: acpClient, isolation: isolation);
+        var request = CriarRequest() with { RepoPath = string.Empty, Branch = null };
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
+
+            await isolation.DidNotReceive().CreateWorktreeAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            await acpClient.Received(1).ExecuteAsync(
+                Arg.Is<AgentExecutionRequest>(r => r.RepoPath == string.Empty),
+                Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Dado_FalhaAoCriarWorktree_Quando_ProcessarFila_Entao_ExecutaNoRepoPathOriginal()
+    {
+        var isolation = Substitute.For<IWorkspaceIsolationService>();
+        isolation.CreateWorktreeAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns<Task<WorktreeSessionDto>>(_ => throw new InvalidOperationException("not a git repo"));
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(0, true)));
+        var service = CriarService(acpClient: acpClient, isolation: isolation);
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
+
+            await acpClient.Received(1).ExecuteAsync(
+                Arg.Is<AgentExecutionRequest>(r => r.RepoPath == request.RepoPath),
+                Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>());
+            (await service.GetLogsAsync(request.IssueId))
+                .ShouldContain(log => log.Content.Contains("isolation failed"));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Dado_ExecucaoFalhaEmWorktree_Quando_ProcessarFila_Entao_SessaoRetidaParaInspecao()
+    {
+        var isolation = Substitute.For<IWorkspaceIsolationService>();
+        isolation.CreateWorktreeAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(CriarSession(call.ArgAt<string>(0), "/wt/s2")));
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(1, false)));
+        var service = CriarService(acpClient: acpClient, isolation: isolation);
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () =>
+                isolation.ReceivedCalls().Any(call =>
+                    call.GetMethodInfo().Name == nameof(IWorkspaceIsolationService.MarkFailedAsync)));
+
+            await isolation.Received(1).MarkFailedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+            await isolation.DidNotReceive().MarkCompletedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static WorktreeSessionDto CriarSession(string runId, string path)
+        => new(
+            "wt-1", runId, path, "feature/agent-x-y", "Active",
+            "/workspace/repo", "HEAD", null, RetainOnFailure: true,
+            DateTime.UtcNow, DateTime.UtcNow, 0);
+
     private static IAgentEligibilityService EligibilityPadrao()
     {
         var eligibility = Substitute.For<IAgentEligibilityService>();
@@ -278,7 +426,8 @@ public class AgentOrchestrationServiceTests
         IAgentLogBroadcaster? logBroadcaster = null,
         IAgentLogRepository? agentLogRepository = null,
         IAgentRunRepository? agentRunRepository = null,
-        IGitHubService? gitHubService = null)
+        IGitHubService? gitHubService = null,
+        IWorkspaceIsolationService? isolation = null)
     {
         var repository = agentLogRepository ?? Substitute.For<IAgentLogRepository>();
         var runRepository = agentRunRepository ?? Substitute.For<IAgentRunRepository>();
@@ -298,6 +447,10 @@ public class AgentOrchestrationServiceTests
         services.AddScoped(_ => runRepository);
         services.AddScoped(_ => eligibilityService);
         services.AddScoped(_ => modelConfig);
+        if (isolation is not null)
+        {
+            services.AddScoped(_ => isolation);
+        }
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         return new(

@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / Microsoft.Extensions.AI or Semantic Kernel / SQLite / Tokenizer / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-context-memory` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#162 — E7](https://github.com/afonsoft/taskboard-ai/issues/162) |
+| Status | `Approved` |
 
 ---
 

@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.Harness;
+using Taskboard.Dtos;
 using Taskboard.GitHub;
 
 namespace Taskboard.Integrations.Agents;
@@ -145,6 +147,15 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         _running[request.IssueId] = runningJob;
         EnsureLogList(request.IssueId);
 
+        // SPEC-20260919-harness-workspace-isolation T4: run the agent inside a
+        // dedicated git worktree when RepoPath points at a git repository.
+        var worktreeRunId = job.RunId?.ToString("N") ?? Guid.NewGuid().ToString("N");
+        var isolation = await TryIsolateAsync(request, worktreeRunId, stoppingToken);
+        if (isolation is not null)
+        {
+            request = request with { RepoPath = isolation.Path, Branch = isolation.Branch };
+        }
+
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Starting {request.AgentType} on {request.RepoPath}..."));
         await UpdateRunAsync(job.RunId, (repo, id) => repo.MarkRunningAsync(id, CancellationToken.None), stoppingToken);
 
@@ -163,23 +174,107 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
 
             if (result.IsSuccess)
             {
+                await MarkWorktreeAsync(worktreeRunId, completed: true, stoppingToken);
                 await MoveToReviewAsync(request);
+            }
+            else
+            {
+                await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
             }
         }
         catch (OperationCanceledException)
         {
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, "Agent execution was cancelled."));
             await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Canceled, CancellationToken.None), stoppingToken);
+            await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
         }
         catch (Exception ex)
         {
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Agent error: {ex.Message}"));
             await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
+            await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
         }
         finally
         {
             _running.TryRemove(request.IssueId, out _);
             cancellationTokenSource.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Creates an isolated worktree for the run when <see cref="AgentExecutionRequest.RepoPath"/>
+    /// points at a git repository. Falls back to running directly on RepoPath when
+    /// isolation is unavailable — tracking must never break orchestration.
+    /// </summary>
+    private async Task<WorktreeSessionDto?> TryIsolateAsync(
+        AgentExecutionRequest request,
+        string worktreeRunId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.RepoPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var isolation = scope.ServiceProvider.GetService<IWorkspaceIsolationService>();
+            if (isolation is null)
+            {
+                return null;
+            }
+
+            var taskSlug = request.Scope ?? $"issue-{request.IssueNumber}";
+            var session = await isolation.CreateWorktreeAsync(
+                worktreeRunId,
+                request.RepoPath,
+                baseBranch: request.Branch ?? "HEAD",
+                taskSlug,
+                retainOnFailure: true,
+                cancellationToken);
+
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"Worktree isolated at {session.Path} (branch {session.Branch})."));
+            return session;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"Worktree isolation failed ({ex.Message}); running directly on the repository path."));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Marks the worktree session completed (kept for diff review) or failed
+    /// (retained for inspection per <c>RetainOnFailure</c>). Best-effort.
+    /// </summary>
+    private async Task MarkWorktreeAsync(string worktreeRunId, bool completed, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var isolation = scope.ServiceProvider.GetService<IWorkspaceIsolationService>();
+            if (isolation is null)
+            {
+                return;
+            }
+
+            if (completed)
+            {
+                await isolation.MarkCompletedAsync(worktreeRunId, CancellationToken.None);
+            }
+            else
+            {
+                await isolation.MarkFailedAsync(worktreeRunId, CancellationToken.None);
+            }
+        }
+        catch
+        {
+            // Worktree bookkeeping is best-effort; orchestration outcome is unaffected.
         }
     }
 

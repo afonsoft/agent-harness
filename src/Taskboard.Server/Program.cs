@@ -22,6 +22,7 @@ using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Issues;
 using Taskboard.Issues;
@@ -29,11 +30,14 @@ using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
 using Taskboard.EntityFrameworkCore.Data;
+using Taskboard.EntityFrameworkCore.Harness;
+using Taskboard.Harness;
 using Taskboard.Application.Configuration;
 using Taskboard.Integrations.Agents;
 using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
+using Taskboard.Integrations.Harness;
 using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
@@ -149,6 +153,8 @@ builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
+builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
+builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
 builder.Services.AddScoped<IAgentModelConfigService, AgentModelConfigService>();
 builder.Services.AddScoped<ITimelineMetricsService, TimelineMetricsService>();
@@ -158,6 +164,12 @@ builder.Services.AddHostedService(sp => (AgentOrchestrationService)sp.GetRequire
 // Test/override seam: agent config + skills writes target this directory.
 var homeDir = builder.Configuration["Taskboard:HomeDir"]
     ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+builder.Services.AddScoped<IWorkspaceIsolationService>(sp => new GitWorktreeManager(
+    sp.GetRequiredService<IGitCommandRunner>(),
+    sp.GetRequiredService<IWorktreeSessionRepository>(),
+    WorktreePaths.ResolveRoot(homeDir),
+    sp.GetRequiredService<ILogger<GitWorktreeManager>>()));
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -423,6 +435,48 @@ await using (var scope = app.Services.CreateAsyncScope())
 // requires an authenticated principal (cookie or X-Api-Key); only the
 // endpoints below carry AllowAnonymous.
 var api = app.MapGroup("/api").RequireAuthorization();
+
+// SPEC-20260919-harness-workspace-isolation §5: worktree lifecycle endpoints.
+var harness = api.MapGroup("harness");
+
+harness.MapPost("worktrees", async (
+        CreateWorktreeRequestDto request,
+        IWorkspaceIsolationService isolation,
+        CancellationToken ct) =>
+{
+    var session = await isolation.CreateWorktreeAsync(
+        request.RunId,
+        request.RepositoryPath,
+        request.BaseBranch ?? "main",
+        request.TaskSlug,
+        request.RetainOnFailure,
+        ct);
+    return Results.Created($"/api/harness/worktrees/{session.RunId}", session);
+});
+
+harness.MapGet("worktrees/{runId}", async (
+    string runId,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+    await isolation.GetAsync(runId, ct) is { } session
+        ? Results.Ok(session)
+        : Results.NotFound());
+
+harness.MapGet("worktrees/{runId}/diff", async (
+    string runId,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+    Results.Ok(await isolation.GetDiffAsync(runId, ct)));
+
+harness.MapDelete("worktrees/{runId}", async (
+    string runId,
+    bool force,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+{
+    await isolation.RemoveWorktreeAsync(runId, force, ct);
+    return Results.NoContent();
+});
 
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
 // RequireAuthorization (cookie or X-Api-Key).

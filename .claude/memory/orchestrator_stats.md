@@ -6,27 +6,36 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-19 UTC`
-- **fase_atual**: `Phase 3 - Fragmentação E5 (aguardando aprovação do plano)`
+- **iniciado_em**: `2026-09-19 UTC` (sessão 2)
+- **fase_atual**: `Phase 5/7 — E6 implementado (S1..S5), PR pendente; E7..E16 queued`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-web-cli-agent` (a criar)
+- **branch_trabalho**: `feature/devin-20260919-harness-workspace-isolation`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
-### Epic em curso
+### Epics em curso (fila sequencial — todos SPECs aprovados 2026-09-19)
 
 | Epic | SPEC | Issue | Status |
 |---|---|---|---|
-| E5 - Web CLI Agent | `.specs/SPEC-20260919-web-cli-agent.md` (Approved) | #153 | queued — slices pendentes |
+| E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | implemented — S1..S5 done (#172-#176), PR pending |
+| E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | queued (blocked by #161) |
+| E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | queued (blocked by #161) |
+| E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | queued (blocked by #161) |
+| E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | queued |
+| E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
+| E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
+| E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
+| E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | queued (blocked by #167) |
+| E15 - Cockpit HITL | `SPEC-20260919-ade-cockpit-hitl` | #170 | queued (blocked by #167,#168,#169) |
+| E16 - Harness Platform (mestre) | `SPEC-20260919-ade-harness-platform` | #171 | queued (blocked by #170,#166,#163) |
 
 ```yaml
-fila_e5:
-  - { id: "E5/S1", task: "T1 Domain/contratos + migration AddWebCliAgent", depends_on: [], gate: "schema" }
-  - { id: "E5/S2", task: "T2 AcpSessionClient + capability nos adapters", depends_on: ["E5/S1"] }
-  - { id: "E5/S3", task: "T3 AgentSessionManager + PermissionGate + endpoints + SSE + flag", depends_on: ["E5/S2"], gate: "public-api" }
-  - { id: "E5/S4", task: "T4 UI: NewThreadDialog agent, ToolCallCard, PermissionPrompt, steer/queue + Stop", depends_on: ["E5/S3"] }
-  - { id: "E5/S5", task: "T5 fallback one-shot + supportsInteractiveSession em GET /api/agents", depends_on: ["E5/S3"] }
-  - { id: "E5/S6", task: "T6 build/test/docs, coverage gate, SPEC → Done + PR", depends_on: ["E5/S4", "E5/S5"] }
+fila_e6:
+  - { id: "E6/S1", task: "T1 Contracts & VOs (IWorkspaceIsolationService, WorktreeStatus, WorktreeSessionDto)", issue: 172, depends_on: [] }
+  - { id: "E6/S2", task: "T2 Git Command Runner (timeouts, exit codes, stdio assíncrono)", issue: 173, depends_on: ["E6/S1"] }
+  - { id: "E6/S3", task: "T3 GitWorktreeManager (create/diff/commit/cleanup)", issue: 174, depends_on: ["E6/S2"] }
+  - { id: "E6/S4", task: "T4 Integração com orquestrador de agentes (cwd=worktree)", issue: 175, depends_on: ["E6/S3"] }
+  - { id: "E6/S5", task: "T5 Verify: build/test/coverage gate, docs, SPEC→Done + PR", issue: 176, depends_on: ["E6/S4"] }
 ```
 
 ---
@@ -332,3 +341,28 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - Branches locais removidas (11): todas merged ou superseded (squash).
 - Branches remotas removidas (3, PRs merged): `chore/update-afonsoft-skills`, `feature/devin-20260914-update-skills`, `feature/devin-20260915-wasm-post-migration-hardening`.
 - Estado final: apenas `main` local + `origin/main`. Nenhuma pendência.
+
+---
+
+## Execução da sessão 2026-09-19 (sessão 2 — ADE/Harness)
+
+### Phase 6 — Aprovação em lote
+
+- 11 SPECs ADE/Harness aprovados (`Draft`→`Approved`); Epic issues E6–E16 (#161–#171) criadas no GitHub; commit `35b069f`.
+
+### Phase 4 — E6 Workspace Isolation (branch `feature/devin-20260919-harness-workspace-isolation`)
+
+|| Slice | Issue | Commit | Entrega |
+||---|---|---|---|
+|| S1 | #172 | `8a836f5` | `IWorkspaceIsolationService`, `WorktreeStatus`, `WorktreeSession`, DTOs, EF config + migration `AddWorktreeSessions` |
+|| S2 | #173 | `046f21a` | `GitCommandRunner` (`ArgumentList`, timeout, stdio async, `WithoutTaskboardEnv`) |
+|| S3 | #174 | `33163f3` | `GitWorktreeManager` + `IWorktreeSessionRepository`/`EfCoreWorktreeSessionRepository`, `WorktreePaths` (confines, branch-part sanitize) |
+|| S4 | #175 | `84ecc53` | `AgentOrchestrationService` isola runs com `RepoPath` git (cwd=worktree, retain-on-failure, fallback seguro) |
+|| S5 | #176 | — | Endpoints `POST/GET/DELETE /api/harness/worktrees[/diff]`, docs api.md (+pt-br), SPEC→Done |
+
+### Phase 7 — Verificação E6
+
+- `dotnet build` Debug: ✅ 0 warnings/0 errors · unit: ✅ 509 · integration: ✅ 159
+- Decisões: `git diff <base>` (two-dot) cobre mudanças commitadas+pendentes (RF-002); sanitize de branch exclui `.` (git rejeita `..`); isolamento é best-effort com fallback logado — nunca quebra orquestração.
+- QA self-review: edge `sessão-órfã` corrigido via `Reactivate` upsert (`a90a194`).
+- **PR #177** aberto → https://github.com/afonsoft/taskboard-ai/pull/177 (aguarda merge; fechar #172–#176 após merge).

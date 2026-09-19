@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / ASP.NET Core / MediatR / Channel<T> / C# 14` |
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-multi-agent-orchestration` |
-| Ticket | `[A DEFINIR]` |
-| Status | `Draft` |
+| Ticket | [#167 — E12](https://github.com/afonsoft/taskboard-ai/issues/167) |
+| Status | `Approved` |
 
 ---
 
