@@ -284,6 +284,12 @@ else
                 if (run is not null)
                 {
                     _running = run.Status == "running";
+                    if (_activeThreadId == run.ThreadId && _activeThread is { } active)
+                    {
+                        var status = run.Status == "failed" ? "failed" : run.Status == "running" ? "running" : "idle";
+                        _activeThread = active with { Status = status };
+                        _threads = _threads?.Select(t => t.Id == run.ThreadId ? t with { Status = status } : t).ToList();
+                    }
                     _scrollPending = true;
                 }
                 _sseError = false;
