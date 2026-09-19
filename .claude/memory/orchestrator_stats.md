@@ -364,4 +364,5 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build` Debug: ✅ 0 warnings/0 errors · unit: ✅ 509 · integration: ✅ 159
 - Decisões: `git diff <base>` (two-dot) cobre mudanças commitadas+pendentes (RF-002); sanitize de branch exclui `.` (git rejeita `..`); isolamento é best-effort com fallback logado — nunca quebra orquestração.
-- Pendente: QA/review + PR (Phase 5).
+- QA self-review: edge `sessão-órfã` corrigido via `Reactivate` upsert (`a90a194`).
+- **PR #177** aberto → https://github.com/afonsoft/taskboard-ai/pull/177 (aguarda merge; fechar #172–#176 após merge).
