@@ -294,6 +294,10 @@ public class AgentOrchestrationServiceTests
                 Arg.Is<AgentExecutionRequest>(r => r.RepoPath == "/wt/s1" && r.Branch == "feature/agent-x-y"),
                 Arg.Any<IProgress<AgentLogMessage>>(),
                 Arg.Any<CancellationToken>());
+            // A verificação opt-in roda entre o log "exit code 0" e o
+            // MarkCompleted — aguardar a chamada de fato.
+            await AguardarAsync(() => Task.FromResult(
+                isolation.ReceivedCalls().Any(c => c.GetMethodInfo().Name == "MarkCompletedAsync")));
             await isolation.Received(1).MarkCompletedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         }
         finally

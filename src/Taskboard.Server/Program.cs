@@ -40,6 +40,7 @@ using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Harness;
 using Taskboard.Integrations.Harness.Context;
 using Taskboard.Integrations.Harness.Security;
+using Taskboard.Integrations.Harness.Verification;
 using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
@@ -183,6 +184,11 @@ builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>(
 builder.Services.AddSingleton<PathJailValidator>();
 builder.Services.AddSingleton<SecretScrubber>();
 builder.Services.AddSingleton<IPermissionGateway, PermissionGateway>();
+// SPEC-20260919-harness-verification-loop: motor + evidência + loop fechado.
+builder.Services.AddSingleton<IProcessRunner, ProcessCommandRunner>();
+builder.Services.AddSingleton<IVerificationEngine, DotNetVerificationEngine>();
+builder.Services.AddScoped<IVerificationReportRepository, EfCoreVerificationReportRepository>();
+builder.Services.AddScoped<IVerificationLoop, VerificationLoop>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -554,6 +560,20 @@ harness.MapPost("security/evaluate", async (
         request.WorktreePath,
         policy,
         ct));
+});
+
+// SPEC-20260919-harness-verification-loop §5: single verification pass +
+// persisted evidence. The correction loop lives in IVerificationLoop /
+// AgentOrchestrationService (VerifySolutionFile opt-in).
+harness.MapPost("verification/run", async (
+        VerificationRunRequestDto request,
+        IVerificationEngine engine,
+        IVerificationReportRepository reports,
+        CancellationToken ct) =>
+{
+    var report = await engine.RunAsync(request, ct);
+    await reports.SaveAsync(request.WorktreePath, report, request.Attempt, ct);
+    return Results.Ok(report);
 });
 
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's

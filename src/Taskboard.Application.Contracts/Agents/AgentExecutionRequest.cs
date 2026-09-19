@@ -13,4 +13,8 @@ public sealed record AgentExecutionRequest(
     string Instructions,
     AgentType AgentType,
     AgentModelTier ModelTier = AgentModelTier.Normal,
-    string? ResolvedModelName = null);
+    string? ResolvedModelName = null,
+    /// <summary>Opt-in: run the verification loop on this solution after the agent finishes (SPEC-20260919-harness-verification-loop).</summary>
+    string? VerifySolutionFile = null,
+    double? VerifyMinCoverage = null,
+    int? VerifyMaxAttempts = null);

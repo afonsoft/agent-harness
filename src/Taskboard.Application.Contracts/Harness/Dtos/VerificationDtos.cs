@@ -27,7 +27,8 @@ public sealed record VerificationRunRequestDto(
     string SolutionFile,
     double MinCoverageThreshold,
     bool EnforceFormat = false,
-    int MaxAttempts = 1);
+    int MaxAttempts = 1,
+    int Attempt = 1);
 
 /// <summary>
 /// Structured verification report (SPEC §5). <see cref="FeedbackPrompt"/> is the
