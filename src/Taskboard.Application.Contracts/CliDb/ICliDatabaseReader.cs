@@ -1,3 +1,4 @@
+using Taskboard.Agents;
 using Taskboard.Dtos;
 
 namespace Taskboard.Application.Contracts.CliDb;
@@ -9,7 +10,14 @@ namespace Taskboard.Application.Contracts.CliDb;
 /// </summary>
 public interface ICliDatabaseReader
 {
-    Task<ICliDbConnection> OpenAsync(string absolutePath, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Opens <paramref name="absolutePath"/> (must resolve under <c>$HOME</c>)
+    /// enforcing the whitelist/denylist declared by <paramref name="source"/>.
+    /// </summary>
+    Task<ICliDbConnection> OpenAsync(
+        CliDbSource source,
+        string absolutePath,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>A read-only connection to an external (possibly temp-copied) database.</summary>
@@ -19,13 +27,19 @@ public interface ICliDbConnection : IAsyncDisposable
     bool CopiedToTemp { get; }
 
     /// <summary>
-    /// Runs a whitelisted, parameterized query with row-limit and timeout budgets.
-    /// Implementations must reject queries referencing denied tables.
+    /// Runs a structured SELECT against a whitelisted table. The implementation
+    /// builds the SQL — <paramref name="table"/> and <paramref name="columns"/>
+    /// must be strict identifiers, denied tables are rejected before execution,
+    /// secret-named columns are dropped, and <paramref name="whereClause"/> may
+    /// only reference whitelisted columns with parameterized values.
     /// </summary>
     Task<IReadOnlyList<T>> QueryAsync<T>(
-        string sql,
+        string table,
+        IReadOnlyList<string> columns,
         Func<ICliDbRow, T> map,
+        string? whereClause = null,
         IReadOnlyDictionary<string, object?>? parameters = null,
+        string? orderBy = null,
         int? rowLimit = null,
         CancellationToken cancellationToken = default);
 
