@@ -72,7 +72,7 @@ gate gradualmente"; cleanup: "Sim, executar ambos").
 | S1 legacy-workflow-surface | #147 | **MERGED** — migration drop `WorkflowWorkspaces`, endpoints/service/projeto vazio removidos, docs `/workflow` = GH Actions monitor. 601 testes verdes. |
 | S4 cli-test-coverage | #148 | **MERGED** — `Program.ConfigureCommands` extraído, `Spectre.Console.Cli.Testing` + `InternalsVisibleTo`, `CliSmokeTests` (15 testes: help raiz/por comando, `context:current` offline, guard de `CommandArgument` por reflection, `SplitRepo`). RED demonstrado. 460 unit verdes. |
 | S2+S3 docs + spec-status | #149 | **MERGED** — `System.CommandLine`→`Spectre.Console.Cli` em CLAUDE/technologies/packages(+pt-br)/architecture(.md/.json/.html); agregados `Project`/`Task` removidos da doc; 5 SPECs → `Done`; `cli-migration.md` concluído; convenção anti-regressão em `global-rules.md`. |
-| S5 coverage-gate-ratchet | #150 | CI em andamento — `COVERAGE_THRESHOLD` 45→65, política ratchet única em CLAUDE.md/global-rules.md. Workflow edit sinalizado para revisão humana. |
+| S5 coverage-gate-ratchet | #150 | **MERGED** — `COVERAGE_THRESHOLD` 45→65 (CI verde: 66.26% > 65), política ratchet única em CLAUDE.md/global-rules.md. |
 
 ## 7. Pendências
 
