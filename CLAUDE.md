@@ -48,7 +48,7 @@ skills-lock.json        # Manifesto fixado de afonsoft/skills
 
 ## CI/CD
 
-- `.github/workflows/dotnet.yml`: build/test, verificação de formatação, gate de cobertura (`COVERAGE_THRESHOLD`, hoje 45%, meta 80%) e pacotes vulneráveis.
+- `.github/workflows/dotnet.yml`: build/test, verificação de formatação, gate de cobertura (`COVERAGE_THRESHOLD` — ratchet: hoje 65%, sobe a cada sprint até ≥80%; meta 90%) e pacotes vulneráveis. Baseline medido: 66.26% (2026-09-19).
 - `.github/workflows/code-quality.yml`: análise SonarCloud com `SONAR_TOKEN`.
 - `.github/workflows/codeql.yml`: análise CodeQL para C# e GitHub Actions.
 - `.github/dependabot.yml`: atualizações semanais de NuGet e GitHub Actions.
@@ -98,7 +98,7 @@ skills-lock.json        # Manifesto fixado de afonsoft/skills
 3. **Secrets**: nunca logar, commitar ou expor tokens, senhas, API keys.
 4. **Specs**: qualquer mudança de contrato ou arquitetura deve refletir em `.specs/`.
 5. **Tests**: toda feature/bugfix deve vir com testes (unit/integração) antes do merge.
-6. **Coverage**: manter ≥80% de cobertura (meta 90%).
+6. **Coverage**: gate ratchet — `COVERAGE_THRESHOLD` em `dotnet.yml` nunca desce e sobe a cada sprint até ≥80% (meta 90%). Hoje: 65%.
 7. **Build**: `dotnet build` com `TreatWarningsAsErrors`.
 
 ## Soft Rules
