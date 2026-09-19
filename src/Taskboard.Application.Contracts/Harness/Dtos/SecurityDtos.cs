@@ -2,8 +2,15 @@ using Taskboard.Harness;
 
 namespace Taskboard.Dtos;
 
-/// <summary>Classifier output — risk level + human-readable reason (SPEC RF-001).</summary>
-public sealed record CommandRiskAssessment(SecurityRiskLevel RiskLevel, string Reason);
+/// <summary>
+/// Classifier output — risk level + human-readable reason (SPEC RF-001).
+/// <see cref="EscapesSandbox"/> marks jail violations, which are hard-denied
+/// (no approval flow can make them safe).
+/// </summary>
+public sealed record CommandRiskAssessment(
+    SecurityRiskLevel RiskLevel,
+    string Reason,
+    bool EscapesSandbox = false);
 
 /// <summary>
 /// Gateway decision returned by <c>POST /api/harness/security/evaluate</c> (SPEC §5).

@@ -216,7 +216,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             if (!TryResolveInsideJail(target, worktreePath))
             {
                 return new(SecurityRiskLevel.Dangerous,
-                    $"Alvo '{target}' fora ou irresolúvel no worktree — deleção negada.");
+                    $"Alvo '{target}' fora ou irresolúvel no worktree — deleção negada.",
+                    EscapesSandbox: true);
             }
         }
 
@@ -243,7 +244,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                 sawRedirect = true;
                 if (i + 1 >= args.Count || !TryResolveInsideJail(args[i + 1], worktreePath))
                 {
-                    return new(SecurityRiskLevel.Dangerous, "Redirect para fora do worktree.");
+                    return new(SecurityRiskLevel.Dangerous, "Redirect para fora do worktree.", EscapesSandbox: true);
                 }
 
                 level = SecurityRiskLevel.WorkspaceWrite;
@@ -264,7 +265,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             if (!TryResolveInsideJail(arg, worktreePath))
             {
                 return new(SecurityRiskLevel.Dangerous,
-                    $"Caminho '{arg}' escapa ou não resolve dentro do worktree.");
+                    $"Caminho '{arg}' escapa ou não resolve dentro do worktree.",
+                    EscapesSandbox: true);
             }
         }
 

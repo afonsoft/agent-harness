@@ -39,6 +39,7 @@ using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Harness;
 using Taskboard.Integrations.Harness.Context;
+using Taskboard.Integrations.Harness.Security;
 using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
@@ -177,6 +178,11 @@ builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
     sp.GetService<IMemoryService>(),
     sp.GetRequiredService<ILogger<ProjectContextCompiler>>()));
 builder.Services.AddSingleton<IContextCompactor, ContextCompactor>();
+// SPEC-20260919-harness-security-permission-gateway: singletons puros (sem estado).
+builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>();
+builder.Services.AddSingleton<PathJailValidator>();
+builder.Services.AddSingleton<SecretScrubber>();
+builder.Services.AddSingleton<IPermissionGateway, PermissionGateway>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -531,6 +537,23 @@ harness.MapDelete("memory/{id}", async (
 {
     await memory.DeleteAsync(id, ct);
     return Results.NoContent();
+});
+
+// SPEC-20260919-harness-security-permission-gateway §5: pre-dispatch evaluation.
+harness.MapPost("security/evaluate", async (
+        SecurityEvaluateRequestDto request,
+        IPermissionGateway gateway,
+        CancellationToken ct) =>
+{
+    var policy = Enum.TryParse<SecurityPolicyMode>(request.Policy, ignoreCase: true, out var parsed)
+        ? parsed
+        : SecurityPolicyMode.Standard;
+    return Results.Ok(await gateway.EvaluateAsync(
+        request.ToolName,
+        request.Command,
+        request.WorktreePath,
+        policy,
+        ct));
 });
 
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's

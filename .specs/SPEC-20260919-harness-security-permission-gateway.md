@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-security-permission-gateway` |
 | Ticket | [#163 — E8](https://github.com/afonsoft/taskboard-ai/issues/163) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -134,19 +134,19 @@ Content-Type: application/json
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um comando malicioso como `rm -rf /`, **when** submetido à avaliação do gateway, **then** ele é classificado como `Dangerous` e bloqueado imediatamente.
-- [ ] **Given** tentativa de escrita em arquivo fora do worktree (`/home/ubuntu/.ssh/authorized_keys`), **when** validada, **then** o gateway lança `SecurityAccessDeniedException`.
-- [ ] **Given** uma saída de terminal contendo um token do GitHub, **when** processada pelo `SecretScrubber`, **then** a string do token é ocultada no log gravado e transmitido.
+- [x] **Given** um comando malicioso como `rm -rf /`, **when** submetido à avaliação do gateway, **then** ele é classificado como `Dangerous` e bloqueado imediatamente.
+- [x] **Given** tentativa de escrita em arquivo fora do worktree (`/home/ubuntu/.ssh/authorized_keys`), **when** validada, **then** o gateway lança `SecurityAccessDeniedException`.
+- [x] **Given** uma saída de terminal contendo um token do GitHub, **when** processada pelo `SecretScrubber`, **then** a string do token é ocultada no log gravado e transmitido.
 
 ---
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contracts & Value Objects:** Definir interfaces, enums de risco e DTOs de segurança.
-- [ ] **T2 — AST/Lexer Command Classifier:** Implementar parser de comandos bash separando binário, flags e argumentos.
-- [ ] **T3 — Path Jail Validator:** Implementar validação canônica de caminhos com `Path.GetFullPath` e checagem de symlinks.
-- [ ] **T4 — Secret Scrubber:** Implementar expressões regulares compiladas para sanitização de credenciais.
-- [ ] **T5 — Unit Tests:** Suíte de testes agressiva com ataques de injection, path traversal e strings de tokens conhecidas.
+- [x] **T1 — Contracts & Value Objects:** Definir interfaces, enums de risco e DTOs de segurança.
+- [x] **T2 — AST/Lexer Command Classifier:** Implementar parser de comandos bash separando binário, flags e argumentos.
+- [x] **T3 — Path Jail Validator:** Implementar validação canônica de caminhos com `Path.GetFullPath` e checagem de symlinks.
+- [x] **T4 — Secret Scrubber:** Implementar expressões regulares compiladas para sanitização de credenciais.
+- [x] **T5 — Unit Tests:** Suíte de testes agressiva com ataques de injection, path traversal e strings de tokens conhecidas.
 
 ---
 
@@ -159,6 +159,6 @@ Content-Type: application/json
 
 ## 9. Definition of Done
 
-- [ ] Gateway de segurança integrado ao ciclo de despacho de tools.
-- [ ] Testes unitários com 100% de cobertura nos cenários de segurança crítica.
-- [ ] Nenhuma brecha de path traversal ou command injection identificada nos testes.
+- [x] Gateway de segurança integrado ao ciclo de despacho de tools.
+- [x] Testes unitários com 100% de cobertura nos cenários de segurança crítica.
+- [x] Nenhuma brecha de path traversal ou command injection identificada nos testes.
