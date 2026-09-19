@@ -38,6 +38,7 @@ using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
 using Taskboard.Integrations.Harness;
+using Taskboard.Integrations.Harness.Context;
 using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
@@ -171,6 +172,10 @@ builder.Services.AddScoped<IWorkspaceIsolationService>(sp => new GitWorktreeMana
     WorktreePaths.ResolveRoot(homeDir),
     sp.GetRequiredService<ILogger<GitWorktreeManager>>()));
 builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
+builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
+    sp.GetRequiredService<IGitCommandRunner>(),
+    sp.GetService<IMemoryService>(),
+    sp.GetRequiredService<ILogger<ProjectContextCompiler>>()));
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
