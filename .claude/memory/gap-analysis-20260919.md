@@ -54,13 +54,33 @@ integration, 0 falhas**.
 
 ## 5. Issues
 
-(aguardando gate)
+Gate aprovado pelo usuário (2026-09-19: "Sim, aprovar tudo"; cobertura: "subir o
+gate gradualmente"; cleanup: "Sim, executar ambos").
+
+- **Epic #140** — gap-analysis-20260919
+- **#141** — legacy-workflow-surface → SPEC-20260919-legacy-workflow-surface
+- **#142** — docs-stack-drift → SPEC-20260919-docs-stack-drift
+- **#143** — stale-spec-status → SPEC-20260919-stale-spec-status
+- **#144** — cli-test-coverage → SPEC-20260919-cli-test-coverage
+- **#145** — coverage-gate-ratchet → SPEC-20260919-coverage-gate-ratchet
+  (SPEC criada após a medição: baseline real **66.26%**, ratchet 45→65→…→80)
 
 ## 6. Resultado da execução
 
-(aguardando gate + orchestrator)
+| Slice | PR | Estado |
+|---|---|---|
+| S1 legacy-workflow-surface | #147 | **MERGED** — migration drop `WorkflowWorkspaces`, endpoints/service/projeto vazio removidos, docs `/workflow` = GH Actions monitor. 601 testes verdes. |
+| S4 cli-test-coverage | #148 | **MERGED** — `Program.ConfigureCommands` extraído, `Spectre.Console.Cli.Testing` + `InternalsVisibleTo`, `CliSmokeTests` (15 testes: help raiz/por comando, `context:current` offline, guard de `CommandArgument` por reflection, `SplitRepo`). RED demonstrado. 460 unit verdes. |
+| S2+S3 docs + spec-status | #149 | **MERGED** — `System.CommandLine`→`Spectre.Console.Cli` em CLAUDE/technologies/packages(+pt-br)/architecture(.md/.json/.html); agregados `Project`/`Task` removidos da doc; 5 SPECs → `Done`; `cli-migration.md` concluído; convenção anti-regressão em `global-rules.md`. |
+| S5 coverage-gate-ratchet | #150 | CI em andamento — `COVERAGE_THRESHOLD` 45→65, política ratchet única em CLAUDE.md/global-rules.md. Workflow edit sinalizado para revisão humana. |
 
 ## 7. Pendências
 
-- INCONCLUSIVO `GAP-requirements-coverage-threshold` — decisão do usuário.
-- Decisão sobre pendências administrativas (Epic #126, branches).
+- ~~INCONCLUSIVO `GAP-requirements-coverage-threshold`~~ — resolvido: usuário
+  escolheu ratchet gradual (SPEC-20260919-coverage-gate-ratchet, #145).
+- ~~Epic #126~~ — fechada. ~~46 branches mergeadas~~ — deletadas (só a branch
+  ativa permanece).
+- Próximos degraus do ratchet: 70 → 75 → 80 conforme novas specs adicionarem
+  testes (registrar nova medição a cada degrau).
+- `orchestrator_stats.md` continua datado de 09-11 — regenerar na próxima
+  sessão de orquestração.
