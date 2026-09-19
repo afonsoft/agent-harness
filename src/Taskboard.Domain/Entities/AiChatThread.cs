@@ -9,7 +9,6 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     private readonly List<AiChatEvent> _events = new();
 
     public string Title { get; private set; } = default!;
-    public ProjectId? OriginProjectId { get; private set; }
     public ModelRef Model { get; private set; } = default!;
     public string ReasoningEffort { get; private set; } = default!;
     public Sandbox Sandbox { get; private set; } = default!;
@@ -26,7 +25,6 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     private AiChatThread(
         AiChatThreadId id,
         string title,
-        ProjectId? originProjectId,
         ModelRef model,
         string reasoningEffort,
         Sandbox sandbox,
@@ -35,11 +33,10 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     {
         if (string.IsNullOrWhiteSpace(title))
         {
-            throw new DomainException(TaskboardDomainErrorCodes.EmptyTaskTitle, "Thread title cannot be empty.");
+            throw new DomainException(TaskboardDomainErrorCodes.EmptyTitle, "Thread title cannot be empty.");
         }
 
         Title = title;
-        OriginProjectId = originProjectId;
         Model = model;
         ReasoningEffort = reasoningEffort;
         Sandbox = sandbox;
@@ -50,12 +47,11 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     public static AiChatThread Create(
         AiChatThreadId id,
         string title,
-        ProjectId? originProjectId,
         ModelRef model,
         string reasoningEffort,
         Sandbox sandbox,
         DateTime? now = null)
-        => new(id, title, originProjectId, model, reasoningEffort, sandbox, now ?? DateTime.UtcNow);
+        => new(id, title, model, reasoningEffort, sandbox, now ?? DateTime.UtcNow);
 
     public AiChatRun StartRun(DateTime? now = null)
     {
@@ -95,7 +91,7 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     {
         if (string.IsNullOrWhiteSpace(title))
         {
-            throw new DomainException(TaskboardDomainErrorCodes.EmptyTaskTitle, "Thread title cannot be empty.");
+            throw new DomainException(TaskboardDomainErrorCodes.EmptyTitle, "Thread title cannot be empty.");
         }
 
         Title = title;

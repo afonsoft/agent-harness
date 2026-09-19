@@ -5,7 +5,7 @@
 <PageTitle>Workflow - Harness</PageTitle>
 
 <h1 class="h4 fw-bold mb-1">Workflow</h1>
-<p class="small text-body-secondary mb-4">Grafos de workflow por projeto (somente leitura)</p>
+<p class="small text-body-secondary mb-4">Workflow graphs per workspace (read-only)</p>
 
 @if (_isLoading)
 {
@@ -24,9 +24,9 @@ else
     @foreach (var workspace in _workspaces)
     {
         var graph = ParseGraph(workspace.Workspace);
-        <div class="card mb-3" @key="workspace.ProjectId">
+        <div class="card mb-3" @key="workspace.WorkspaceId">
             <div class="card-header d-flex align-items-center">
-                <h2 class="h6 mb-0">@GetProjectName(workspace.ProjectId)</h2>
+                <h2 class="h6 mb-0">@workspace.WorkspaceId</h2>
                 <span class="small text-body-secondary ms-auto">
                     Atualizado em @workspace.UpdatedAt.ToString("g")
                 </span>
@@ -68,18 +68,12 @@ else
     private bool _isLoading = true;
     private string? _errorMessage;
     private List<WorkflowWorkspaceDto> _workspaces = [];
-    private Dictionary<string, string> _projectNames = new(StringComparer.Ordinal);
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            var projectsTask = Client.GetProjectsAsync();
-            var workspacesTask = Client.GetWorkflowWorkspacesAsync();
-
-            var projects = await projectsTask;
-            _projectNames = projects.ToDictionary(p => p.Id, p => p.Name, StringComparer.Ordinal);
-            _workspaces = (await workspacesTask).ToList();
+            _workspaces = (await Client.GetWorkflowWorkspacesAsync()).ToList();
         }
         catch (Exception ex)
         {
@@ -90,9 +84,6 @@ else
             _isLoading = false;
         }
     }
-
-    private string GetProjectName(string projectId) =>
-        _projectNames.TryGetValue(projectId, out var name) ? name : projectId;
 
     private static WorkflowGraph? ParseGraph(string workspaceJson)
     {

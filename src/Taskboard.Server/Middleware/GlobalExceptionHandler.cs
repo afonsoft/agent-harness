@@ -34,10 +34,6 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
             var statusCode = domainException.Code switch
             {
                 var c when c == TaskboardDomainErrorCodes.VersionConflict => 409,
-                var c when c == TaskboardDomainErrorCodes.ProjectHasActiveTasks => 409,
-                var c when c == TaskboardDomainErrorCodes.TaskArchived => 409,
-                var c when c == TaskboardDomainErrorCodes.TaskIsJira => 409,
-                var c when c == TaskboardDomainErrorCodes.TaskAlreadyActive => 409,
                 _ => 400
             };
 

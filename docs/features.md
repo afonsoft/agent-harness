@@ -2,11 +2,10 @@
 
 ## Core Board
 
-- Projects and tasks with statuses, priorities, labels
-- Kanban board sorted by `sort_order`
-- Comments, attachments, task relations, activities
+- GitHub-backed Kanban: issues are the source of truth (columns via labels, priorities via `priority:*` labels)
+- Board mutations persist `IssueHistoryEvent` records for the unified timeline
+- GitHub issue comments as the agent handoff channel
 - Markdown GFM + mermaid support (read-only)
-- Optimistic concurrency with `version` column
 
 ## Real-time
 
@@ -16,19 +15,18 @@
 
 ## Automation
 
-- Workflow workspaces (JSON board config)
-- Control-flow engine
-- Auto-claim `todo` → `in_progress` for Codex agents
+- Workflow workspaces (JSON board config keyed by workspace id)
+- Agent execution against GitHub issue cards
 
 ## CLI
 
-`taskctl` — System.CommandLine console with subcommands:
-- `project`, `issue`, `comment`, `attachment`, `label`, `ai`, `context`, `search`
+`taskctl` — Spectre.Console.Cli console with commands:
+- `context:current`, `ghissue:history`, `ghissue:comments`, `ghissue:comment`, `cloud:login`, `cloud:status`, `cloud:logout`
 - JSON output via `--json`
 
 ## MCP Server
 
-13 tools exposing project/issue/comment/attachment/label/search operations.
+4 tools: `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`.
 
 ## AI Chat
 

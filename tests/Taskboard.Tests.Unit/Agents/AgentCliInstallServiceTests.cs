@@ -22,10 +22,11 @@ public class AgentCliInstallServiceTests
         var runner = Substitute.For<IStreamingProcessRunner>();
         runner.RunAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(),
                 Arg.Any<Action<string, string>?>(), Arg.Any<CancellationToken>())
-            .Returns(ci =>
+            .Returns(async ci =>
             {
                 ci.Arg<Action<string, string>?>()?.Invoke("stdout", "downloading...");
-                return Task.FromResult(0);
+                await Task.Delay(200);
+                return 0;
             });
         var service = Create(runner);
 

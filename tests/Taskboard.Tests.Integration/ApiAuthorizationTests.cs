@@ -24,8 +24,6 @@ public class ApiAuthorizationTests : IClassFixture<TaskboardWebApplicationFactor
     }
 
     [Theory]
-    [InlineData("/api/tasks")]
-    [InlineData("/api/projects")]
     [InlineData("/api/settings")]
     [InlineData("/api/configuration")]
     [InlineData("/api/skills")]
@@ -43,8 +41,8 @@ public class ApiAuthorizationTests : IClassFixture<TaskboardWebApplicationFactor
     }
 
     [Theory]
-    [InlineData("/api/projects")]
-    [InlineData("/api/tasks")]
+    [InlineData("/api/skills/sync")]
+    [InlineData("/api/local/ai/threads")]
     public async Task Dado_SemCredenciais_Quando_PostMutacao_Entao_Retorna401(string url)
     {
         var response = await _client.PostAsJsonAsync(url, new { name = "anon", title = "anon" });
@@ -99,11 +97,11 @@ public class ApiAuthorizationTests : IClassFixture<TaskboardWebApplicationFactor
     }
 
     [Fact]
-    public async Task Dado_ApiKeyValida_Quando_GetTasks_Entao_Retorna200()
+    public async Task Dado_ApiKeyValida_Quando_GetRepositories_Entao_Retorna200()
     {
         var client = _factory.CreateApiKeyClient();
 
-        var response = await client.GetAsync("/api/tasks");
+        var response = await client.GetAsync("/api/github/repositories");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
@@ -119,22 +117,22 @@ public class ApiAuthorizationTests : IClassFixture<TaskboardWebApplicationFactor
     }
 
     [Fact]
-    public async Task Dado_ApiKeyInvalida_Quando_GetTasks_Entao_Retorna401()
+    public async Task Dado_ApiKeyInvalida_Quando_GetRepositories_Entao_Retorna401()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", "wrong-key-0000000000");
 
-        var response = await client.GetAsync("/api/tasks");
+        var response = await client.GetAsync("/api/github/repositories");
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
-    public async Task Dado_CookieLogin_Quando_GetTasks_Entao_Retorna200()
+    public async Task Dado_CookieLogin_Quando_GetRepositories_Entao_Retorna200()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
-        var response = await client.GetAsync("/api/tasks");
+        var response = await client.GetAsync("/api/github/repositories");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }

@@ -22,15 +22,6 @@ public sealed class AiChatThreadConfiguration : IEntityTypeConfiguration<AiChatT
             .IsRequired()
             .HasMaxLength(240);
 
-        builder.Property(t => t.OriginProjectId)
-            .HasMaxLength(128)
-            .HasConversion(new NullableStringIdValueConverter<ProjectId>());
-
-        builder.HasOne<Project>()
-            .WithMany()
-            .HasForeignKey(t => t.OriginProjectId)
-            .OnDelete(DeleteBehavior.SetNull);
-
         builder.Property(t => t.Model)
             .IsRequired()
             .HasMaxLength(128)

@@ -2,56 +2,9 @@
 
 ## REST Endpoints
 
-### Projects
+### Client Storage
 
 ```http
-GET    /api/projects
-POST   /api/projects
-GET    /api/projects/:id
-PUT    /api/projects/:id
-POST   /api/projects/:id/archive
-DELETE /api/projects/:id
-```
-
-### Tasks
-
-```http
-GET    /api/projects/:id/tasks
-POST   /api/projects/:id/tasks
-GET    /api/tasks/:id
-PUT    /api/tasks/:id
-POST   /api/tasks/:id/archive
-DELETE /api/tasks/:id
-POST   /api/tasks/:id/comments
-POST   /api/tasks/:id/attachments
-POST   /api/tasks/:id/move
-POST   /api/tasks/:id/relations
-```
-
-### Comments & Attachments
-
-```http
-GET    /api/comments/:id
-PUT    /api/comments/:id
-DELETE /api/comments/:id
-GET    /api/attachments/:id
-PUT    /api/attachments/:id
-DELETE /api/attachments/:id
-```
-
-### Labels
-
-```http
-GET    /api/projects/:id/labels
-POST   /api/projects/:id/labels
-DELETE /api/projects/:id/labels/:label
-```
-
-### Context & Storage
-
-```http
-GET    /api/context
-PUT    /api/context
 GET    /api/client-storage
 PUT    /api/client-storage
 ```
@@ -81,7 +34,7 @@ PUT    /api/local/cloud-session
 GET    /api/workflow-capabilities
 PUT    /api/workflow-capabilities
 GET    /api/device-workspaces
-PUT    /api/device-workspaces
+PUT    /api/device-workspaces   { "workspaceId", "workspace" }
 ```
 
 ### Jira
@@ -90,13 +43,6 @@ PUT    /api/device-workspaces
 GET    /api/local/jira-connection
 POST   /api/local/jira-connection
 POST   /api/local/jira-connection/sync
-```
-
-### Search
-
-```http
-POST   /api/search/semantic
-GET    /api/search/suggestions
 ```
 
 ### Settings & Configuration
@@ -230,7 +176,7 @@ GET /api/events
 Accept: text/event-stream
 ```
 
-Events: `task.created`, `task.updated`, `task.archived`, `comment.added`, `comment.deleted`, `attachment.added`, `attachment.deleted`.
+Reserved stream for global events (no producers currently emit on it — per-thread AI events use the endpoint below).
 
 ### Per-thread AI events
 

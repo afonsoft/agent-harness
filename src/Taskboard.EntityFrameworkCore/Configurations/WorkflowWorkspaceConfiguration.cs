@@ -14,14 +14,9 @@ public sealed class WorkflowWorkspaceConfiguration : IEntityTypeConfiguration<Wo
 
         builder.Property(w => w.Id)
             .HasMaxLength(128)
-            .HasConversion(new StringIdValueConverter<ProjectId>());
+            .HasConversion(new StringIdValueConverter<WorkspaceId>());
 
         builder.HasKey(w => w.Id);
-
-        builder.HasOne<Project>()
-            .WithMany()
-            .HasForeignKey(w => w.Id)
-            .OnDelete(DeleteBehavior.Cascade);
 
         builder.Property(w => w.Workspace)
             .IsRequired();
