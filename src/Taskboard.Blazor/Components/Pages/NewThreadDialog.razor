@@ -15,6 +15,32 @@ else
     </div>
 
     <div class="mb-3">
+        <label for="thread-mode" class="form-label">Mode</label>
+        <select id="thread-mode" class="form-select" @bind="_mode">
+            <option value="assistant">Assistant (Standard LLM Chat)</option>
+            <option value="agent">Agent (Interactive Web CLI Session)</option>
+        </select>
+    </div>
+
+    @if (_mode == "agent")
+    {
+        <div class="mb-3">
+            <label for="thread-agent" class="form-label">Agent CLI</label>
+            <select id="thread-agent" class="form-select" @bind="_agentType">
+                <option value="OpenCode">OpenCode</option>
+                <option value="Claude">Claude Code</option>
+                <option value="Codex">Codex</option>
+                <option value="Devin">Devin CLI</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="thread-workdir" class="form-label">Workspace Path</label>
+            <input id="thread-workdir" type="text" class="form-control" @bind="_workspacePath" placeholder="/path/to/project (optional)" />
+        </div>
+    }
+
+    <div class="mb-3">
         <label for="thread-model" class="form-label">Model</label>
         <select id="thread-model" class="form-select" @bind="_modelId">
             @foreach (var model in _models)
@@ -59,6 +85,9 @@ else
 
     private IReadOnlyList<AiChatModelDto>? _models;
     private string _title = string.Empty;
+    private string _mode = "assistant";
+    private string _agentType = "OpenCode";
+    private string _workspacePath = string.Empty;
     private string _modelId = string.Empty;
     private string _reasoningEffort = "medium";
     private string _sandbox = "read-only";
@@ -90,7 +119,10 @@ else
             _title.Trim(),
             _modelId,
             model?.ReasoningEffortSupported == true ? _reasoningEffort : "none",
-            _sandbox);
+            _sandbox,
+            Mode: _mode,
+            AgentType: _mode == "agent" ? _agentType : null,
+            WorkspacePath: _mode == "agent" && !string.IsNullOrWhiteSpace(_workspacePath) ? _workspacePath.Trim() : null);
 
         await OnSubmit.InvokeAsync(request);
     }

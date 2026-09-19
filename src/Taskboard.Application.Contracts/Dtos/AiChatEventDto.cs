@@ -5,4 +5,6 @@ public sealed record AiChatEventDto(
     string ThreadId,
     string Role,
     string Content,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string Kind = "message",
+    string? PayloadJson = null);

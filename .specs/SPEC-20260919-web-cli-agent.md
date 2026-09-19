@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-web-cli-agent` |
 | Ticket | [#153 — E5](https://github.com/afonsoft/taskboard-ai/issues/153) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -209,12 +209,12 @@ GET  /api/agents                                  → [..., supportsInteractiveS
 
 ## 7. Task Plan
 
-- [ ] **T1 — Domain/contratos:** colunas novas em `AiChatThread`/`AiChatEvent`, VO `AiChatEventKind`, DTOs, `IAgentSessionClient` + event records, `IAgentAdapter.SupportsInteractiveSession`/`BuildSessionCommand`, migration `AddWebCliAgent`. Testes de VO/mapping.
-- [ ] **T2 — AcpSessionClient:** JSON-RPC stdio bidirecional (stdin+stdout), `session/new|prompt|cancel`, parse de `session/update` + `session/request_permission`, matriz de argv por agente (mínimo: OpenCode + Claude + Codex; demais declaram capability). Testes de framing/parse (`Dado_Quando_Entao`).
-- [ ] **T3 — Server:** `AgentSessionManager` (registry+idle reaper+respawn), `PermissionGate`, endpoints `prompt/cancel/permissions`, extensão do SSE + flag. Integration tests dos endpoints e do stream.
-- [ ] **T4 — UI:** `NewThreadDialog` (mode/agent/repo|dir/sandbox), renderers `ToolCallCard` + `PermissionPrompt` + `reasoning`, composer steer/queue + Stop, badge de estado da sessão; `taskboardSse` com os tipos novos.
-- [ ] **T5 — Fallback + capability:** `supportsInteractiveSession` em `GET /api/agents`; caminho one-shot dentro de thread `agent`.
-- [ ] **T6 — Verify:** `dotnet build` (warnings=errors), `dotnet test`, cobertura ≥ gate vigente (ratchet — não baixar `COVERAGE_THRESHOLD`), docs en/pt-br, SPEC → Done + PR.
+- [x] **T1 — Domain/contratos:** colunas novas em `AiChatThread`/`AiChatEvent`, VO `AiChatEventKind`, DTOs, `IAgentSessionClient` + event records, `IAgentAdapter.SupportsInteractiveSession`/`BuildSessionCommand`, migration `AddWebCliAgent`. Testes de VO/mapping.
+- [x] **T2 — AcpSessionClient:** JSON-RPC stdio bidirecional (stdin+stdout), `session/new|prompt|cancel`, parse de `session/update` + `session/request_permission`, matriz de argv por agente (mínimo: OpenCode + Claude + Codex; demais declaram capability). Testes de framing/parse (`Dado_Quando_Entao`).
+- [x] **T3 — Server:** `AgentSessionManager` (registry+idle reaper+respawn), `PermissionGate`, endpoints `prompt/cancel/permissions`, extensão do SSE + flag. Integration tests dos endpoints e do stream.
+- [x] **T4 — UI:** `NewThreadDialog` (mode/agent/repo|dir/sandbox), renderers `ToolCallCard` + `PermissionPrompt` + `reasoning`, composer steer/queue + Stop, badge de estado da sessão; `taskboardSse` com os tipos novos.
+- [x] **T5 — Fallback + capability:** `supportsInteractiveSession` em `GET /api/agents`; caminho one-shot dentro de thread `agent`.
+- [x] **T6 — Verify:** `dotnet build` (warnings=errors), `dotnet test`, cobertura ≥ gate vigente (ratchet — não baixar `COVERAGE_THRESHOLD`), docs en/pt-br, SPEC → Done + PR.
 
 ## 8. Organization Guardrails
 
@@ -227,11 +227,11 @@ GET  /api/agents                                  → [..., supportsInteractiveS
 
 ## 9. Definition of Done
 
-- [ ] RF-001…RF-009 implementados; ACs cobertos por testes.
-- [ ] `dotnet build` limpo (`TreatWarningsAsErrors`); `dotnet test` verde; cobertura ≥ gate.
-- [ ] Endpoints autenticados; erros no formato `{ error: { code, message } }`; logs sem PII/tokens.
-- [ ] Flag off → comportamento 100% atual.
-- [ ] Migration aplicada e reversível; docs atualizadas; `Status = Done` + PR aberto.
+- [x] RF-001…RF-009 implementados; ACs cobertos por testes.
+- [x] `dotnet build` limpo (`TreatWarningsAsErrors`); `dotnet test` verde; cobertura ≥ gate.
+- [x] Endpoints autenticados; erros no formato `{ error: { code, message } }`; logs sem PII/tokens.
+- [x] Flag off → comportamento 100% atual.
+- [x] Migration aplicada e reversível; docs atualizadas; `Status = Done` + PR aberto.
 
 ## Open Questions / Pending Ambiguity
 

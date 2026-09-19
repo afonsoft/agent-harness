@@ -9,4 +9,5 @@ public sealed record AgentInfo(
     AgentType Type,
     AgentStatus Status,
     string? Version,
-    string? Description);
+    string? Description,
+    bool SupportsInteractiveSession = false);

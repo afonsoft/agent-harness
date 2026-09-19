@@ -1,3 +1,5 @@
+using Taskboard.ValueObjects;
+
 namespace Taskboard.Agents;
 
 /// <summary>
@@ -14,4 +16,15 @@ public interface IAgentAdapter
     /// Monta o comando local a ser executado a partir da requisição.
     /// </summary>
     AgentCommand BuildCommand(AgentExecutionRequest request);
+
+    /// <summary>
+    /// Indica se o adaptador suporta sessões interativas persistentes.
+    /// </summary>
+    bool SupportsInteractiveSession => false;
+
+    /// <summary>
+    /// Monta o comando de inicialização da sessão interativa (stdio/acp).
+    /// </summary>
+    AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox)
+        => throw new NotSupportedException($"Interactive session is not supported for agent {agentType}.");
 }

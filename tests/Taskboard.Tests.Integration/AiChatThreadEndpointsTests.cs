@@ -159,6 +159,45 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         assistantContent.ShouldNotContain("Continue the conversation.");
     }
 
+    [Fact]
+    public async Task Dado_RequestModoAgent_Quando_CreateThread_Entao_Retorna201ComModeEAgentType()
+    {
+        // Covers RF-001: Thread em modo agent
+        var client = await ApiClientAsync();
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "Agent Thread Test",
+            mode = "agent",
+            agentType = "OpenCode",
+            workspacePath = "/tmp/test-workspace",
+            sandbox = "workspace-write"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var created = await create.Content.ReadFromJsonAsync<JsonObject>();
+        var thread = created?["thread"] as JsonObject;
+        thread.ShouldNotBeNull();
+        thread!["mode"]!.GetValue<string>().ShouldBe("agent");
+        thread["agentType"]!.GetValue<string>().ShouldBe("OpenCode");
+        thread["workspacePath"]!.GetValue<string>().ShouldBe("/tmp/test-workspace");
+    }
+
+    [Fact]
+    public async Task Dado_FeatureFlagOff_Quando_PostPrompt_Entao_Retorna404()
+    {
+        // Covers RF-009: Feature flag desabilitada
+        var client = await ApiClientAsync();
+        var threadId = await CreateThreadAsync(client, "Thread flag off");
+
+        var response = await client.PostAsJsonAsync($"/api/local/ai/threads/{threadId}/prompt", new
+        {
+            text = "Hello agent"
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
     private static async Task<string> CreateThreadAsync(HttpClient client, string title)
     {
         var create = await client.PostAsJsonAsync("/api/local/ai/threads", new

@@ -2,6 +2,7 @@ using System.Text;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Integrations.Workspace;
+using Taskboard.ValueObjects;
 
 namespace Taskboard.Integrations.Agents;
 
@@ -18,6 +19,8 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
     }
 
     public bool CanHandle(AgentType agentType) => AgentCliInvocation.ExecutableName(agentType) is not null;
+
+    public bool SupportsInteractiveSession => true;
 
     public AgentCommand BuildCommand(AgentExecutionRequest request)
     {
@@ -37,6 +40,31 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
             AgentCliInvocation.BuildArguments(
                 request.AgentType, prompt, request.ModelTier, request.ResolvedModelName),
             workingDirectory);
+    }
+
+    public AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox)
+    {
+        var name = AgentCliInvocation.ExecutableName(agentType)
+                   ?? throw new NotSupportedException($"Agent type {agentType} is not supported.");
+
+        var executablePath = PathSearch.FindExecutable(name) ?? name;
+        var arguments = BuildSessionArguments(agentType, sandbox);
+        var workingDirectory = !string.IsNullOrWhiteSpace(workdir)
+            ? workdir
+            : _workspace?.EnsureRoot() ?? Environment.CurrentDirectory;
+
+        return new AgentCommand(executablePath, arguments, workingDirectory);
+    }
+
+    private static IReadOnlyList<string> BuildSessionArguments(AgentType agentType, Sandbox sandbox)
+    {
+        return agentType switch
+        {
+            AgentType.OpenCode => ["acp"],
+            AgentType.Claude => ["--acp"],
+            AgentType.Codex => ["--acp"],
+            _ => ["--acp"]
+        };
     }
 
     private static string BuildPrompt(AgentExecutionRequest request)

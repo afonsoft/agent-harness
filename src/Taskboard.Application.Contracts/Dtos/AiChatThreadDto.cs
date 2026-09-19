@@ -9,4 +9,8 @@ public sealed record AiChatThreadDto(
     string Status,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    long Version);
+    long Version,
+    string Mode = "assistant",
+    string? AgentType = null,
+    string? WorkspacePath = null,
+    string? RepositoryFullName = null);

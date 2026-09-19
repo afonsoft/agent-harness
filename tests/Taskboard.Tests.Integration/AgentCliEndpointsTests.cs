@@ -217,4 +217,24 @@ public class TerminalDisabledTests : IClassFixture<TerminalDisabledFactory>
         var completed = await Task.WhenAny(closed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
         completed.ShouldBe(closed.Task, "o hub deve fechar a conexão quando o terminal está desabilitado");
     }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_GetAgents_Entao_RetornaSupportsInteractiveSession()
+    {
+        // Covers RF-008: GET /api/agents expõe supportsInteractiveSession
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agents");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body.ShouldNotBeNull();
+        var agents = body!["agents"] as JsonArray;
+        agents.ShouldNotBeNull();
+        agents.ShouldNotBeEmpty();
+
+        var opencode = agents.FirstOrDefault(a => a?["type"]?.GetValue<int>() == (int)Taskboard.Agents.AgentType.OpenCode);
+        opencode.ShouldNotBeNull();
+        opencode!["supportsInteractiveSession"]!.GetValue<bool>().ShouldBeTrue();
+    }
 }

@@ -37,14 +37,15 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
         {
             var executablePath = PathSearch.FindExecutable(name);
             KnownDescriptions.TryGetValue(type, out var description);
+            var supportsSession = type is AgentType.OpenCode or AgentType.Claude or AgentType.Codex or AgentType.Devin;
             if (executablePath is null)
             {
-                agents.Add(new AgentInfo(name, string.Empty, type, AgentStatus.Unavailable, null, description));
+                agents.Add(new AgentInfo(name, string.Empty, type, AgentStatus.Unavailable, null, description, supportsSession));
                 continue;
             }
 
             var version = TryGetVersion(executablePath, cancellationToken);
-            agents.Add(new AgentInfo(name, executablePath, type, AgentStatus.Available, version, description));
+            agents.Add(new AgentInfo(name, executablePath, type, AgentStatus.Available, version, description, supportsSession));
         }
 
         return Task.FromResult<IReadOnlyList<AgentInfo>>(agents.AsReadOnly());

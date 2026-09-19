@@ -80,6 +80,10 @@ else
                     <div class="text-truncate">
                         <strong>@_activeThread.Title</strong>
                         <span class="text-body-secondary small ms-2">@_activeThread.Model</span>
+                        @if (_activeThread.Mode == "agent")
+                        {
+                            <span class="badge text-bg-primary ms-2">agent: @_activeThread.AgentType</span>
+                        }
                     </div>
                     @if (_running)
                     {
@@ -103,25 +107,60 @@ else
                     {
                         <div class="text-body-secondary small">No messages yet — say something below.</div>
                     }
-                    @foreach (var group in GroupedEvents)
+                    @if (_activeThread.Mode == "agent")
                     {
-                        @if (group.Role is "user")
+                        @foreach (var ev in _events)
                         {
-                            <div class="ai-chat-msg ai-chat-msg-user">
-                                <div class="ai-chat-bubble">@group.Text</div>
-                            </div>
+                            @if (ev.Kind == "tool_call")
+                            {
+                                <Taskboard.Blazor.Components.AiChat.ToolCallCard ToolName="@ev.Role" Arguments="@ev.Content" Output="@ev.PayloadJson" Status="completed" />
+                            }
+                            else if (ev.Kind == "permission")
+                            {
+                                <Taskboard.Blazor.Components.AiChat.PermissionPromptCard RequestId="@ev.Id" Tool="tool" Detail="@ev.Content" OnReply="OnPermissionReplyAsync" />
+                            }
+                            else if (ev.Role is "user")
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-user">
+                                    <div class="ai-chat-bubble">@ev.Content</div>
+                                </div>
+                            }
+                            else if (ev.Role is "assistant")
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-assistant">
+                                    <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(ev.Content))</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-system">
+                                    <span class="@(ev.Role == "error" ? "text-danger" : "text-body-secondary")">@ev.Content</span>
+                                </div>
+                            }
                         }
-                        else if (group.Role is "assistant")
+                    }
+                    else
+                    {
+                        @foreach (var group in GroupedEvents)
                         {
-                            <div class="ai-chat-msg ai-chat-msg-assistant">
-                                <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(group.Text))</div>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="ai-chat-msg ai-chat-msg-system">
-                                <span class="@(group.Role == "error" ? "text-danger" : "text-body-secondary")">@group.Text</span>
-                            </div>
+                            @if (group.Role is "user")
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-user">
+                                    <div class="ai-chat-bubble">@group.Text</div>
+                                </div>
+                            }
+                            else if (group.Role is "assistant")
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-assistant">
+                                    <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(group.Text))</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-system">
+                                    <span class="@(group.Role == "error" ? "text-danger" : "text-body-secondary")">@group.Text</span>
+                                </div>
+                            }
                         }
                     }
                     @if (_running)
@@ -137,18 +176,28 @@ else
                 <div class="card-footer p-2">
                     <div class="d-flex gap-2 align-items-end">
                         <textarea class="form-control ai-chat-composer" rows="2"
-                                  placeholder="@(_running ? "Waiting for the assistant…" : "Message…")"
-                                  disabled="@(_running || _sending)"
+                                  placeholder="@(_running && _activeThread.Mode != "agent" ? "Waiting for the assistant…" : (_activeThread.Mode == "agent" && _running ? "Steer or queue instruction…" : "Message…"))"
+                                  disabled="@((_running && _activeThread.Mode != "agent") || _sending)"
                                   @bind="_composer"
                                   @bind:event="oninput"
                                   @onkeydown="OnComposerKeyDownAsync"></textarea>
                         <div class="d-flex flex-column gap-2">
                             <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
-                                    Disabled="@(_running || _sending || string.IsNullOrWhiteSpace(_composer))"
+                                    Disabled="@((_running && _activeThread.Mode != "agent") || _sending || string.IsNullOrWhiteSpace(_composer))"
                                     @onclick="SendMessageAsync">Send</Button>
-                            <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                    Disabled="@(_running || _sending)"
-                                    @onclick="ShowRunAgentAsync">Run agent</Button>
+                            @if (_activeThread.Mode == "agent")
+                            {
+                                @if (_running)
+                                {
+                                    <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="StopAgentAsync">Stop</Button>
+                                }
+                            }
+                            else
+                            {
+                                <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                                        Disabled="@(_running || _sending)"
+                                        @onclick="ShowRunAgentAsync">Run agent</Button>
+                            }
                         </div>
                     </div>
                 </div>
@@ -260,7 +309,7 @@ else
             "ai-chat",
             $"/api/local/ai/threads/{Uri.EscapeDataString(thread.Id)}/events",
             _dotNetRef,
-            new[] { "ai_chat.event", "ai_chat.run" });
+            new[] { "ai_chat.event", "ai_chat.run", "ai_chat.session", "ai_chat.permission" });
     }
 
     [JSInvokable]
@@ -268,7 +317,7 @@ else
     {
         try
         {
-            if (eventType == "ai_chat.event")
+            if (eventType == "ai_chat.event" || eventType == "ai_chat.permission")
             {
                 var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
                 if (ev is not null && _seenEventIds.Add(ev.Id))
@@ -277,6 +326,10 @@ else
                     _scrollPending = true;
                 }
                 _sseError = false;
+            }
+            else if (eventType == "ai_chat.session")
+            {
+                _scrollPending = true;
             }
             else if (eventType == "ai_chat.run")
             {
@@ -311,10 +364,12 @@ else
 
     private async Task OnComposerKeyDownAsync(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey && !_running && !_sending
-            && !string.IsNullOrWhiteSpace(_composer))
+        if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer))
         {
-            await SendMessageAsync();
+            if (!_running || _activeThread?.Mode == "agent")
+            {
+                await SendMessageAsync();
+            }
         }
     }
 
@@ -330,8 +385,23 @@ else
         _sending = true;
         try
         {
-            var posted = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
-            if (posted is null)
+            if (_activeThread?.Mode == "agent")
+            {
+                var posted = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content, "message"));
+                _composer = string.Empty;
+                var wasRunning = _running;
+                _running = true;
+
+                var ok = await Client.PromptAgentThreadAsync(threadId, content, wasRunning ? "steer" : "queue");
+                if (!ok)
+                {
+                    ToastService.Notify(new(ToastType.Warning, "Agent prompt admitted/queued."));
+                }
+                return;
+            }
+
+            var postedAssistant = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
+            if (postedAssistant is null)
             {
                 ToastService.Notify(new(ToastType.Danger, "Failed to post the message."));
                 return;
@@ -355,6 +425,27 @@ else
         finally
         {
             _sending = false;
+        }
+    }
+
+    private async Task StopAgentAsync()
+    {
+        if (_activeThreadId is null) return;
+        var ok = await Client.CancelAgentThreadAsync(_activeThreadId);
+        if (ok)
+        {
+            _running = false;
+            ToastService.Notify(new(ToastType.Info, "Agent run cancelled."));
+        }
+    }
+
+    private async Task OnPermissionReplyAsync((string RequestId, string Outcome) args)
+    {
+        if (_activeThreadId is null) return;
+        var ok = await Client.ReplyAgentPermissionAsync(_activeThreadId, args.RequestId, args.Outcome);
+        if (ok)
+        {
+            ToastService.Notify(new(ToastType.Success, $"Permission '{args.Outcome}' sent to agent."));
         }
     }
 

@@ -42,12 +42,34 @@ public sealed class AiChatService
         Actor actor,
         CancellationToken ct = default)
     {
-        var thread = AiChatThread.Create(
-            AiChatThreadId.NewGuid(),
-            request.Title,
-            ModelRef.From(request.Model),
-            request.ReasoningEffort,
-            Sandbox.From(request.Sandbox));
+        AiChatThread thread;
+        if (string.Equals(request.Mode, "agent", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(request.AgentType) ||
+                !Enum.TryParse<Taskboard.Agents.AgentType>(request.AgentType, true, out var agentType))
+            {
+                throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
+            }
+
+            thread = AiChatThread.CreateAgentThread(
+                AiChatThreadId.NewGuid(),
+                request.Title,
+                string.IsNullOrWhiteSpace(request.Model) ? ModelRef.From("default") : ModelRef.From(request.Model),
+                string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort,
+                string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox),
+                agentType,
+                request.WorkspacePath,
+                request.RepositoryFullName);
+        }
+        else
+        {
+            thread = AiChatThread.Create(
+                AiChatThreadId.NewGuid(),
+                request.Title,
+                string.IsNullOrWhiteSpace(request.Model) ? ModelRef.From("default") : ModelRef.From(request.Model),
+                string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort,
+                string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox));
+        }
 
         await _threadRepo.AddAsync(thread, ct);
         await _threadRepo.SaveChangesAsync(ct);
@@ -225,11 +247,17 @@ public sealed class AiChatService
         }
 
         var role = AiChatEventRole.From(request.Role);
-        var chatEvent = AiChatEvent.Create(
+        var kind = !string.IsNullOrWhiteSpace(request.Kind)
+            ? AiChatEventKind.From(request.Kind)
+            : AiChatEventKind.Message;
+
+        var chatEvent = AiChatEvent.CreateTyped(
             AiChatEventId.NewGuid(),
             threadId,
             role,
-            request.Content);
+            request.Content,
+            kind,
+            request.PayloadJson);
 
         thread.AddEvent(chatEvent);
         await _eventRepo.AddAsync(chatEvent, ct);

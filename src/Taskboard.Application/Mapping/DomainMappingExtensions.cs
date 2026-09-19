@@ -15,7 +15,11 @@ public static class DomainMappingExtensions
             thread.Status.Value,
             thread.CreatedAt,
             thread.UpdatedAt,
-            thread.Version);
+            thread.Version,
+            thread.Mode,
+            thread.AgentType?.ToString(),
+            thread.WorkspacePath,
+            thread.RepositoryFullName);
 
     public static AiChatRunDto ToDto(this AiChatRun run)
         => new(
@@ -32,5 +36,7 @@ public static class DomainMappingExtensions
             chatEvent.ThreadId.Value,
             chatEvent.Role.Value,
             chatEvent.Content,
-            chatEvent.CreatedAt);
+            chatEvent.CreatedAt,
+            chatEvent.Kind.Value,
+            chatEvent.PayloadJson);
 }
