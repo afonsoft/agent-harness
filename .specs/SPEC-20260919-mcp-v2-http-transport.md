@@ -168,9 +168,9 @@ Tools expostas (mesmas do stdio): `get_issue_history`,
 
 ## 9. Definition of Done
 
-- [ ] RF-001..009 implementados.
-- [ ] `dotnet build` limpo; suites unit + integration verdes.
+- [x] RF-001..009 implementados.
+- [x] `dotnet build` limpo; suites unit + integration verdes.
 - [ ] `POST /api/mcp` validado em produção (401 anônimo; `tools/list` autenticado).
-- [ ] Exe stdio `Taskboard.Mcp` inalterado e funcional.
-- [ ] Docs en + pt-br atualizados.
+- [x] Exe stdio `Taskboard.Mcp` inalterado e funcional.
+- [x] Docs en + pt-br atualizados.
 - [ ] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.
