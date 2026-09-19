@@ -5,7 +5,7 @@ namespace Taskboard.EntityFrameworkCore.ValueConverters;
 
 public sealed class ListStringJsonValueConverter : ValueConverter<List<string>, string>
 {
-    private static readonly JsonSerializerOptions Options = new()
+    internal static readonly JsonSerializerOptions Options = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };

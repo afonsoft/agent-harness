@@ -23,6 +23,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<IssueHistoryEvent> IssueHistoryEvents => Set<IssueHistoryEvent>();
     public DbSet<ConfigurationOverride> ConfigurationOverrides => Set<ConfigurationOverride>();
     public DbSet<WorktreeSession> WorktreeSessions => Set<WorktreeSession>();
+    public DbSet<ProjectMemoryItem> ProjectMemoryItems => Set<ProjectMemoryItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -170,6 +170,7 @@ builder.Services.AddScoped<IWorkspaceIsolationService>(sp => new GitWorktreeMana
     sp.GetRequiredService<IWorktreeSessionRepository>(),
     WorktreePaths.ResolveRoot(homeDir),
     sp.GetRequiredService<ILogger<GitWorktreeManager>>()));
+builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
