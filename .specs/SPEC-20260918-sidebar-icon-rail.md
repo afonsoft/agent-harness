@@ -62,6 +62,13 @@ any service-worker-style fetch handler must use a parsed `URL` object
   (general) or `d-inline-flex gap-1` (dense/inline cells); remaining
   loose groups are normalized; interactive targets ≥44px on touch
   viewports.
+
+  > **Update (2026-09-18, gap-analysis-20260918):** this bullet
+  > contradicted AC-5 ("sibling buttons ≥8px separation"). By user
+  > decision (option b — impose ≥8px), AC-5 prevails: sibling
+  > action-button groups use `gap-2` (8px); `gap-1` is no longer
+  > sanctioned for action groups. See
+  > `SPEC-20260918-action-button-separation` (slice #134).
 - Transitions respect `prefers-reduced-motion`; rail width transition
   ≤200ms.
 
