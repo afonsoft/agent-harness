@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260918-sidebar-icon-rail` |
 | Ticket | N/A |
-| Status | `Approved` — aprovada pelo usuário (2026-09-18) |
+| Status | `Done` — entregue via PR #125 (merged) |
 
 Origin: replicate the icon/layout polish implemented in
 `afonsoft/LangGraph-UI` (SPEC-20260918-ui-layout-polish, PRs #123 + #124)

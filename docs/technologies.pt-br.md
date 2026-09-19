@@ -8,7 +8,7 @@
 | Framework DDD | ABP N-Layer | 9.x |
 | ORM | Entity Framework Core | 10.0 |
 | Banco de Dados | SQLite | embutido |
-| Parser de CLI | System.CommandLine | latest stable |
+| Parser de CLI | Spectre.Console.Cli | 0.55.0 |
 | MCP SDK | ModelContextProtocol | latest stable for .NET |
 | Testes | xUnit + Shouldly + NSubstitute | latest stable |
 | Frontend | Blazor WebAssembly | .NET 10 |

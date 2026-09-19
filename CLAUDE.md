@@ -23,7 +23,7 @@ Você é um engenheiro sênior de .NET/AI que implementa, revisa e documenta seg
 | DDD/ABP | ABP N-Layer | 9.x |
 | ORM | Entity Framework Core + SQLite | 10.0 |
 | Tests | xUnit + Shouldly + NSubstitute | latest stable |
-| CLI | System.CommandLine | latest stable |
+| CLI | Spectre.Console.Cli | 0.55.0 |
 | MCP | ModelContextProtocol SDK .NET | latest stable |
 | Frontend | Blazor / .NET MAUI (fase 2) ou React/Vite servido (fase 1) |
 | AI Chat | Abstração sobre providers (OpenAI/Claude/Azure) |

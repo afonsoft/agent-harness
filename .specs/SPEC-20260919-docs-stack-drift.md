@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `docs/devin-20260919-docs-stack-drift` |
 | Ticket | `GAP-documentation-docs-stack-drift` (gap-analysis-20260919) — Issue #142, Epic #140 |
-| Status | `Approved` — aprovada pelo usuário (2026-09-19, gate gap-analysis) |
+| Status | `Done` — entregue neste PR |
 
 Origin: gap-analysis-20260919. A CLI migrou para **Spectre.Console.Cli** em
 2026-08-31 (`.specs/cli-migration.md`, `SPEC-003` §line 322 "Resolvido:
@@ -72,6 +72,6 @@ documentos-norma continuam dizendo `System.CommandLine`. Além disso,
 
 ## 6. DoD
 
-- [ ] RF-001..005 implementados.
-- [ ] Diff revisado: só Markdown.
-- [ ] SPEC → `Status: Done`; PR merged.
+- [x] RF-001..005 implementados.
+- [x] Diff revisado: só Markdown (+ labels no `architecture.html` gerado).
+- [x] SPEC → `Status: Done`; PR merged.

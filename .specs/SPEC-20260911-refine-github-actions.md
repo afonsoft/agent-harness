@@ -6,7 +6,7 @@
 - Product: taskboard-ai
 - Bounded context: CI/CD
 - Suggested branch: feature/refine-github-actions
-- Status: Approved
+- Status: Done — entregue via PRs #52–#56 (bumps de actions); verificado em gap-analysis-20260919
 - Date: 2026-09-11
 - Technical owner: afonsoft
 - Target agent: Devin

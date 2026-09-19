@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `docs/devin-20260919-stale-spec-status` |
 | Ticket | `GAP-documentation-stale-spec-status` (gap-analysis-20260919) — Issue #143, Epic #140 |
-| Status | `Approved` — aprovada pelo usuário (2026-09-19, gate gap-analysis) |
+| Status | `Done` — entregue neste PR |
 
 Origin: gap-analysis-20260919 — **segunda recorrência** da classe
 `GAP-documentation-stale-specs` já tratada por `SPEC-20260914-stale-spec-status`
@@ -89,5 +89,5 @@ zumbis.
 
 ## 6. DoD
 
-- [ ] RF-001..004 implementados.
-- [ ] SPEC → `Status: Done`; PR merged.
+- [x] RF-001..004 implementados.
+- [x] SPEC → `Status: Done`; PR merged.

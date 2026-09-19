@@ -8,7 +8,7 @@
   },
   "components": [
     { "id": "users", "type": "external", "label": "Users", "sublabel": "Browser / CLI / MCP", "pos": [40, 200], "size": [120, 60] },
-    { "id": "cli", "type": "backend", "label": "taskctl CLI", "sublabel": "System.CommandLine", "pos": [250, 100], "size": [130, 60] },
+    { "id": "cli", "type": "backend", "label": "taskctl CLI", "sublabel": "Spectre.Console.Cli", "pos": [250, 100], "size": [130, 60] },
     { "id": "mcp", "type": "backend", "label": "MCP Server", "sublabel": "ModelContextProtocol SDK", "pos": [250, 200], "size": [130, 60] },
     { "id": "ui", "type": "frontend", "label": "Blazor / MAUI", "sublabel": "UI Layer", "pos": [250, 300], "size": [130, 60] },
     { "id": "server", "type": "backend", "label": "Taskboard Server", "sublabel": "ASP.NET Core Minimal APIs", "pos": [460, 200], "size": [150, 80] },
@@ -17,7 +17,7 @@
     { "id": "db", "type": "database", "label": "SQLite DB", "sublabel": "EF Core", "pos": [880, 450], "size": [150, 60] },
     { "id": "aichat", "type": "backend", "label": "AI Chat Module", "sublabel": "Threads & Runs", "pos": [460, 100], "size": [150, 60] },
     { "id": "cloud", "type": "cloud", "label": "Cloud Companion", "sublabel": "D1/R2 Proxy", "pos": [460, 300], "size": [150, 60] },
-    { "id": "workflow", "type": "backend", "label": "Workflow Engine", "sublabel": "Automation", "pos": [460, 400], "size": [150, 60] },
+    { "id": "workflow", "type": "backend", "label": "GH Actions Monitor", "sublabel": "Read-only /workflow", "pos": [460, 400], "size": [150, 60] },
     { "id": "integrations", "type": "external", "label": "Integrations", "sublabel": "Jira / DeepSeek", "pos": [1090, 100], "size": [130, 60] }
   ],
   "connections": [
