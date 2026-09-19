@@ -10,7 +10,7 @@ This document provides a textual representation of the system architecture defin
 #### 1. Presentation Layer (The Entry Points)
 These components are the primary interfaces for users and agents:
 - **Users:** The external actors (Humans or AI Agents).
-- **taskctl CLI:** A .NET console application using `System.CommandLine` for automation and agent interaction.
+- **taskctl CLI:** A .NET console application using `Spectre.Console.Cli` for automation and agent interaction.
 - **MCP Server:** A Model Context Protocol server that exposes the taskboard's capabilities as tools to LLMs.
 - **Blazor / MAUI UI:** The visual interface for managing the board, tasks, and settings.
 
@@ -21,7 +21,7 @@ Acts as the central orchestrator for all incoming requests:
   - Routing requests to the appropriate application handlers.
   - Managing **SSE (Server-Sent Events)** for real-time updates via `/api/events`.
   - Handling CORS and Instance-Token authentication.
-  - Serving the SPA frontend as static files.
+  - Serving the Blazor WebAssembly frontend (`Taskboard.Blazor`) as static files.
 
 #### 3. Application Layer (`Taskboard.Application`)
 Contains the business use cases and orchestrates the flow between the API and the Domain:
@@ -31,9 +31,9 @@ Contains the business use cases and orchestrates the flow between the API and th
 #### 4. Domain Layer (`Taskboard.Domain`)
 The heart of the system containing all business rules and invariants:
 - **Core Concepts:**
-  - **Aggregates:** `Project` (Labels, Numbering), `Task` (Lifecycle, Versioning), `AiChatThread` (Runs, Events).
-  - **Value Objects:** `TaskStatus`, `TaskPriority`, `Actor`, `TaskIdentifier`.
-  - **Invariants:** Optimistic concurrency (`Version`), unique task identifiers, and restricted status transitions.
+  - The board's source of truth is GitHub (issues + labels); there are no local `Project`/`Task` aggregates.
+  - **Entities:** `AiChatThread` (Runs, Events), `AgentRun`, `AgentLog`, `IssueHistoryEvent`, `ConfigurationOverride`, `UserPreference`, `AgentPreference`.
+  - **Invariants:** Optimistic concurrency (`Version`) where applicable.
 
 #### 5. Persistence Layer (`Taskboard.EntityFrameworkCore`)
 Handles the durable storage of the system:
@@ -44,7 +44,7 @@ Handles the durable storage of the system:
 Specialized modules that extend the core functionality:
 - **AI Chat Module:** Manages LLM conversations, runs, and thread-specific event streams.
 - **Cloud Companion:** Manages local-to-cloud proxying (Cloudflare D1/R2) and session synchronization.
-- **Workflow Engine:** A graph-based engine that automates task transitions (e.g., Auto-claim `todo` $\rightarrow$ `in_progress`).
+- **GitHub Actions Monitor:** `/workflow` is a read-only monitor of GitHub Actions workflows and runs (via Octokit `Actions.*`) — the legacy local workflow engine/workspaces were removed.
 - **Integrations:** Handles external synchronization, specifically with the Jira REST API.
 - **Agent Orchestration:** Connects `Application.Contracts/Agents` to
   `Integrations/Agents`, the `Server` SignalR hub, and the Blazor GitHub

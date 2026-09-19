@@ -1,6 +1,6 @@
 # Migração da CLI: System.CommandLine → Spectre.Console.Cli
 
-**Status:** em revisão (não concluído)
+**Status:** concluído — migração Spectre mergeada; duplicata context:current removida; smoke tests em CliSmokeTests (SPEC-20260919-cli-test-coverage)
 **Última atualização:** 2026-08-31
 **Pendências bloqueantes:** ver seção "Pendências" — há duplicata de registro e commit/push não finalizado.
 

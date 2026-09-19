@@ -25,6 +25,9 @@ name: taskboard-ai-global
 1. Modificar `common.props` → avisar no PR.
 2. Adicionar pacote NuGet → justificar no PR.
 3. Mudar rota HTTP → documentar breaking change.
+4. **SPEC lifecycle**: PR que entrega uma SPEC marca `Status: Done` (com
+   referência ao PR) no mesmo PR — nunca deixar SPECs entregues em
+   `Approved`/`Draft` (anti-regressão, SPEC-20260919-stale-spec-status).
 
 ## Planejamento Obrigatório
 

@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260918-action-button-separation` |
 | Ticket | `GAP-spec-contradiction-action-button-gap` (gap-analysis-20260918) — decisão do usuário: **opção b) impor ≥8px** |
-| Status | `Approved` — aprovada pelo usuário (2026-09-18) |
+| Status | `Done` — entregue via PR #135 (merged) |
 
 Origin: gap-analysis-20260918 — `SPEC-20260918-sidebar-icon-rail` continha
 uma contradição interna: AC-5 exige "sibling buttons have ≥8px separation"

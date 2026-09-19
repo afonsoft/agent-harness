@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260918-cli-agents-expansion` |
 | Ticket | N/A |
-| Status | `Approved` |
+| Status | `Done` — entregue via PR #94 (merged) |
 
 ## 1. User Story
 

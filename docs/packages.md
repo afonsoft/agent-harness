@@ -10,7 +10,7 @@
 | `Microsoft.Extensions.Hosting` | Background services and hosted agent orchestration |
 | `Microsoft.AspNetCore.OpenApi` / `Swashbuckle.AspNetCore` | OpenAPI documentation |
 | `Microsoft.AspNetCore.SignalR.Client` | SignalR client for real-time agent logs |
-| `System.CommandLine` | CLI parsing |
+| `Spectre.Console.Cli` | CLI parsing |
 | `ModelContextProtocol` | MCP server |
 | `Octokit` | GitHub API integration |
 | `Blazor.Bootstrap` | Blazor UI components (Bootstrap 5) |

@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260919-cli-test-coverage` |
 | Ticket | `GAP-tests-cli-coverage` (gap-analysis-20260919) — Issue #144, Epic #140 |
-| Status | `Approved` — aprovada pelo usuário (2026-09-19, gate gap-analysis) |
+| Status | `Done` — entregue via PR #148 (merged) |
 
 Origin: gap-analysis-20260919 — `src/Taskboard.Cli` (taskctl) tem **zero**
 cobertura: nenhum `.cs` de teste referencia `Taskboard.Cli`, `taskctl` ou
