@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-cli-db-reader` |
 | Ticket | [#165 — E10](https://github.com/afonsoft/taskboard-ai/issues/165) |
-| Status | `Approved` |
+| Status | `Done` |
 | Capability map | `.specs/CAPABILITY-MAP-cli-metrics.md` (module `cli-db-reader`) |
 
 ## 1. User Story
@@ -175,21 +175,21 @@ endpoints (`GET /api/local/cli-metrics/sources`, see SPEC-20260919-cli-metrics).
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a WAL-mode Codex database open by another process, **when** the
+- [x] **Given** a WAL-mode Codex database open by another process, **when** the
   reader extracts sessions, **then** it reads a temp copy, the source file gains
   no journal files, and no `SQLITE_BUSY` reaches the caller.
-- [ ] **Given** `opencode.db`, **when** the OpenCode extractor runs, **then**
+- [x] **Given** `opencode.db`, **when** the OpenCode extractor runs, **then**
   only whitelisted tables are queried and no column from `credential`/`account*`
   appears in any result or log.
-- [ ] **Given** a schema whose whitelisted table lost a mapped column, **when**
+- [x] **Given** a schema whose whitelisted table lost a mapped column, **when**
   fingerprinting runs, **then** the source reports `SchemaDrifted` and
   extraction returns empty without throwing.
-- [ ] **Given** a missing database (CLI not installed), **when** locating
+- [x] **Given** a missing database (CLI not installed), **when** locating
   sources, **then** status is `Missing` — no directory or file is created.
-- [ ] **Given** `ExtractSinceAsync(cursor)` with a cursor mid-table, **when**
+- [x] **Given** `ExtractSinceAsync(cursor)` with a cursor mid-table, **when**
   invoked twice with the same cursor, **then** results are identical
   (deterministic ordering).
-- [ ] **Given** a query against a `DeniedTables` entry, **when** validated,
+- [x] **Given** a query against a `DeniedTables` entry, **when** validated,
   **then** it is rejected before execution.
 
 **Edge cases:**
@@ -204,20 +204,20 @@ endpoints (`GET /api/local/cli-metrics/sources`, see SPEC-20260919-cli-metrics).
 
 ## 7. Task Plan
 
-- [ ] **T1 — Registry + contracts:** `CliDbSource`, `CliDatabaseMap` (v1
+- [x] **T1 — Registry + contracts:** `CliDbSource`, `CliDatabaseMap` (v1
   inventory), `CliDbSourceStatus`, DTO records, `ICliDatabaseLocator` /
   `ICliDatabaseReader` / `ICliDbExtractor`. Unit tests for map completeness
   vs `AgentCliMap`.
-- [ ] **T2 — Locator + reader:** `~` expansion, glob resolution, ro open,
+- [x] **T2 — Locator + reader:** `~` expansion, glob resolution, ro open,
   WAL-copy fallback, temp cleanup, budgets. Unit tests with fixture DBs
   (including a WAL fixture with a live writer connection).
-- [ ] **T3 — Fingerprint + drift:** fingerprint computation, comparison,
+- [x] **T3 — Fingerprint + drift:** fingerprint computation, comparison,
   drift reporting. Tests: drift on missing column/table, stable on equal
   schema.
-- [ ] **T4 — Extractors v1:** Codex, OpenCode, Devin, Antigravity, Cline
+- [x] **T4 — Extractors v1:** Codex, OpenCode, Devin, Antigravity, Cline
   (+ Claude context-mode experimental). Tests per extractor against fixture
   DBs replicating the verified schemas (anonymized).
-- [ ] **T5 — Validation:** `dotnet build` (warnings=errors), `dotnet test`,
+- [x] **T5 — Validation:** `dotnet build` (warnings=errors), `dotnet test`,
   coverage ≥ current gate, docs en/pt-br.
 
 ## 8. Organization Guardrails
@@ -240,11 +240,11 @@ endpoints (`GET /api/local/cli-metrics/sources`, see SPEC-20260919-cli-metrics).
 
 ## 9. Definition of Done
 
-- [ ] RF-001…RF-006 implemented; ACs covered by tests.
-- [ ] `dotnet build` clean (`TreatWarningsAsErrors`); `dotnet test` green;
+- [x] RF-001…RF-006 implemented; ACs covered by tests.
+- [x] `dotnet build` clean (`TreatWarningsAsErrors`); `dotnet test` green;
   coverage ≥ gate.
-- [ ] Fixture DBs contain no real user data; no secrets in tests.
-- [ ] `Status = Done` + PR open.
+- [x] Fixture DBs contain no real user data; no secrets in tests.
+- [x] `Status = Done` + PR open.
 
 ## Open Questions / Pending Ambiguity
 

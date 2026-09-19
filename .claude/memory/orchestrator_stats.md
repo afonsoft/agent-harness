@@ -7,9 +7,9 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E9 Verification Loop implementado (aguarda PR/merge)`
+- **fase_atual**: `Phase 4 — E10 CLI DB Reader implementado (aguarda PR/merge)`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-harness-verification-loop`
+- **branch_trabalho**: `feature/devin-20260919-cli-db-reader`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
@@ -20,8 +20,8 @@
 | E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | merged via PR #177 (`4d70c26`) |
 | E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | merged via PR #183 (`c546ac0`) |
 | E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | merged via PR #189 (`86e8881`) + deploy |
-| E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | implemented — S1..S5 done (#190-#192), SPEC Done, PR pending |
-| E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | queued |
+| E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | merged via PR #195 (`a9b5d23`) + deploy |
+| E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | implemented — S1..S5 done (#196-#200), SPEC Done, PR pending |
 | E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
 | E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
@@ -410,3 +410,19 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 627 · integration: ✅ 169
 - Decisões: `Succeeded` só após verificação passar (era marcado antes — corrigido); falha inicial do agente agora marca `Failed` (bug semântico pré-existente); verificação só roda quando `VerifySolutionFile` setado.
 - Race em teste de orquestração: assert de `MarkCompletedAsync` movido para polling no mock (verificação roda entre log "exit code 0" e o mark).
+- **PR #195** merged → `a9b5d23` (slices #190–#194 fechadas). Deploy: `taskboard-server` reiniciado; `VerificationReports` migrada no SQLite do serviço; endpoint protegido (401 anônimo).
+
+### Phase 4 — E10 CLI DB Reader (branch `feature/devin-20260919-cli-db-reader`)
+
+| Slice | Issue | Commit | Entrega |
+|---|---|---|---|
+| S1 | #196 | `*` | `CliDbSource`/`CliDbSourceStatus`/`CliDatabaseMap`, `ICliDatabaseLocator`/`ICliDatabaseReader`/`ICliDbExtractor`, records `CliSessionRecord`/`CliUsageRecord`/`CliExtractionResult`/`CliDbReadOptions`, exceções `CliDbAccessDenied`/`CliDbReadFailed` (`Taskboard:00030/31`) |
+| S2 | #197 | `*` | `CliDatabaseLocator` (globs sob $HOME, nunca cria dirs), `SqliteCliDatabaseReader` (ro + WAL-copy p/ temp + cleanup + retry), `ICliDbConnection` com SELECT estruturado (identificadores validados, denied tables, colunas-secretas filtradas, budgets) |
+| S3 | #198 | `*` | `CliDbSchemaFingerprinter` (user_version/application_id/signature) + `CliDbExtractorBase` (locate→open→fingerprint→extract, cursor `{file}|{rowid}`) |
+| S4 | #199 | `*` | Extractors: Codex `threads`, OpenCode `session`(+usage/cost), Devin `sessions`, Antigravity `conversation_summaries`, Cline `hub_events` agrupado, Claude ctx-mode `session_meta` (experimental); fingerprints capturados de schemas vivos; DI |
+
+### Phase 7 — Verificação E10
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 667 · integration: ✅ 169
+- Schemas reais divergiam do inventário presumido — whitelists corrigidas após inspeção somente-schema dos DBs vivos; Codex shards → pattern `state_*.sqlite`; Cline → `hub-events-*.db` (connectors.db fora do glob + denylist).
+- Fixes: regex de coluna-secreta com boundary `_` (`tokens_*` passam, `access_token` não); pooling do fixture vazava handle em arquivo deletado (`Pooling=false`); `Dispose` tolerante a home inexistente.
