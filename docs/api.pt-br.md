@@ -200,6 +200,21 @@ O body das execuções aceita `modelTier` opcional (`"lite" | "normal" | "ultra"
 
 `GET /api/agents/runs?issueId=` retorna os runs mais recentes da issue (`{ id, issueId, agentType, state, startedAt, finishedAt }`, mais novo primeiro; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` retorna o run mais recente por issue — usado para os badges de agente nos cards do kanban.
 
+### Harness — Isolamento de Workspace (E6)
+
+```http
+POST   /api/harness/worktrees
+GET    /api/harness/worktrees/{runId}
+GET    /api/harness/worktrees/{runId}/diff
+DELETE /api/harness/worktrees/{runId}?force={true|false}
+```
+
+`POST` com body `{ runId, repositoryPath, baseBranch?, taskSlug, retainOnFailure? }` → `201` com `{ worktreeId, runId, path, branch, status, repositoryPath, baseBranch, commitSha?, retainOnFailure, createdAt, updatedAt, version }`. Cria um `git worktree` dedicado em `~/.taskboard/worktrees/{runId}` numa nova branch `feature/agent-{runId}-{slug}` (sufixo incremental em colisão); `baseBranch` usa `main` como padrão na API e `HEAD` quando o orquestrador isola um run. Idempotente por `runId` — sessão ativa é reutilizada.
+
+`GET .../diff` → `200 { filesChanged, insertions, deletions, files: [{ path, status }], patch }` — `git status --porcelain` + `git diff <base>` (two-dot) cobrindo mudanças commitadas e pendentes. `DELETE` executa `git worktree remove` (`?force=true` adiciona `--force`), faz prune e remove o diretório em caso de lock, marcando a sessão `Removed` → `204`. `runId` desconhecido → `400`; caminhos são confinados ao root aprovado (traversal rejeitado).
+
+Quando um run enfileirado carrega `RepoPath` apontando para um repositório git, o `AgentOrchestrationService` isola automaticamente: o run executa com cwd dentro do worktree e `RetainOnFailure` ligado — sucesso marca `Completed` (mantido para revisão de diff), falha/cancelamento marca `RetainedForInspection`. Falha no isolamento degrada para execução direta e é registrada em log.
+
 ## SSE
 
 ### Eventos globais

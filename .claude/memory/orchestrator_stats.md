@@ -7,7 +7,7 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 - Execução E6/S1`
+- **fase_atual**: `Phase 5/7 — E6 implementado (S1..S5), PR pendente; E7..E16 queued`
 - **repositorio**: `afonsoft/taskboard-ai`
 - **branch_trabalho**: `feature/devin-20260919-harness-workspace-isolation`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
@@ -17,7 +17,7 @@
 
 | Epic | SPEC | Issue | Status |
 |---|---|---|---|
-| E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | in_progress — S1..S5 (#172-#176) |
+| E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | implemented — S1..S5 done (#172-#176), PR pending |
 | E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | queued (blocked by #161) |
 | E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | queued (blocked by #161) |
 | E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | queued (blocked by #161) |
@@ -341,3 +341,27 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - Branches locais removidas (11): todas merged ou superseded (squash).
 - Branches remotas removidas (3, PRs merged): `chore/update-afonsoft-skills`, `feature/devin-20260914-update-skills`, `feature/devin-20260915-wasm-post-migration-hardening`.
 - Estado final: apenas `main` local + `origin/main`. Nenhuma pendência.
+
+---
+
+## Execução da sessão 2026-09-19 (sessão 2 — ADE/Harness)
+
+### Phase 6 — Aprovação em lote
+
+- 11 SPECs ADE/Harness aprovados (`Draft`→`Approved`); Epic issues E6–E16 (#161–#171) criadas no GitHub; commit `35b069f`.
+
+### Phase 4 — E6 Workspace Isolation (branch `feature/devin-20260919-harness-workspace-isolation`)
+
+|| Slice | Issue | Commit | Entrega |
+||---|---|---|---|
+|| S1 | #172 | `8a836f5` | `IWorkspaceIsolationService`, `WorktreeStatus`, `WorktreeSession`, DTOs, EF config + migration `AddWorktreeSessions` |
+|| S2 | #173 | `046f21a` | `GitCommandRunner` (`ArgumentList`, timeout, stdio async, `WithoutTaskboardEnv`) |
+|| S3 | #174 | `33163f3` | `GitWorktreeManager` + `IWorktreeSessionRepository`/`EfCoreWorktreeSessionRepository`, `WorktreePaths` (confines, branch-part sanitize) |
+|| S4 | #175 | `84ecc53` | `AgentOrchestrationService` isola runs com `RepoPath` git (cwd=worktree, retain-on-failure, fallback seguro) |
+|| S5 | #176 | — | Endpoints `POST/GET/DELETE /api/harness/worktrees[/diff]`, docs api.md (+pt-br), SPEC→Done |
+
+### Phase 7 — Verificação E6
+
+- `dotnet build` Debug: ✅ 0 warnings/0 errors · unit: ✅ 509 · integration: ✅ 159
+- Decisões: `git diff <base>` (two-dot) cobre mudanças commitadas+pendentes (RF-002); sanitize de branch exclui `.` (git rejeita `..`); isolamento é best-effort com fallback logado — nunca quebra orquestração.
+- Pendente: QA/review + PR (Phase 5).

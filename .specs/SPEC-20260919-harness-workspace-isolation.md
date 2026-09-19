@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-workspace-isolation` |
 | Ticket | [#161 — E6](https://github.com/afonsoft/taskboard-ai/issues/161) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -141,10 +141,10 @@ DELETE /api/harness/worktrees/{runId}?force=true
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um repositório git válido, **when** `CreateWorktreeAsync` é invocado, **then** um novo diretório de worktree é criado e `git branch` reflete a nova branch dedicada.
-- [ ] **Given** um worktree ativo com arquivos alterados, **when** `GetDiffAsync` é chamado, **then** retorna os arquivos e o patch exato gerado pelo agente.
-- [ ] **Given** múltiplos runs simultâneos para o mesmo repositório, **when** cada um altera arquivos distintos ou os mesmos arquivos, **then** nenhum interfere no outro ou no repositório base.
-- [ ] **Given** comando de remoção de worktree, **when** executado, **then** o diretório é deletado e o comando `git worktree list` não lista mais a entrada.
+- [x] **Given** um repositório git válido, **when** `CreateWorktreeAsync` é invocado, **then** um novo diretório de worktree é criado e `git branch` reflete a nova branch dedicada.
+- [x] **Given** um worktree ativo com arquivos alterados, **when** `GetDiffAsync` é chamado, **then** retorna os arquivos e o patch exato gerado pelo agente.
+- [x] **Given** múltiplos runs simultâneos para o mesmo repositório, **when** cada um altera arquivos distintos ou os mesmos arquivos, **then** nenhum interfere no outro ou no repositório base.
+- [x] **Given** comando de remoção de worktree, **when** executado, **then** o diretório é deletado e o comando `git worktree list` não lista mais a entrada.
 
 **Edge cases:**
 
@@ -158,11 +158,11 @@ DELETE /api/harness/worktrees/{runId}?force=true
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contracts & Value Objects:** Criar `IWorkspaceIsolationService`, `WorktreeStatus` enum, `WorktreeSessionDto` e modelos.
-- [ ] **T2 — Git Command Runner:** Implementar execução robusta de comandos git com tratamento de timeouts, exit codes e stdio assíncrono.
-- [ ] **T3 — GitWorktreeManager:** Implementar criação, leitura de diff, commit e cleanup do worktree com testes unitários usando mocks e git real em diretório temporário.
-- [ ] **T4 — Integração com AgentOrchestrator:** Plugar o worktree no `LocalCliAgentAcpClient` para que os agentes rodem dentro do path do worktree.
-- [ ] **T5 — Verificação & Testes:** Suíte de testes `GitWorktreeManagerTests` passando com 100% de cobertura no módulo.
+- [x] **T1 — Contracts & Value Objects:** Criar `IWorkspaceIsolationService`, `WorktreeStatus` enum, `WorktreeSessionDto` e modelos.
+- [x] **T2 — Git Command Runner:** Implementar execução robusta de comandos git com tratamento de timeouts, exit codes e stdio assíncrono.
+- [x] **T3 — GitWorktreeManager:** Implementar criação, leitura de diff, commit e cleanup do worktree com testes unitários usando mocks e git real em diretório temporário.
+- [x] **T4 — Integração com AgentOrchestrator:** Plugar o worktree no `LocalCliAgentAcpClient` para que os agentes rodem dentro do path do worktree.
+- [x] **T5 — Verificação & Testes:** Suíte de testes `GitWorktreeManagerTests` passando com 100% de cobertura no módulo.
 
 ---
 
@@ -176,6 +176,6 @@ DELETE /api/harness/worktrees/{runId}?force=true
 
 ## 9. Definition of Done
 
-- [ ] Métodos `CreateWorktreeAsync`, `GetDiffAsync`, `CommitAsync`, `RemoveWorktreeAsync` implementados e testados.
-- [ ] Testes passando em Linux (`git worktree`).
-- [ ] Tratamento de erros limpo e sem vazamento de paths sensíveis.
+- [x] Métodos `CreateWorktreeAsync`, `GetDiffAsync`, `CommitAsync`, `RemoveWorktreeAsync` implementados e testados.
+- [x] Testes passando em Linux (`git worktree`).
+- [x] Tratamento de erros limpo e sem vazamento de paths sensíveis.

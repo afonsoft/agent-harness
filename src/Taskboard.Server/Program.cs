@@ -436,6 +436,48 @@ await using (var scope = app.Services.CreateAsyncScope())
 // endpoints below carry AllowAnonymous.
 var api = app.MapGroup("/api").RequireAuthorization();
 
+// SPEC-20260919-harness-workspace-isolation §5: worktree lifecycle endpoints.
+var harness = api.MapGroup("harness");
+
+harness.MapPost("worktrees", async (
+        CreateWorktreeRequestDto request,
+        IWorkspaceIsolationService isolation,
+        CancellationToken ct) =>
+{
+    var session = await isolation.CreateWorktreeAsync(
+        request.RunId,
+        request.RepositoryPath,
+        request.BaseBranch ?? "main",
+        request.TaskSlug,
+        request.RetainOnFailure,
+        ct);
+    return Results.Created($"/api/harness/worktrees/{session.RunId}", session);
+});
+
+harness.MapGet("worktrees/{runId}", async (
+    string runId,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+    await isolation.GetAsync(runId, ct) is { } session
+        ? Results.Ok(session)
+        : Results.NotFound());
+
+harness.MapGet("worktrees/{runId}/diff", async (
+    string runId,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+    Results.Ok(await isolation.GetDiffAsync(runId, ct)));
+
+harness.MapDelete("worktrees/{runId}", async (
+    string runId,
+    bool force,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+{
+    await isolation.RemoveWorktreeAsync(runId, force, ct);
+    return Results.NoContent();
+});
+
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
 // RequireAuthorization (cookie or X-Api-Key).
 api.MapMcp("mcp");
