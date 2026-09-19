@@ -246,6 +246,10 @@ Body `{ worktreePath, solutionFile, minCoverageThreshold, enforceFormat?, maxAtt
 
 **Integração no loop do agente:** `AgentExecutionRequest` aceita os campos opt-in `verifySolutionFile` / `verifyMinCoverage` / `verifyMaxAttempts` (padrão 3 tentativas). Após um run bem-sucedido, `IVerificationLoop` verifica o worktree e re-invoca o agente com o `feedbackPrompt` em caso de falha — retries esgotados marcam o run `Failed` + `EscalatedToHuman` em vez de mover para revisão.
 
+### Harness — CLI DB Reader (E10, interno)
+
+Sem endpoints HTTP — camada interna de acesso consumida pelo `cli-metrics` (E11). `CliDatabaseMap` registra os SQLite que cada CLI gerenciado mantém em `$HOME`; `ICliDatabaseLocator` resolve paths/globs para `Available`/`Missing`; `ICliDatabaseReader` abre as fontes estritamente `Mode=ReadOnly` (arquivos WAL/ocupados são lidos de uma cópia temporária removida após o uso) com limites de linhas/timeout/tamanho, acesso somente a tabelas whitelisted, rejeição de tabelas negadas e exclusão de colunas com nome de segredo; `ICliDbExtractor`s por CLI emitem `CliSessionRecord`/`CliUsageRecord` normalizados com cursors watermark opacos `{arquivo}|{rowid}`. Fingerprints de schema (`user_version`, `application_id`, colunas whitelisted) gateiam a extração — drift reporta `SchemaDrifted` em vez de lançar exceção.
+
 ## SSE
 
 ### Eventos globais
