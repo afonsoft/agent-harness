@@ -9,5 +9,11 @@ namespace Taskboard.Application.Contracts.Harness;
 /// </summary>
 public interface ICommandRiskClassifier
 {
-    CommandRiskAssessment Classify(string command);
+    /// <summary>
+    /// Classifies a shell command line. Path arguments are resolved against
+    /// <paramref name="worktreePath"/> — targets outside the jail classify as
+    /// Dangerous (SPEC RF-001/RF-002; §5 `rm -rf` inside the worktree is
+    /// WorkspaceWrite, `rm -rf /` is Dangerous).
+    /// </summary>
+    CommandRiskAssessment Classify(string command, string worktreePath);
 }
