@@ -7,9 +7,9 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E10 CLI DB Reader implementado (aguarda PR/merge)`
+- **fase_atual**: `Phase 4 — E11 CLI Metrics em execução`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-cli-db-reader`
+- **branch_trabalho**: `feature/devin-20260919-cli-metrics`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
@@ -21,7 +21,7 @@
 | E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | merged via PR #183 (`c546ac0`) |
 | E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | merged via PR #189 (`86e8881`) + deploy |
 | E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | merged via PR #195 (`a9b5d23`) + deploy |
-| E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | implemented — S1..S5 done (#196-#200), SPEC Done, PR pending |
+| E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | merged via PR #201 (`846a01f`) + deploy |
 | E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
 | E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
@@ -412,7 +412,7 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - Race em teste de orquestração: assert de `MarkCompletedAsync` movido para polling no mock (verificação roda entre log "exit code 0" e o mark).
 - **PR #195** merged → `a9b5d23` (slices #190–#194 fechadas). Deploy: `taskboard-server` reiniciado; `VerificationReports` migrada no SQLite do serviço; endpoint protegido (401 anônimo).
 
-### Phase 4 — E10 CLI DB Reader (branch `feature/devin-20260919-cli-db-reader`)
+### Phase 4 — E10 CLI DB Reader (branch `feature/devin-20260919-cli-metrics`)
 
 | Slice | Issue | Commit | Entrega |
 |---|---|---|---|
