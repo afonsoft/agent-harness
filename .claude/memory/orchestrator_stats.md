@@ -6,12 +6,28 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-11 01:20:47 UTC`
-- **fase_atual**: `Phase 7 - Verificação Final (sessão 2026-09-11)`
+- **iniciado_em**: `2026-09-19 UTC`
+- **fase_atual**: `Phase 3 - Fragmentação E5 (aguardando aprovação do plano)`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feat/install-systemd-skill`
+- **branch_trabalho**: `feature/devin-20260919-web-cli-agent` (a criar)
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
-- **framework_update_check**: `up-to-date` (commit `8f22b4bc` em `/home/ubuntu/repos/skills`)
+- **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
+
+### Epic em curso
+
+| Epic | SPEC | Issue | Status |
+|---|---|---|---|
+| E5 - Web CLI Agent | `.specs/SPEC-20260919-web-cli-agent.md` (Approved) | #153 | queued — slices pendentes |
+
+```yaml
+fila_e5:
+  - { id: "E5/S1", task: "T1 Domain/contratos + migration AddWebCliAgent", depends_on: [], gate: "schema" }
+  - { id: "E5/S2", task: "T2 AcpSessionClient + capability nos adapters", depends_on: ["E5/S1"] }
+  - { id: "E5/S3", task: "T3 AgentSessionManager + PermissionGate + endpoints + SSE + flag", depends_on: ["E5/S2"], gate: "public-api" }
+  - { id: "E5/S4", task: "T4 UI: NewThreadDialog agent, ToolCallCard, PermissionPrompt, steer/queue + Stop", depends_on: ["E5/S3"] }
+  - { id: "E5/S5", task: "T5 fallback one-shot + supportsInteractiveSession em GET /api/agents", depends_on: ["E5/S3"] }
+  - { id: "E5/S6", task: "T6 build/test/docs, coverage gate, SPEC → Done + PR", depends_on: ["E5/S4", "E5/S5"] }
+```
 
 ---
 
