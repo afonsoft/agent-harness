@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260919-mcp-v2-http-transport` |
 | Ticket | [#136](https://github.com/afonsoft/taskboard-ai/issues/136) |
-| Status | `Approved` — aprovada pelo usuário (2026-09-19) |
+| Status | `Done` — aprovada pelo usuário (2026-09-19); entregue no PR #137 e validada em produção |
 
 Origin: pedido do usuário — analisar o uso do MCP no repo frente à
 [rev. 2026-07-28 do protocolo / SDK C# v2.0](https://devblogs.microsoft.com/dotnet/announcing-v20-of-the-official-mcp-csharp-sdk/)
@@ -170,7 +170,7 @@ Tools expostas (mesmas do stdio): `get_issue_history`,
 
 - [x] RF-001..009 implementados.
 - [x] `dotnet build` limpo; suites unit + integration verdes.
-- [ ] `POST /api/mcp` validado em produção (401 anônimo; `tools/list` autenticado).
+- [x] `POST /api/mcp` validado em produção (401 anônimo; `tools/list` autenticado).
 - [x] Exe stdio `Taskboard.Mcp` inalterado e funcional.
 - [x] Docs en + pt-br atualizados.
-- [ ] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.
+- [x] SPEC → `Status: Done`; PR merged; `taskboard-server` redeployed.
