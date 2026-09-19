@@ -19,6 +19,18 @@ This module order guarantees that lower layers are designed (and built) before u
 | 9 | `skill` | `manage-taskboard` skill (markdown + references) and Codex automation skill | rest-api, cli |
 | 10 | `frontend` | Blazor/.NET MAUI desktop UI rewritten to consume REST API + SSE | rest-api |
 | 11 | `integrations` | Jira connection/sync and DeepSeek harness adapter | rest-api, persistence |
+| 12 | `harness-workspace-isolation` | Git Worktree sandbox per run, env sanitization, diff extraction | persistence, integrations |
+| 13 | `harness-context-memory` | Prompt assembly, token budgeting, compaction, cross-session memory | persistence, harness-workspace-isolation |
+| 14 | `harness-security-permission-gateway` | Dynamic command classification, path jail, secret scrubber | harness-workspace-isolation |
+| 15 | `harness-verification-loop` | Automated build, test, coverage ratchet gate, red-green feedback | harness-workspace-isolation |
+| 16 | `ade-multi-agent-orchestration` | Multi-agent DAG engine, role specialization, context handoffs | harness-workspace-isolation, harness-context-memory, harness-verification-loop |
+| 17 | `ade-living-specs` | Living spec parsing, status tracking, drift detection, BDD links | persistence, ade-multi-agent-orchestration |
+| 18 | `ade-observability-finops` | OpenTelemetry spans, token accounting, cost metrics, budget caps | ade-multi-agent-orchestration |
+| 19 | `ade-cockpit-hitl` | Blazor WASM run cockpit, live event stream, diff viewer, HITL gates | ade-multi-agent-orchestration, ade-living-specs, ade-observability-finops, rest-api |
+| 20 | `cli-db-reader` | Safe read-only access to agent CLIs' local SQLite DBs: discovery, WAL-copy, schema fingerprint, whitelisted extraction | domain-model |
+| 21 | `cli-metrics` | Incremental ingestion of CLI session/usage metadata, aggregates, REST + `/agents` UI, FinOps feed | cli-db-reader, persistence, rest-api |
+
+> Sub-map: `.specs/CAPABILITY-MAP-cli-metrics.md` details `cli-db-reader` → `cli-metrics` and the verified source inventory. `cli-metrics` feeds `ade-observability-finops` (external CLI usage data) without blocking it.
 
 ## Legend
 
@@ -43,6 +55,16 @@ domain-model
       → skill
       → frontend
       → integrations
+      → harness-workspace-isolation
+        → harness-context-memory
+        → harness-security-permission-gateway
+        → harness-verification-loop
+          → ade-multi-agent-orchestration
+            → ade-living-specs
+            → ade-observability-finops
+            → ade-cockpit-hitl
+  → cli-db-reader
+    → cli-metrics (feeds ade-observability-finops)
 ```
 
 ## .NET project mapping
@@ -61,6 +83,16 @@ domain-model
 | skill | `skills/manage-taskboard/` | Markdown |
 | frontend | `src/Taskboard.Blazor` + `src/Taskboard.Maui` | `net10.0` |
 | integrations | `src/Taskboard.Integrations` | `net10.0` |
+| harness-workspace-isolation | `src/Taskboard.Integrations` + `Taskboard.Domain` | `net10.0` |
+| harness-context-memory | `src/Taskboard.Integrations` + `Taskboard.Application.Contracts` | `net10.0` |
+| harness-security-permission-gateway | `src/Taskboard.Integrations` + `Taskboard.Domain.Shared` | `net10.0` |
+| harness-verification-loop | `src/Taskboard.Integrations` + `Taskboard.Application.Contracts` | `net10.0` |
+| ade-multi-agent-orchestration | `src/Taskboard.Application` + `Taskboard.Domain` | `net10.0` |
+| ade-living-specs | `src/Taskboard.Application` + `Taskboard.Blazor` | `net10.0` |
+| ade-observability-finops | `src/Taskboard.Integrations` + `Taskboard.Blazor` | `net10.0` |
+| ade-cockpit-hitl | `src/Taskboard.Blazor` + `src/Taskboard.Server` | `net10.0` |
+| cli-db-reader | `src/Taskboard.Domain.Shared` + `src/Taskboard.Integrations` | `net10.0` |
+| cli-metrics | `src/Taskboard.Domain` + `src/Taskboard.EntityFrameworkCore` + `src/Taskboard.Application` + `src/Taskboard.Server` + `src/Taskboard.Blazor` | `net10.0` |
 
 ## Test project mapping
 

@@ -141,6 +141,11 @@ builder.Services.AddScoped<RuntimeConfigurationService>();
 builder.Services.AddSingleton<IAgentAcpClient, JsonRpcAcpClient>();
 builder.Services.AddSingleton<IAgentAdapter>(sp =>
     new KnownCliAgentAdapter(sp.GetRequiredService<WorkspaceService>()));
+builder.Services.AddSingleton<AcpSessionClient>(sp =>
+    new AcpSessionClient(sp.GetServices<IAgentAdapter>()));
+builder.Services.AddSingleton<IAgentSessionClient>(sp => sp.GetRequiredService<AcpSessionClient>());
+builder.Services.AddSingleton<PermissionGate>();
+builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
@@ -605,6 +610,59 @@ api.MapPost("local/ai/threads/{id}/events", async (
     var threadId = AiChatThreadId.From(id);
     var chatEvent = await aiChatService.AddEventAsync(threadId, request, Actor.LocalUser(), ct);
     return Results.Created($"/api/local/ai/threads/{id}/events/{chatEvent.Id}", new { aiChatEvent = chatEvent });
+});
+
+api.MapPost("local/ai/threads/{id}/prompt", async (
+    string id,
+    PromptAgentThreadRequest request,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var admitted = await sessionManager.PromptAsync(id, request.Text, request.Delivery ?? "queue", ct);
+    return admitted
+        ? Results.Accepted($"/api/local/ai/threads/{id}/prompt", new { admitted = true })
+        : Results.Conflict(new { error = new { code = "THREAD_NOT_AGENT", message = "Thread is not configured for agent mode or session failed to start." } });
+});
+
+api.MapPost("local/ai/threads/{id}/cancel", async (
+    string id,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var cancelled = await sessionManager.CancelAsync(id, ct);
+    return cancelled
+        ? Results.NoContent()
+        : Results.Conflict(new { error = new { code = "NO_ACTIVE_RUN", message = "No active run to cancel." } });
+});
+
+api.MapPost("local/ai/threads/{id}/permissions/{requestId}/reply", (
+    string id,
+    string requestId,
+    PermissionReplyRequest request,
+    PermissionGate permissionGate,
+    IConfiguration config) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var ok = permissionGate.Reply(id, requestId, request.Outcome);
+    return ok
+        ? Results.NoContent()
+        : Results.NotFound(new { error = new { code = "PERMISSION_EXPIRED", message = "Permission request expired or not found." } });
 });
 
 api.MapPost("local/ai/threads/{id}/runs", async (

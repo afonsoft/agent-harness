@@ -41,6 +41,21 @@ public sealed class AiChatThreadConfiguration : IEntityTypeConfiguration<AiChatT
             .HasMaxLength(32)
             .HasConversion(new StringValueObjectConverter<AiChatThreadStatus>());
 
+        builder.Property(t => t.Mode)
+            .IsRequired()
+            .HasMaxLength(32)
+            .HasDefaultValue("assistant");
+
+        builder.Property(t => t.AgentType)
+            .HasMaxLength(32)
+            .HasConversion<string>();
+
+        builder.Property(t => t.WorkspacePath)
+            .HasMaxLength(1024);
+
+        builder.Property(t => t.RepositoryFullName)
+            .HasMaxLength(256);
+
         builder.Property(t => t.CreatedAt);
         builder.Property(t => t.UpdatedAt);
 

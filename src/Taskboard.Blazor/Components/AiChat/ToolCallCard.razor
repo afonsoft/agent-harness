@@ -1,0 +1,37 @@
+@using System.Text.Json
+
+<div class="card my-2 border-secondary-subtle">
+    <div class="card-header py-1 px-2 d-flex align-items-center justify-content-between bg-body-tertiary">
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge text-bg-info">tool</span>
+            <strong>@ToolName</strong>
+        </div>
+        <span class="badge @StatusBadgeClass">@Status</span>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Arguments))
+    {
+        <div class="card-body p-2 font-monospace small bg-dark-subtle text-body">
+            <code>@Arguments</code>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(Output))
+    {
+        <div class="card-footer p-2 font-monospace small bg-dark text-light overflow-auto" style="max-height: 200px;">
+            <pre class="mb-0">@Output</pre>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ToolName { get; set; } = "tool";
+    [Parameter] public string? Arguments { get; set; }
+    [Parameter] public string Status { get; set; } = "running";
+    [Parameter] public string? Output { get; set; }
+
+    private string StatusBadgeClass => Status switch
+    {
+        "completed" or "success" => "text-bg-success",
+        "failed" or "error" => "text-bg-danger",
+        _ => "text-bg-warning"
+    };
+}

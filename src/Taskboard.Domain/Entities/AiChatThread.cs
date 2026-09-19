@@ -1,4 +1,5 @@
 using Taskboard;
+using Taskboard.Agents;
 using Taskboard.ValueObjects;
 
 namespace Taskboard.Domain.Entities;
@@ -13,6 +14,10 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     public string ReasoningEffort { get; private set; } = default!;
     public Sandbox Sandbox { get; private set; } = default!;
     public AiChatThreadStatus Status { get; private set; } = default!;
+    public string Mode { get; private set; } = "assistant";
+    public AgentType? AgentType { get; private set; }
+    public string? WorkspacePath { get; private set; }
+    public string? RepositoryFullName { get; private set; }
     public IReadOnlyCollection<AiChatRun> Runs => _runs.AsReadOnly();
     public IReadOnlyCollection<AiChatEvent> Events => _events.AsReadOnly();
     public DateTime CreatedAt { get; private set; }
@@ -28,7 +33,11 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         ModelRef model,
         string reasoningEffort,
         Sandbox sandbox,
-        DateTime now)
+        DateTime now,
+        string mode = "assistant",
+        AgentType? agentType = null,
+        string? workspacePath = null,
+        string? repositoryFullName = null)
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(title))
@@ -41,6 +50,10 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         ReasoningEffort = reasoningEffort;
         Sandbox = sandbox;
         Status = AiChatThreadStatus.Idle;
+        Mode = string.IsNullOrWhiteSpace(mode) ? "assistant" : mode;
+        AgentType = agentType;
+        WorkspacePath = workspacePath;
+        RepositoryFullName = repositoryFullName;
         CreatedAt = UpdatedAt = now;
     }
 
@@ -52,6 +65,28 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         Sandbox sandbox,
         DateTime? now = null)
         => new(id, title, model, reasoningEffort, sandbox, now ?? DateTime.UtcNow);
+
+    public static AiChatThread CreateAgentThread(
+        AiChatThreadId id,
+        string title,
+        ModelRef model,
+        string reasoningEffort,
+        Sandbox sandbox,
+        AgentType agentType,
+        string? workspacePath = null,
+        string? repositoryFullName = null,
+        DateTime? now = null)
+        => new(
+            id,
+            title,
+            model,
+            reasoningEffort,
+            sandbox,
+            now ?? DateTime.UtcNow,
+            mode: "agent",
+            agentType: agentType,
+            workspacePath: workspacePath,
+            repositoryFullName: repositoryFullName);
 
     public AiChatRun StartRun(DateTime? now = null)
     {

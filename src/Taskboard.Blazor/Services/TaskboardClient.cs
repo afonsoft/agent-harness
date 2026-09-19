@@ -102,6 +102,36 @@ public sealed class TaskboardClient
         return result?.Run;
     }
 
+    /// <summary>Envia prompt para uma thread em modo agent (steer/queue) (202).</summary>
+    public async Task<bool> PromptAgentThreadAsync(string threadId, string text, string delivery = "queue", CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/prompt",
+            new PromptAgentThreadRequest(text, delivery),
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>Envia cancelamento para uma thread em modo agent (204).</summary>
+    public async Task<bool> CancelAgentThreadAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/cancel",
+            content: null,
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>Responde a uma solicitação de permissão de ferramenta (allow/deny/always) (204).</summary>
+    public async Task<bool> ReplyAgentPermissionAsync(string threadId, string requestId, string outcome, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/permissions/{Uri.EscapeDataString(requestId)}/reply",
+            new PermissionReplyRequest(outcome),
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     public async Task<SettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetFromJsonAsync<SettingsResponse>("/api/settings", cancellationToken);

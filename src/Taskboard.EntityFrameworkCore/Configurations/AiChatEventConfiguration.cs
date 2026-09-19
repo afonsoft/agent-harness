@@ -28,6 +28,14 @@ public sealed class AiChatEventConfiguration : IEntityTypeConfiguration<AiChatEv
             .HasMaxLength(32)
             .HasConversion(new StringValueObjectConverter<AiChatEventRole>());
 
+        builder.Property(e => e.Kind)
+            .IsRequired()
+            .HasMaxLength(32)
+            .HasDefaultValue(AiChatEventKind.Message)
+            .HasConversion(new StringValueObjectConverter<AiChatEventKind>());
+
+        builder.Property(e => e.PayloadJson);
+
         builder.Property(e => e.Content)
             .IsRequired();
 
