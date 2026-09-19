@@ -152,6 +152,22 @@ public class GitWorktreeManagerTests : IDisposable
         File.Exists(Path.Combine(dto.Path, "dirty.txt")).ShouldBeFalse();
     }
 
+    // Edge case: sessão persistida mas diretório removido (crash/manual rm) →
+    // recria o worktree reutilizando a mesma linha (RunId é unique).
+    [Fact]
+    public async Task Dado_SessaoSemDiretorio_Quando_CreateWorktree_Entao_RecriaSemDuplicarSessao()
+    {
+        var first = await _sut.CreateWorktreeAsync("run_08", _repoPath, "main", "lost");
+        Directory.Delete(first.Path, recursive: true);
+        await _git.RunAsync(_repoPath, ["worktree", "prune"]);
+
+        var second = await _sut.CreateWorktreeAsync("run_08", _repoPath, "main", "lost");
+
+        Directory.Exists(second.Path).ShouldBeTrue();
+        second.WorktreeId.ShouldBe(first.WorktreeId);
+        _sessions.Items.Count(s => s.RunId == "run_08").ShouldBe(1);
+    }
+
     [Fact]
     public async Task Dado_SessaoInexistente_Quando_GetDiff_Entao_DomainException()
     {
@@ -205,6 +221,24 @@ public class GitWorktreeManagerTests : IDisposable
             bool retainOnFailure,
             CancellationToken cancellationToken = default)
         {
+            var existing = Items.FirstOrDefault(s => s.RunId == runId);
+            if (existing is not null)
+            {
+                var reactivated = existing with
+                {
+                    Path = path,
+                    Branch = branch,
+                    BaseBranch = baseBranch,
+                    Status = "Active",
+                    CommitSha = null,
+                    RetainOnFailure = retainOnFailure,
+                    UpdatedAt = DateTime.UtcNow,
+                    Version = existing.Version + 1,
+                };
+                Items[Items.IndexOf(existing)] = reactivated;
+                return Task.FromResult(reactivated);
+            }
+
             var dto = new WorktreeSessionDto(
                 Guid.NewGuid().ToString("N"),
                 runId,

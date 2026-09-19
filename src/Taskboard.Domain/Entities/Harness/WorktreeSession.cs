@@ -81,6 +81,29 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         DateTime? now = null)
         => new(id, runId, repositoryPath, baseBranch, path, branch, retainOnFailure, now ?? DateTime.UtcNow);
 
+    /// <summary>
+    /// Reactivates the session for a retried run whose previous worktree
+    /// directory was lost — keeps the row (RunId is unique) and clears the
+    /// recorded commit.
+    /// </summary>
+    public void Reactivate(string baseBranch, string path, string branch, bool retainOnFailure, DateTime? now = null)
+    {
+        if (string.IsNullOrWhiteSpace(baseBranch)
+            || string.IsNullOrWhiteSpace(path)
+            || string.IsNullOrWhiteSpace(branch))
+        {
+            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, "BaseBranch, Path and Branch cannot be empty.");
+        }
+
+        BaseBranch = baseBranch;
+        Path = path;
+        Branch = branch;
+        RetainOnFailure = retainOnFailure;
+        CommitSha = null;
+        Status = WorktreeStatus.Active;
+        Touch(now);
+    }
+
     public void RecordCommit(string commitSha, DateTime? now = null)
     {
         EnsureNotRemoved();

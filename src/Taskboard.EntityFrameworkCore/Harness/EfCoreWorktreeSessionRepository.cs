@@ -26,6 +26,16 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
         bool retainOnFailure,
         CancellationToken cancellationToken = default)
     {
+        // Upsert: RunId is unique — a retried run whose worktree directory was
+        // lost reactivates the same row instead of violating the index.
+        var existing = await FindAsync(runId, cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            existing.Reactivate(baseBranch, path, branch, retainOnFailure);
+            await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return ToDto(existing);
+        }
+
         var entity = WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId,
