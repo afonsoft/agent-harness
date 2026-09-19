@@ -1445,6 +1445,10 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger";
 });
 
+// Unmatched /api/* must not fall through to the SPA fallback — API clients
+// deserve a real 404 instead of an index.html 200.
+api.MapMethods("{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], () => Results.NotFound());
+
 app.MapFallbackToFile("index.html");
 
 app.Run();

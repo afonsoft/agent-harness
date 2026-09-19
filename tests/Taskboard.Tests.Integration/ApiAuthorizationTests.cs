@@ -30,6 +30,7 @@ public class ApiAuthorizationTests : IClassFixture<TaskboardWebApplicationFactor
     [InlineData("/api/local/jira-connection")]
     [InlineData("/api/local/ai/threads")]
     [InlineData("/api/github/repositories")]
+    [InlineData("/api/projects")]
     [InlineData("/api/agents")]
     [InlineData("/api/skills/sync/status")]
     [InlineData("/api/events")]
