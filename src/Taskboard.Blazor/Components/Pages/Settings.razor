@@ -367,14 +367,14 @@
                                             <td class="text-end text-nowrap">
                                                 @if (_editingKey == entry.Key)
                                                 {
-                                                    <div class="d-inline-flex gap-1">
+                                                    <div class="d-inline-flex gap-2">
                                                         <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveConfigAsync(entry)">Save</button>
                                                         <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelConfigEdit">Cancel</button>
                                                     </div>
                                                 }
                                                 else if (entry.Editable)
                                                 {
-                                                    <div class="d-inline-flex gap-1">
+                                                    <div class="d-inline-flex gap-2">
                                                         <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartConfigEdit(entry)">Edit</button>
                                                         @if (entry.Source == "db")
                                                         {

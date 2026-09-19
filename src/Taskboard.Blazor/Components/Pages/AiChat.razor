@@ -142,7 +142,7 @@ else
                                   @bind="_composer"
                                   @bind:event="oninput"
                                   @onkeydown="OnComposerKeyDownAsync"></textarea>
-                        <div class="d-flex flex-column gap-1">
+                        <div class="d-flex flex-column gap-2">
                             <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
                                     Disabled="@(_running || _sending || string.IsNullOrWhiteSpace(_composer))"
                                     @onclick="SendMessageAsync">Send</Button>
