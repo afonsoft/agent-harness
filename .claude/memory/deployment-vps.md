@@ -45,9 +45,16 @@ falha por falta de `npx`. Backup do env: `~/.taskboard/env.bak-*`.
 ```bash
 cd ~/repos/taskboard-ai
 git checkout main && git pull --ff-only
+systemctl --user stop taskboard-server
+# `dotnet publish -o` NÃO limpa o output dir — bundles fingerprinted
+# (_framework/*.hash.wasm, dotnet.*.js) acumulam entre deploys e o runtime
+# pode resolver um manifest antigo (sintoma 2026-09-19: Board → "Sorry,
+# there's nothing at this address." porque o wasm carregado era anterior
+# ao restore da rota `/`). Limpar antes de publicar:
+rm -rf ~/.taskboard/publish/wwwroot/_framework
 dotnet publish src/Taskboard.Server/Taskboard.Server.csproj -c Release -o ~/.taskboard/publish
 systemctl --user daemon-reload
-systemctl --user restart taskboard-server
+systemctl --user start taskboard-server
 ```
 
 ## Verificação pós-deploy
@@ -79,3 +86,10 @@ Imagem `taskboard-ai:latest` pode existir no daemon local.
   processo antigo (ex.: container Docker root) já bloqueou o bind antes.
 - Skills/MCP/agent-clis escrevem em `HOME` — no serviço `HOME=/home/ubuntu`
   (setado na unit), então as credenciais reais do usuário são detectadas.
+- **NotFound do router Blazor após deploy**: se a UI mostrar "Sorry, there's
+  nothing at this address." numa rota que existe no código, primeiro
+  verificar se a aba do browser está com um WASM antigo em memória (hard
+  refresh `Ctrl+F5` resolve) e se `_framework/` não tem manifests stale
+  (contar `Taskboard.Blazor.*.wasm` — deve ser exatamente 1). Os manifests
+  não-fingerprinted (`dotnet.js`, `blazor.webassembly.js`) são servidos com
+  `no-cache`, mas uma aba já aberta continua com o bundle antigo.

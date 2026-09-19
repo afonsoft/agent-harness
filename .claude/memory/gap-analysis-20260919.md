@@ -84,3 +84,13 @@ gate gradualmente"; cleanup: "Sim, executar ambos").
   testes (registrar nova medição a cada degrau).
 - `orchestrator_stats.md` continua datado de 09-11 — regenerar na próxima
   sessão de orquestração.
+
+## 8. Incidente pós-execução (2026-09-19)
+
+- Sintoma reportado: tela Board → "Sorry, there's nothing at this address."
+- Causa: `dotnet publish -o ~/.taskboard/publish` não limpa o output dir —
+  8 bundles fingerprinted stale em `_framework/`; aba do browser com WASM
+  pré-#139 (sem rota `/`) em memória.
+- Fix: `rm -rf publish/wwwroot/_framework` + republish + `systemctl --user
+  restart taskboard-server` + hard refresh. Lição registrada em
+  `.claude/memory/deployment-vps.md` (deploy flow atualizado) e `MEMORY.md`.
