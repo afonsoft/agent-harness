@@ -23,13 +23,15 @@ public sealed class TaskboardApiClient : ITaskboardApiClient
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public TaskboardApiClient(string baseUrl)
+    public TaskboardApiClient(string baseUrl, string? apiKey = null)
     {
         _client = new HttpClient { BaseAddress = new Uri(baseUrl.TrimEnd('/')) };
 
         // SPEC-20260915-api-authorization-hardening RF-004: machine clients
-        // authenticate via X-Api-Key when the key is configured.
-        var apiKey = Environment.GetEnvironmentVariable("TASKBOARD_API_KEY");
+        // authenticate via X-Api-Key when the key is configured. An explicit
+        // key (e.g. resolved from IConfiguration by the in-process host) wins
+        // over the TASKBOARD_API_KEY environment variable.
+        apiKey ??= Environment.GetEnvironmentVariable("TASKBOARD_API_KEY");
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             _client.DefaultRequestHeaders.Add("X-Api-Key", apiKey.Trim());

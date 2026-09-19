@@ -146,6 +146,12 @@ The MCP server communicates over STDIO:
 dotnet run --project src/Taskboard.Mcp
 ```
 
+The same tools are also exposed over **Streamable HTTP** (stateless, MCP C# SDK v2) at `POST /api/mcp` inside the authenticated API group — register it in any agent CLI with a URL + `X-Api-Key` header instead of spawning the executable:
+
+```json
+{ "type": "http", "url": "http://127.0.0.1:47823/api/mcp", "headers": { "X-Api-Key": "<key>" } }
+```
+
 For client configuration, see [plugins.md](./plugins.md) and [SPEC-004](../.specs/SPEC-004-mcp.md).
 
 ## Use the web UI

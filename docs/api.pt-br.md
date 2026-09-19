@@ -86,6 +86,30 @@ PUT    /api/mcp/rag
 
 `PUT /api/mcp/rag` aceita `{ "name", "url", "apiKey" }` — campos `null` preservam o valor gravado; `url` vazia é rejeitada (`400 rag-url-required`) pois a remoção é a ação explícita `POST /api/mcp/remove`. `POST /api/mcp/sync` recarrega os overrides do banco e provisiona a config salva — retorna `400 rag-not-configured` quando não há URL gravada (Sync nunca remove implicitamente). `POST /api/mcp/remove` remove a entrada gerenciada de todos os alvos independente da URL gravada. Resultados por agente reportam `configured` / `updated` / `removed` / `not-configured` / `skipped` / `repaired` / `failed` (`updated` = entrada existente com valor diferente foi sobrescrita). O provisionamento faz merge da entrada `<name>` em `~/.config/devin/mcp_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json`, `~/.openhands/mcp.json`, `~/.kimi-code/mcp.json`, `~/.grok/config.toml`, `~/.qwen/settings.json`, `~/.copilot/mcp-config.json` e `~/.kiro/settings/mcp.json`; Antigravity e Cline são provisionados via CLI (`agy mcp add/remove`, `cline mcp add/remove`); Continue recebe um arquivo JSON em `~/.continue/mcpServers/<name>.json` (escrita atômica, backup `.bak`, `0600`). A API key nunca é retornada por nenhum endpoint. Chaves de configuração: `Taskboard:Rag:ServerName` / `Taskboard:Rag:Url` / `Taskboard:Rag:ApiKey` (aliases de env `TASKBOARD_RAG_NAME` / `TASKBOARD_RAG_URL` / `TASKBOARD_RAG_API_KEY`), persistidas como overrides em SQLite.
 
+### MCP Server (Streamable HTTP)
+
+```text
+POST   /api/mcp
+```
+
+As mesmas tools servidas pelo executável stdio `Taskboard.Mcp` também são expostas via Streamable HTTP — **stateless por padrão** (MCP C# SDK v2, spec rev. 2026-07-28: sem handshake `initialize`, sem `Mcp-Session-Id`; clientes legados continuam funcionando via fallback automático). O endpoint herda a autorização do grupo `/api` — cookie de sessão ou `X-Api-Key`; requisições anônimas retornam `401`.
+
+Clientes devem enviar `Accept: application/json, text/event-stream`. Corpos são JSON-RPC 2.0 (`tools/list`, `tools/call`, ...).
+
+Tools (idênticas ao servidor stdio): `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`.
+
+As tools chamam a API local via `ITaskboardApiClient` em loopback — o servidor se autentica com `Taskboard:ApiKey` (ou `TASKBOARD_API_KEY`) quando configurado; sem API key o endpoint ainda responde `tools/list`, mas chamadas de tools que batem em `/api` falham com `401`.
+
+Exemplo:
+
+```bash
+curl -X POST http://127.0.0.1:47823/api/mcp \
+  -H "X-Api-Key: <key>" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
 ### CLI Agents e Terminal
 
 ```http
