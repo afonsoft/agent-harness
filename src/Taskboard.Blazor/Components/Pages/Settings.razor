@@ -367,16 +367,20 @@
                                             <td class="text-end text-nowrap">
                                                 @if (_editingKey == entry.Key)
                                                 {
-                                                    <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveConfigAsync(entry)">Save</button>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelConfigEdit">Cancel</button>
+                                                    <div class="d-inline-flex gap-1">
+                                                        <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveConfigAsync(entry)">Save</button>
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelConfigEdit">Cancel</button>
+                                                    </div>
                                                 }
                                                 else if (entry.Editable)
                                                 {
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartConfigEdit(entry)">Edit</button>
-                                                    @if (entry.Source == "db")
-                                                    {
-                                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ResetConfigAsync(entry)">Reset</button>
-                                                    }
+                                                    <div class="d-inline-flex gap-1">
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartConfigEdit(entry)">Edit</button>
+                                                        @if (entry.Source == "db")
+                                                        {
+                                                            <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ResetConfigAsync(entry)">Reset</button>
+                                                        }
+                                                    </div>
                                                 }
                                                 else if (!string.IsNullOrEmpty(entry.ReadOnlyReason))
                                                 {

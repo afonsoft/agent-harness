@@ -1,45 +1,45 @@
 @inject IJSRuntime JS
 
 <nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="Sidebar navigation">
-    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" data-label="Board" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Kanban" />
-        Board
+        <span class="nav-label">Board</span>
     </NavLink>
-    <NavLink class="nav-link" href="gantt" aria-label="Gantt" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="gantt" aria-label="Gantt" data-label="Gantt" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.BarChart" />
-        Gantt
+        <span class="nav-label">Gantt</span>
     </NavLink>
-    <NavLink class="nav-link" href="workflow" aria-label="Workflow" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="workflow" aria-label="Workflow" data-label="Workflow" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Diagram3" />
-        Workflow
+        <span class="nav-label">Workflow</span>
     </NavLink>
-    <NavLink class="nav-link" href="ai-chat" aria-label="AI Chat" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="ai-chat" aria-label="AI Chat" data-label="AI Chat" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.ChatDots" />
-        AI Chat
+        <span class="nav-label">AI Chat</span>
     </NavLink>
-    <NavLink class="nav-link" href="agents" aria-label="CLI Agents" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="agents" aria-label="CLI Agents" data-label="CLI Agents" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Robot" />
-        CLI Agents
+        <span class="nav-label">CLI Agents</span>
     </NavLink>
-    <NavLink class="nav-link" href="editor" aria-label="VS Code" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="editor" aria-label="VS Code" data-label="VS Code" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.CodeSlash" />
-        VS Code
+        <span class="nav-label">VS Code</span>
     </NavLink>
-    <NavLink class="nav-link" href="terminal" aria-label="Terminal" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="terminal" aria-label="Terminal" data-label="Terminal" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Terminal" />
-        Terminal
+        <span class="nav-label">Terminal</span>
     </NavLink>
-    <NavLink class="nav-link" href="settings" aria-label="Settings" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="settings" aria-label="Settings" data-label="Settings" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Gear" />
-        Settings
+        <span class="nav-label">Settings</span>
     </NavLink>
-    <NavLink class="nav-link" href="skills" aria-label="Skills" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="skills" aria-label="Skills" data-label="Skills" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Lightning" />
-        Skills
+        <span class="nav-label">Skills</span>
     </NavLink>
-    <NavLink class="nav-link" href="prompts/taskboard/manage-taskboard" aria-label="Prompts" @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="prompts/taskboard/manage-taskboard" aria-label="Prompts" data-label="Prompts" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.FileText" />
-        Prompts
+        <span class="nav-label">Prompts</span>
     </NavLink>
 </nav>
 

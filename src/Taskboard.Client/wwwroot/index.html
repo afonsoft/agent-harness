@@ -12,6 +12,16 @@
     <link rel="stylesheet" href="lib/xterm/xterm.css" />
     <link rel="stylesheet" href="css/site.css" />
     <link href="Taskboard.Client.styles.css" rel="stylesheet" />
+    <script>
+        // SPEC-20260918-sidebar-icon-rail RF-002: restore the collapsed-rail
+        // flag before Blazor renders so the sidebar paints collapsed without
+        // a flash. Inert below the `lg` breakpoint (all rail CSS is also
+        // gated on a min-width media query).
+        try {
+            if (localStorage.getItem('harness.sidebar.collapsed') === 'true')
+                document.documentElement.dataset.sidebarCollapsed = 'true';
+        } catch (e) { /* storage unavailable — sidebar stays expanded */ }
+    </script>
     <script type="importmap"></script>
 </head>
 
