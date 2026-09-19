@@ -60,6 +60,9 @@ using Taskboard.Server.Mapping;
 using Taskboard.Server.Middleware;
 using Taskboard.Server.Serialization;
 using Taskboard.Server.Services;
+using ModelContextProtocol.Server;
+using Taskboard.Mcp.Services;
+using Taskboard.Mcp.Tools;
 using Taskboard.ValueObjects;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -371,6 +374,23 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new StringValueObjectJsonConverterFactory());
 });
 
+// SPEC-20260919-mcp-v2-http-transport RF-002/RF-004/RF-005: the same
+// TaskboardTools served by the stdio exe are also exposed over Streamable
+// HTTP (stateless by default in the v2 SDK) under the authenticated /api
+// group. The loopback ITaskboardApiClient lets the tools reuse the local
+// API unchanged (it authenticates itself via TASKBOARD_API_KEY).
+builder.Services.AddSingleton<ITaskboardApiClient>(sp =>
+    new TaskboardApiClient(
+        Environment.GetEnvironmentVariable("TASKBOARD_URL")
+        ?? builder.Configuration["Taskboard:BaseUrl"]
+        ?? "http://127.0.0.1:47823",
+        sp.GetRequiredService<IConfiguration>()["Taskboard:ApiKey"]));
+
+builder.Services
+    .AddMcpServer()
+    .WithHttpTransport()
+    .WithToolsFromAssembly(typeof(TaskboardTools).Assembly);
+
 var app = builder.Build();
 
 // Behind nginx/Cloudflare: honor X-Forwarded-Proto/For (loopback proxy is
@@ -399,6 +419,10 @@ await using (var scope = app.Services.CreateAsyncScope())
 // requires an authenticated principal (cookie or X-Api-Key); only the
 // endpoints below carry AllowAnonymous.
 var api = app.MapGroup("/api").RequireAuthorization();
+
+// RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
+// RequireAuthorization (cookie or X-Api-Key).
+api.MapMcp("mcp");
 
 static bool IsLocalUrl(string? url)
 {
