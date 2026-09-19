@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Taskboard;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Mapping;
@@ -18,19 +19,22 @@ public sealed class AiChatService
     private readonly IRepository<AiChatEvent> _eventRepo;
     private readonly ILLMProvider _llmProvider;
     private readonly IThreadEventStreamService _threadEvents;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public AiChatService(
         IRepository<AiChatThread> threadRepo,
         IRepository<AiChatRun> runRepo,
         IRepository<AiChatEvent> eventRepo,
         ILLMProvider llmProvider,
-        IThreadEventStreamService threadEvents)
+        IThreadEventStreamService threadEvents,
+        IServiceScopeFactory serviceScopeFactory)
     {
         _threadRepo = threadRepo;
         _runRepo = runRepo;
         _eventRepo = eventRepo;
         _llmProvider = llmProvider;
         _threadEvents = threadEvents;
+        _serviceScopeFactory = serviceScopeFactory;
     }
 
     public async Task<AiChatThreadDto> CreateThreadAsync(
@@ -63,6 +67,19 @@ public sealed class AiChatService
         return threads.Select(t => t.ToDto()).ToList().AsReadOnly();
     }
 
+    public async Task<bool> DeleteThreadAsync(AiChatThreadId id, CancellationToken ct = default)
+    {
+        var thread = await _threadRepo.GetAsync(id, ct);
+        if (thread is null)
+        {
+            return false;
+        }
+
+        await _threadRepo.DeleteAsync(thread, ct);
+        await _threadRepo.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<AiChatRunDto> StartRunAsync(
         AiChatThreadId threadId,
         Actor actor,
@@ -78,8 +95,22 @@ public sealed class AiChatService
         await _runRepo.AddAsync(run, ct);
         await _threadRepo.SaveChangesAsync(ct);
 
-        // Start the AI run asynchronously
-        _ = System.Threading.Tasks.Task.Run(() => ExecuteRunAsync(thread.Id, run.Id, ct));
+        await _threadEvents.PublishAsync(
+            threadId.Value,
+            new ServerSentEvent("ai_chat.run", run.ToDto()),
+            ct);
+
+        // SPEC-20260918-ai-chat-threads: the run must outlive this request's DI
+        // scope — the repositories above are scoped and their DbContext is
+        // disposed when the HTTP request ends. A fresh scope keeps the
+        // background execution alive (and CancellationToken.None keeps it from
+        // dying with the request token).
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var service = scope.ServiceProvider.GetRequiredService<AiChatService>();
+            await service.ExecuteRunAsync(thread.Id, run.Id, CancellationToken.None);
+        });
 
         return run.ToDto();
     }
@@ -116,9 +147,6 @@ public sealed class AiChatService
                     ev.Content));
             }
 
-            // Add a user prompt to continue the conversation
-            messages.Add(new LLMMessage("user", "Continue the conversation."));
-
             await foreach (var chunk in _llmProvider.StreamAsync(messages, cancellationToken: ct))
             {
                 if (chunk.IsComplete)
@@ -149,6 +177,11 @@ public sealed class AiChatService
             await _runRepo.UpdateAsync(run, ct);
             await _threadRepo.UpdateAsync(thread, ct);
             await _threadRepo.SaveChangesAsync(ct);
+
+            await _threadEvents.PublishAsync(
+                threadId.Value,
+                new ServerSentEvent("ai_chat.run", run.ToDto()),
+                CancellationToken.None);
         }
         catch (Exception)
         {
@@ -168,6 +201,14 @@ public sealed class AiChatService
             }
 
             await _threadRepo.SaveChangesAsync(ct);
+
+            if (run != null)
+            {
+                await _threadEvents.PublishAsync(
+                    threadId.Value,
+                    new ServerSentEvent("ai_chat.run", run.ToDto()),
+                    CancellationToken.None);
+            }
         }
     }
 

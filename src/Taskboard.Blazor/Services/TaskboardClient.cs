@@ -44,6 +44,73 @@ public sealed class TaskboardClient
         return response?.Threads ?? [];
     }
 
+    /// <summary>Catálogo de modelos disponíveis para novas threads.</summary>
+    public async Task<IReadOnlyList<AiChatModelDto>> GetAiChatCatalogAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<AiChatCatalogResponse>("/api/local/ai/catalog", cancellationToken);
+        return response?.Models ?? [];
+    }
+
+    /// <summary>Cria uma thread de chat (201) e retorna o DTO.</summary>
+    public async Task<AiChatThreadDto?> CreateAiChatThreadAsync(
+        CreateAiChatThreadRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/local/ai/threads", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AiChatThreadResponse>(cancellationToken);
+        return result?.Thread;
+    }
+
+    /// <summary>Remove thread + eventos + runs (204); false quando inexistente.</summary>
+    public async Task<bool> DeleteAiChatThreadAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}", cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>Snapshot REST dos eventos da thread (Accept: application/json).</summary>
+    public async Task<IReadOnlyList<AiChatEventDto>> GetAiChatEventsAsync(
+        string threadId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<AiChatEventListResponse>(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/events", cancellationToken);
+        return response?.Events ?? [];
+    }
+
+    /// <summary>Posta um evento na thread (role: user/assistant/activity/error).</summary>
+    public async Task<AiChatEventDto?> PostAiChatEventAsync(
+        string threadId, AddAiChatEventRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/events", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AiChatEventResponse>(cancellationToken);
+        return result?.AiChatEvent;
+    }
+
+    /// <summary>Inicia um run de LLM sobre o histórico da thread (201).</summary>
+    public async Task<AiChatRunDto?> StartAiChatRunAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/runs", content: null, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AiChatRunResponse>(cancellationToken);
+        return result?.Run;
+    }
+
     public async Task<SettingsDto> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetFromJsonAsync<SettingsResponse>("/api/settings", cancellationToken);
@@ -310,6 +377,11 @@ public sealed class TaskboardClient
 
     private sealed record WorkflowWorkspaceListResponse(List<WorkflowWorkspaceDto> Workspaces);
     private sealed record AiChatThreadListResponse(List<AiChatThreadDto> Threads);
+    private sealed record AiChatThreadResponse(AiChatThreadDto Thread);
+    private sealed record AiChatCatalogResponse(List<AiChatModelDto> Models);
+    private sealed record AiChatEventListResponse(List<AiChatEventDto> Events);
+    private sealed record AiChatEventResponse(AiChatEventDto AiChatEvent);
+    private sealed record AiChatRunResponse(AiChatRunDto Run);
     private sealed record SettingsResponse(SettingsDto Settings);
     private sealed record SkillsResponse(List<SkillDto> Skills);
     private sealed record SkillDetailResponse(SkillDetailDto Skill);

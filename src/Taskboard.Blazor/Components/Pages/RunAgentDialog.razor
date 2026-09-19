@@ -1,0 +1,125 @@
+@inject IAgentOrchestrationService OrchestrationService
+@inject IGitHubService GitHubService
+@inject ToastService ToastService
+
+@if (_isLoading)
+{
+    <div class="d-flex align-items-center">
+        <Spinner Size="SpinnerSize.Small" Class="me-2" />
+        <span>Detecting agents...</span>
+    </div>
+}
+else if (_agents is not null)
+{
+    @if (_agents.Count == 0)
+    {
+        <div class="alert alert-warning" role="status">
+            No enabled and authenticated agent CLI. Enable one in
+            <a href="/settings" class="alert-link">Settings → Agents</a>.
+        </div>
+    }
+    else
+    {
+        <div class="mb-3">
+            <label class="form-label">Repository</label>
+            <RepositoryCombobox Id="run-agent-repo"
+                                AriaLabel="Repository"
+                                Placeholder="owner/repo"
+                                Repositories="@_repoNames"
+                                @bind-Value="_repository" />
+        </div>
+
+        <div class="mb-3">
+            <label for="run-agent-cli" class="form-label">Agent</label>
+            <select id="run-agent-cli" class="form-select" @bind="_selectedAgentType">
+                @foreach (var agent in _agents)
+                {
+                    <option value="@agent.Type" disabled="@(agent.Status != AgentStatus.Available)">@agent.Name (@agent.Status)</option>
+                }
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="run-agent-tier" class="form-label">Model tier</label>
+            <select id="run-agent-tier" class="form-select" @bind="_tier">
+                <option value="@AgentModelTier.Lite">Lite</option>
+                <option value="@AgentModelTier.Normal">Normal</option>
+                <option value="@AgentModelTier.Ultra">Ultra</option>
+            </select>
+        </div>
+
+        <p class="form-text mb-0">
+            The agent receives the last @AgentThreadPromptBuilder.DefaultMaxMessages messages of this thread
+            as its instructions.
+        </p>
+    }
+}
+
+<div class="d-flex justify-content-end gap-2 pt-3 border-top">
+    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">Cancel</Button>
+    <Button Color="ButtonColor.Primary" @onclick="ConfirmAsync" Disabled="@(!CanConfirm())">
+        Queue agent
+    </Button>
+</div>
+
+@code {
+    [Parameter] public EventCallback<RunAgentSelection> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    public sealed record RunAgentSelection(string RepositoryFullName, AgentType AgentType, AgentModelTier Tier, string AgentName);
+
+    private bool _isLoading = true;
+    private IReadOnlyList<AgentInfo>? _agents;
+    private IReadOnlyList<string> _repoNames = [];
+    private string _repository = string.Empty;
+    private AgentType _selectedAgentType;
+    private AgentModelTier _tier = AgentModelTier.Normal;
+
+    private AgentInfo? SelectedAgent => _agents?.FirstOrDefault(a => a.Type == _selectedAgentType);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _agents = await OrchestrationService.GetAvailableAgentsAsync();
+            var first = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            if (first is not null)
+            {
+                _selectedAgentType = first.Type;
+            }
+
+            var repos = await GitHubService.GetRepositoriesAsync();
+            _repoNames = repos.Select(r => r.FullName).ToList();
+            _repository = _repoNames.FirstOrDefault() ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to load agents: {ex.Message}"));
+            _agents ??= [];
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private bool CanConfirm() =>
+        SelectedAgent is { Status: AgentStatus.Available }
+        && RepositoryComboboxLooksValid();
+
+    private bool RepositoryComboboxLooksValid() =>
+        !string.IsNullOrWhiteSpace(_repository) && _repository.Contains('/');
+
+    private async Task CancelAsync() => await OnCancel.InvokeAsync();
+
+    private async Task ConfirmAsync()
+    {
+        var agent = SelectedAgent;
+        if (agent is null)
+        {
+            return;
+        }
+
+        await OnSubmit.InvokeAsync(new RunAgentSelection(_repository.Trim(), agent.Type, _tier, agent.Name));
+    }
+}

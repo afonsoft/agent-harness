@@ -30,9 +30,9 @@
 
 ## AI Chat
 
-- Threads, runs, events
-- Model catalog
-- Composer candidates / rebind
+- Full chat UI at `/ai-chat`: thread sidebar (create via model catalog + sandbox picker, delete with confirm), message area with markdown rendering, composer, typing indicator and auto-scroll
+- Assistant responses stream over SSE (`ai_chat.event` deltas + `ai_chat.run` status); JSON snapshot via `Accept: application/json`
+- **Run agent** sub-task: picker (repository + eligible agent CLI + model tier) enqueues `POST /api/agents/executions` with the thread context as instructions (last 20 messages, ~8k cap); queue and final status post back as thread events
 - Provider abstraction (OpenAI, Claude, Azure OpenAI)
 
 ## Cloud
