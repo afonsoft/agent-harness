@@ -235,6 +235,16 @@ POST /api/harness/security/evaluate
 
 Body `{ toolName, command, worktreePath, policy? }` (`policy`: `Strict` | `Standard` | `Autonomous`, default `Standard`) → `200 { allowed, riskLevel, requiresApproval, reason }`. `riskLevel`: `Safe` | `WorkspaceWrite` | `Dangerous`. File tools (`write_file`, `read_file`, …) are jail-validated against `worktreePath` — escapes return `400` with code `Taskboard:00025` (`SECURITY_ACCESS_DENIED`). Shell commands go through a lexer classifier (per-segment `&&`/`||`/`;`/`|`, quotes, redirects, env prefixes); jail-escaping targets are hard-denied (`allowed: false`, `requiresApproval: false`) — other `Dangerous` commands require approval under Strict/Standard and are blocked under Autonomous. Unknown binaries classify Dangerous (fail-closed). `IPermissionGateway.ScrubSecrets` masks known credential patterns (`ghp_…`, `github_pat_…`, `sk-…`, AWS keys, `Bearer` tokens, PEM keys) with `[REDACTED_SECRET]` for log/stream pipelines.
 
+### Harness — Verification Loop (E9)
+
+```http
+POST /api/harness/verification/run
+```
+
+Body `{ worktreePath, solutionFile, minCoverageThreshold, enforceFormat?, maxAttempts?, attempt? }` → `200 { isSuccess, status, compilationErrors, testSummary, coveragePercent, feedbackPrompt }`. `status`: `Passed` | `FormatFailed` | `BuildFailed` | `TestsFailed` | `CoverageRegression` | `TestTimeout` | `EscalatedToHuman`. Runs `dotnet format --verify-no-changes` (opt-in), `dotnet build -c Release -p:TreatWarningsAsErrors=true`, then `dotnet test --no-build` with TRX + XPlat coverage (120s timeout). Every run persists a `VerificationReport` evidence row. `feedbackPrompt` is the markdown correction payload.
+
+**Agent-loop integration:** `AgentExecutionRequest` accepts opt-in `verifySolutionFile` / `verifyMinCoverage` / `verifyMaxAttempts` (default 3 attempts). After a successful agent run, `IVerificationLoop` verifies the worktree and re-invokes the agent with `feedbackPrompt` on failure — exhausted retries mark the run `Failed` + `EscalatedToHuman` instead of moving to review.
+
 ## SSE
 
 ### Global events

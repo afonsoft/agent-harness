@@ -170,15 +170,31 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             var result = await _acpClient.ExecuteAsync(request, progress, cancellationTokenSource.Token);
 
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Agent finished with exit code {result.ExitCode}."));
-            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Succeeded, CancellationToken.None), stoppingToken);
 
             if (result.IsSuccess)
             {
-                await MarkWorktreeAsync(worktreeRunId, completed: true, stoppingToken);
-                await MoveToReviewAsync(request);
+                // SPEC-20260919-harness-verification-loop RF-004/RF-005: quando o
+                // run opta por verificação, o agente é re-invocado com o feedback
+                // até passar ou esgotar tentativas (→ EscalatedToHuman).
+                var report = await RunVerificationLoopAsync(request, isolation, progress, cancellationTokenSource.Token);
+                if (report is { IsSuccess: false })
+                {
+                    AppendLog(request.IssueId, new AgentLogMessage(
+                        DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                        $"Verification failed ({report.Status}) — not moving to review."));
+                    await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
+                    await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+                }
+                else
+                {
+                    await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Succeeded, CancellationToken.None), stoppingToken);
+                    await MarkWorktreeAsync(worktreeRunId, completed: true, stoppingToken);
+                    await MoveToReviewAsync(request);
+                }
             }
             else
             {
+                await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
                 await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
             }
         }
@@ -199,6 +215,43 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             _running.TryRemove(request.IssueId, out _);
             cancellationTokenSource.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Opt-in post-run verification (RF-004/RF-005). The retry callback
+    /// re-invokes the same agent with the structured failure prompt; exhausted
+    /// retries surface as <c>EscalatedToHuman</c>. Returns null when the run
+    /// did not request verification.
+    /// </summary>
+    private async Task<VerificationReportDto?> RunVerificationLoopAsync(
+        AgentExecutionRequest request,
+        WorktreeSessionDto? isolation,
+        IProgress<AgentLogMessage> progress,
+        CancellationToken cancellationToken)
+    {
+        if (request.VerifySolutionFile is not { } solutionFile)
+        {
+            return null;
+        }
+
+        var worktreePath = isolation?.Path ?? request.RepoPath;
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var loop = scope.ServiceProvider.GetRequiredService<IVerificationLoop>();
+
+        var verifyRequest = new VerificationRunRequestDto(
+            worktreePath,
+            solutionFile,
+            request.VerifyMinCoverage ?? 0.0,
+            MaxAttempts: request.VerifyMaxAttempts ?? 3);
+
+        return await loop.RunAsync(verifyRequest, async (prompt, retryCt) =>
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                "Verification failed — re-invoking agent with structured feedback."));
+            await _acpClient.ExecuteAsync(
+                request with { Instructions = prompt }, progress, retryCt);
+        }, cancellationToken);
     }
 
     /// <summary>
