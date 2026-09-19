@@ -91,4 +91,4 @@ GET /api/github/{owner}/{repo}/workflows/{workflowId}/runs
 
 - [x] Tela mostra Actions reais dos repos configurados.
 - [x] Suites verdes; docs en/pt-br; SPEC → Done.
-- [ ] Deploy verificado.
+- [x] Deploy verificado.
