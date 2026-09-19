@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-harness-verification-loop` |
 | Ticket | [#164 — E9](https://github.com/afonsoft/taskboard-ai/issues/164) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -156,11 +156,11 @@ Content-Type: application/json
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um worktree com código com erro de sintaxe, **when** o motor executa `RunBuildAsync`, **then** retorna `isSuccess = false` com a lista estruturada de erros e linhas.
-- [ ] **Given** um build com warnings em projeto com `TreatWarningsAsErrors`, **when** o build é executado, **then** a verificação falha e reporta os warnings como erros impeditivos.
-- [ ] **Given** código com testes falhando, **when** `RunTestsAsync` é executado, **then** o relatório contém os nomes dos testes que falharam e os detalhes da asserção Shouldly.
-- [ ] **Given** testes passando mas cobertura abaixo do ratchet, **when** verificado, **then** falha com status `CoverageRegression`.
-- [ ] **Given** 2 tentativas de correção com falha contínua, **when** a terceira iteração falha, **then** o motor não re-invoca o agente e escala para intervenção humana.
+- [x] **Given** um worktree com código com erro de sintaxe, **when** o motor executa `RunBuildAsync`, **then** retorna `isSuccess = false` com a lista estruturada de erros e linhas.
+- [x] **Given** um build com warnings em projeto com `TreatWarningsAsErrors`, **when** o build é executado, **then** a verificação falha e reporta os warnings como erros impeditivos.
+- [x] **Given** código com testes falhando, **when** `RunTestsAsync` é executado, **then** o relatório contém os nomes dos testes que falharam e os detalhes da asserção Shouldly.
+- [x] **Given** testes passando mas cobertura abaixo do ratchet, **when** verificado, **then** falha com status `CoverageRegression`.
+- [x] **Given** 2 tentativas de correção com falha contínua, **when** a terceira iteração falha, **then** o motor não re-invoca o agente e escala para intervenção humana.
 
 **Edge cases:**
 
@@ -173,11 +173,11 @@ Content-Type: application/json
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contracts & DTOs:** Criar `IVerificationEngine`, `VerificationReportDto`, `CompilationErrorDto` e enums.
-- [ ] **T2 — Parsers de Compilação e Testes:** Implementar `CompilerErrorParser` (regex em stdout do `dotnet build`) e parser de trx/xml de testes.
-- [ ] **T3 — Engine Implementation:** Implementar `DotNetVerificationEngine` orquestrando build, test e cálculo de cobertura.
-- [ ] **T4 — Integration no Agent Loop:** Conectar o motor ao `PipelineEngine` para acionar a auto-correção quando o estágio de verificação falhar.
-- [ ] **T5 — Unit Tests:** Testes unitários com saídas mockadas de `dotnet build` e `dotnet test` cobrindo cenários de sucesso, erro e warning.
+- [x] **T1 — Contracts & DTOs:** Criar `IVerificationEngine`, `VerificationReportDto`, `CompilationErrorDto` e enums.
+- [x] **T2 — Parsers de Compilação e Testes:** Implementar `CompilerErrorParser` (regex em stdout do `dotnet build`) e parser de trx/xml de testes.
+- [x] **T3 — Engine Implementation:** Implementar `DotNetVerificationEngine` orquestrando build, test e cálculo de cobertura.
+- [x] **T4 — Integration no Agent Loop:** Conectar o motor ao `PipelineEngine` para acionar a auto-correção quando o estágio de verificação falhar.
+- [x] **T5 — Unit Tests:** Testes unitários com saídas mockadas de `dotnet build` e `dotnet test` cobrindo cenários de sucesso, erro e warning.
 
 ---
 
@@ -190,6 +190,6 @@ Content-Type: application/json
 
 ## 9. Definition of Done
 
-- [ ] Motor capaz de rodar build e test de forma isolada no worktree.
-- [ ] Parsers de erro de compilação e teste validados com testes unitários.
-- [ ] Loop de feedback de até 2 iterações operacional.
+- [x] Motor capaz de rodar build e test de forma isolada no worktree.
+- [x] Parsers de erro de compilação e teste validados com testes unitários.
+- [x] Loop de feedback de até 2 iterações operacional.

@@ -7,9 +7,9 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E8 Security Gateway implementado (aguarda PR/merge)`
+- **fase_atual**: `Phase 4 — E9 Verification Loop implementado (aguarda PR/merge)`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-harness-security-gateway`
+- **branch_trabalho**: `feature/devin-20260919-harness-verification-loop`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
@@ -19,8 +19,8 @@
 |---|---|---|---|
 | E6 - Workspace Isolation | `SPEC-20260919-harness-workspace-isolation` | #161 | merged via PR #177 (`4d70c26`) |
 | E7 - Context & Memory | `SPEC-20260919-harness-context-memory` | #162 | merged via PR #183 (`c546ac0`) |
-| E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | implemented — S1..S5 done (#184-#188), SPEC Done, PR pending |
-| E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | queued (blocked by #161) |
+| E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | merged via PR #189 (`86e8881`) + deploy |
+| E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | implemented — S1..S5 done (#190-#192), SPEC Done, PR pending |
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | queued |
 | E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
@@ -395,3 +395,18 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 611 · integration: ✅ 167
 - Decisões: `Classify(command, worktreePath)` path-aware resolve conflito RF-001 vs §5 (`rm -rf` dentro → WorkspaceWrite, fora → Dangerous); `EscapesSandbox` no assessment distingue deny duro de approvable.
+- **PR #189** merged → `86e8881` (slices #184–#188 fechadas). Deploy: `taskboard-server` reiniciado com publish novo; `/api/meta` 200, endpoints `/api/harness/security/*` protegidos (401 anônimo).
+
+### Phase 4 — E9 Verification Loop (branch `feature/devin-20260919-harness-verification-loop`)
+
+| Slice | Issue | Commit | Entrega |
+|---|---|---|---|
+| S1 | #190 | `ca53a4a` | `VerificationStatus`, `VerificationReport` aggregate + EF config/migration `AddVerificationReports`, `IVerificationEngine` + DTOs, `IProcessRunner`/`ProcessCommandRunner` genérico |
+| S2 | #191 | `9874458` | `CompilerErrorParser` (regex stdout build), `TestFailureParser` (TRX XML), `CoverageCalculator` (Cobertura XML) |
+| S3–S5 | #192/#193/#194 | — | `DotNetVerificationEngine` (format→build→test+coverage), `IVerificationReportRepository`/`EfCore…`, `VerificationLoop` (retry callback + escalate), integração opt-in no `AgentOrchestrationService` (`VerifySolutionFile`/`VerifyMinCoverage`/`VerifyMaxAttempts`), endpoint `POST /api/harness/verification/run`, docs, SPEC→Done |
+
+### Phase 7 — Verificação E9
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 627 · integration: ✅ 169
+- Decisões: `Succeeded` só após verificação passar (era marcado antes — corrigido); falha inicial do agente agora marca `Failed` (bug semântico pré-existente); verificação só roda quando `VerifySolutionFile` setado.
+- Race em teste de orquestração: assert de `MarkCompletedAsync` movido para polling no mock (verificação roda entre log "exit code 0" e o mark).

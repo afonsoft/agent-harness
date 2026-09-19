@@ -236,6 +236,16 @@ POST /api/harness/security/evaluate
 
 Body `{ toolName, command, worktreePath, policy? }` (`policy`: `Strict` | `Standard` | `Autonomous`, padrão `Standard`) → `200 { allowed, riskLevel, requiresApproval, reason }`. `riskLevel`: `Safe` | `WorkspaceWrite` | `Dangerous`. File tools (`write_file`, `read_file`, …) são validadas contra o jail do `worktreePath` — escapes retornam `400` com código `Taskboard:00025` (`SECURITY_ACCESS_DENIED`). Comandos shell passam por um classificador lexer (segmentos `&&`/`||`/`;`/`|`, quotes, redirects, prefixos de env); alvos fora do jail são negados de forma permanente (`allowed: false`, `requiresApproval: false`) — demais comandos `Dangerous` exigem aprovação em Strict/Standard e são bloqueados em Autonomous. Binários desconhecidos classificam como Dangerous (fail-closed). `IPermissionGateway.ScrubSecrets` mascara padrões de credenciais (`ghp_…`, `github_pat_…`, `sk-…`, chaves AWS, tokens `Bearer`, chaves PEM) com `[REDACTED_SECRET]` para pipelines de log/stream.
 
+### Harness — Verification Loop (E9)
+
+```http
+POST /api/harness/verification/run
+```
+
+Body `{ worktreePath, solutionFile, minCoverageThreshold, enforceFormat?, maxAttempts?, attempt? }` → `200 { isSuccess, status, compilationErrors, testSummary, coveragePercent, feedbackPrompt }`. `status`: `Passed` | `FormatFailed` | `BuildFailed` | `TestsFailed` | `CoverageRegression` | `TestTimeout` | `EscalatedToHuman`. Executa `dotnet format --verify-no-changes` (opt-in), `dotnet build -c Release -p:TreatWarningsAsErrors=true` e `dotnet test --no-build` com TRX + cobertura XPlat (timeout 120s). Cada run persiste uma linha de evidência `VerificationReport`. `feedbackPrompt` é o payload markdown de correção.
+
+**Integração no loop do agente:** `AgentExecutionRequest` aceita os campos opt-in `verifySolutionFile` / `verifyMinCoverage` / `verifyMaxAttempts` (padrão 3 tentativas). Após um run bem-sucedido, `IVerificationLoop` verifica o worktree e re-invoca o agente com o `feedbackPrompt` em caso de falha — retries esgotados marcam o run `Failed` + `EscalatedToHuman` em vez de mover para revisão.
+
 ## SSE
 
 ### Eventos globais
