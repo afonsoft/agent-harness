@@ -66,7 +66,7 @@ public sealed record CliExtractionResult(
 public sealed record CliDbReadOptions(
     int RowLimit = 10_000,
     TimeSpan? CommandTimeout = null,
-    long MaxFileSizeBytes = 512L * 1024 * 1024)
+    long MaxFileSizeBytes = 4L * 1024 * 1024 * 1024)
 {
     public TimeSpan EffectiveCommandTimeout => CommandTimeout ?? TimeSpan.FromSeconds(5);
 }

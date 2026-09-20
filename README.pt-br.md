@@ -17,6 +17,11 @@ Capacidades principais:
 
 - **Quadro Kanban GitHub** — colunas baseadas em labels, drag & drop, prioridades, corpos em markdown, comentários de issue (postar pela UI direto no GitHub) e timeline unificada por issue (mutações do board + execuções de agente).
 - **Orquestração de agentes** — execute qualquer um dos 13 CLIs de agente (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) numa issue, com prompts por issue, seção `Comments:` de handoff anexada automaticamente ao prompt, streaming de logs via SignalR e histórico de execuções persistido.
+- **Isolamento de workspace** — cada execução de agente roda num Git worktree dedicado em `~/.taskboard/worktrees/{runId}` (criar/diff/commit/teardown via `POST|GET|DELETE /api/harness/worktrees`), nunca direto no seu checkout.
+- **Loop de verificação** — gate determinístico opt-in de build/test/coverage após cada run (`dotnet format → build → test` com parsing TRX + cobertura); falhas alimentam um loop de retry com `feedbackPrompt` estruturado e escalam para humano após o máximo de tentativas.
+- **Gateway de segurança** — classificação de comandos pré-dispatch (Safe/WorkspaceWrite/Dangerous, fail-closed), path jail + detecção de escape por symlink e scrubbing de segredos na saída logada.
+- **Contexto & memória** — compilação hierárquica de contexto (`AGENTS.md`/`CLAUDE.md`/`.cursorrules`, bloco env + git, compactação por orçamento de tokens) e itens de memória de projeto escopados pelo remote origin.
+- **Métricas de CLI** — ingestão incremental read-only dos SQLite dos CLIs de agente (contagem de sessões, tokens, última atividade por CLI em `/agents`, cursors watermark, detecção de drift, retenção de 90 dias para dados brutos com agregados diários permanentes), mais feed de uso pronto para FinOps.
 - **Tiers de modelo** — seletor Lite/Normal/Ultra por CLI mapeado para modelos reais (ex.: Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.6-luna`, Devin `haiku`/`swe`/`opus`); CLIs sem flag de modelo ficam gerenciados pela própria CLI.
 - **Admin de CLIs de agentes** — instale/autentique CLIs pela UI com logs de instalação estilo terminal; ative/desative por agente.
 - **Settings de Skills & MCP/RAG** — instale o catálogo `afonsoft/skills` pela UI e provisione um servidor MCP de RAG (URL + key) em todos os configs de agentes suportados.
@@ -61,8 +66,8 @@ src/
   Taskboard.Maui/                   # Desktop Blazor Hybrid (opcional)
   Taskboard.Blazor/                 # UI web Blazor WebAssembly
 tests/
-  Taskboard.Tests.Unit/             # 89 testes unitários
-  Taskboard.Tests.Integration/      # 9 testes de integração
+  Taskboard.Tests.Unit/             # 686 testes unitários
+  Taskboard.Tests.Integration/      # 174 testes de integração
 ```
 
 ## Início Rápido
@@ -92,7 +97,7 @@ Veja [`install-cli.sh`](install-cli.sh) e [`docs/installation.pt-br.md`](docs/in
 
 O GitHub Actions fornece:
 
-- Build e testes em Release, verificação de formatação, gate de cobertura de linhas (atualmente 45%, subindo gradualmente até a meta de 80%) e verificação de pacotes vulneráveis.
+- Build e testes em Release, verificação de formatação, gate de cobertura de linhas (atualmente 65%, subindo gradualmente até a meta de 80%) e verificação de pacotes vulneráveis.
 - Análise SonarCloud quando o secret `SONAR_TOKEN` está configurado.
 - Análise CodeQL para C# e GitHub Actions.
 - Atualizações semanais de pacotes NuGet e GitHub Actions através do Dependabot.
@@ -109,6 +114,7 @@ Abra `/github-board` para visualizar as issues do GitHub como um board Kanban. A
 
 ## Destaques Recentes
 
+- Épicos do harness ADE E6–E11 entregues: worktrees Git isolados por run, compilação de contexto + memória de projeto, gateway de segurança para gating de comandos pré-dispatch, loop de verificação determinístico, leitor read-only dos SQLite dos CLIs e métricas persistentes de uso por CLI com linha de dashboard em `/agents`.
 - Tiers de modelo Lite/Normal/Ultra mapeados para modelos reais por CLI.
 - Comentários de issue do GitHub como canal de handoff entre agentes (aba na UI + seção `Comments:` automática no prompt + MCP/taskctl).
 - Histórico unificado da issue: mutações do board + execuções de agente numa única timeline.

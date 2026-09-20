@@ -95,7 +95,7 @@ public class CliDbExtractorsTests : IDisposable
         CREATE TABLE hub_events (sequence INTEGER, event TEXT, session_id TEXT, envelope_json TEXT,
             created_at INTEGER);
         INSERT INTO hub_events (sequence, event, session_id, envelope_json, created_at)
-        VALUES (1,'e','cl-1','{}',1700000000),(2,'e','cl-1','{}',1700000100),(3,'e','cl-2','{}',1700000200);
+        VALUES (1,'e','cl-1','{}',1789336066864),(2,'e','cl-1','{}',1789336166864),(3,'e','cl-2','{}',1789336266864);
         """;
 
     private const string ClaudeCtxDdl = """
@@ -196,6 +196,8 @@ public class CliDbExtractorsTests : IDisposable
         result.Sessions.Count.ShouldBe(2);
         result.Sessions.ShouldContain(s => s.ExternalId == "cl-1" && s.MessageCount == 2);
         result.Sessions.ShouldContain(s => s.ExternalId == "cl-2" && s.MessageCount == 1);
+        result.Sessions.ShouldAllBe(s => s.StartedAtUtc.Year == 2026,
+            customMessage: "created_at é epoch milissegundos (regressão: era lido como segundos)");
     }
 
     [Fact]
