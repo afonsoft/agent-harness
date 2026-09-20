@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-living-specs` |
 | Ticket | [#168 — E13](https://github.com/afonsoft/taskboard-ai/issues/168) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -144,19 +144,19 @@ GET /api/specs/drift-report
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a pasta `.specs/` com arquivos no formato padrão, **when** `GetAllSpecsAsync` é chamado, **then** todas as especificações válidas são retornadas como DTOs estruturados.
-- [ ] **Given** uma spec com status `Draft`, **when** o usuário aprova via UI ou API, **then** o arquivo markdown em disco é atualizado com `Status: Approved`.
-- [ ] **Given** uma spec com arquivos que já foram implementados e testados, **when** o detector de drift roda, **then** emite recomendação para transição para `Done`.
+- [x] **Given** a pasta `.specs/` com arquivos no formato padrão, **when** `GetAllSpecsAsync` é chamado, **then** todas as especificações válidas são retornadas como DTOs estruturados.
+- [x] **Given** uma spec com status `Draft`, **when** o usuário aprova via UI ou API, **then** o arquivo markdown em disco é atualizado com `Status: Approved`.
+- [x] **Given** uma spec com arquivos que já foram implementados e testados, **when** o detector de drift roda, **then** emite recomendação para transição para `Done`.
 
 ---
 
 ## 7. Task Plan
 
-- [ ] **T1 — Markdown SDD Parser:** Implementar parser usando Markdig para extrair metadados, tabelas e requisitos.
-- [ ] **T2 — App Service & Endpoints:** Criar `SpecAppService` e rotas REST para listagem, leitura e atualização de specs.
-- [ ] **T3 — Drift Engine:** Implementar checagem de existência de arquivos e estado de commits para apontar desvios.
-- [ ] **T4 — Blazor UI:** Criar tela `/specs` no Blazor WASM com layout limpo e badges de BDD.
-- [ ] **T5 — Unit Tests:** Testar parser com specs reais do repositório garantindo 0 falhas de parsing.
+- [x] **T1 — Markdown SDD Parser:** Implementar parser usando Markdig para extrair metadados, tabelas e requisitos.
+- [x] **T2 — App Service & Endpoints:** Criar `SpecAppService` e rotas REST para listagem, leitura e atualização de specs.
+- [x] **T3 — Drift Engine:** Implementar checagem de existência de arquivos e estado de commits para apontar desvios.
+- [x] **T4 — Blazor UI:** Criar tela `/specs` no Blazor WASM com layout limpo e badges de BDD.
+- [x] **T5 — Unit Tests:** Testar parser com specs reais do repositório garantindo 0 falhas de parsing.
 
 ---
 
@@ -169,6 +169,6 @@ GET /api/specs/drift-report
 
 ## 9. Definition of Done
 
-- [ ] Parser de SPECs cobrindo todo o acervo de `.specs/`.
-- [ ] Tela `/specs` disponível na navegação principal do Harness.
-- [ ] Relatório de drift funcionando e integrado ao painel.
+- [x] Parser de SPECs cobrindo todo o acervo de `.specs/`.
+- [x] Tela `/specs` disponível na navegação principal do Harness.
+- [x] Relatório de drift funcionando e integrado ao painel.

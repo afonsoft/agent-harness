@@ -283,6 +283,21 @@ All stages of an execution share one `IWorkspaceIsolationService` git worktree; 
 
 Dispatch runs on the `PipelineEngineService` background timer plus synchronous kicks after `start`/`approve`/`retry`; `PipelineEngine` resolves the DAG per execution scope so parallel stages never share a `DbContext`.
 
+### Living Specs (E13)
+
+```http
+GET  /api/specs?status={Draft|Approved|InImplementation|Done|Deprecated}&q={text}
+GET  /api/specs/{specId}
+POST /api/specs/{specId}/status
+GET  /api/specs/drift-report
+```
+
+`GET /api/specs` → `200` with the catalog rows (`{ id, title, type, status, rawStatus, date, ticket, requirementsCount, acceptanceCriteriaCount, tasksTotal, tasksDone, warnings[] }`). `GET {id}` → `200` with the full detail (requirements, BDD criteria, tasks, referenced files, raw markdown) or `404`. `POST {id}/status` body `{ status }` rewrites only the `Status` metadata cell in the `.md` file → `200`; unknown status → `400` (`Taskboard:00033`); unknown spec → `404`.
+
+`GET drift-report` → `200 { totalSpecs, staleSpecsCount, driftItems: [{ specId, currentStatus, suggestedStatus, reason, missingFiles }] }`. Draft/Approved/InImplementation specs whose "Files to create or modify" all exist on disk are flagged stale → `Done`; `Done` specs referencing deleted files → `Deprecated`.
+
+Specs are scanned from `Taskboard:SpecsDir` (default: nearest `.specs/` directory walking up from the app base) — parsed live on every request via `MarkdigSpecParser`, so the file on disk is always the source of truth. The Blazor page is `/specs`.
+
 ## SSE
 
 ### Global events

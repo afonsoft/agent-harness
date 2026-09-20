@@ -284,6 +284,21 @@ Todos os estágios de uma execução compartilham um único git worktree do `IWo
 
 O despacho roda no timer do `PipelineEngineService` mais kicks síncronos após `start`/`approve`/`retry`; o `PipelineEngine` resolve o DAG por escopo de execução para que estágios paralelos nunca compartilhem um `DbContext`.
 
+### Living Specs (E13)
+
+```http
+GET  /api/specs?status={Draft|Approved|InImplementation|Done|Deprecated}&q={texto}
+GET  /api/specs/{specId}
+POST /api/specs/{specId}/status
+GET  /api/specs/drift-report
+```
+
+`GET /api/specs` → `200` com as linhas do catálogo (`{ id, title, type, status, rawStatus, date, ticket, requirementsCount, acceptanceCriteriaCount, tasksTotal, tasksDone, warnings[] }`). `GET {id}` → `200` com o detalhe completo (requisitos, critérios BDD, tasks, arquivos referenciados, markdown bruto) ou `404`. `POST {id}/status` body `{ status }` reescreve apenas a célula `Status` da tabela de metadados no `.md` → `200`; status desconhecido → `400` (`Taskboard:00033`); spec desconhecida → `404`.
+
+`GET drift-report` → `200 { totalSpecs, staleSpecsCount, driftItems: [{ specId, currentStatus, suggestedStatus, reason, missingFiles }] }`. Specs Draft/Approved/InImplementation cujos arquivos em "Files to create or modify" já existem em disco são sinalizadas → `Done`; specs `Done` referenciando arquivos removidos → `Deprecated`.
+
+As specs são lidas de `Taskboard:SpecsDir` (padrão: `.specs/` mais próximo subindo a partir do diretório do app) — parseadas a cada request pelo `MarkdigSpecParser`, então o arquivo em disco é sempre a fonte da verdade. A página Blazor é `/specs`.
+
 ## SSE
 
 ### Eventos globais

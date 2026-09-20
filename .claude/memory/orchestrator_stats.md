@@ -7,7 +7,7 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E13 Living Specs (próximo; E12 merged+deploy)`
+- **fase_atual**: `Phase 4 — E13 Living Specs (em PR; E12 merged+deploy)`
 - **repositorio**: `afonsoft/taskboard-ai`
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
@@ -24,7 +24,7 @@
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | merged via PR #201 (`846a01f`) + deploy |
 | E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | merged via PR #209 + fixes #210/#211/#212 (`0cbbf66`) + deploy validado |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | merged via PR #218 (`6258c4f`) + deploy |
-| E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
+| E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | implementado — PR aberto (slices #220–#224) |
 | E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | queued (blocked by #167) |
 | E15 - Cockpit HITL | `SPEC-20260919-ade-cockpit-hitl` | #170 | queued (blocked by #167,#168,#169) |
 | E16 - Harness Platform (mestre) | `SPEC-20260919-ade-harness-platform` | #171 | queued (blocked by #170,#166,#163) |
@@ -466,3 +466,16 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 706 (18 PipelineEngine + 12 domain) · integration: ✅ 181 (7 PipelineEndpoints; flake conhecido `PostMcpRemove` isolado ✓)
 - Decisões: `IWorkspaceIsolationService` é scoped → resolvido por escopo dentro do engine singleton (não por ctor); `DbContext` nunca compartilhado entre estágios paralelos (scope por stage task); estágios marcados `Running` + save antes do dispatch (elimina race Pending→Complete); `PipelineEngine` mora em Application (deps todos em Contracts).
+
+### Phase 4 — E13 Living Specs (branch `feature/devin-20260920-ade-living-specs`)
+
+| Slice | Issue | Commit | Entrega |
+|---|---|---|---|
+| S1 | #220 | — | `SpecStatus`/`SpecLintWarning`/`LivingSpecification`/`SpecRequirement`/`SpecTask` em Domain.Shared; `ISpecDocumentParser` em Contracts; `MarkdigSpecParser` (AST: seções `## N.`, tabela de metadados, RF/FR heading+bullet, BDD criteria, task checkboxes, "Files to create or modify") + normalização de status messy; corpus test cobre as 94 specs reais |
+| S2+S3 | #221/#222 | — | `SpecAppService` (scan `Taskboard:SpecsDir` ou `.specs/` mais próximo; rewrite cirúrgico da célula Status, UTF-8) + `SpecDriftDetector` (stale→Done; Done+arquivos removidos→Deprecated) + endpoints `/api/specs` (list/status/{id}/drift-report); `Taskboard:00033` |
+| S4 | #223 | — | Página `/specs` (filtros de status, busca, banner de drift, badges), `SpecDetailDialog` (markdown sanitizado via `MarkdownRenderer`), `RunSpecDialog` → `POST /api/harness/pipelines/start` (E12); link no NavMenu |
+
+### Verificação E13
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 731 · integration: ✅ 187/188 (flakes conhecidos: `PostMcpRemove` — `.claude.json` real; `CliMetricsEndpoints.SyncManual` — race do sync de startup com o coordinator single-flight; ambos passam isolados)
+- Decisões: `LivingSpecification` em Domain.Shared (Integrations não referencia Domain — layering real do repo); specs file-backed — sem tabela EF, disco = fonte da verdade; `repositoryPath` no detail DTO = parent de `.specs/` (alvo do "Run with Agent").
