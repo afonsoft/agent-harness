@@ -17,6 +17,11 @@ Key capabilities:
 
 - **GitHub Kanban board** — label-backed columns, drag & drop, priorities, markdown bodies, issue comments (post from the UI straight to GitHub), and a unified per-issue history timeline (board mutations + agent runs).
 - **Agent orchestration** — run any of 13 agent CLIs (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) against an issue, with per-issue prompts, a `Comments:` handoff section auto-appended to the prompt, SignalR log streaming, and persistent run history.
+- **Workspace isolation** — every agent run executes inside a dedicated Git worktree under `~/.taskboard/worktrees/{runId}` (create/diff/commit/teardown via `POST|GET|DELETE /api/harness/worktrees`), never directly on your checkout.
+- **Verification loop** — opt-in deterministic build/test/coverage gate after each agent run (`dotnet format → build → test` with TRX + coverage parsing); failures feed a retry loop with a structured `feedbackPrompt` and escalate to human after max attempts.
+- **Security gateway** — pre-dispatch command classification (Safe/WorkspaceWrite/Dangerous, fail-closed), path-jail + symlink-escape enforcement, and secret scrubbing on logged output.
+- **Context & memory** — hierarchical context compilation (`AGENTS.md`/`CLAUDE.md`/`.cursorrules`, env + git block, token-budgeted compaction) and project memory items scoped by remote origin.
+- **CLI metrics** — incremental, read-only ingestion of the agent CLIs' own SQLite stores (session counts, tokens, last activity per CLI on `/agents`, watermark cursors, drift detection, 90-day raw retention with permanent daily aggregates), plus a FinOps-ready usage feed.
 - **Model tiers** — a Lite/Normal/Ultra selector per CLI maps to real models (e.g. Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.6-luna`, Devin `haiku`/`swe`/`opus`); CLIs without a model flag stay CLI-managed.
 - **CLI Agents admin** — install/authenticate CLIs from the UI with terminal-style install logs; enable/disable per agent.
 - **Skills & MCP/RAG settings** — install the `afonsoft/skills` catalog from the UI and provision a RAG MCP server (URL + key) into every supported agent config.
@@ -62,8 +67,8 @@ src/
   Taskboard.Client/                 # Blazor WebAssembly host (WASM boot, loading UI)
   Taskboard.Blazor/                 # Shared Blazor UI components (RCL)
 tests/
-  Taskboard.Tests.Unit/             # 89 unit tests
-  Taskboard.Tests.Integration/      # 9 integration tests
+  Taskboard.Tests.Unit/             # 686 unit tests
+  Taskboard.Tests.Integration/      # 174 integration tests
 ```
 
 ## Quick Start
@@ -93,7 +98,7 @@ See [`install-cli.sh`](install-cli.sh) and [`docs/installation.md`](docs/install
 
 GitHub Actions provide:
 
-- Build and test in Release mode, format verification, a line-coverage gate (currently 45%, ratcheting up to the 80% target), and vulnerable-package checks.
+- Build and test in Release mode, format verification, a line-coverage gate (currently 65%, ratcheting up to the 80% target), and vulnerable-package checks.
 - SonarCloud analysis when the `SONAR_TOKEN` secret is configured.
 - CodeQL analysis for C# and GitHub Actions.
 - Weekly NuGet and GitHub Actions updates through Dependabot.
@@ -110,6 +115,7 @@ Open `/github-board` to view GitHub issues as a Kanban board. Drag an issue to *
 
 ## Recent Highlights
 
+- Agent Development Environment (ADE) harness epics E6–E11 shipped: isolated Git worktrees per run, context compilation + project memory, a security gateway for pre-dispatch command gating, a deterministic verification loop, a read-only CLI DB reader, and persisted CLI usage metrics with a `/agents` dashboard row.
 - Lite/Normal/Ultra model tiers mapped to real models per CLI.
 - GitHub issue comments as the agent handoff channel (UI tab + auto `Comments:` prompt section + MCP/taskctl).
 - Unified issue history: board mutations + agent runs in one timeline.

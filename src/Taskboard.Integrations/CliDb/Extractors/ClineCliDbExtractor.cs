@@ -8,7 +8,7 @@ namespace Taskboard.Integrations.CliDb.Extractors;
 /// <summary>
 /// Cline: session rollups from <c>~/.cline/data/db/hub-events-*.db → hub_events</c>,
 /// grouped by <c>session_id</c> in memory (bounded by the row budget).
-/// Timestamps are epoch seconds. <c>connectors.db</c> holds credentials and is
+/// Timestamps are epoch milliseconds. <c>connectors.db</c> holds credentials and is
 /// outside the glob + on the denylist.
 /// </summary>
 public sealed class ClineCliDbExtractor : CliDbExtractorBase
@@ -74,7 +74,7 @@ public sealed class ClineCliDbExtractor : CliDbExtractorBase
         {
             sessions.Add(new CliSessionRecord(
                 source.Name, sessionId, Title: null,
-                CliDbTimestamps.EpochSeconds(agg.Min), EndedAtUtc: null,
+                CliDbTimestamps.EpochMs(agg.Min), EndedAtUtc: null,
                 agg.Count, ModelName: null,
                 TokensInput: null, TokensOutput: null, TokensCached: null));
         }
