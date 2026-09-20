@@ -51,6 +51,12 @@ public sealed class ClineCliDbExtractor : CliDbExtractorBase
         var grouped = new Dictionary<string, (long Min, int Count)>(StringComparer.Ordinal);
         foreach (var row in rows)
         {
+            // Advance on every scanned row — rows without session_id must still
+            // move the cursor, otherwise a batch of them leaves it stuck.
+            if (row.Rowid > (maxRowid ?? 0))
+            {
+                maxRowid = row.Rowid;
+            }
             if (string.IsNullOrEmpty(row.SessionId))
             {
                 continue;
@@ -63,10 +69,6 @@ public sealed class ClineCliDbExtractor : CliDbExtractorBase
             else
             {
                 grouped[row.SessionId] = (created, 1);
-            }
-            if (row.Rowid > (maxRowid ?? 0))
-            {
-                maxRowid = row.Rowid;
             }
         }
 

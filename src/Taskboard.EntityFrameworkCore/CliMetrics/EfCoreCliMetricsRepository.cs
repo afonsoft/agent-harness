@@ -26,7 +26,7 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
             .AsNoTracking()
             .Where(s => s.Kind == kind && s.SourceName == sourceName)
             .Select(s => new CliMetricSourceStateDto(
-                s.WatermarkCursor, s.ResolvedPath, s.FileModifiedUtc, s.FileSizeBytes))
+                s.WatermarkCursor, s.ResolvedPath, s.FileModifiedUtc, s.FileSizeBytes, s.Status))
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
         return row;

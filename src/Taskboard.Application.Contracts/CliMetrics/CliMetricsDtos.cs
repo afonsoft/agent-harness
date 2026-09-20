@@ -18,7 +18,8 @@ public sealed record CliMetricSourceStateDto(
     string? WatermarkCursor,
     string? ResolvedPath,
     DateTime? FileModifiedUtc,
-    long? FileSizeBytes);
+    long? FileSizeBytes,
+    CliDbSourceStatus Status);
 
 /// <summary>Session row for `GET /api/local/cli-metrics/sessions`.</summary>
 public sealed record CliSessionMetricDto(

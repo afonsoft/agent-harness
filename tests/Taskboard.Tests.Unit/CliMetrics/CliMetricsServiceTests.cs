@@ -216,6 +216,32 @@ public class CliMetricsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_FonteComErro_Quando_SyncSemMudanca_Entao_RetentaExtracao()
+    {
+        // Erro persistido com a assinatura do arquivo não pode travar a fonte —
+        // caso real: cap de 512MB do build antigo deixou OpenCode preso em Error.
+        WriteDbFile();
+        var extractor = new FakeExtractor
+        {
+            OnExtract = _ => new CliExtractionResult(
+                [], [], null, CliDbSourceStatus.Error, "transient failure"),
+        };
+        var service = CriarService(extractor);
+
+        await service.SyncAsync();
+        extractor.OnExtract = _ => new CliExtractionResult(
+            [Session("s1", DateTimeOffset.UtcNow)], [], "cursor-ok",
+            CliDbSourceStatus.Available, null);
+        await service.SyncAsync();
+
+        extractor.CursorsSeen.Count.ShouldBe(2,
+            customMessage: "fonte em Error retenta mesmo com arquivo inalterado");
+        var source = await _context.CliMetricSources.SingleAsync();
+        source.Status.ShouldBe(CliDbSourceStatus.Available);
+        source.LastError.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Dado_FonteAusente_Quando_Sync_Entao_MarcaMissingSemExtrair()
     {
         // nenhum arquivo criado
