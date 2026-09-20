@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-multi-agent-orchestration` |
 | Ticket | [#167 — E12](https://github.com/afonsoft/taskboard-ai/issues/167) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -158,10 +158,10 @@ POST /api/harness/pipelines/{id}/stages/{stageId}/retry
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um pipeline `Standard-Feature` iniciado, **when** o agente Architect termina de elaborar o plano, **then** o pipeline entra em estado `WaitingApproval` no gate humano.
-- [ ] **Given** aprovação humana enviada, **when** o Builder inicia, **then** ele recebe no prompt o plano gerado pelo Architect e o caminho do worktree isolado.
-- [ ] **Given** um pipeline com 2 etapas em paralelo, **when** a etapa anterior termina, **then** ambas as etapas paralelas são enfileiradas simultaneamente.
-- [ ] **Given** falha em uma etapa, **when** o usuário aciona `retry` com prompt corrigido, **then** apenas aquela etapa e as posteriores são re-executadas.
+- [x] **Given** um pipeline `Standard-Feature` iniciado, **when** o agente Architect termina de elaborar o plano, **then** o pipeline entra em estado `WaitingApproval` no gate humano.
+- [x] **Given** aprovação humana enviada, **when** o Builder inicia, **then** ele recebe no prompt o plano gerado pelo Architect e o caminho do worktree isolado.
+- [x] **Given** um pipeline com 2 etapas em paralelo, **when** a etapa anterior termina, **then** ambas as etapas paralelas são enfileiradas simultaneamente.
+- [x] **Given** falha em uma etapa, **when** o usuário aciona `retry` com prompt corrigido, **then** apenas aquela etapa e as posteriores são re-executadas.
 
 **Edge cases:**
 
@@ -174,11 +174,11 @@ POST /api/harness/pipelines/{id}/stages/{stageId}/retry
 
 ## 7. Task Plan
 
-- [ ] **T1 — Domain & Contracts:** Definir entidades `PipelineDefinition`, `PipelineStage`, `PipelineExecution` e interfaces.
-- [ ] **T2 — DAG Engine Logic:** Implementar algoritmo de topological sort e checagem de ciclo no grafo de execução.
-- [ ] **T3 — Context Synthesizer:** Implementar gerador de handoff de contexto entre etapas sucessivas.
-- [ ] **T4 — Pipeline Orchestrator Service:** Integrar com o canal assíncrono de execução e com o `IWorkspaceIsolationService`.
-- [ ] **T5 — Unit & Integration Tests:** Cobertura de testes unitários validando resolução de dependências, gates de aprovação e cenários de falha/retry.
+- [x] **T1 — Domain & Contracts:** Definir entidades `PipelineDefinition`, `PipelineStage`, `PipelineExecution` e interfaces.
+- [x] **T2 — DAG Engine Logic:** Implementar algoritmo de topological sort e checagem de ciclo no grafo de execução.
+- [x] **T3 — Context Synthesizer:** Implementar gerador de handoff de contexto entre etapas sucessivas.
+- [x] **T4 — Pipeline Orchestrator Service:** Integrar com o canal assíncrono de execução e com o `IWorkspaceIsolationService`.
+- [x] **T5 — Unit & Integration Tests:** Cobertura de testes unitários validando resolução de dependências, gates de aprovação e cenários de falha/retry.
 
 ---
 
@@ -191,6 +191,6 @@ POST /api/harness/pipelines/{id}/stages/{stageId}/retry
 
 ## 9. Definition of Done
 
-- [ ] Motor de DAG funcional e testado com xUnit.
-- [ ] Suporte a templates de pipeline de 3 e 5 etapas.
-- [ ] Handoff de contexto validado entre etapas sequenciais.
+- [x] Motor de DAG funcional e testado com xUnit.
+- [x] Suporte a templates de pipeline de 3 e 5 etapas.
+- [x] Handoff de contexto validado entre etapas sequenciais.

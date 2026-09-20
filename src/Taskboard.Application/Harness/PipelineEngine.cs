@@ -21,7 +21,6 @@ public sealed class PipelineEngine
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAgentAcpClient _acpClient;
-    private readonly IWorkspaceIsolationService _isolation;
     private readonly IVerificationEngine _verification;
     private readonly ILogger<PipelineEngine> _logger;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runningStages = new();
@@ -31,13 +30,11 @@ public sealed class PipelineEngine
     public PipelineEngine(
         IServiceScopeFactory scopeFactory,
         IAgentAcpClient acpClient,
-        IWorkspaceIsolationService isolation,
         IVerificationEngine verification,
         ILogger<PipelineEngine> logger)
     {
         _scopeFactory = scopeFactory;
         _acpClient = acpClient;
-        _isolation = isolation;
         _verification = verification;
         _logger = logger;
     }
@@ -94,6 +91,7 @@ public sealed class PipelineEngine
         var dispatched = 0;
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRepository<PipelineExecution>>();
+        var isolation = scope.ServiceProvider.GetRequiredService<IWorkspaceIsolationService>();
         var active = await repo.Query
             .Include(e => e.Stages)
             .Where(e => e.Status != PipelineStatus.Completed && e.Status != PipelineStatus.Cancelled)
@@ -102,7 +100,7 @@ public sealed class PipelineEngine
 
         foreach (var exec in active)
         {
-            if (exec.WorktreePath is null && !await TryAttachWorktreeAsync(exec, repo, cancellationToken).ConfigureAwait(false))
+            if (exec.WorktreePath is null && !await TryAttachWorktreeAsync(exec, repo, isolation, cancellationToken).ConfigureAwait(false))
             {
                 continue;
             }
@@ -153,11 +151,14 @@ public sealed class PipelineEngine
     }
 
     private async Task<bool> TryAttachWorktreeAsync(
-        PipelineExecution exec, IRepository<PipelineExecution> repo, CancellationToken cancellationToken)
+        PipelineExecution exec,
+        IRepository<PipelineExecution> repo,
+        IWorkspaceIsolationService isolation,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var session = await _isolation.CreateWorktreeAsync(
+            var session = await isolation.CreateWorktreeAsync(
                 exec.Id.Value, exec.RepositoryPath, exec.BaseBranch,
                 exec.TemplateId, retainOnFailure: true, cancellationToken).ConfigureAwait(false);
             exec.AttachWorktree(session.Path);

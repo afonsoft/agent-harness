@@ -39,6 +39,7 @@ public class PipelineEngineTests : IDisposable
         services.AddScoped(_ => new TaskboardDbContext(_options));
         services.AddScoped<IRepository<PipelineExecution>>(sp =>
             new EfCoreRepository<PipelineExecution>(sp.GetRequiredService<TaskboardDbContext>()));
+        services.AddScoped(_ => _isolation);
         _scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
     }
 
@@ -52,7 +53,7 @@ public class PipelineEngineTests : IDisposable
     }
 
     private PipelineEngine CriarEngine() =>
-        new(_scopeFactory, _acp, _isolation, _verification,
+        new(_scopeFactory, _acp, _verification,
             NullLogger<PipelineEngine>.Instance);
 
     private PipelineExecution SalvarExecucao(PipelineDefinition def)

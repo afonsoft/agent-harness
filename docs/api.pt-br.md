@@ -263,6 +263,27 @@ Ingestão incremental dos extractors do E10 em `CliMetricSource` / `CliSessionMe
 
 Sync em background: `CliMetricsSyncService` (`PeriodicTimer`, intervalo `Taskboard:CliMetrics:SyncIntervalMinutes`, padrão 15, mín 1) roda uma passagem no startup + syncs periódicos via `CliMetricsSyncCoordinator` single-flight. Feed FinOps: `ICliUsageMetricsProvider.GetUsageAsync` expõe agregados de tokens+sessões por kind/modelo para o `ade-observability-finops` (E14).
 
+### Harness — Pipelines Multi-Agente (E12)
+
+```http
+GET  /api/harness/pipelines/templates
+POST /api/harness/pipelines/start
+GET  /api/harness/pipelines/{id}
+POST /api/harness/pipelines/{id}/stages/{stageKey}/approve
+POST /api/harness/pipelines/{id}/stages/{stageKey}/retry
+POST /api/harness/pipelines/{id}/cancel
+```
+
+`GET templates` → `200` com os três templates DAG embutidos: `standard-feature` (architect → approval-gate → builder → verifier → reviewer), `quick-patch` (builder → verifier), `test-driven` (architect → tester → builder → verifier).
+
+`POST start` body `{ templateId, repositoryFullName, repositoryPath, baseBranch, issueId?, initialPrompt }` → `201` com `{ pipelineExecutionId, templateId, status, worktreePath?, stages: [{ stageKey, name, kind, status, role?, agent?, attempts, handoffSummary?, lastError?, dependsOn }] }`. Template desconhecido ou grafo cíclico → `400 INVALID_PIPELINE_DAG`.
+
+Todos os estágios de uma execução compartilham um único git worktree do `IWorkspaceIsolationService`; a saída de cada estágio é sintetizada em `handoffSummary` e injetada como contexto upstream nos dependentes. `kind`: `AgentWork` | `Approval` | `Verification`; `status`: `Pending` | `Running` | `WaitingApproval` | `Completed` | `Failed` | `Skipped`. `status` do pipeline: `Running` | `WaitingApproval` | `AwaitingRetry` | `Completed` | `Failed` | `Cancelled`.
+
+`POST .../approve` body `{ comment? }` libera um gate `WaitingApproval` e despacha os dependentes → `200`. `POST .../retry` body `{ adjustedPrompt? }` reenfileira um estágio `Failed` sem reiniciar o pipeline → `202`. `POST .../cancel` encerra os processos em voo e transiciona o pipeline para `Cancelled` → `200`. Aprovar/retentar estágio em estado incompatível → `400`; pipeline desconhecido → `404`.
+
+O despacho roda no timer do `PipelineEngineService` mais kicks síncronos após `start`/`approve`/`retry`; o `PipelineEngine` resolve o DAG por escopo de execução para que estágios paralelos nunca compartilhem um `DbContext`.
+
 ## SSE
 
 ### Eventos globais

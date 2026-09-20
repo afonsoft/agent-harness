@@ -18,6 +18,12 @@ public sealed record PipelineStartRequest(
     string? IssueId,
     string InitialPrompt);
 
+/// <summary>Body for `POST .../stages/{stageKey}/approve`.</summary>
+public sealed record PipelineApproveRequest(string? Comment);
+
+/// <summary>Body for `POST .../stages/{stageKey}/retry`.</summary>
+public sealed record PipelineRetryRequest(string? AdjustedPrompt);
+
 /// <summary>One stage row inside a pipeline execution DTO.</summary>
 public sealed record PipelineStageDto(
     string StageKey,
