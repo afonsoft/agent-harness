@@ -22,6 +22,7 @@ using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
 using Taskboard.Application.CliMetrics;
 using Taskboard.Application.GitHub;
+using Taskboard.Application.Harness;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
@@ -242,6 +243,12 @@ builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(
     sp.GetRequiredService<ILogger<CliMetricsService>>()));
 builder.Services.AddSingleton<CliMetricsSyncCoordinator>();
 builder.Services.AddHostedService<CliMetricsSyncService>();
+
+// SPEC-20260919-ade-multi-agent-orchestration: DAG de agentes especializados
+// sobre worktree compartilhado do run.
+builder.Services.AddSingleton<PipelineEngine>();
+builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>();
+builder.Services.AddHostedService<PipelineEngineService>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -628,6 +635,43 @@ harness.MapPost("verification/run", async (
     await reports.SaveAsync(request.WorktreePath, report, request.Attempt, ct);
     return Results.Ok(report);
 });
+
+// SPEC-20260919-ade-multi-agent-orchestration §5: pipeline DAG endpoints.
+var pipelines = api.MapGroup("harness/pipelines");
+pipelines.MapGet("templates", async (IPipelineOrchestrator orchestrator, CancellationToken ct) =>
+    Results.Ok(await orchestrator.ListTemplatesAsync(ct)));
+pipelines.MapPost("start", async (
+        PipelineStartRequest request,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+{
+    var dto = await orchestrator.StartAsync(request, ct);
+    return Results.Created($"/api/harness/pipelines/{dto.PipelineExecutionId}", dto);
+});
+pipelines.MapGet("{id}", async (
+        string id,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    await orchestrator.GetAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
+pipelines.MapPost("{id}/stages/{stageKey}/approve", async (
+        string id,
+        string stageKey,
+        PipelineApproveRequest request,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    Results.Ok(await orchestrator.ApproveStageAsync(id, stageKey, request.Comment, ct)));
+pipelines.MapPost("{id}/stages/{stageKey}/retry", async (
+        string id,
+        string stageKey,
+        PipelineRetryRequest request,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    Results.Accepted(value: await orchestrator.RetryStageAsync(id, stageKey, request.AdjustedPrompt, ct)));
+pipelines.MapPost("{id}/cancel", async (
+        string id,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    Results.Ok(await orchestrator.CancelAsync(id, ct)));
 
 // SPEC-20260919-cli-metrics §5: ingestion status + aggregates for /agents.
 var cliMetrics = api.MapGroup("local/cli-metrics");
