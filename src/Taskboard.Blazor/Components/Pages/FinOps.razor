@@ -1,0 +1,208 @@
+@page "/finops"
+@attribute [Authorize]
+@inject TaskboardClient Client
+@inject ToastService ToastService
+
+<PageTitle>FinOps - Harness</PageTitle>
+
+<h1 class="h4 fw-bold mb-1">FinOps</h1>
+<p class="small text-body-secondary mb-4">Token usage and USD cost per run, agent and model (E14).</p>
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div class="d-flex gap-1 flex-wrap">
+                @foreach (var p in new[] { ("last-7-days", "7 days"), ("last-30-days", "30 days"), ("all", "All") })
+                {
+                    var period = p;
+                    <Button Color="@(_period == period.Item1 ? ButtonColor.Primary : ButtonColor.Secondary)"
+                            Outline="true" Size="ButtonSize.Small"
+                            @onclick="() => SetPeriodAsync(period.Item1)">
+                        @period.Item2
+                    </Button>
+                }
+            </div>
+            <div class="d-flex gap-2">
+                <input class="form-control form-control-sm" style="width: 260px"
+                       placeholder="Run ID for telemetry..."
+                       @bind="_runIdQuery" @bind:event="oninput"
+                       @onkeyup="OnRunKeyUpAsync" />
+                <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                        @onclick="RefreshAsync" Disabled="_loading">
+                    <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+                </Button>
+            </div>
+        </div>
+
+        @if (_loading && _summary is null)
+        {
+            <Loading Message="Loading FinOps summary..." />
+        }
+        else if (_summary is { } summary)
+        {
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="border rounded p-3 h-100">
+                        <div class="small text-body-secondary">Total cost</div>
+                        <div class="h3 mb-0">@summary.TotalCostUsd.ToString("C4")</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="border rounded p-3 h-100">
+                        <div class="small text-body-secondary">Total tokens</div>
+                        <div class="h3 mb-0">@summary.TotalTokens.ToString("N0")</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="border rounded p-3 h-100">
+                        <div class="small text-body-secondary">Runs</div>
+                        <div class="h3 mb-0">@summary.RunsCount</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <h2 class="h6 fw-semibold">Cost by agent</h2>
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            @foreach (var kv in summary.CostByAgent.OrderByDescending(kv => kv.Value))
+                            {
+                                <tr>
+                                    <td>@kv.Key</td>
+                                    <td class="text-end">@kv.Value.ToString("C4")</td>
+                                    <td style="width: 40%">
+                                        <div class="progress" style="height: 8px">
+                                            <div class="progress-bar" style="width: @BarWidth(kv.Value, summary.CostByAgent)%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h2 class="h6 fw-semibold">Cost by model</h2>
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                            @foreach (var kv in summary.CostByModel.OrderByDescending(kv => kv.Value))
+                            {
+                                <tr>
+                                    <td><code class="small">@kv.Key</code></td>
+                                    <td class="text-end">@kv.Value.ToString("C4")</td>
+                                    <td style="width: 40%">
+                                        <div class="progress" style="height: 8px">
+                                            <div class="progress-bar bg-info" style="width: @BarWidth(kv.Value, summary.CostByModel)%"></div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <h2 class="h6 fw-semibold">Daily burn</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr><th>Date</th><th class="text-end">Tokens</th><th class="text-end">Cost</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var day in summary.DailyCosts.OrderByDescending(d => d.Date))
+                        {
+                            <tr>
+                                <td>@day.Date.ToString("yyyy-MM-dd")</td>
+                                <td class="text-end">@day.TotalTokens.ToString("N0")</td>
+                                <td class="text-end">@day.CostUsd.ToString("C4")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <Alert Color="AlertColor.Secondary" Dismissable="false">No usage recorded yet.</Alert>
+        }
+
+        @if (_telemetry is { } telemetry)
+        {
+            <hr class="my-4" />
+            <h2 class="h6 fw-semibold">Run telemetry — <code>@telemetry.RunId</code></h2>
+            <div class="row g-3">
+                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Cost</div><div>@telemetry.CostUsd.ToString("C4")</div></div></div>
+                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Tokens</div><div>@telemetry.TotalTokens.ToString("N0") (in @telemetry.InputTokens.ToString("N0") / out @telemetry.OutputTokens.ToString("N0") / cache @telemetry.CacheTokens.ToString("N0"))</div></div></div>
+                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Duration</div><div>@(telemetry.DurationSeconds?.ToString("F1") ?? "—")s</div></div></div>
+                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Budget cap</div><div>@(telemetry.BudgetCapUsd?.ToString("C2") ?? "—")</div></div></div>
+            </div>
+            <table class="table table-sm mt-3">
+                <thead><tr><th>When</th><th>Agent</th><th>Model</th><th>Stage</th><th class="text-end">Tokens</th><th class="text-end">Cost</th></tr></thead>
+                <tbody>
+                    @foreach (var m in telemetry.Metrics)
+                    {
+                        <tr>
+                            <td class="small">@m.RecordedAtUtc.ToString("HH:mm:ss")</td>
+                            <td>@m.AgentType</td>
+                            <td><code class="small">@(m.ModelName ?? "—")</code></td>
+                            <td class="small">@(m.StageKey ?? "—")</td>
+                            <td class="text-end">@((m.InputTokens + m.OutputTokens + m.CacheTokens).ToString("N0"))</td>
+                            <td class="text-end">@m.CostUsd.ToString("C4")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    private string _period = "last-30-days";
+    private string _runIdQuery = string.Empty;
+    private FinOpsSummaryDto? _summary;
+    private RunTelemetryDto? _telemetry;
+    private bool _loading;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task SetPeriodAsync(string period)
+    {
+        _period = period;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            _summary = await Client.GetFinOpsSummaryAsync(_period);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to load FinOps summary: {ex.Message}"));
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnRunKeyUpAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !string.IsNullOrWhiteSpace(_runIdQuery))
+        {
+            _telemetry = await Client.GetRunTelemetryAsync(_runIdQuery.Trim());
+            if (_telemetry is null)
+            {
+                ToastService.Notify(new(ToastType.Warning, $"No telemetry found for run '{_runIdQuery}'."));
+            }
+        }
+    }
+
+    private static string BarWidth(decimal value, IReadOnlyDictionary<string, decimal> map)
+    {
+        var max = map.Count > 0 ? map.Values.Max() : 0m;
+        return max <= 0 ? "0" : ((double)(value / max) * 100).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+}

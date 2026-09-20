@@ -298,6 +298,23 @@ GET  /api/specs/drift-report
 
 Specs are scanned from `Taskboard:SpecsDir` (default: nearest `.specs/` directory walking up from the app base) — parsed live on every request via `MarkdigSpecParser`, so the file on disk is always the source of truth. The Blazor page is `/specs`.
 
+### Observability & FinOps (E14)
+
+```http
+GET /api/harness/finops/summary?period={last-7-days|last-30-days|all}
+GET /api/harness/runs/{id}/telemetry
+```
+
+`GET summary` → `200 { totalCostUsd, totalTokens, runsCount, costByAgent{}, costByModel{}, dailyCosts: [{ date, costUsd, totalTokens }] }` aggregated from `RunCostMetrics` (SQLite). `period` defaults to `last-30-days`.
+
+`GET telemetry` → `200 { runId, totalTokens, inputTokens, outputTokens, cacheTokens, costUsd, durationSeconds?, budgetCapUsd?, metrics[] }` or `404` when the run has no recorded metrics. Accepts the `Guid` id with or without dashes.
+
+Cost model: `RunCostMetric` rows are recorded whenever an agent reports token usage (stdout `usage`/`token_count` JSON lines parsed by `TokenUsageParser`, or `AgentExecutionResult.Usage`). USD cost is exact `decimal` math against the seeded `ModelPriceRates` table — longest-prefix model match, `"*"` fallback (RF-002).
+
+Budget caps: `AgentExecutionRequest.maxBudgetUsd` (per run) and `PipelineStartRequest.maxBudgetUsd` (per pipeline) — when cumulative cost crosses the cap the run is cancelled and finished with `AgentRunState.BudgetExceeded` (mid-flight when the CLI streams usage, post-run otherwise); over-cap pipelines are cancelled before the next stage dispatch and their stages are skipped (RF-003).
+
+Telemetry: every run/stage/verification emits `System.Diagnostics.Activity` spans from the `Taskboard.Harness` activity source (`harness.run`, `harness.stage`, `harness.tool_call`, `harness.verification`) tagged with `harness.run_id`, `agent.type`, `model.name`, `tokens.*`, `cost.usd` (RF-004). Spans are in-process only unless `Taskboard:Telemetry:OtlpEndpoint` is set in `appsettings.json` — nothing is exported without explicit configuration (guardrail §8). The Blazor dashboard is `/finops`.
+
 ## SSE
 
 ### Global events

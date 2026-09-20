@@ -31,6 +31,8 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<CliDailyUsageAggregate> CliDailyUsageAggregates => Set<CliDailyUsageAggregate>();
     public DbSet<PipelineExecution> PipelineExecutions => Set<PipelineExecution>();
     public DbSet<PipelineStageExecution> PipelineStageExecutions => Set<PipelineStageExecution>();
+    public DbSet<ModelPriceRate> ModelPriceRates => Set<ModelPriceRate>();
+    public DbSet<RunCostMetric> RunCostMetrics => Set<RunCostMetric>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

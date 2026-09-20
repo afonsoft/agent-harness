@@ -259,6 +259,7 @@ else if (_columns is not null)
         AgentRunState.Succeeded => "succeeded",
         AgentRunState.Failed => "failed",
         AgentRunState.Canceled => "canceled",
+        AgentRunState.BudgetExceeded => "budget-exceeded",
         _ => state.ToString().ToLowerInvariant()
     };
 

@@ -7,6 +7,7 @@ using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Dtos;
+using Taskboard.Harness.FinOps;
 using Taskboard.Requests;
 
 namespace Taskboard.Blazor.Services;
@@ -329,6 +330,23 @@ public sealed class TaskboardClient
         var response = await _httpClient.PostAsync("/api/local/cli-metrics/sync", content: null, cancellationToken);
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<CliMetricsSyncResultDto>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Summary FinOps agregado (E14) — `last-7-days` | `last-30-days` | `all`.</summary>
+    public async Task<FinOpsSummaryDto?> GetFinOpsSummaryAsync(
+        string period = "last-30-days", CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<FinOpsSummaryDto>(
+            $"/api/harness/finops/summary?period={Uri.EscapeDataString(period)}", cancellationToken);
+
+    /// <summary>Telemetria detalhada de um run (E14); null quando sem métricas.</summary>
+    public async Task<RunTelemetryDto?> GetRunTelemetryAsync(
+        string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/telemetry", cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<RunTelemetryDto>(cancellationToken)
             : null;
     }
 

@@ -564,7 +564,7 @@ else
             {
                 var runs = await OrchestrationService.GetRunsAsync(issueId, 1, ct);
                 var latest = runs.FirstOrDefault();
-                if (latest?.State is AgentRunState.Succeeded or AgentRunState.Failed or AgentRunState.Canceled)
+                if (latest?.State is AgentRunState.Succeeded or AgentRunState.Failed or AgentRunState.Canceled or AgentRunState.BudgetExceeded)
                 {
                     var ok = latest.State == AgentRunState.Succeeded;
                     await Client.PostAiChatEventAsync(

@@ -1,3 +1,5 @@
+using Taskboard.Agents;
+
 namespace Taskboard.Dtos;
 
 /// <summary>Structured compiler diagnostic extracted from `dotnet build` output (RF-001).</summary>
@@ -28,7 +30,11 @@ public sealed record VerificationRunRequestDto(
     double MinCoverageThreshold,
     bool EnforceFormat = false,
     int MaxAttempts = 1,
-    int Attempt = 1);
+    int Attempt = 1,
+    /// <summary>Owning run id for telemetry correlation (RF-004); optional for manual runs.</summary>
+    string? RunId = null,
+    AgentType? AgentType = null,
+    string? ModelName = null);
 
 /// <summary>
 /// Structured verification report (SPEC §5). <see cref="FeedbackPrompt"/> is the

@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-observability-finops` |
 | Ticket | [#169 — E14](https://github.com/afonsoft/taskboard-ai/issues/169) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -138,19 +138,26 @@ GET /api/harness/runs/{id}/telemetry
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um run que consome 10k tokens de input e 2k tokens de output em Claude 3.7 Sonnet, **when** consultado o custo, **then** o valor calculado corresponde exatamente à taxa configurada.
-- [ ] **Given** um run com teto de $0.50, **when** a execução atinge $0.51, **then** o harness interrompe o agente e registra motivo `BudgetExceeded`.
-- [ ] **Given** spans gerados pelo harness, **when** inspecionados via OpenTelemetry listener, **then** os metadados de `runId` e `agent` estão presentes em todos os spans filhos.
+- [x] **Given** um run que consome 10k tokens de input e 2k tokens de output em Claude 3.7 Sonnet, **when** consultado o custo, **then** o valor calculado corresponde exatamente à taxa configurada. (`TokenCostCalculatorTests` + `FinOpsServiceTests` — $0.06 exato via taxa seedada)
+- [x] **Given** um run com teto de $0.50, **when** a execução atinge $0.51, **then** o harness interrompe o agente e registra motivo `BudgetExceeded`. (`AgentOrchestrationServiceTests` — mid-flight via stream e pós-run)
+- [x] **Given** spans gerados pelo harness, **when** inspecionados via OpenTelemetry listener, **then** os metadados de `runId` e `agent` estão presentes em todos os spans filhos. (`HarnessTelemetrySourceTests` — `harness.run`/`harness.stage`/`harness.verification`)
 
 ---
 
 ## 7. Task Plan
 
-- [ ] **T1 — Telemetry Source & Activity Tags:** Configurar `HarnessTelemetrySource` com OpenTelemetry .NET 10.
-- [ ] **T2 — Domain & Pricing Tables:** Implementar `ModelPriceRate`, seed com preços padrão de mercado e entidade de métricas.
-- [ ] **T3 — Cost Calculator & Budget Guard:** Implementar `TokenCostCalculator` com interceptor de teto de gastos.
-- [ ] **T4 — FinOps Blazor Dashboard:** Desenvolver página `/finops` com cards de totais e gráficos de distribuição.
-- [ ] **T5 — Unit Tests:** Validar cálculos de custo e enforcement de budget cap com xUnit e Shouldly.
+- [x] **T1 — Telemetry Source & Activity Tags:** Configurar `HarnessTelemetrySource` com OpenTelemetry .NET 10.
+- [x] **T2 — Domain & Pricing Tables:** Implementar `ModelPriceRate`, seed com preços padrão de mercado e entidade de métricas.
+- [x] **T3 — Cost Calculator & Budget Guard:** Implementar `TokenCostCalculator` com interceptor de teto de gastos.
+- [x] **T4 — FinOps Blazor Dashboard:** Desenvolver página `/finops` com cards de totais e gráficos de distribuição.
+- [x] **T5 — Unit Tests:** Validar cálculos de custo e enforcement de budget cap com xUnit e Shouldly.
+
+### Deviation notes (implemented)
+
+- `HarnessTelemetrySource`, `TokenCostCalculator`, `TokenUsageParser`, `TokenUsage`, `TokenUsageType`, `ModelPriceRateInfo` live in `Taskboard.Domain.Shared` (not `Taskboard.Integrations`) — `Application` (`PipelineEngine`, `FinOpsService`) cannot reference `Integrations`; these are pure primitives shared across layers (same precedent as E13's `LivingSpecification`).
+- Blazor page at `Components/Pages/FinOps.razor` (all pages live under `Components/Pages/`).
+- `harness.tool_call` span factory exists for future tool-level instrumentation; runs/stages/verification are instrumented today.
+- Pipeline budget enforcement is per-stage boundary: cumulative cost gates the next dispatch and cancels the execution; single-agent runs additionally cancel mid-flight when the CLI streams usage lines.
 
 ---
 
@@ -163,6 +170,6 @@ GET /api/harness/runs/{id}/telemetry
 
 ## 9. Definition of Done
 
-- [ ] Telemetria OpenTelemetry funcional em todos os runs.
-- [ ] Cálculo de custos validado com testes unitários.
-- [ ] Tela de FinOps disponível na UI e teto de orçamento operacional.
+- [x] Telemetria OpenTelemetry funcional em todos os runs.
+- [x] Cálculo de custos validado com testes unitários.
+- [x] Tela de FinOps disponível na UI e teto de orçamento operacional.
