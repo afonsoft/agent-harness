@@ -239,6 +239,8 @@ builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<CliMetricsOptions>(),
     sp.GetRequiredService<ILogger<CliMetricsService>>()));
+builder.Services.AddSingleton<CliMetricsSyncCoordinator>();
+builder.Services.AddHostedService<CliMetricsSyncService>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
