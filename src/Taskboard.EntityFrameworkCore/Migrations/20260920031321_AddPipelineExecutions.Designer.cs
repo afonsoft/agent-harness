@@ -11,7 +11,7 @@ using Taskboard.EntityFrameworkCore.Data;
 namespace Taskboard.EntityFrameworkCore.Migrations
 {
     [DbContext(typeof(TaskboardDbContext))]
-    [Migration("20260920030240_AddPipelineExecutions")]
+    [Migration("20260920031321_AddPipelineExecutions")]
     partial class AddPipelineExecutions
     {
         /// <inheritdoc />
@@ -484,6 +484,11 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<string>("RepositoryFullName")
                         .IsRequired()
                         .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RepositoryPath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Status")

@@ -12,6 +12,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
 
     public string TemplateId { get; private set; } = default!;
     public string RepositoryFullName { get; private set; } = default!;
+    public string RepositoryPath { get; private set; } = default!;
     public string BaseBranch { get; private set; } = default!;
     public string? IssueId { get; private set; }
     public string InitialPrompt { get; private set; } = default!;
@@ -30,6 +31,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
         PipelineExecutionId id,
         PipelineDefinition definition,
         string repositoryFullName,
+        string repositoryPath,
         string baseBranch,
         string? issueId,
         string initialPrompt,
@@ -38,6 +40,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
     {
         TemplateId = definition.TemplateId;
         RepositoryFullName = repositoryFullName;
+        RepositoryPath = repositoryPath;
         BaseBranch = baseBranch;
         IssueId = issueId;
         InitialPrompt = initialPrompt;
@@ -52,6 +55,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
     public static PipelineExecution Create(
         PipelineDefinition definition,
         string repositoryFullName,
+        string repositoryPath,
         string baseBranch,
         string? issueId,
         string initialPrompt,
@@ -71,7 +75,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
 
         return new PipelineExecution(
             PipelineExecutionId.NewGuid(), definition,
-            repositoryFullName, baseBranch, issueId, initialPrompt, now);
+            repositoryFullName, repositoryPath, baseBranch, issueId, initialPrompt, now);
     }
 
     /// <summary>Pending stages whose `DependsOn` are all completed (RF-002).</summary>

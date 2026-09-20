@@ -13,6 +13,7 @@ public sealed record PipelineTemplateDto(
 public sealed record PipelineStartRequest(
     string TemplateId,
     string RepositoryFullName,
+    string RepositoryPath,
     string BaseBranch,
     string? IssueId,
     string InitialPrompt);

@@ -20,6 +20,7 @@ public sealed class PipelineExecutionConfiguration : IEntityTypeConfiguration<Pi
 
         builder.Property(e => e.TemplateId).IsRequired().HasMaxLength(128);
         builder.Property(e => e.RepositoryFullName).IsRequired().HasMaxLength(512);
+        builder.Property(e => e.RepositoryPath).IsRequired().HasMaxLength(1024);
         builder.Property(e => e.BaseBranch).IsRequired().HasMaxLength(256);
         builder.Property(e => e.IssueId).HasMaxLength(64);
         builder.Property(e => e.InitialPrompt).IsRequired().HasMaxLength(16384);

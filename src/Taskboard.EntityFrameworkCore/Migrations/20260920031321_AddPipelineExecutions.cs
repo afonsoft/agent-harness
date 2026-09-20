@@ -18,6 +18,7 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     Id = table.Column<string>(type: "TEXT", maxLength: 128, nullable: false),
                     TemplateId = table.Column<string>(type: "TEXT", maxLength: 128, nullable: false),
                     RepositoryFullName = table.Column<string>(type: "TEXT", maxLength: 512, nullable: false),
+                    RepositoryPath = table.Column<string>(type: "TEXT", maxLength: 1024, nullable: false),
                     BaseBranch = table.Column<string>(type: "TEXT", maxLength: 256, nullable: false),
                     IssueId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
                     InitialPrompt = table.Column<string>(type: "TEXT", maxLength: 16384, nullable: false),
