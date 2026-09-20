@@ -38,6 +38,7 @@ using Taskboard.EntityFrameworkCore.CliMetrics;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Harness;
 using Taskboard.Harness;
+using Taskboard.Harness.FinOps;
 using Taskboard.Application.Configuration;
 using Taskboard.Integrations.Agents;
 using Taskboard.Integrations.CliDb;
@@ -78,6 +79,7 @@ using Taskboard.Server.Middleware;
 using Taskboard.Server.Serialization;
 using Taskboard.Server.Services;
 using ModelContextProtocol.Server;
+using OpenTelemetry.Trace;
 using Taskboard.Mcp.Services;
 using Taskboard.Mcp.Tools;
 using Taskboard.ValueObjects;
@@ -252,11 +254,26 @@ builder.Services.AddHostedService<CliMetricsSyncService>();
 builder.Services.AddSingleton<PipelineEngine>();
 builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>();
 builder.Services.AddHostedService<PipelineEngineService>();
+// SPEC-20260919-ade-observability-finops: métricas de custo + budget caps.
+builder.Services.AddScoped<IFinOpsService, FinOpsService>();
 
 // SPEC-20260919-ade-living-specs: catálogo vivo das specs .specs/SPEC-*.md.
 builder.Services.AddSingleton<ISpecDocumentParser, MarkdigSpecParser>();
 builder.Services.AddSingleton<ISpecAppService, SpecAppService>();
 builder.Services.AddSingleton<ISpecDriftDetector, SpecDriftDetector>();
+
+// SPEC-20260919-ade-observability-finops RF-004: a ActivitySource
+// "Taskboard.Harness" emite spans localmente sem custo; exportação OTLP só é
+// ativada quando explicitamente configurada (guardrail §8 — nenhum dado sai
+// do processo sem consentimento em appsettings.json).
+var otlpEndpoint = builder.Configuration["Taskboard:Telemetry:OtlpEndpoint"];
+if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(tracing => tracing
+            .AddSource(HarnessTelemetrySource.Name)
+            .AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint)));
+}
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -680,6 +697,19 @@ pipelines.MapPost("{id}/cancel", async (
         IPipelineOrchestrator orchestrator,
         CancellationToken ct) =>
     Results.Ok(await orchestrator.CancelAsync(id, ct)));
+
+// SPEC-20260919-ade-observability-finops §5: summary agregado + telemetria por run.
+var finops = api.MapGroup("harness/finops");
+finops.MapGet("summary", async (
+        string? period,
+        IFinOpsService finOps,
+        CancellationToken ct) =>
+    Results.Ok(await finOps.GetSummaryAsync(period ?? "last-30-days", ct)));
+harness.MapGet("runs/{id}/telemetry", async (
+        string id,
+        IFinOpsService finOps,
+        CancellationToken ct) =>
+    await finOps.GetRunTelemetryAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
 
 // SPEC-20260919-ade-living-specs §5: catálogo + drift das specs vivas.
 var specs = api.MapGroup("specs");

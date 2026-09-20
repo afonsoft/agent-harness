@@ -9,5 +9,8 @@ public enum AgentRunState
     Running,
     Succeeded,
     Failed,
-    Canceled
+    Canceled,
+
+    /// <summary>Interrompido por teto de orçamento (SPEC-20260919-ade-observability-finops RF-003).</summary>
+    BudgetExceeded
 }

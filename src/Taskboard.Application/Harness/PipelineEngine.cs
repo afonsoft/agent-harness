@@ -7,6 +7,7 @@ using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Dtos;
 using Taskboard.Harness;
+using Taskboard.Harness.FinOps;
 using Taskboard.Repositories;
 
 namespace Taskboard.Application.Harness;
@@ -98,8 +99,26 @@ public sealed class PipelineEngine
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var finOpsDispatch = scope.ServiceProvider.GetService<IFinOpsService>();
+
         foreach (var exec in active)
         {
+            // E14 RF-003: nunca despacha estágios novos quando o custo
+            // acumulado da execução já passou do teto.
+            if (exec.BudgetCapUsd is { } cap && finOpsDispatch is not null)
+            {
+                var cumulative = await finOpsDispatch.GetCumulativeCostAsync(exec.Id.Value, cancellationToken).ConfigureAwait(false);
+                if (cumulative > cap)
+                {
+                    _logger.LogWarning(
+                        "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
+                        exec.Id.Value, cap, cumulative);
+                    exec.Cancel(DateTime.UtcNow);
+                    await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+            }
+
             if (exec.WorktreePath is null && !await TryAttachWorktreeAsync(exec, repo, isolation, cancellationToken).ConfigureAwait(false))
             {
                 continue;
@@ -182,13 +201,43 @@ public sealed class PipelineEngine
             var exec = await LoadAsync(repo, executionId, cts.Token).ConfigureAwait(false);
             var stage = exec.Stages.Single(s => s.StageKey == stageKey);
 
+            // SPEC-20260919-ade-observability-finops RF-004: stage span.
+            using var stageActivity = HarnessTelemetrySource.StartStageSpan(
+                executionId, stageKey, stage.Agent, modelName: null);
+
+            TokenUsage? usage = null;
             if (stage.Kind is PipelineStageKind.Verification)
             {
                 await RunVerificationStageAsync(exec, stage, cts.Token).ConfigureAwait(false);
             }
             else
             {
-                await RunAgentStageAsync(exec, stage, cts.Token).ConfigureAwait(false);
+                usage = await RunAgentStageAsync(exec, stage, cts.Token).ConfigureAwait(false);
+            }
+
+            // RF-001/RF-002: per-stage cost metric; RF-003: over-cap cancels the
+            // execution so dependent stages never start.
+            var finOps = scope.ServiceProvider.GetService<IFinOpsService>();
+            if (usage is not null && finOps is not null)
+            {
+                var metric = await finOps.RecordUsageAsync(
+                    executionId, stage.Agent ?? AgentType.Codex, modelName: null, usage,
+                    stageKey: stage.StageKey, budgetCapUsd: exec.BudgetCapUsd,
+                    CancellationToken.None).ConfigureAwait(false);
+                HarnessTelemetrySource.RecordUsage(stageActivity, usage, metric.CostUsd);
+
+                if (exec.BudgetCapUsd is { } cap
+                    && exec.Status is not (PipelineStatus.Completed or PipelineStatus.Cancelled))
+                {
+                    var cumulative = await finOps.GetCumulativeCostAsync(executionId, CancellationToken.None).ConfigureAwait(false);
+                    if (cumulative > cap)
+                    {
+                        _logger.LogWarning(
+                            "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
+                            executionId, cap, cumulative);
+                        exec.Cancel(DateTime.UtcNow);
+                    }
+                }
             }
 
             await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
@@ -209,7 +258,7 @@ public sealed class PipelineEngine
         }
     }
 
-    private async Task RunAgentStageAsync(
+    private async Task<TokenUsage?> RunAgentStageAsync(
         PipelineExecution exec, PipelineStageExecution stage, CancellationToken cancellationToken)
     {
         var chunks = new List<string>();
@@ -235,6 +284,24 @@ public sealed class PipelineEngine
         {
             exec.FailStage(stage.StageKey, $"Agent exited with code {result.ExitCode}", now);
         }
+
+        // RF-001: usage reportado no resultado ou varrido das linhas de stdout.
+        TokenUsage? usage = result.Usage;
+        if (usage is null)
+        {
+            lock (chunks)
+            {
+                foreach (var line in chunks)
+                {
+                    if (TokenUsageParser.TryExtract(line) is { } parsed)
+                    {
+                        usage = parsed; // última linha com usage vence (contadores cumulativos)
+                    }
+                }
+            }
+        }
+
+        return usage;
     }
 
     private async Task RunVerificationStageAsync(

@@ -6,6 +6,8 @@ using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.GitHub;
+using Taskboard.Harness;
+using Taskboard.Harness.FinOps;
 using Taskboard.Integrations.Agents;
 using Xunit;
 
@@ -408,6 +410,95 @@ public class AgentOrchestrationServiceTests
         }
     }
 
+    [Fact]
+    public async Task Dado_TetoBudget_Quando_UsageEmStreamExcede_Entao_CancelaEMarcaBudgetExceeded()
+    {
+        // AC2: cap $0.50 — usage reportado em stream ($0.51) cancela o processo.
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var progress = callInfo.Arg<IProgress<AgentLogMessage>>();
+                progress.Report(new AgentLogMessage(
+                    DateTimeOffset.UtcNow, "issue-1", AgentLogStream.StdOut,
+                    """{"type":"result","usage":{"input_tokens":170000,"output_tokens":0}}"""));
+                return AguardarCancelamentoAsync(callInfo.Arg<CancellationToken>());
+            });
+        var runRepository = Substitute.For<IAgentRunRepository>();
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentRunDto(
+                Guid.NewGuid(), "issue-1", AgentType.Codex, AgentRunState.Queued,
+                DateTimeOffset.UtcNow, null)));
+        var finOps = Substitute.For<IFinOpsService>();
+        finOps.GetCumulativeCostAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(0m));
+        finOps.ComputeCostAsync(Arg.Any<string?>(), Arg.Any<TokenUsage>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(0.51m));
+        var service = CriarService(acpClient: acpClient, agentRunRepository: runRepository, finOps: finOps);
+        var request = CriarRequest() with { MaxBudgetUsd = 0.50m };
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(() => Task.FromResult(
+                runRepository.ReceivedCalls().Any(call =>
+                    call.GetMethodInfo().Name == nameof(IAgentRunRepository.FinishAsync))));
+
+            await runRepository.Received(1).FinishAsync(
+                Arg.Any<Guid>(), AgentRunState.BudgetExceeded, Arg.Any<CancellationToken>());
+            (await service.GetLogsAsync(request.IssueId))
+                .ShouldContain(log => log.Content.Contains("budget"));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Dado_TetoBudget_Quando_CustoFinalExcede_Entao_MarcaBudgetExceeded()
+    {
+        // RF-003 pós-run: CLI só reporta usage no resultado final.
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(0, true, new TokenUsage(170_000, 0, 0, 0))));
+        var runRepository = Substitute.For<IAgentRunRepository>();
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentRunDto(
+                Guid.NewGuid(), "issue-1", AgentType.Codex, AgentRunState.Queued,
+                DateTimeOffset.UtcNow, null)));
+        var finOps = Substitute.For<IFinOpsService>();
+        finOps.RecordUsageAsync(
+                Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<string?>(),
+                Arg.Any<TokenUsage>(), Arg.Any<string?>(), Arg.Any<decimal?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new RunCostMetricDto("run", null, "Codex", "gpt-5", 170_000, 0, 0, 0.51m, DateTimeOffset.UtcNow)));
+        finOps.GetCumulativeCostAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(0.51m));
+        var service = CriarService(acpClient: acpClient, agentRunRepository: runRepository, finOps: finOps);
+        var request = CriarRequest() with { MaxBudgetUsd = 0.50m };
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(() => Task.FromResult(
+                runRepository.ReceivedCalls().Any(call =>
+                    call.GetMethodInfo().Name == nameof(IAgentRunRepository.FinishAsync))));
+
+            await runRepository.Received(1).FinishAsync(
+                Arg.Any<Guid>(), AgentRunState.BudgetExceeded, Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static WorktreeSessionDto CriarSession(string runId, string path)
         => new(
             "wt-1", runId, path, "feature/agent-x-y", "Active",
@@ -431,7 +522,8 @@ public class AgentOrchestrationServiceTests
         IAgentLogRepository? agentLogRepository = null,
         IAgentRunRepository? agentRunRepository = null,
         IGitHubService? gitHubService = null,
-        IWorkspaceIsolationService? isolation = null)
+        IWorkspaceIsolationService? isolation = null,
+        IFinOpsService? finOps = null)
     {
         var repository = agentLogRepository ?? Substitute.For<IAgentLogRepository>();
         var runRepository = agentRunRepository ?? Substitute.For<IAgentRunRepository>();
@@ -451,6 +543,7 @@ public class AgentOrchestrationServiceTests
         services.AddScoped(_ => runRepository);
         services.AddScoped(_ => eligibilityService);
         services.AddScoped(_ => modelConfig);
+        services.AddScoped(_ => finOps ?? Substitute.For<IFinOpsService>());
         if (isolation is not null)
         {
             services.AddScoped(_ => isolation);

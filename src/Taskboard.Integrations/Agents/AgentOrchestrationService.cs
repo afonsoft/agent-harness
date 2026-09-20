@@ -7,6 +7,8 @@ using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.GitHub;
+using Taskboard.Harness;
+using Taskboard.Harness.FinOps;
 
 namespace Taskboard.Integrations.Agents;
 
@@ -159,9 +161,37 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Starting {request.AgentType} on {request.RepoPath}..."));
         await UpdateRunAsync(job.RunId, (repo, id) => repo.MarkRunningAsync(id, CancellationToken.None), stoppingToken);
 
+        // SPEC-20260919-ade-observability-finops RF-004: root span for the run.
+        // Child spans (stages, verification) inherit this trace context.
+        using var runActivity = HarnessTelemetrySource.StartRunSpan(
+            worktreeRunId, request.AgentType, request.ResolvedModelName);
+
+        // RF-001/RF-003: token usage streamed on stdout is tracked live so a
+        // run that crosses its budget cap is cancelled mid-flight.
+        TokenUsage? latestUsage = null;
+        var budgetExceeded = false;
+
         var progress = new Progress<AgentLogMessage>(async message =>
         {
             AppendLog(message.IssueId, message);
+            if (message.Stream == AgentLogStream.StdOut
+                && TokenUsageParser.TryExtract(message.Content) is { } parsed)
+            {
+                latestUsage = parsed;
+                if (!budgetExceeded && request.MaxBudgetUsd is { } cap)
+                {
+                    var cumulative = await TryComputeCumulativeCostAsync(request, worktreeRunId, latestUsage);
+                    if (cumulative > cap)
+                    {
+                        budgetExceeded = true;
+                        AppendLog(request.IssueId, new AgentLogMessage(
+                            DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                            $"Budget cap ${cap:F2} exceeded (${cumulative:F4} cumulative) — cancelling run."));
+                        cancellationTokenSource.Cancel();
+                    }
+                }
+            }
+
             await _logBroadcaster.BroadcastAsync(message);
         });
 
@@ -171,12 +201,38 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
 
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Agent finished with exit code {result.ExitCode}."));
 
-            if (result.IsSuccess)
+            // RF-001/RF-002: persist the run's cost metric when usage was
+            // reported; RF-003: post-run check catches CLIs that only emit
+            // usage at the end.
+            var usage = result.Usage ?? latestUsage;
+            if (usage is not null)
+            {
+                var cost = await TryRecordUsageAsync(request, worktreeRunId, usage);
+                HarnessTelemetrySource.RecordUsage(runActivity, usage, cost);
+                if (!budgetExceeded && request.MaxBudgetUsd is { } postCap)
+                {
+                    var cumulative = await TryComputeCumulativeCostAsync(request, worktreeRunId, TokenUsage.Zero);
+                    if (cumulative > postCap)
+                    {
+                        budgetExceeded = true;
+                        AppendLog(request.IssueId, new AgentLogMessage(
+                            DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                            $"Budget cap ${postCap:F2} exceeded (${cumulative:F4}) at run end."));
+                    }
+                }
+            }
+
+            if (budgetExceeded)
+            {
+                await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.BudgetExceeded, CancellationToken.None), stoppingToken);
+                await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+            }
+            else if (result.IsSuccess)
             {
                 // SPEC-20260919-harness-verification-loop RF-004/RF-005: quando o
                 // run opta por verificação, o agente é re-invocado com o feedback
                 // até passar ou esgotar tentativas (→ EscalatedToHuman).
-                var report = await RunVerificationLoopAsync(request, isolation, progress, cancellationTokenSource.Token);
+                var report = await RunVerificationLoopAsync(request, isolation, progress, worktreeRunId, cancellationTokenSource.Token);
                 if (report is { IsSuccess: false })
                 {
                     AppendLog(request.IssueId, new AgentLogMessage(
@@ -200,8 +256,13 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         }
         catch (OperationCanceledException)
         {
-            AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, "Agent execution was cancelled."));
-            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Canceled, CancellationToken.None), stoppingToken);
+            // RF-003: cancelamento disparado pelo budget cap finaliza como
+            // BudgetExceeded, não Canceled.
+            var finalState = budgetExceeded ? AgentRunState.BudgetExceeded : AgentRunState.Canceled;
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                budgetExceeded ? "Agent stopped: budget cap exceeded." : "Agent execution was cancelled."));
+            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, finalState, CancellationToken.None), stoppingToken);
             await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
         }
         catch (Exception ex)
@@ -218,6 +279,51 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     }
 
     /// <summary>
+    /// RF-001/RF-002: persists the cost metric for the run. Telemetry must
+    /// never break orchestration — failures are logged to the run stream.
+    /// Returns the computed USD cost (0 on failure).
+    /// </summary>
+    private async Task<decimal> TryRecordUsageAsync(AgentExecutionRequest request, string runId, TokenUsage usage)
+    {
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var finOps = scope.ServiceProvider.GetRequiredService<IFinOpsService>();
+            var metric = await finOps.RecordUsageAsync(
+                runId, request.AgentType, request.ResolvedModelName, usage,
+                budgetCapUsd: request.MaxBudgetUsd,
+                cancellationToken: CancellationToken.None);
+            return metric.CostUsd;
+        }
+        catch (Exception ex)
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"FinOps usage recording failed: {ex.Message}"));
+            return 0m;
+        }
+    }
+
+    /// <summary>Recorded metrics + cost of the in-flight usage sample (RF-003).</summary>
+    private async Task<decimal> TryComputeCumulativeCostAsync(AgentExecutionRequest request, string runId, TokenUsage pendingUsage)
+    {
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var finOps = scope.ServiceProvider.GetRequiredService<IFinOpsService>();
+            var recorded = await finOps.GetCumulativeCostAsync(runId, CancellationToken.None);
+            return recorded + await finOps.ComputeCostAsync(request.ResolvedModelName, pendingUsage, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"FinOps cost computation failed: {ex.Message}"));
+            return 0m;
+        }
+    }
+
+    /// <summary>
     /// Opt-in post-run verification (RF-004/RF-005). The retry callback
     /// re-invokes the same agent with the structured failure prompt; exhausted
     /// retries surface as <c>EscalatedToHuman</c>. Returns null when the run
@@ -227,6 +333,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         AgentExecutionRequest request,
         WorktreeSessionDto? isolation,
         IProgress<AgentLogMessage> progress,
+        string runId,
         CancellationToken cancellationToken)
     {
         if (request.VerifySolutionFile is not { } solutionFile)
@@ -242,7 +349,10 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             worktreePath,
             solutionFile,
             request.VerifyMinCoverage ?? 0.0,
-            MaxAttempts: request.VerifyMaxAttempts ?? 3);
+            MaxAttempts: request.VerifyMaxAttempts ?? 3,
+            RunId: runId,
+            AgentType: request.AgentType,
+            ModelName: request.ResolvedModelName);
 
         return await loop.RunAsync(verifyRequest, async (prompt, retryCt) =>
         {

@@ -25,6 +25,7 @@ public sealed class PipelineExecutionConfiguration : IEntityTypeConfiguration<Pi
         builder.Property(e => e.IssueId).HasMaxLength(64);
         builder.Property(e => e.InitialPrompt).IsRequired().HasMaxLength(16384);
         builder.Property(e => e.WorktreePath).HasMaxLength(1024);
+        builder.Property(e => e.BudgetCapUsd).HasPrecision(18, 6);
 
         builder.Property(e => e.Status)
             .IsRequired()

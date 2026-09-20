@@ -42,7 +42,8 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
 
         var execution = PipelineExecution.Create(
             definition, request.RepositoryFullName, request.RepositoryPath,
-            request.BaseBranch, request.IssueId, request.InitialPrompt, DateTime.UtcNow);
+            request.BaseBranch, request.IssueId, request.InitialPrompt, DateTime.UtcNow,
+            request.MaxBudgetUsd);
         await _executions.AddAsync(execution, cancellationToken).ConfigureAwait(false);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

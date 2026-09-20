@@ -16,7 +16,9 @@ public sealed record PipelineStartRequest(
     string RepositoryPath,
     string BaseBranch,
     string? IssueId,
-    string InitialPrompt);
+    string InitialPrompt,
+    /// <summary>Budget cap in USD — cumulative stage cost above this cancels the execution (E14 RF-003).</summary>
+    decimal? MaxBudgetUsd = null);
 
 /// <summary>Body for `POST .../stages/{stageKey}/approve`.</summary>
 public sealed record PipelineApproveRequest(string? Comment);

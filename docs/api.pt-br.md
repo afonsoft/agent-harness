@@ -299,6 +299,23 @@ GET  /api/specs/drift-report
 
 As specs são lidas de `Taskboard:SpecsDir` (padrão: `.specs/` mais próximo subindo a partir do diretório do app) — parseadas a cada request pelo `MarkdigSpecParser`, então o arquivo em disco é sempre a fonte da verdade. A página Blazor é `/specs`.
 
+### Observabilidade & FinOps (E14)
+
+```http
+GET /api/harness/finops/summary?period={last-7-days|last-30-days|all}
+GET /api/harness/runs/{id}/telemetry
+```
+
+`GET summary` → `200 { totalCostUsd, totalTokens, runsCount, costByAgent{}, costByModel{}, dailyCosts: [{ date, costUsd, totalTokens }] }` agregado de `RunCostMetrics` (SQLite). `period` padrão: `last-30-days`.
+
+`GET telemetry` → `200 { runId, totalTokens, inputTokens, outputTokens, cacheTokens, costUsd, durationSeconds?, budgetCapUsd?, metrics[] }` ou `404` quando o run não tem métricas. Aceita o id `Guid` com ou sem hífens.
+
+Modelo de custo: linhas `RunCostMetric` são gravadas quando o agente reporta uso de tokens (linhas JSON `usage`/`token_count` no stdout parseadas pelo `TokenUsageParser`, ou `AgentExecutionResult.Usage`). O custo USD usa matemática `decimal` exata contra a tabela seedada `ModelPriceRates` — match por prefixo mais longo, fallback `"*"` (RF-002).
+
+Teto de orçamento: `AgentExecutionRequest.maxBudgetUsd` (por run) e `PipelineStartRequest.maxBudgetUsd` (por pipeline) — quando o custo acumulado cruza o teto o run é cancelado e finaliza como `AgentRunState.BudgetExceeded` (mid-flight quando o CLI streama usage, pós-run caso contrário); pipelines acima do teto são canceladas antes do próximo dispatch de estágio e os estágios restantes são pulados (RF-003).
+
+Telemetria: cada run/estágio/verificação emite spans `System.Diagnostics.Activity` da fonte `Taskboard.Harness` (`harness.run`, `harness.stage`, `harness.tool_call`, `harness.verification`) com tags `harness.run_id`, `agent.type`, `model.name`, `tokens.*`, `cost.usd` (RF-004). Os spans ficam em processo a menos que `Taskboard:Telemetry:OtlpEndpoint` esteja configurado no `appsettings.json` — nada é exportado sem configuração explícita (guardrail §8). O dashboard Blazor é `/finops`.
+
 ## SSE
 
 ### Eventos globais

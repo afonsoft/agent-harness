@@ -29,6 +29,11 @@ public sealed class DotNetVerificationEngine : IVerificationEngine
         VerificationRunRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        // SPEC-20260919-ade-observability-finops RF-004: verification span —
+        // inherits the run/stage trace context when dispatched under one.
+        using var activity = HarnessTelemetrySource.StartVerificationSpan(
+            request.RunId ?? "manual", request.AgentType, request.ModelName);
+
         var solution = Path.GetFullPath(request.SolutionFile, request.WorktreePath);
 
         // 1. Format (opt-in).

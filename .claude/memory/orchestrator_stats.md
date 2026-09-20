@@ -479,3 +479,18 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 731 · integration: ✅ 187/188 (flakes conhecidos: `PostMcpRemove` — `.claude.json` real; `CliMetricsEndpoints.SyncManual` — race do sync de startup com o coordinator single-flight; ambos passam isolados)
 - Decisões: `LivingSpecification` em Domain.Shared (Integrations não referencia Domain — layering real do repo); specs file-backed — sem tabela EF, disco = fonte da verdade; `repositoryPath` no detail DTO = parent de `.specs/` (alvo do "Run with Agent").
+
+### Phase 4 — E14 Observability & FinOps (branch `feature/devin-20260920-ade-observability-finops`)
+
+| Slice | Issue | Entrega |
+|---|---|---|
+| S1 | #226 | `HarnessTelemetrySource` (Domain.Shared — Application não vê Integrations): spans `harness.run`/`harness.stage`/`harness.tool_call`/`harness.verification` com tags `harness.run_id`/`agent.type`/`model.name`/`tokens.*`/`cost.usd`; spans em run (orchestrator), stage (PipelineEngine) e verification (DotNetVerificationEngine, RunId/AgentType/ModelName no request DTO); OTLP só quando `Taskboard:Telemetry:OtlpEndpoint` configurado (guardrail §8); pacotes OpenTelemetry 1.19.0 + OTLP exporter + Extensions.Hosting |
+| S2 | #227 | `TokenUsageType`/`TokenUsage`/`ModelPriceRateInfo` (Domain.Shared); `RunCostMetric` + `ModelPriceRate` (Domain, `decimal` em tudo); `AgentRunState.BudgetExceeded`; `PipelineExecution.BudgetCapUsd`; EF configs + seed `HasData` (12 rates: anthropic/openai/deepseek/google + `*` fallback); migration `AddFinOpsMetrics` |
+| S3 | #228 | `TokenCostCalculator` (exact→prefixo mais longo→`*`, matemática decimal exata); `TokenUsageParser` (linhas JSON stdout: Claude `usage`, Codex `token_count`/`total_token_usage`, OpenAI `prompt/completion_tokens`); `IFinOpsService`/`FinOpsService` (record/cumulative/summary/telemetry, runId normalizado Guid↔"N"); `AgentExecutionRequest.MaxBudgetUsd` + `AgentExecutionResult.Usage`; orchestrator cancela mid-flight quando usage streamada cruza o cap → `BudgetExceeded`; PipelineEngine: gate pré-dispatch + métrica por estágio + cancel pós-estágio |
+| S4 | #229 | Endpoints `GET /api/harness/finops/summary?period=` e `GET /api/harness/runs/{id}/telemetry`; página `/finops` (cards, barras por agente/modelo, burn diário, lookup de run); `TaskboardClient` + NavMenu |
+| S5 | #230 | 39 testes novos (calculator AC1 exato, parser 3 formatos, service, budget mid-flight+pós-run, span tags AC3, 4 integração endpoints); docs en/pt-br; SPEC→Done |
+
+### Verificação E14
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 755 · integration: ✅ 192 (flakes conhecidos passaram neste run)
+- Decisões: primitivos de telemetria/custo/parser em Domain.Shared (mesmo desvio de E13 — `Application`/`Integrations` não se referenciam); `DateTime` (não `DateTimeOffset`) em `RunCostMetric.RecordedAtUtc` — SQLite não traduz comparações/ORDER BY de DateTimeOffset; telemetry nunca quebra orquestração (helpers `Try*` com AppendLog de aviso); `IFinOpsService` resolvido por escopo no engine via `GetService` (null-safe nos testes).

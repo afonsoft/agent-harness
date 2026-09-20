@@ -17,4 +17,6 @@ public sealed record AgentExecutionRequest(
     /// <summary>Opt-in: run the verification loop on this solution after the agent finishes (SPEC-20260919-harness-verification-loop).</summary>
     string? VerifySolutionFile = null,
     double? VerifyMinCoverage = null,
-    int? VerifyMaxAttempts = null);
+    int? VerifyMaxAttempts = null,
+    /// <summary>Budget cap in USD — the run is interrupted with state BudgetExceeded when exceeded (SPEC-20260919-ade-observability-finops RF-003).</summary>
+    decimal? MaxBudgetUsd = null);

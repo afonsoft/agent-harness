@@ -57,7 +57,7 @@ public sealed class AgentRun : Entity<Guid>
     {
         if (finalState is AgentRunState.Queued or AgentRunState.Running)
         {
-            throw new ArgumentException("Final state must be Succeeded, Failed or Canceled.", nameof(finalState));
+            throw new ArgumentException("Final state must be Succeeded, Failed, Canceled or BudgetExceeded.", nameof(finalState));
         }
 
         State = finalState;

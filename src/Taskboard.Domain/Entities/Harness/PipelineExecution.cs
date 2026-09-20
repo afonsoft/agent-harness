@@ -17,6 +17,9 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
     public string? IssueId { get; private set; }
     public string InitialPrompt { get; private set; } = default!;
     public string? WorktreePath { get; private set; }
+
+    /// <summary>Budget cap in USD — cumulative stage cost above this cancels the execution (E14 RF-003).</summary>
+    public decimal? BudgetCapUsd { get; private set; }
     public PipelineStatus Status { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? CompletedAtUtc { get; private set; }
@@ -35,6 +38,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
         string baseBranch,
         string? issueId,
         string initialPrompt,
+        decimal? budgetCapUsd,
         DateTime now)
         : base(id)
     {
@@ -44,6 +48,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
         BaseBranch = baseBranch;
         IssueId = issueId;
         InitialPrompt = initialPrompt;
+        BudgetCapUsd = budgetCapUsd;
         Status = PipelineStatus.Running;
         CreatedAtUtc = now;
         foreach (var stage in definition.Stages)
@@ -59,7 +64,8 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
         string baseBranch,
         string? issueId,
         string initialPrompt,
-        DateTime now)
+        DateTime now,
+        decimal? budgetCapUsd = null)
     {
         definition.Validate();
         if (string.IsNullOrWhiteSpace(repositoryFullName))
@@ -75,7 +81,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
 
         return new PipelineExecution(
             PipelineExecutionId.NewGuid(), definition,
-            repositoryFullName, repositoryPath, baseBranch, issueId, initialPrompt, now);
+            repositoryFullName, repositoryPath, baseBranch, issueId, initialPrompt, budgetCapUsd, now);
     }
 
     /// <summary>Pending stages whose `DependsOn` are all completed (RF-002).</summary>
