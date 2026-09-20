@@ -163,10 +163,11 @@ public sealed partial class SpecAppService : ISpecAppService
             s.Tasks.Count, s.Tasks.Count(t => t.Done),
             s.Warnings.Select(w => $"{w.Code}: {w.Message}").ToList());
 
-    private static LivingSpecDetailDto ToDetailDto(LivingSpecification s, string markdown) =>
+    private LivingSpecDetailDto ToDetailDto(LivingSpecification s, string markdown) =>
         new(
             s.Id, s.Title, s.Type, s.Status.ToString(), s.RawStatus,
             s.Date?.ToString("yyyy-MM-dd"), s.Ticket, s.Branch,
+            _specsDir is null ? null : Directory.GetParent(_specsDir)?.FullName,
             s.Requirements.Select(r => new SpecRequirementDto(r.Code, r.Title)).ToList(),
             s.AcceptanceCriteria,
             s.Tasks.Select(t => new SpecTaskDto(t.Title, t.Done)).ToList(),

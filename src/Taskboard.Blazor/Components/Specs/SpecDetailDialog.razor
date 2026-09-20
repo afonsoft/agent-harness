@@ -1,0 +1,104 @@
+@inject TaskboardClient Client
+
+@*
+    SPEC-20260919-ade-living-specs RF-003: viewer rico de spec — metadados,
+    requisitos, critérios BDD, tasks e markdown renderizado (sanitizado).
+*@
+
+@if (_spec is null)
+{
+    <Loading Message="Loading spec..." />
+}
+else
+{
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <Badge Color="@StatusColor(_spec.Status)">@_spec.Status</Badge>
+        @if (_spec.Type is { } type)
+        {
+            <Badge Color="BadgeColor.Secondary">@type</Badge>
+        }
+        @if (_spec.Date is { } date)
+        {
+            <span class="small text-body-secondary">@date</span>
+        }
+        @if (_spec.Ticket is { } ticket)
+        {
+            <span class="small text-body-secondary">@((MarkupString)ticket)</span>
+        }
+    </div>
+
+    @if (_spec.Warnings.Count > 0)
+    {
+        <Alert Color="AlertColor.Warning" Dismissable="false">
+            <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />
+            @string.Join(" · ", _spec.Warnings)
+        </Alert>
+    }
+
+    @if (_spec.Requirements.Count > 0)
+    {
+        <h6 class="fw-semibold mt-3">Requirements (@_spec.Requirements.Count)</h6>
+        <table class="table table-sm align-middle">
+            <tbody>
+                @foreach (var r in _spec.Requirements)
+                {
+                    <tr>
+                        <td class="text-nowrap"><Badge Color="BadgeColor.Info">@r.Code</Badge></td>
+                        <td class="small">@r.Title</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (_spec.AcceptanceCriteria.Count > 0)
+    {
+        <h6 class="fw-semibold mt-3">Acceptance criteria (@_spec.AcceptanceCriteria.Count)</h6>
+        <ul class="small">
+            @foreach (var c in _spec.AcceptanceCriteria)
+            {
+                <li>@c</li>
+            }
+        </ul>
+    }
+
+    @if (_spec.Tasks.Count > 0)
+    {
+        <h6 class="fw-semibold mt-3">Tasks (@_spec.Tasks.Count(t => t.Done)/@_spec.Tasks.Count)</h6>
+        <ul class="small list-unstyled">
+            @foreach (var t in _spec.Tasks)
+            {
+                <li>
+                    <Icon Name="@(t.Done ? IconName.CheckCircleFill : IconName.Circle)"
+                          class="@(t.Done ? "me-1 text-success" : "me-1 text-body-secondary")" />
+                    @t.Title
+                </li>
+            }
+        </ul>
+    }
+
+    <h6 class="fw-semibold mt-3">Document</h6>
+    <div class="spec-markdown border rounded p-3 small">
+        @((MarkupString)MarkdownRenderer.ToSafeHtml(_spec.Markdown))
+    </div>
+}
+
+@code {
+    [Parameter] public string SpecId { get; set; } = "";
+
+    private LivingSpecDetailDto? _spec;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _spec = await Client.GetSpecAsync(SpecId);
+    }
+
+    internal static BadgeColor StatusColor(string status) => status switch
+    {
+        "Done" => BadgeColor.Success,
+        "Approved" => BadgeColor.Primary,
+        "InImplementation" => BadgeColor.Info,
+        "Deprecated" => BadgeColor.Secondary,
+        _ => BadgeColor.Warning
+    };
+}

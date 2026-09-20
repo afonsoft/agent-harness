@@ -25,6 +25,8 @@ public sealed record LivingSpecDetailDto(
     string? Date,
     string? Ticket,
     string? Branch,
+    /// <summary>Repo root containing the spec file — target for "Run with Agent".</summary>
+    string? RepositoryPath,
     IReadOnlyList<SpecRequirementDto> Requirements,
     IReadOnlyList<string> AcceptanceCriteria,
     IReadOnlyList<SpecTaskDto> Tasks,
