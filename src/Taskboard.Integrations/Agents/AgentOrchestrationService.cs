@@ -24,6 +24,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     private readonly IGitHubService _gitHubService;
     private readonly Channel<QueuedJob> _channel = Channel.CreateUnbounded<QueuedJob>();
     private readonly ConcurrentDictionary<string, RunningJob> _running = new();
+    private readonly ConcurrentDictionary<Guid, byte> _liveRunIds = new();
     private readonly ConcurrentDictionary<string, List<AgentLogMessage>> _logs = new();
 
     public AgentOrchestrationService(
@@ -87,10 +88,18 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         request = request with { ResolvedModelName = resolvedModel };
 
         var runId = await TryCreateRunAsync(request, cancellationToken);
+        if (runId is { } id)
+        {
+            _liveRunIds.TryAdd(id, 0);
+        }
+
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Queued {request.AgentType} for issue {request.IssueId}."));
         _channel.Writer.TryWrite(new QueuedJob(request, runId));
         return true;
     }
+
+    /// <summary>RunIds enfileirados/em execução neste processo (SPEC-20260920-harness-maintenance-jobs RF-002).</summary>
+    public IReadOnlyCollection<Guid> GetLiveRunIds() => _liveRunIds.Keys.ToArray();
 
     public async Task<IReadOnlyList<AgentLogMessage>> GetLogsAsync(string issueId, CancellationToken cancellationToken = default)
     {
@@ -274,6 +283,11 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         finally
         {
             _running.TryRemove(request.IssueId, out _);
+            if (job.RunId is { } finishedRunId)
+            {
+                _liveRunIds.TryRemove(finishedRunId, out _);
+            }
+
             cancellationTokenSource.Dispose();
         }
     }

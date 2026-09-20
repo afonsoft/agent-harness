@@ -265,6 +265,11 @@ builder.Services.AddScoped<IFinOpsService, FinOpsService>();
 // SPEC-20260920-harness-recurring-jobs: projeção de custo sobre uso CLI a cada 30s.
 builder.Services.AddScoped<FinOpsAggregator>();
 builder.Services.AddHostedService<FinOpsAggregationService>();
+// SPEC-20260920-harness-maintenance-jobs: reaper de runs stale + drift scan horário.
+builder.Services.AddScoped<StaleRunReaper>();
+builder.Services.AddHostedService<StaleAgentRunReaperService>();
+builder.Services.AddSingleton<SpecDriftReportCache>();
+builder.Services.AddHostedService<SpecDriftScanService>();
 
 // SPEC-20260919-ade-living-specs: catálogo vivo das specs .specs/SPEC-*.md.
 builder.Services.AddSingleton<ISpecDocumentParser, MarkdigSpecParser>();
@@ -728,8 +733,13 @@ specs.MapGet("", async (
         ISpecAppService svc,
         CancellationToken ct) =>
     Results.Ok(await svc.ListAsync(status, q, ct)));
-specs.MapGet("drift-report", async (ISpecDriftDetector detector, CancellationToken ct) =>
-    Results.Ok(await detector.BuildReportAsync(ct)));
+specs.MapGet("drift-report", async (
+        ISpecDriftDetector detector,
+        SpecDriftReportCache driftCache,
+        CancellationToken ct) =>
+    // Cache do scan horário (SPEC-20260920-harness-maintenance-jobs RF-003) — fallback
+    // ao scan ao vivo antes do primeiro tick.
+    Results.Ok(driftCache.Last ?? await detector.BuildReportAsync(ct)));
 specs.MapGet("{id}", async (
         string id,
         ISpecAppService svc,
