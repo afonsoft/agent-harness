@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using Taskboard.Agents;
 using Taskboard.Application.Harness;
+using Taskboard.CliMetrics;
+using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Repositories;
@@ -26,7 +28,8 @@ public sealed class FinOpsServiceTests : IDisposable
         _context.Database.EnsureCreated();
         _service = new FinOpsService(
             new EfCoreRepository<RunCostMetric>(_context),
-            new EfCoreRepository<ModelPriceRate>(_context));
+            new EfCoreRepository<ModelPriceRate>(_context),
+            new EfCoreRepository<CliDailyUsageAggregate>(_context));
     }
 
     public void Dispose()
@@ -97,5 +100,35 @@ public sealed class FinOpsServiceTests : IDisposable
         telemetry.CacheTokens.ShouldBe(15);
         telemetry.BudgetCapUsd.ShouldBe(1.50m);
         telemetry.Metrics.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Dado_AgregadosCli_Quando_Summary_Entao_CliUsageProjetado()
+    {
+        // SPEC-20260920 RF-004 — seção cliUsage vem dos agregados diários CLI.
+        var now = DateTime.UtcNow;
+        var day = now.ToString("yyyy-MM-dd");
+        var agg = CliDailyUsageAggregate.Register(AgentCliKind.OpenCode, day, now);
+        agg.Add(sessions: 3, messages: 20, tokensIn: 1_000_000, tokensOut: 50_000,
+            tokensCached: 900_000, modelName: "Opus", now);
+        agg.SetCost(4.25m, now);
+        _context.CliDailyUsageAggregates.Add(agg);
+        _context.SaveChanges();
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.CliUsage.ShouldNotBeNull();
+        summary.CliUsage.Sessions.ShouldBe(3);
+        summary.CliUsage.TokensInput.ShouldBe(1_000_000);
+        summary.CliUsage.CostUsd.ShouldBe(4.25m);
+        summary.CliUsage.CostByCli["OpenCode"].ShouldBe(4.25m);
+    }
+
+    [Fact]
+    public async Task Dado_SemAgregadosCli_Quando_Summary_Entao_CliUsageNulo()
+    {
+        var summary = await _service.GetSummaryAsync("all");
+
+        summary.CliUsage.ShouldBeNull();
     }
 }

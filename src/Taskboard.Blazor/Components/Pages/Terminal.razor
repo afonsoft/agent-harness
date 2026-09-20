@@ -151,11 +151,30 @@
 
         _hub.Reconnected += async _ =>
         {
-            // New connectionId — previous sessions are gone server-side.
-            // Reopen the tabs instead of leaving them dead on the banner.
-            foreach (var tab in _tabs.Where(t => t.State == TabState.Open).ToList())
+            // Sessions survive the disconnect server-side (orphans). Reattach
+            // keeps the running shell AND the xterm buffer; only sessions that
+            // were reaped fall back to a fresh open.
+            foreach (var tab in _tabs.Where(t => t.State == TabState.Open && t.SessionId is not null).ToList())
             {
-                await InvokeAsync(() => ReopenTabAsync(tab));
+                var reattached = false;
+                try
+                {
+                    reattached = await _hub.InvokeAsync<bool>("Reattach", tab.SessionId);
+                }
+                catch
+                {
+                    // Fall through — reopen below.
+                }
+
+                if (reattached)
+                {
+                    await JS.InvokeVoidAsync("taskboardTerminal.fitNow", tab.ElementId);
+                    await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
+                }
+                else
+                {
+                    await InvokeAsync(() => ReopenTabAsync(tab));
+                }
             }
         };
 

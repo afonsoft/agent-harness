@@ -43,7 +43,9 @@ public sealed class TerminalHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        await _sessionManager.CloseAllForConnectionAsync(Context.ConnectionId).ConfigureAwait(false);
+        // Sessions outlive the connection — a reconnected client reattaches
+        // (SPEC-20260920-terminal-pty-resize RF-003).
+        await _sessionManager.OrphanAllForConnectionAsync(Context.ConnectionId).ConfigureAwait(false);
         await base.OnDisconnectedAsync(exception).ConfigureAwait(false);
     }
 
@@ -82,6 +84,23 @@ public sealed class TerminalHub : Hub
     {
         await _sessionManager.ResizeAsync(UserKey, Context.ConnectionId, sessionId, cols, rows)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Rebinds an orphaned session to this connection after a reconnect;
+    /// returns false when the session is gone (reaped, exited, foreign).
+    /// </summary>
+    public Task<bool> Reattach(string sessionId)
+    {
+        var connectionId = Context.ConnectionId;
+        return _sessionManager.ReattachAsync(
+            UserKey,
+            connectionId,
+            sessionId,
+            (id, chunk) => _hubContext.Clients.Client(connectionId)
+                .SendAsync("output", id, chunk, CancellationToken.None),
+            (id, reason) => _hubContext.Clients.Client(connectionId)
+                .SendAsync("closed", id, reason, CancellationToken.None));
     }
 
     /// <summary>Closes a session (tab closed by the user).</summary>

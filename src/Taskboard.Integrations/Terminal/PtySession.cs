@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
@@ -22,6 +23,10 @@ public sealed class PtySession : IPtySession
     private Task? _pumpTask;
     private CancellationTokenSource? _pumpCts;
     private bool _disposed;
+    private int _lastCols;
+    private int _lastRows;
+    private string? _ptySlavePath;
+    private bool _ptyPathResolved;
 
     public PtySession(string homeDirectory, ILogger logger, int cols = 120, int rows = 30,
         Func<string, string?>? executableLocator = null)
@@ -31,6 +36,8 @@ public sealed class PtySession : IPtySession
         _cols = cols;
         _rows = rows;
         _locator = executableLocator ?? Agents.PathSearch.FindExecutable;
+        _lastCols = cols;
+        _lastRows = rows;
         LastActivityUtc = DateTimeOffset.UtcNow;
     }
 
@@ -120,7 +127,13 @@ public sealed class PtySession : IPtySession
         }
     }
 
-    /// <summary>Resizes the PTY via an injected <c>stty</c> command (echoes one line).</summary>
+    /// <summary>
+    /// Resizes the PTY via <c>ioctl(TIOCSWINSZ)</c> on the slave device —
+    /// kernel-level resize that reaches foreground apps (vim/top/agents) and
+    /// never echoes text. When the pts path cannot be resolved the call is a
+    /// no-op: injecting <c>stty</c> into stdin echoes as visible garbage
+    /// (SPEC-20260920-terminal-pty-resize).
+    /// </summary>
     public Task ResizeAsync(int cols, int rows)
     {
         if (cols is < 1 or > 500 || rows is < 1 or > 500)
@@ -128,7 +141,109 @@ public sealed class PtySession : IPtySession
             return Task.CompletedTask;
         }
 
-        return WriteAsync($"stty cols {cols} rows {rows}\n");
+        if (cols == _lastCols && rows == _lastRows)
+        {
+            return Task.CompletedTask;
+        }
+
+        _lastCols = cols;
+        _lastRows = rows;
+        if (!TryIoctlResize(cols, rows))
+        {
+            // Never inject "stty" into stdin — the PTY echoes input verbatim
+            // (the "stty cols …" garbage this fix removes). A no-op is safer
+            // than visible garbage; non-Linux hosts simply keep the last size.
+            _logger.LogDebug("PTY resize to {Cols}x{Rows} skipped — slave path unavailable.", cols, rows);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private const ulong TiocsWinsz = 0x5414;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Winsize
+    {
+        public ushort Rows;
+        public ushort Cols;
+        public ushort XPixel;
+        public ushort YPixel;
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int ioctl(SafeHandle fd, ulong request, ref Winsize size);
+
+    private bool TryIoctlResize(int cols, int rows)
+    {
+        try
+        {
+            var path = ResolvePtySlavePath();
+            if (path is null)
+            {
+                return false;
+            }
+
+            using var slave = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+            var size = new Winsize { Rows = (ushort)rows, Cols = (ushort)cols };
+            return ioctl(slave.SafeFileHandle, TiocsWinsz, ref size) == 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ioctl TIOCSWINSZ failed — falling back to stty.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Finds the PTY slave device (<c>/dev/pts/N</c>) owned by the shell child
+    /// of the <c>script</c> process: <c>/proc/{pid}/task/{pid}/children</c>
+    /// gives the shell pid, whose stdin symlink points at the pts.
+    /// </summary>
+    private string? ResolvePtySlavePath()
+    {
+        if (_ptyPathResolved)
+        {
+            return _ptySlavePath;
+        }
+
+        try
+        {
+            var pid = _process?.Id;
+            if (pid is null)
+            {
+                return null;
+            }
+
+            var childrenFile = $"/proc/{pid}/task/{pid}/children";
+            if (!File.Exists(childrenFile))
+            {
+                return null;
+            }
+
+            foreach (var token in File.ReadAllText(childrenFile).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!int.TryParse(token, out var childPid))
+                {
+                    continue;
+                }
+
+                var target = File.ResolveLinkTarget($"/proc/{childPid}/fd/0", returnFinalTarget: true);
+                if (target is not null && target.FullName.StartsWith("/dev/pts/", StringComparison.Ordinal))
+                {
+                    // Only cache on success — a null result may be a spawn race
+                    // and must be retried on the next resize.
+                    _ptySlavePath = target.FullName;
+                    _ptyPathResolved = true;
+                    return _ptySlavePath;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not resolve PTY slave path.");
+        }
+
+        return null;
     }
 
     private async Task PumpAsync(CancellationToken cancellationToken)

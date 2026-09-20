@@ -33,7 +33,19 @@ public sealed class ModelPriceRateConfiguration : IEntityTypeConfiguration<Model
             new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000009"), "deepseek", "deepseek-reasoner", 0.55m, 2.19m, 0.55m, 0.14m),
             new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000010"), "google", "gemini-2.5-pro", 1.25m, 10.00m, 1.25m, 0.125m),
             new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000011"), "google", "gemini-2.5-flash", 0.30m, 2.50m, 0.30m, 0.03m),
-            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000012"), "*", "*", 3.00m, 15.00m, 3.75m, 0.30m));
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000012"), "*", "*", 3.00m, 15.00m, 3.75m, 0.30m),
+            // Models observed in the CLI-metrics ingest (SPEC-20260920-harness-recurring-jobs
+            // RF-003) — free tiers cost $0; "Opus"/"DeepSeek" map to market rates;
+            // auto-router gets conservative sonnet pricing since it can pick paid models.
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000013"), "omniroute", "free-stack", 0m, 0m, 0m, 0m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000014"), "omniroute", "auto/best-free", 0m, 0m, 0m, 0m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000015"), "omniroute", "auto/best-coding", 3.00m, 15.00m, 3.75m, 0.30m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000016"), "omniroute", "Opus", 15.00m, 75.00m, 18.75m, 1.50m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000017"), "omniroute", "DeepSeek", 0.27m, 1.10m, 0.27m, 0.07m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000018"), "opencode", "mimo-v2.5-free", 0m, 0m, 0m, 0m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000019"), "opencode", "hy3-free", 0m, 0m, 0m, 0m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000020"), "opencode", "muse-spark-1.2-contributor-free", 0m, 0m, 0m, 0m),
+            new ModelPriceRate(new Guid("a1000000-0000-0000-0000-000000000021"), "google", "gemini-3.8-flash", 0.30m, 2.50m, 0.30m, 0.03m));
     }
 }
 

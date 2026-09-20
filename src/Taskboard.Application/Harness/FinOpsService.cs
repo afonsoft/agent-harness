@@ -1,5 +1,7 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Taskboard.Agents;
+using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Harness;
 using Taskboard.Harness.FinOps;
@@ -16,11 +18,16 @@ public sealed class FinOpsService : IFinOpsService
 {
     private readonly IRepository<RunCostMetric> _metrics;
     private readonly IRepository<ModelPriceRate> _rates;
+    private readonly IRepository<CliDailyUsageAggregate> _cliAggregates;
 
-    public FinOpsService(IRepository<RunCostMetric> metrics, IRepository<ModelPriceRate> rates)
+    public FinOpsService(
+        IRepository<RunCostMetric> metrics,
+        IRepository<ModelPriceRate> rates,
+        IRepository<CliDailyUsageAggregate> cliAggregates)
     {
         _metrics = metrics;
         _rates = rates;
+        _cliAggregates = cliAggregates;
     }
 
     public async Task<decimal> ComputeCostAsync(string? modelName, TokenUsage usage, CancellationToken cancellationToken = default)
@@ -79,6 +86,27 @@ public sealed class FinOpsService : IFinOpsService
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // CLI usage projection (SPEC-20260920 RF-004) — the daily aggregate's
+        // ISO day string compares lexicographically to the period cutoff.
+        var sinceDay = since == DateTime.MinValue
+            ? null
+            : since.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var cliRows = await _cliAggregates.Query
+            .Where(a => sinceDay == null || string.Compare(a.Day, sinceDay) >= 0)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var cliUsage = cliRows.Count == 0
+            ? null
+            : new CliUsageSummaryDto(
+                Sessions: cliRows.Sum(r => r.SessionsCount),
+                TokensInput: cliRows.Sum(r => r.TokensInput),
+                TokensOutput: cliRows.Sum(r => r.TokensOutput),
+                TokensCached: cliRows.Sum(r => r.TokensCached),
+                CostUsd: cliRows.Sum(r => r.CostUsd),
+                CostByCli: cliRows
+                    .GroupBy(r => r.Kind.ToString())
+                    .ToDictionary(g => g.Key, g => g.Sum(r => r.CostUsd)));
+
         return new FinOpsSummaryDto(
             TotalCostUsd: rows.Sum(r => r.CostUsd),
             TotalTokens: rows.Sum(r => r.TotalTokens),
@@ -94,7 +122,8 @@ public sealed class FinOpsService : IFinOpsService
                 .GroupBy(r => DateOnly.FromDateTime(r.RecordedAtUtc))
                 .OrderBy(g => g.Key)
                 .Select(g => new FinOpsDailyCostDto(g.Key, g.Sum(r => r.CostUsd), g.Sum(r => r.TotalTokens)))
-                .ToList());
+                .ToList(),
+            CliUsage: cliUsage);
     }
 
     public async Task<RunTelemetryDto?> GetRunTelemetryAsync(string runId, CancellationToken cancellationToken = default)

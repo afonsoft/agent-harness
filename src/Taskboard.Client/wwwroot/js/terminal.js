@@ -75,20 +75,36 @@ window.taskboardTerminal = (() => {
         fit.fit();
         attachKeys(term);
 
-        const entry = { term, fit, observer: null, dotNet: dotNetRef, tabKey };
+        const entry = { term, fit, observer: null, dotNet: dotNetRef, tabKey, el, lastCols: 0, lastRows: 0 };
         term.onData(d => dotNetRef.invokeMethodAsync('OnTerminalData', tabKey, d));
         entry.observer = new ResizeObserver(() => {
             try {
-                if (el.offsetParent === null) {
-                    return; // hidden tab — skip fit until visible again
-                }
-                fit.fit();
-                dotNetRef.invokeMethodAsync('OnTerminalResize', tabKey, term.cols, term.rows);
+                reportResize(entry);
             } catch { /* element gone */ }
         });
         entry.observer.observe(el);
         terms.set(elementId, entry);
+        reportResize(entry);
         return true;
+    }
+
+    // Fits the addon and reports the new size — only when the element is
+    // visible, non-degenerate, and the size actually changed. Hidden panes
+    // (d-none) and mid-layout transitions produce garbage dims (e.g. rows 3)
+    // that must never reach the server.
+    function reportResize(entry) {
+        const el = entry.el;
+        if (!el || el.offsetParent === null || el.clientHeight === 0 || el.clientWidth === 0) {
+            return;
+        }
+        entry.fit.fit();
+        const { cols, rows } = entry.term;
+        if (cols < 2 || rows < 2 || (cols === entry.lastCols && rows === entry.lastRows)) {
+            return;
+        }
+        entry.lastCols = cols;
+        entry.lastRows = rows;
+        entry.dotNet.invokeMethodAsync('OnTerminalResize', entry.tabKey, cols, rows);
     }
 
     function write(elementId, data) {
@@ -111,8 +127,7 @@ window.taskboardTerminal = (() => {
             return;
         }
         try {
-            e.fit.fit();
-            e.dotNet.invokeMethodAsync('OnTerminalResize', e.tabKey, e.term.cols, e.term.rows);
+            reportResize(e);
         } catch { /* element gone */ }
     }
 
