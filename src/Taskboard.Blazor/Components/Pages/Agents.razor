@@ -14,7 +14,18 @@
 
 <div class="card">
     <div class="card-body">
-        <div class="d-flex justify-content-end mb-3">
+        <div class="d-flex justify-content-end gap-2 mb-3">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="SyncMetricsAsync" Disabled="_syncing">
+                @if (_syncing)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
+                }
+                else
+                {
+                    <Icon Name="IconName.CloudArrowDown" class="me-1" />
+                }
+                Sync now
+            </Button>
             <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
@@ -42,6 +53,10 @@
                             <th>Version</th>
                             <th>Auth</th>
                             <th>Config dir</th>
+                            <th title="Sessions ingested from the local CLI database (last 7 days)">Sessions 7d</th>
+                            <th>Tokens</th>
+                            <th>Last activity</th>
+                            <th>Metrics DB</th>
                             <th class="text-end">Actions</th>
                         </tr>
                     </thead>
@@ -77,6 +92,15 @@
                                     }
                                 </td>
                                 <td class="small"><code>@agent.ConfigDir</code></td>
+                                <td class="small">@SessionsFor(agent)</td>
+                                <td class="small">@TokensFor(agent)</td>
+                                <td class="small">@LastActivityFor(agent)</td>
+                                <td>
+                                    @{
+                                        var (badgeColor, badgeLabel) = SourceBadgeFor(agent);
+                                    }
+                                    <Badge Color="badgeColor">@badgeLabel</Badge>
+                                </td>
                                 <td class="text-end">
                                     @if (agent.Installed)
                                     {
@@ -153,7 +177,10 @@
     private Modal _installModal = default!;
     private Modal _modelsModal = default!;
     private IReadOnlyList<AgentCliStatus>? _agents;
+    private CliMetricsSummaryDto? _metrics;
+    private IReadOnlyList<CliMetricSourceDto> _sources = [];
     private bool _loading = true;
+    private bool _syncing;
     private string? _error;
 
     private string _template = string.Empty;
@@ -241,7 +268,87 @@
         {
             _loading = false;
         }
+
+        // Compact metrics are best-effort — never block or break the page.
+        try
+        {
+            var summaryTask = Client.GetCliMetricsSummaryAsync("7d");
+            var sourcesTask = Client.GetCliMetricSourcesAsync();
+            await Task.WhenAll(summaryTask, sourcesTask);
+            _metrics = await summaryTask;
+            _sources = await sourcesTask;
+        }
+        catch
+        {
+            _metrics = null;
+            _sources = [];
+        }
     }
+
+    private async Task SyncMetricsAsync()
+    {
+        _syncing = true;
+        try
+        {
+            var result = await Client.SyncCliMetricsAsync();
+            if (result is null)
+            {
+                ToastService.Notify(new(ToastType.Warning, "Métricas de CLI desabilitadas."));
+            }
+            else if (result.InFlight)
+            {
+                ToastService.Notify(new(ToastType.Info, "Sync já em andamento."));
+            }
+            else
+            {
+                ToastService.Notify(new(ToastType.Success,
+                    $"Sync concluído — {result.SessionsIngested} sessões ingeridas."));
+            }
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao sincronizar métricas: {ex.Message}"));
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private string SessionsFor(AgentCliStatus agent) =>
+        MetricsFor(agent)?.Sessions.ToString() ?? "—";
+
+    private string TokensFor(AgentCliStatus agent) =>
+        MetricsFor(agent) is { Tokens: > 0 } t ? FormatTokens(t.Tokens) : "—";
+
+    private string LastActivityFor(AgentCliStatus agent) =>
+        MetricsFor(agent)?.LastActivityUtc is { } at
+            ? at.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            : "—";
+
+    private CliMetricsTotalsDto? MetricsFor(AgentCliStatus agent) =>
+        _metrics?.ByKind.TryGetValue(agent.Agent.ToString(), out var totals) == true ? totals : null;
+
+    private (BadgeColor Color, string Label) SourceBadgeFor(AgentCliStatus agent)
+    {
+        var sources = _sources.Where(s => s.Kind == agent.Agent.ToString()).ToList();
+        return sources switch
+        {
+            [] => (BadgeColor.Secondary, "no source"),
+            _ when sources.Any(s => s.Status is "Error") => (BadgeColor.Danger, "error"),
+            _ when sources.Any(s => s.SchemaDrifted) => (BadgeColor.Warning, "drifted"),
+            _ when sources.Any(s => s.Status is "Available" or "CopiedToTemp") => (BadgeColor.Success, "synced"),
+            _ => (BadgeColor.Secondary, "missing"),
+        };
+    }
+
+    private static string FormatTokens(long tokens) => tokens switch
+    {
+        >= 1_000_000 => $"{tokens / 1_000_000d:0.#}M",
+        >= 1_000 => $"{tokens / 1_000d:0.#}K",
+        _ => tokens.ToString(),
+    };
 
     private async Task StartInstallAsync(AgentCliStatus agent)
     {

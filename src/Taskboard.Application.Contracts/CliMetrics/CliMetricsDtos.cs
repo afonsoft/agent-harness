@@ -34,8 +34,9 @@ public sealed record CliSessionMetricDto(
     long? OutputTokens,
     long? CachedTokens);
 
-/// <summary>Aggregate bucket for summaries.</summary>
-public sealed record CliMetricsTotalsDto(long Sessions, long Messages, long Tokens);
+/// <summary>Aggregate bucket for summaries — LastActivityUtc drives the /agents badge.</summary>
+public sealed record CliMetricsTotalsDto(
+    long Sessions, long Messages, long Tokens, DateTime? LastActivityUtc = null);
 
 /// <summary>Per-day rollup row.</summary>
 public sealed record CliDayUsageDto(string Day, long Sessions, long Messages, long Tokens);

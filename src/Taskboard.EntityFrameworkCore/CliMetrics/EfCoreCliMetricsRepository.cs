@@ -218,7 +218,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
         static CliMetricsTotalsDto Totals(IReadOnlyCollection<UsageRow> xs) => new(
             xs.Count,
             xs.Sum(x => (long)(x.MessageCount ?? 0)),
-            xs.Sum(x => (long)((x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0))));
+            xs.Sum(x => (long)((x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0))),
+            xs.Count > 0 ? xs.Max(x => x.StartedAtUtc) : null);
 
         var totals = Totals(rows);
         var byKind = rows
