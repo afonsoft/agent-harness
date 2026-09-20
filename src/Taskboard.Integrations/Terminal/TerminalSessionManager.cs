@@ -18,17 +18,25 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     /// <summary>Session is closed after this much time without input.</summary>
     internal static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(30);
 
-    internal sealed record SessionEntry(
-        IPtySession Session,
-        string UserKey,
-        string ConnectionId,
-        Func<string, string, Task> OnOutput,
-        Func<string, string, Task> OnClosed);
+    /// <summary>Orphaned sessions (connection dropped) are reaped after this grace period.</summary>
+    internal static readonly TimeSpan OrphanTimeout = TimeSpan.FromMinutes(10);
+
+    internal sealed class SessionEntry
+    {
+        public required IPtySession Session { get; init; }
+        public required string UserKey { get; init; }
+        /// <summary>Owning connection — null while orphaned between disconnect and reattach.</summary>
+        public string? ConnectionId { get; set; }
+        public required Func<string, string, Task> OnOutput { get; set; }
+        public required Func<string, string, Task> OnClosed { get; set; }
+        public DateTimeOffset? OrphanedAtUtc { get; set; }
+    }
 
     private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
     private readonly Func<IPtySession> _sessionFactory;
     private readonly ILogger<TerminalSessionManager> _logger;
     private readonly TimeSpan _idleTimeout;
+    private readonly TimeSpan _orphanTimeout;
     private readonly CancellationTokenSource _sweepCts = new();
     private readonly Task _sweepTask;
     private readonly object _gate = new();
@@ -42,11 +50,13 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         Func<IPtySession> sessionFactory,
         ILogger<TerminalSessionManager> logger,
         TimeSpan? idleTimeout = null,
-        TimeSpan? sweepInterval = null)
+        TimeSpan? sweepInterval = null,
+        TimeSpan? orphanTimeout = null)
     {
         _sessionFactory = sessionFactory;
         _logger = logger;
         _idleTimeout = idleTimeout ?? IdleTimeout;
+        _orphanTimeout = orphanTimeout ?? OrphanTimeout;
         _sweepTask = Task.Run(() => SweepLoopAsync(sweepInterval ?? TimeSpan.FromMinutes(1), _sweepCts.Token));
     }
 
@@ -81,7 +91,14 @@ public sealed class TerminalSessionManager : IAsyncDisposable
 
             var sessionId = Guid.NewGuid().ToString("N")[..8];
             var session = _sessionFactory();
-            var entry = new SessionEntry(session, userKey, connectionId, onOutput, onClosed);
+            var entry = new SessionEntry
+            {
+                Session = session,
+                UserKey = userKey,
+                ConnectionId = connectionId,
+                OnOutput = onOutput,
+                OnClosed = onClosed
+            };
 
             session.OutputReceived += chunk => { _ = entry.OnOutput(sessionId, chunk); };
             session.Exited += code => { _ = NotifyClosedAsync(sessionId, "exited"); };
@@ -129,37 +146,81 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         }
     }
 
-    /// <summary>Disposes every session owned by a connection (disconnect/shutdown).</summary>
-    public async Task CloseAllForConnectionAsync(string connectionId)
+    /// <summary>
+    /// Marks every session of a dropped connection as orphaned — the PTY keeps
+    /// running so a reconnected client can reattach within
+    /// <see cref="OrphanTimeout"/> (SPEC-20260920-terminal-pty-resize RF-003).
+    /// Orphans reject input until rebound.
+    /// </summary>
+    public Task OrphanAllForConnectionAsync(string connectionId)
     {
+        var now = DateTimeOffset.UtcNow;
         foreach (var pair in _sessions)
         {
-            if (pair.Value.ConnectionId == connectionId && _sessions.TryRemove(pair.Key, out var entry))
+            if (pair.Value.ConnectionId == connectionId)
             {
+                pair.Value.ConnectionId = null;
+                pair.Value.OrphanedAtUtc = now;
                 _logger.LogInformation(
-                    "Terminal session {SessionId} closed (connection {ConnectionId} ended).",
+                    "Terminal session {SessionId} orphaned (connection {ConnectionId} ended).",
                     pair.Key, connectionId);
-                await DisposeEntryAsync(entry).ConfigureAwait(false);
             }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Rebinds an orphaned (or still-owned) session to a new connection.
+    /// Returns false when the session is gone — reaped, exited, or foreign.
+    /// </summary>
+    public Task<bool> ReattachAsync(
+        string userKey,
+        string connectionId,
+        string sessionId,
+        Func<string, string, Task> onOutput,
+        Func<string, string, Task> onClosed)
+    {
+        lock (_gate)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var entry)
+                || entry.UserKey != userKey
+                || !entry.Session.IsRunning)
+            {
+                return Task.FromResult(false);
+            }
+
+            entry.ConnectionId = connectionId;
+            entry.OrphanedAtUtc = null;
+            entry.OnOutput = onOutput;
+            entry.OnClosed = onClosed;
+            _logger.LogInformation(
+                "Terminal session {SessionId} reattached to connection {ConnectionId}.",
+                sessionId, connectionId);
+            return Task.FromResult(true);
         }
     }
 
-    /// <summary>Closes sessions idle longer than the timeout; invoked by the sweeper (and tests).</summary>
+    /// <summary>Closes sessions idle longer than the timeout or orphaned past the grace period.</summary>
     internal async Task SweepIdleAsync()
     {
         var now = DateTimeOffset.UtcNow;
         foreach (var pair in _sessions)
         {
-            if (now - pair.Value.Session.LastActivityUtc <= _idleTimeout)
+            var orphanExpired = pair.Value.OrphanedAtUtc is { } orphanAt
+                && now - orphanAt > _orphanTimeout;
+            var idleExpired = now - pair.Value.Session.LastActivityUtc > _idleTimeout;
+            if (!orphanExpired && !idleExpired)
             {
                 continue;
             }
 
             if (_sessions.TryRemove(pair.Key, out var entry))
             {
+                var reason = orphanExpired ? "connection lost" : "idle-timeout";
                 _logger.LogInformation(
-                    "Terminal session {SessionId} closed after idle timeout.", pair.Key);
-                await NotifyAsync(entry, pair.Key, "idle-timeout").ConfigureAwait(false);
+                    "Terminal session {SessionId} closed ({Reason}).", pair.Key, reason);
+                await NotifyAsync(entry, pair.Key, reason).ConfigureAwait(false);
                 await DisposeEntryAsync(entry).ConfigureAwait(false);
             }
         }

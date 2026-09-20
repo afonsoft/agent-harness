@@ -22,6 +22,8 @@ public sealed class CliSessionMetric : AggregateRoot<CliSessionMetricId>
     public long? TokensInput { get; private set; }
     public long? TokensOutput { get; private set; }
     public long? TokensCached { get; private set; }
+    /// <summary>Projected USD cost — set by the FinOps aggregation job (null until costed).</summary>
+    public decimal? CostUsd { get; private set; }
     public DateTime IngestedAtUtc { get; private set; }
 
     private CliSessionMetric()
@@ -74,7 +76,15 @@ public sealed class CliSessionMetric : AggregateRoot<CliSessionMetricId>
         TokensInput = tokensInput;
         TokensOutput = tokensOutput;
         TokensCached = tokensCached;
+        CostUsd = null; // fresh token data — FinOps aggregation re-costs on next tick
         IngestedAtUtc = now;
+        IncrementVersion();
+    }
+
+    /// <summary>Records the projected cost computed by the FinOps aggregation job.</summary>
+    public void SetCost(decimal costUsd)
+    {
+        CostUsd = costUsd;
         IncrementVersion();
     }
 }

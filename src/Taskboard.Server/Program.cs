@@ -262,6 +262,9 @@ builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>()
 builder.Services.AddHostedService<PipelineEngineService>();
 // SPEC-20260919-ade-observability-finops: métricas de custo + budget caps.
 builder.Services.AddScoped<IFinOpsService, FinOpsService>();
+// SPEC-20260920-harness-recurring-jobs: projeção de custo sobre uso CLI a cada 30s.
+builder.Services.AddScoped<FinOpsAggregator>();
+builder.Services.AddHostedService<FinOpsAggregationService>();
 
 // SPEC-20260919-ade-living-specs: catálogo vivo das specs .specs/SPEC-*.md.
 builder.Services.AddSingleton<ISpecDocumentParser, MarkdigSpecParser>();

@@ -39,7 +39,7 @@ public class TerminalSessionManagerTests
         public List<(string SessionId, string Reason)> Closed { get; } = new();
         public TerminalSessionManager Manager { get; }
 
-        public Harness(TimeSpan? idleTimeout = null)
+        public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null)
         {
             Manager = new TerminalSessionManager(
                 () =>
@@ -50,7 +50,8 @@ public class TerminalSessionManagerTests
                 },
                 NullLogger<TerminalSessionManager>.Instance,
                 idleTimeout,
-                sweepInterval: TimeSpan.FromHours(1));
+                sweepInterval: TimeSpan.FromHours(1),
+                orphanTimeout);
         }
 
         public Func<string, string, Task> OnOutput =>
@@ -159,21 +160,88 @@ public class TerminalSessionManagerTests
     }
 
     [Fact]
-    public async Task Dado_SessaoDeOutraConexao_Quando_CloseAll_Entao_FechaSoAquela()
+    public async Task Dado_SessaoDeOutraConexao_Quando_Disconnect_Entao_OrfaSemDispor()
     {
         await using var h = new Harness();
-        var id1 = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
         await h.Manager.OpenAsync("u1", "conn2", h.OnOutput, h.OnClosed);
 
-        await h.Manager.CloseAllForConnectionAsync("conn1");
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
 
-        h.Sessions[0].Disposed.ShouldBeTrue();
+        // A sessão órfã continua viva — PTY preservado para reattach.
+        h.Sessions[0].Disposed.ShouldBeFalse();
         h.Sessions[1].Disposed.ShouldBeFalse();
-
-        // conn2 continua operando.
-        await h.Manager.InputAsync("u1", "conn2", "id-nao-usado", "x");
         h.Closed.ShouldBeEmpty();
-        id1.ShouldNotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_SessaoOrfa_Quando_Input_Entao_IgnoradoAteReattach()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+
+        await h.Manager.InputAsync("u1", "conn1", id, "x");
+
+        h.Sessions[0].Written.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_SessaoOrfa_Quando_Reattach_Entao_InputVoltaEFluxoRebindado()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+
+        var newOutputs = new List<(string, string)>();
+        var reattached = await h.Manager.ReattachAsync(
+            "u1", "conn-nova", id,
+            (sid, chunk) => { newOutputs.Add((sid, chunk)); return Task.CompletedTask; },
+            h.OnClosed);
+
+        reattached.ShouldBeTrue();
+        await h.Manager.InputAsync("u1", "conn-nova", id, "echo ok");
+        h.Sessions[0].Written.ShouldBe(["echo ok"]);
+
+        // Callbacks rebindados: output vai para a conexão nova.
+        h.Sessions[0].EmitOutput("ok");
+        newOutputs.ShouldBe([(id, "ok")]);
+        h.Outputs.ShouldBeEmpty(); // callback antigo não recebe mais
+    }
+
+    [Fact]
+    public async Task Dado_SessaoOrfaDeOutroUsuario_Quando_Reattach_Entao_Falso()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+
+        var reattached = await h.Manager.ReattachAsync("u2", "conn-x", id, h.OnOutput, h.OnClosed);
+
+        reattached.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_SessaoInexistente_Quando_Reattach_Entao_Falso()
+    {
+        await using var h = new Harness();
+
+        (await h.Manager.ReattachAsync("u1", "conn1", "nao-existe", h.OnOutput, h.OnClosed))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_OrfaExpirada_Quando_Sweep_Entao_RemovidaComoConnectionLost()
+    {
+        // OrphanTimeout zero = qualquer órfã expira no próximo sweep.
+        await using var h = new Harness(orphanTimeout: TimeSpan.Zero);
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+
+        await h.Manager.SweepIdleAsync();
+
+        h.Closed.ShouldBe([(id, "connection lost")]);
+        h.Sessions[0].Disposed.ShouldBeTrue();
     }
 
     [Fact]

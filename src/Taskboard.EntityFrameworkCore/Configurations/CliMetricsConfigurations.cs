@@ -62,6 +62,7 @@ public sealed class CliSessionMetricConfiguration : IEntityTypeConfiguration<Cli
         builder.Property(s => s.TokensInput);
         builder.Property(s => s.TokensOutput);
         builder.Property(s => s.TokensCached);
+        builder.Property(s => s.CostUsd).HasPrecision(18, 6);
         builder.Property(s => s.IngestedAtUtc);
 
         // Dedupe key — re-ingested rows update, never duplicate (RF-003).
@@ -90,6 +91,7 @@ public sealed class CliDailyUsageAggregateConfiguration : IEntityTypeConfigurati
         builder.Property(a => a.TokensInput);
         builder.Property(a => a.TokensOutput);
         builder.Property(a => a.TokensCached);
+        builder.Property(a => a.CostUsd).HasPrecision(18, 6);
         builder.Property(a => a.ModelsJson);
         builder.Property(a => a.UpdatedAt);
 

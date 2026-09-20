@@ -20,6 +20,8 @@ public sealed class CliDailyUsageAggregate : AggregateRoot<CliDailyUsageAggregat
     public long TokensInput { get; private set; }
     public long TokensOutput { get; private set; }
     public long TokensCached { get; private set; }
+    /// <summary>Projected USD cost for the bucket — maintained by the FinOps aggregation job.</summary>
+    public decimal CostUsd { get; private set; }
     public string ModelsJson { get; private set; } = "[]";
     public DateTime UpdatedAt { get; private set; }
 
@@ -57,6 +59,7 @@ public sealed class CliDailyUsageAggregate : AggregateRoot<CliDailyUsageAggregat
         TokensInput = 0;
         TokensOutput = 0;
         TokensCached = 0;
+        CostUsd = 0m;
         _models = [];
         ModelsJson = "[]";
         UpdatedAt = now;
@@ -84,6 +87,14 @@ public sealed class CliDailyUsageAggregate : AggregateRoot<CliDailyUsageAggregat
             }
         }
 
+        UpdatedAt = now;
+        IncrementVersion();
+    }
+
+    /// <summary>Sets the projected USD cost of the bucket — recomputed by the FinOps aggregation job.</summary>
+    public void SetCost(decimal costUsd, DateTime now)
+    {
+        CostUsd = costUsd;
         UpdatedAt = now;
         IncrementVersion();
     }
