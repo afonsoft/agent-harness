@@ -908,11 +908,17 @@ body {
     flex: 1;
     min-height: 200px;
     overflow: hidden;
-    padding: 0.5rem;
 }
 
+/* Padding lives on .xterm, NOT on .terminal-host: FitAddon reads the host's
+   computed (border-box) height — padding here inflates the row count by up to
+   one row, which then clips under overflow:hidden. It explicitly subtracts
+   the .xterm element's own padding, so this keeps the same inset while the
+   last row always fits (SPEC-20260920-terminal-pty-resize). */
 .terminal-host .xterm {
+    box-sizing: border-box;
     height: 100%;
+    padding: 0.5rem;
 }
 
 /* xterm viewport: keep the gutter blended with the theme and slim the

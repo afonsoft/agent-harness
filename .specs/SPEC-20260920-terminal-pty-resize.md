@@ -25,6 +25,7 @@
 1. **`stty` vazando como texto:** `PtySession.ResizeAsync` injeta `stty cols {c} rows {r}\n` no stdin do PTY. O comando ecoa na tela (visível ao usuário), só executa quando o bash está lendo stdin — com vim/top/agente em foreground o resize **nunca acontece** (texto fica enfileirado e pode corromper o input do app).
 2. **Dimensões degeneradas:** `FitAddon` roda em elemento oculto/`d-none` ou em transição de layout → `proposeDimensions` retorna lixo (`rows 3`), que é enviado ao servidor e vira `stty` visível. ResizeObserver dispara múltiplas vezes com os mesmos valores → tempestade de `stty`.
 3. **`Session ended: connection lost` recorrente:** sessões PTY são amarradas ao `connectionId` — qualquer queda do SignalR (abas em background congelam os timers de keep-alive) mata todos os PTYs. O reconnect automático reabria shells novos perdendo processo e buffer.
+4. **Última linha cortada:** `.terminal-host { padding: .5rem; box-sizing: border-box }` — o FitAddon lê `getComputedStyle(host).height` (**border-box**, inclui padding+borda) e divide pela altura da célula → computa até 1 linha a mais do que cabe; a linha extra pinta na área de padding e é cortada pelo `overflow: hidden`. Correção: padding mora no `.xterm` (o FitAddon subtrai o padding do elemento explicitamente), não no host.
 
 ---
 
@@ -54,6 +55,7 @@
 - `src/Taskboard.Server/Hubs/TerminalHub.cs` — `OnDisconnectedAsync` → orphan; novo método `Reattach(sessionId)`.
 - `src/Taskboard.Blazor/Components/Pages/Terminal.razor` — `Reconnected` → `Reattach` por aba, fallback reopen.
 - `src/Taskboard.Client/wwwroot/js/terminal.js` — guards + dedup no observer/fitNow.
+- `src/Taskboard.Client/wwwroot/css/site.css` — padding do host → `.xterm` (border-box), elimina a linha cortada no rodapé.
 - `tests/Taskboard.Tests.Unit/` — teste de resize real (spawn `script`, `stty size`, sem eco do comando) + orphan/reattach no manager.
 
 ### Key conventions
@@ -77,7 +79,7 @@
   - `ResizeObserver`: já pula `offsetParent === null`; adicionar skip quando `el.clientHeight === 0` e quando `term.cols/rows` não mudaram desde o último report.
   - `fitNow`: mesma guarda de visibilidade/zero-size.
   - Degenerado: não reportar quando `term.cols < 2 || term.rows < 2`.
-- **Rules:** último `(cols,rows)` reportado guardado por entry; `init` já reporta após primeiro fit.
+- **Rules:** último `(cols,rows)` reportado guardado por entry; `init` já reporta após primeiro fit; padding visual mora em `.terminal-host .xterm` (`box-sizing: border-box`) — nunca em `.terminal-host`, cujo `getComputedStyle().height` é border-box e inflaria a contagem de linhas.
 
 ### RF-003: Session reattach pós-reconnect
 
