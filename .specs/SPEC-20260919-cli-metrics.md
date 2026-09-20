@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-cli-metrics` |
 | Ticket | [#166 — E11](https://github.com/afonsoft/taskboard-ai/issues/166) |
-| Status | `Approved` |
+| Status | `Done` |
 | Capability map | `.specs/CAPABILITY-MAP-cli-metrics.md` (module `cli-metrics`) |
 
 ## 1. User Story
@@ -211,21 +211,21 @@ handled as `200 inFlight` · `500` surfaced as `{ error }` without internals.
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a fresh install, **when** the first sync runs, **then** all
+- [x] **Given** a fresh install, **when** the first sync runs, **then** all
   detected sources are ingested and `sources` reports their status.
-- [ ] **Given** a synced source whose file is unchanged (same mtime+size),
+- [x] **Given** a synced source whose file is unchanged (same mtime+size),
   **when** the next sync runs, **then** extraction is skipped (no DB open).
-- [ ] **Given** a synced source with 5 new sessions, **when** sync runs,
+- [x] **Given** a synced source with 5 new sessions, **when** sync runs,
   **then** only the new rows are read (watermark) and totals increase by 5.
-- [ ] **Given** re-ingested rows with same `ExternalId`, **when** persisted,
+- [x] **Given** re-ingested rows with same `ExternalId`, **when** persisted,
   **then** no duplicates exist (unique index) and mutable fields update.
-- [ ] **Given** one corrupt source, **when** sync runs, **then** other sources
+- [x] **Given** one corrupt source, **when** sync runs, **then** other sources
   sync normally and the corrupt one shows `Error` + reason.
-- [ ] **Given** `Enabled=false`, **when** the server runs, **then** no
+- [x] **Given** `Enabled=false`, **when** the server runs, **then** no
   background sync happens and `sync` returns `404`.
-- [ ] **Given** rows older than retention, **when** the retention pass runs,
+- [x] **Given** rows older than retention, **when** the retention pass runs,
   **then** raw rows are deleted but daily aggregates remain.
-- [ ] **Given** `/agents` loaded, **when** a CLI has metrics, **then** the row
+- [x] **Given** `/agents` loaded, **when** a CLI has metrics, **then** the row
   shows sessions(7d) + last activity + tokens badge.
 
 **Edge cases:**
@@ -240,20 +240,20 @@ handled as `200 inFlight` · `500` surfaced as `{ error }` without internals.
 
 ## 7. Task Plan
 
-- [ ] **T1 — Domain + migration:** entities, EF configs, unique indexes,
+- [x] **T1 — Domain + migration:** entities, EF configs, unique indexes,
   `AddCliMetrics` migration. Tests: mapping, uniqueness.
-- [ ] **T2 — Ingestion service:** `CliMetricsService` — watermark logic,
+- [x] **T2 — Ingestion service:** `CliMetricsService` — watermark logic,
   chunked upsert, aggregate rollup, retention. Unit tests with in-memory
   SQLite + fake extractors (`Dado_Quando_Entao`).
-- [ ] **T3 — Hosted service + flag:** `CliMetricsSyncService` (PeriodicTimer,
+- [x] **T3 — Hosted service + flag:** `CliMetricsSyncService` (PeriodicTimer,
   overlap guard, startup-safe), config binding, flag behavior tests.
-- [ ] **T4 — Endpoints:** `sync`, `sources`, `summary`, `sessions` + auth +
+- [x] **T4 — Endpoints:** `sync`, `sources`, `summary`, `sessions` + auth +
   error format. Integration tests.
-- [ ] **T5 — UI:** `/agents` metrics columns + badge + sync button;
+- [x] **T5 — UI:** `/agents` metrics columns + badge + sync button;
   `TaskboardClient` methods.
-- [ ] **T6 — FinOps provider:** `ICliUsageMetricsProvider` implementation +
+- [x] **T6 — FinOps provider:** `ICliUsageMetricsProvider` implementation +
   contract tests (consumed later by ade-observability-finops).
-- [ ] **T7 — Validation:** `dotnet build` 0 warnings, `dotnet test` green,
+- [x] **T7 — Validation:** `dotnet build` 0 warnings, `dotnet test` green,
   coverage ≥ gate (ratchet), docs en/pt-br, `Status = Done` + PR.
 
 ## 8. Organization Guardrails
@@ -274,12 +274,12 @@ handled as `200 inFlight` · `500` surfaced as `{ error }` without internals.
 
 ## 9. Definition of Done
 
-- [ ] RF-001…RF-008 implemented; ACs covered by tests.
-- [ ] `dotnet build` clean (`TreatWarningsAsErrors`); `dotnet test` green;
+- [x] RF-001…RF-008 implemented; ACs covered by tests.
+- [x] `dotnet build` clean (`TreatWarningsAsErrors`); `dotnet test` green;
   coverage ≥ gate.
-- [ ] Migration applied and reversible; unique dedupe index verified.
-- [ ] Flag off → zero ingestion and `sync` 404.
-- [ ] Docs updated (en + pt-br); `Status = Done` + PR open.
+- [x] Migration applied and reversible; unique dedupe index verified.
+- [x] Flag off → zero ingestion and `sync` 404.
+- [x] Docs updated (en + pt-br); `Status = Done` + PR open.
 
 ## Open Questions / Pending Ambiguity
 

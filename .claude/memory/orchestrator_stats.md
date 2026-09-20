@@ -22,7 +22,7 @@
 | E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | merged via PR #189 (`86e8881`) + deploy |
 | E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | merged via PR #195 (`a9b5d23`) + deploy |
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | merged via PR #201 (`846a01f`) + deploy |
-| E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | queued (blocked by #165) |
+| E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | implementing on `feature/devin-20260919-cli-metrics` |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
 | E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
 | E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | queued (blocked by #167) |
@@ -426,3 +426,20 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 667 · integration: ✅ 169
 - Schemas reais divergiam do inventário presumido — whitelists corrigidas após inspeção somente-schema dos DBs vivos; Codex shards → pattern `state_*.sqlite`; Cline → `hub-events-*.db` (connectors.db fora do glob + denylist).
 - Fixes: regex de coluna-secreta com boundary `_` (`tokens_*` passam, `access_token` não); pooling do fixture vazava handle em arquivo deletado (`Pooling=false`); `Dispose` tolerante a home inexistente.
+
+### Phase 4 — E11 CLI Metrics (branch `feature/devin-20260919-cli-metrics`)
+
+| Slice | Issue | Commit | Entrega |
+|---|---|---|---|
+| S1 | #202 | `232a284` | `CliMetricSource`/`CliSessionMetric`/`CliDailyUsageAggregate` + EF configs (índices únicos `(Kind,SourceName)` e `(SourceId,ExternalId)`) + migration `AddCliMetrics` |
+| S2 | #203 | `0e037c6` | `ICliMetricsRepository` (DTO-facing) + `EfCoreCliMetricsRepository` + `CliMetricsService` — skip por assinatura de arquivo (paths+mtime+size), watermark resume, upsert dedupe, chunks de 500, recompute idempotente de agregados/dia, isolamento de falha por extractor, retenção configurável (raw 90d; agregados indefinidos); `ICliDbExtractor.Sources` público + `ICliDatabaseLocator.Stat` |
+| S3 | #204 | `ab5d1f2` | `CliMetricsSyncService` (BackgroundService+PeriodicTimer, bind `Taskboard:CliMetrics:{Enabled,SyncIntervalMinutes}`, passo inicial no startup) + `CliMetricsSyncCoordinator` single-flight |
+| S4 | #205 | `682ca5a` | `POST /api/local/cli-metrics/sync` (404 disabled, in-flight flag), `GET sources/summary?period=/sessions?kind&from&to&take`; factory de testes com `Taskboard:HomeDir` vazio |
+| S5 | #206 | `8b028fc` | `/agents`: Sessions 7d, Tokens, Last activity, badge Metrics DB, botão Sync now; `CliMetricsTotalsDto.LastActivityUtc`; TaskboardClient methods |
+| S6 | #207 | `240cbd2` | `ICliUsageMetricsProvider` + `EfCoreCliUsageMetricsProvider` (agregados kind/modelo p/ E14) |
+| S7 | #208 | — | docs en/pt-br, SPEC→Done |
+
+### Phase 7 — Verificação E11
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 686 · integration: ✅ 174 (1 flake inicial do PTY — HomeDir do factory precisava existir; fix: `Directory.CreateDirectory`)
+- Decisões: cursor do extractor guardado em todas as linhas de source do extractor (resume lê a primeira); `CliSessionMetric` clampa `StartedAtUtc` futuro (clock skew); `CliDailyUsageAggregate.Reset` para recompute idempotente.

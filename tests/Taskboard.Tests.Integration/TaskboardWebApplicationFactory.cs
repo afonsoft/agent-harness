@@ -54,7 +54,10 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("Taskboard:WorkspaceRoot", Path.Combine(dataDir, "repos"));
         // Empty home → cli-metrics locator resolves nothing (Missing), so the
         // startup sync never reads real agent databases on the test host.
-        builder.UseSetting("Taskboard:HomeDir", Path.Combine(dataDir, "home"));
+        // The dir must exist — TerminalSessionManager uses it as the PTY cwd.
+        var homeDir = Path.Combine(dataDir, "home");
+        Directory.CreateDirectory(homeDir);
+        builder.UseSetting("Taskboard:HomeDir", homeDir);
         builder.ConfigureServices(services =>
         {
             // GET /api/agents must not depend on which CLIs happen to be on the
