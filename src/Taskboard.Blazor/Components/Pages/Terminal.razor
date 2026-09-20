@@ -120,7 +120,12 @@
     {
         _hub = new HubConnectionBuilder()
             .WithUrl(NavigationManager.ToAbsoluteUri("/terminal-hub"))
-            .WithAutomaticReconnect()
+            // Long backoff: backgrounded tabs throttle keep-alive pings, so a
+            // dropped connection should keep retrying instead of giving up
+            // after the default ~42s and killing every tab.
+            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1),
+                TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5)])
             .Build();
 
         _hub.On<string, string>("output", (sessionId, data) =>
@@ -144,15 +149,14 @@
             return InvokeAsync(StateHasChanged);
         });
 
-        _hub.Reconnected += _ =>
+        _hub.Reconnected += async _ =>
         {
             // New connectionId — previous sessions are gone server-side.
-            foreach (var tab in _tabs.Where(t => t.State == TabState.Open))
+            // Reopen the tabs instead of leaving them dead on the banner.
+            foreach (var tab in _tabs.Where(t => t.State == TabState.Open).ToList())
             {
-                tab.State = TabState.Closed;
-                tab.CloseReason = "connection lost";
+                await InvokeAsync(() => ReopenTabAsync(tab));
             }
-            return InvokeAsync(StateHasChanged);
         };
 
         _hub.Closed += _ =>
