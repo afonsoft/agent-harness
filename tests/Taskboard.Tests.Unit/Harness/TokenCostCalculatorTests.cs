@@ -2,6 +2,7 @@ using Shouldly;
 using Taskboard.Harness;
 using Xunit;
 namespace Taskboard.Tests.Unit.Harness;
+
 public sealed class TokenCostCalculatorTests
 {
     private static readonly IReadOnlyList<ModelPriceRateInfo> Rates =
