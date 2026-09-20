@@ -628,6 +628,29 @@ harness.MapPost("verification/run", async (
     return Results.Ok(report);
 });
 
+// SPEC-20260919-cli-metrics §5: ingestion status + aggregates for /agents.
+var cliMetrics = api.MapGroup("local/cli-metrics");
+cliMetrics.MapPost("sync", async (
+        CliMetricsSyncCoordinator coordinator,
+        CliMetricsOptions options,
+        CancellationToken ct) =>
+{
+    if (!options.Enabled)
+    {
+        return Results.NotFound(new { error = "cli-metrics disabled" });
+    }
+
+    return Results.Ok(await coordinator.TrySyncAsync(ct));
+});
+cliMetrics.MapGet("sources", async (ICliMetricsService metrics, CancellationToken ct) =>
+    Results.Ok(await metrics.GetSourcesAsync(ct)));
+cliMetrics.MapGet("summary", async (string? period, ICliMetricsService metrics, CancellationToken ct) =>
+    Results.Ok(await metrics.GetSummaryAsync(period, ct)));
+cliMetrics.MapGet("sessions", async (
+        AgentCliKind? kind, DateTime? from, DateTime? to, int? take,
+        ICliMetricsService metrics, CancellationToken ct) =>
+    Results.Ok(await metrics.GetSessionsAsync(kind, from, to, take ?? 100, ct)));
+
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
 // RequireAuthorization (cookie or X-Api-Key).
 api.MapMcp("mcp");
