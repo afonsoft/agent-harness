@@ -200,8 +200,11 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             }
 
             var limit = rowLimit ?? _options.RowLimit;
+            // `AS` pins the result name — on tables with an INTEGER PRIMARY KEY,
+            // `SELECT "rowid"` is reported under the PK column's name (e.g.
+            // `sequence`), which would break ordinal lookup in CliDbRow.
             var columnList = safeColumns.Count > 0
-                ? string.Join(", ", safeColumns.Select(c => $"\"{c}\""))
+                ? string.Join(", ", safeColumns.Select(c => $"\"{c}\" AS \"{c}\""))
                 : "1";
             var sql = $"SELECT {columnList} FROM \"{table}\"";
             if (whereClause is not null)
