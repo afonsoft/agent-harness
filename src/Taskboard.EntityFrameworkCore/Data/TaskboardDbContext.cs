@@ -29,6 +29,8 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<CliMetricSource> CliMetricSources => Set<CliMetricSource>();
     public DbSet<CliSessionMetric> CliSessionMetrics => Set<CliSessionMetric>();
     public DbSet<CliDailyUsageAggregate> CliDailyUsageAggregates => Set<CliDailyUsageAggregate>();
+    public DbSet<PipelineExecution> PipelineExecutions => Set<PipelineExecution>();
+    public DbSet<PipelineStageExecution> PipelineStageExecutions => Set<PipelineStageExecution>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -7,9 +7,9 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E11 CLI Metrics em execução`
+- **fase_atual**: `Phase 4 — E12 Multi-Agent Orchestration (próximo; E11 concluído)`
 - **repositorio**: `afonsoft/taskboard-ai`
-- **branch_trabalho**: `feature/devin-20260919-cli-metrics`
+- **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
 
@@ -22,7 +22,7 @@
 | E8 - Security Gateway | `SPEC-20260919-harness-security-permission-gateway` | #163 | merged via PR #189 (`86e8881`) + deploy |
 | E9 - Verification Loop | `SPEC-20260919-harness-verification-loop` | #164 | merged via PR #195 (`a9b5d23`) + deploy |
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | merged via PR #201 (`846a01f`) + deploy |
-| E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | implementing on `feature/devin-20260919-cli-metrics` |
+| E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | merged via PR #209 + fixes #210/#211/#212 (`0cbbf66`) + deploy validado |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | queued (blocked by #161,#162,#164) |
 | E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | queued (blocked by #167) |
 | E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | queued (blocked by #167) |
@@ -443,3 +443,12 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 686 · integration: ✅ 174 (1 flake inicial do PTY — HomeDir do factory precisava existir; fix: `Directory.CreateDirectory`)
 - Decisões: cursor do extractor guardado em todas as linhas de source do extractor (resume lê a primeira); `CliSessionMetric` clampa `StartedAtUtc` futuro (clock skew); `CliDailyUsageAggregate.Reset` para recompute idempotente.
+
+### Pós-merge E11 — fixes de produção (PRs #210/#211/#212)
+
+- #210 `b1b2520`: docs ADE + Cline `created_at` epoch **ms** (era lido como s) + cap 512MB→4GB (DBs reais ~1.6GB).
+- #211 `53cb3a3`: `SELECT "rowid"` em tabela com `INTEGER PRIMARY KEY` reporta o nome da coluna PK (`sequence`) → `GetOrdinal("rowid")` explodia. Fix: `AS "<col>"` em toda coluna selecionada.
+- #212 `0cbbf66`: fontes em `Error` com arquivo inalterado nunca retentavam (OpenCode preso no erro do build antigo) → `Status=Error` força retry; cursor Cline só avançava em linhas com `session_id` → preso em `|0` → agora avança por rowid escaneada.
+- Deploy validado 2026-09-19: 6/6 fontes `CopiedToTemp` sem erro — Antigravity 5, Claude 25, Codex 31, Devin 381, OpenCode 155 sessões; Cline 0 (db real só tem 6 linhas sem session_id — correto); 78 agregados/dia.
+- Warning pré-existente (E7): `ProjectMemoryItem.Tags` sem value comparer — candidato a cleanup futuro.
+- Flake conhecido: `McpEndpointsTests.PostMcpRemove` falha em suite cheia, passa isolado (mexe em `~/.claude.json` real).
