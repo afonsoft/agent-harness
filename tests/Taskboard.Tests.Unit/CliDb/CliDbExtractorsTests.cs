@@ -92,8 +92,8 @@ public class CliDbExtractorsTests : IDisposable
         """;
 
     private const string ClineDdl = """
-        CREATE TABLE hub_events (sequence INTEGER, event TEXT, session_id TEXT, envelope_json TEXT,
-            created_at INTEGER);
+        CREATE TABLE hub_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT,
+            session_id TEXT, envelope_json TEXT, created_at INTEGER);
         INSERT INTO hub_events (sequence, event, session_id, envelope_json, created_at)
         VALUES (1,'e','cl-1','{}',1789336066864),(2,'e','cl-1','{}',1789336166864),(3,'e','cl-2','{}',1789336266864);
         """;
