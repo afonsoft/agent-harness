@@ -233,6 +233,7 @@ var cliMetricsOptions = builder.Configuration
     .Get<CliMetricsOptions>() ?? new CliMetricsOptions();
 builder.Services.AddSingleton(cliMetricsOptions);
 builder.Services.AddScoped<ICliMetricsRepository, EfCoreCliMetricsRepository>();
+builder.Services.AddScoped<ICliUsageMetricsProvider, EfCoreCliUsageMetricsProvider>();
 builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(
     sp.GetRequiredService<ICliMetricsRepository>(),
     sp.GetServices<ICliDbExtractor>(),
