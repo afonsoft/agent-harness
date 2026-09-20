@@ -49,6 +49,20 @@ public sealed class CliDailyUsageAggregate : AggregateRoot<CliDailyUsageAggregat
     public IReadOnlyList<string> ModelsUsed =>
         _models ??= JsonSerializer.Deserialize<List<string>>(ModelsJson, JsonOptions) ?? [];
 
+    /// <summary>Zeroes the counters so the bucket can be rebuilt from raw rows.</summary>
+    public void Reset(DateTime now)
+    {
+        SessionsCount = 0;
+        MessagesCount = 0;
+        TokensInput = 0;
+        TokensOutput = 0;
+        TokensCached = 0;
+        _models = [];
+        ModelsJson = "[]";
+        UpdatedAt = now;
+        IncrementVersion();
+    }
+
     public void Add(
         int sessions, int messages, long tokensIn, long tokensOut, long tokensCached,
         string? modelName, DateTime now)

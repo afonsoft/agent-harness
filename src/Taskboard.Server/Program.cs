@@ -20,8 +20,10 @@ using Taskboard;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
+using Taskboard.Application.CliMetrics;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Issues;
@@ -29,6 +31,7 @@ using Taskboard.Issues;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
+using Taskboard.EntityFrameworkCore.CliMetrics;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Harness;
 using Taskboard.Harness;
@@ -223,6 +226,19 @@ builder.Services.AddSingleton<ICliDbExtractor>(sp => new ClaudeContextModeCliDbE
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
     sp.GetRequiredService<ILogger<ClaudeContextModeCliDbExtractor>>()));
+
+// SPEC-20260919-cli-metrics: ingestão incremental das fontes do cli-db-reader.
+var cliMetricsOptions = builder.Configuration
+    .GetSection("Taskboard:CliMetrics")
+    .Get<CliMetricsOptions>() ?? new CliMetricsOptions();
+builder.Services.AddSingleton(cliMetricsOptions);
+builder.Services.AddScoped<ICliMetricsRepository, EfCoreCliMetricsRepository>();
+builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(
+    sp.GetRequiredService<ICliMetricsRepository>(),
+    sp.GetServices<ICliDbExtractor>(),
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<CliMetricsOptions>(),
+    sp.GetRequiredService<ILogger<CliMetricsService>>()));
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();

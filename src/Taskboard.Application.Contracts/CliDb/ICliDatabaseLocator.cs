@@ -13,6 +13,12 @@ public interface ICliDatabaseLocator
     /// <summary>Existing absolute paths matching <paramref name="source"/> (empty when missing).</summary>
     IReadOnlyList<string> Resolve(CliDbSource source);
 
+    /// <summary>File signature for change detection, or null when absent.</summary>
+    CliDbFileStat? Stat(string absolutePath);
+
     /// <summary>Per-kind, per-file status across the whole registry.</summary>
     IReadOnlyList<CliDbSourceStatusDto> GetStatus();
 }
+
+/// <summary>Last-write time + size of an external database file.</summary>
+public sealed record CliDbFileStat(DateTime ModifiedUtc, long SizeBytes);

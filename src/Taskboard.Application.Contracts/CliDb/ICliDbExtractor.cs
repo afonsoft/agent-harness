@@ -13,6 +13,9 @@ public interface ICliDbExtractor
 {
     AgentCliKind Kind { get; }
 
+    /// <summary>Sources this extractor actually reads (subset of <see cref="CliDatabaseMap.SourcesFor"/>).</summary>
+    IReadOnlyList<CliDbSource> Sources { get; }
+
     /// <summary>Fingerprint recorded when this extractor was last verified against the vendor schema.</summary>
     CliDbSchemaFingerprint ExpectedFingerprint { get; }
 

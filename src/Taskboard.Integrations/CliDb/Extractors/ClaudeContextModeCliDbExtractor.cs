@@ -25,7 +25,7 @@ public sealed class ClaudeContextModeCliDbExtractor : CliDbExtractorBase
 
     public override AgentCliKind Kind => AgentCliKind.Claude;
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
-    protected override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
+    public override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
 
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,
