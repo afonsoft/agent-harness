@@ -133,7 +133,13 @@ builder.Services.AddScoped<AiChatService>();
 
 builder.Services.AddHttpClient<JiraService>();
 
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    // Backgrounded browser tabs throttle the JS timers driving SignalR's
+    // application-level keep-alive to ~1/minute. With the default 30s client
+    // timeout the server kills those connections and every PTY bound to them.
+    options.ClientTimeoutInterval = TimeSpan.FromMinutes(2);
+});
 builder.Services.AddAntiforgery();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
