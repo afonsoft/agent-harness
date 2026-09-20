@@ -10,4 +10,5 @@ public static class TaskboardDomainErrorCodes
     public const string CliDbAccessDenied = "Taskboard:00030";
     public const string CliDbReadFailed = "Taskboard:00031";
     public const string InvalidPipelineDag = "Taskboard:00032";
+    public const string InvalidSpecStatus = "Taskboard:00033";
 }
