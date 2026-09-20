@@ -35,6 +35,7 @@ public class TerminalSessionManagerTests
     private sealed class Harness : IAsyncDisposable
     {
         public List<FakePtySession> Sessions { get; } = new();
+        public List<string?> RequestedWorkdirs { get; } = new();
         public List<(string SessionId, string Chunk)> Outputs { get; } = new();
         public List<(string SessionId, string Reason)> Closed { get; } = new();
         public TerminalSessionManager Manager { get; }
@@ -42,10 +43,11 @@ public class TerminalSessionManagerTests
         public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null)
         {
             Manager = new TerminalSessionManager(
-                () =>
+                workdir =>
                 {
                     var s = new FakePtySession();
                     Sessions.Add(s);
+                    RequestedWorkdirs.Add(workdir);
                     return s;
                 },
                 NullLogger<TerminalSessionManager>.Instance,
@@ -72,6 +74,28 @@ public class TerminalSessionManagerTests
 
         id.ShouldNotBeNullOrEmpty();
         h.Sessions.ShouldHaveSingleItem().Started.ShouldBeTrue();
+    }
+
+    // SPEC-20260920-global-repo-selector RF-006 — cwd do repo só para sessões novas.
+
+    [Fact]
+    public async Task Dado_Workdir_Quando_Open_Entao_FactoryRecebeWorkdir()
+    {
+        await using var h = new Harness();
+
+        await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed, "/home/u/repos/x");
+
+        h.RequestedWorkdirs.ShouldBe(["/home/u/repos/x"]);
+    }
+
+    [Fact]
+    public async Task Dado_SemWorkdir_Quando_Open_Entao_FactoryRecebeNull()
+    {
+        await using var h = new Harness();
+
+        await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+
+        h.RequestedWorkdirs.ShouldBe([null]);
     }
 
     [Fact]

@@ -33,7 +33,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     }
 
     private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
-    private readonly Func<IPtySession> _sessionFactory;
+    private readonly Func<string?, IPtySession> _sessionFactory;
     private readonly ILogger<TerminalSessionManager> _logger;
     private readonly TimeSpan _idleTimeout;
     private readonly TimeSpan _orphanTimeout;
@@ -42,12 +42,12 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     private readonly object _gate = new();
 
     public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger)
-        : this(() => sessionFactory.Create(), logger)
+        : this(workdir => sessionFactory.Create(workdir), logger)
     {
     }
 
     internal TerminalSessionManager(
-        Func<IPtySession> sessionFactory,
+        Func<string?, IPtySession> sessionFactory,
         ILogger<TerminalSessionManager> logger,
         TimeSpan? idleTimeout = null,
         TimeSpan? sweepInterval = null,
@@ -65,12 +65,15 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     /// <paramref name="onOutput"/>/<paramref name="onClosed"/> receive the
     /// sessionId plus the payload so the caller can route per-tab.
     /// </summary>
+    /// <param name="workdir">Optional cwd for the new session (SPEC-20260920
+    /// RF-006 — resolved server-side, confined to the workspace root).</param>
     /// <exception cref="InvalidOperationException">Session cap reached or the PTY failed to start.</exception>
     public Task<string> OpenAsync(
         string userKey,
         string connectionId,
         Func<string, string, Task> onOutput,
-        Func<string, string, Task> onClosed)
+        Func<string, string, Task> onClosed,
+        string? workdir = null)
     {
         lock (_gate)
         {
@@ -90,7 +93,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             }
 
             var sessionId = Guid.NewGuid().ToString("N")[..8];
-            var session = _sessionFactory();
+            var session = _sessionFactory(workdir);
             var entry = new SessionEntry
             {
                 Session = session,

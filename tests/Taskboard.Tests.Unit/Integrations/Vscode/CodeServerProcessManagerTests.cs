@@ -156,6 +156,74 @@ public class CodeServerProcessManagerTests : IDisposable
         status.Running.ShouldBeFalse();
     }
 
+    // SPEC-20260920-global-repo-selector RF-008 — kill → spawn → wait-listening.
+
+    [Fact]
+    public async Task Dado_ProcessoRodando_Quando_Restart_Entao_MataERespawna()
+    {
+        var processes = new List<Process>();
+        var manager = Create(
+            locator: _ => "/usr/bin/code-server",
+            starter: _ =>
+            {
+                var p = Process.Start(new ProcessStartInfo("/bin/sleep", "60")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                })!;
+                processes.Add(p);
+                return p;
+            },
+            portProbe: (_, _) => Task.FromResult(true));
+
+        await manager.EnsureStartedAsync();
+        var status = await manager.RestartAsync();
+
+        processes.Count.ShouldBe(2);
+        // Killed and disposed by RestartAsync — the handle is gone, so touching
+        // it throws; the respawned process is still alive.
+        Should.Throw<InvalidOperationException>(() => { _ = processes[0].HasExited; });
+        processes[1].HasExited.ShouldBeFalse();
+        status.Running.ShouldBeTrue();
+
+        await manager.DisposeAsync(); // kills the second sleep
+    }
+
+    [Fact]
+    public async Task Dado_NaoInstalado_Quando_Restart_Entao_PermaneceParado()
+    {
+        var spawned = 0;
+        var manager = Create(starter: _ => { spawned++; return null; });
+
+        var status = await manager.RestartAsync();
+
+        spawned.ShouldBe(0);
+        status.Running.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_ProcessoVivo_Quando_Restart_Entao_EsperaPortaAbrirDeNovo()
+    {
+        var probes = 0;
+        var manager = Create(
+            locator: _ => "/usr/bin/code-server",
+            starter: _ => Process.Start(new ProcessStartInfo("/bin/sleep", "60")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }),
+            portProbe: (_, _) => { probes++; return Task.FromResult(true); });
+
+        await manager.EnsureStartedAsync();
+        var probesAfterFirstStart = probes;
+        var status = await manager.RestartAsync();
+
+        status.Running.ShouldBeTrue();
+        probes.ShouldBeGreaterThan(probesAfterFirstStart);
+
+        await manager.DisposeAsync();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_home))

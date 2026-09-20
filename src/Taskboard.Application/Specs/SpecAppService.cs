@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Specs;
+using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Dtos;
 using Taskboard.Specs;
 
@@ -12,28 +13,33 @@ namespace Taskboard.Application.Specs;
 /// File-backed living-spec catalog — scans <c>.specs/</c>, parses every
 /// <c>SPEC-*.md</c> and rewrites the Status metadata cell in place on updates
 /// (SPEC-20260919-ade-living-specs §4, guardrail §8: never rewrite free-form
-/// sections, preserve UTF-8).
+/// sections, preserve UTF-8). SPEC-20260920 RF-005: the specs dir is resolved
+/// per request — <c>repo</c> → <c>~/repos/&lt;name&gt;/.specs</c>, otherwise
+/// the configured default dir.
 /// </summary>
 public sealed partial class SpecAppService : ISpecAppService
 {
     private readonly ISpecDocumentParser _parser;
-    private readonly string? _specsDir;
+    private readonly string? _configuredSpecsDir;
+    private readonly IWorkspacePathResolver _workspace;
     private readonly ILogger<SpecAppService> _logger;
 
     public SpecAppService(
         ISpecDocumentParser parser,
         IConfiguration configuration,
+        IWorkspacePathResolver workspace,
         ILogger<SpecAppService> logger)
     {
         _parser = parser;
+        _workspace = workspace;
         _logger = logger;
-        _specsDir = ResolveSpecsDir(configuration["Taskboard:SpecsDir"]);
+        _configuredSpecsDir = configuration["Taskboard:SpecsDir"];
     }
 
     public Task<IReadOnlyList<LivingSpecDto>> ListAsync(
-        string? status, string? query, CancellationToken cancellationToken = default)
+        string? status, string? query, string? repo = null, CancellationToken cancellationToken = default)
     {
-        var specs = ScanSpecs()
+        var specs = ScanSpecs(ResolveSpecsDir(repo))
             .Where(s => MatchesStatus(s, status))
             .Where(s => MatchesQuery(s, query))
             .OrderByDescending(s => s.Id, StringComparer.OrdinalIgnoreCase)
@@ -42,19 +48,22 @@ public sealed partial class SpecAppService : ISpecAppService
         return Task.FromResult<IReadOnlyList<LivingSpecDto>>(specs);
     }
 
-    public Task<LivingSpecDetailDto?> GetAsync(string specId, CancellationToken cancellationToken = default)
+    public Task<LivingSpecDetailDto?> GetAsync(
+        string specId, string? repo = null, CancellationToken cancellationToken = default)
     {
-        var file = FindSpecFile(specId);
+        var specsDir = ResolveSpecsDir(repo);
+        var file = FindSpecFile(specsDir, specId);
         if (file is null)
         {
             return Task.FromResult<LivingSpecDetailDto?>(null);
         }
         var markdown = File.ReadAllText(file);
-        return Task.FromResult<LivingSpecDetailDto?>(ToDetailDto(_parser.Parse(file, markdown), markdown));
+        return Task.FromResult<LivingSpecDetailDto?>(
+            ToDetailDto(_parser.Parse(file, markdown), markdown, specsDir));
     }
 
     public async Task<LivingSpecDetailDto?> UpdateStatusAsync(
-        string specId, string status, CancellationToken cancellationToken = default)
+        string specId, string status, string? repo = null, CancellationToken cancellationToken = default)
     {
         if (!Enum.TryParse<SpecStatus>(status, ignoreCase: true, out var parsed))
         {
@@ -63,7 +72,8 @@ public sealed partial class SpecAppService : ISpecAppService
                 $"Unknown spec status '{status}'. Valid: Draft, Approved, InImplementation, Done, Deprecated.");
         }
 
-        var file = FindSpecFile(specId);
+        var specsDir = ResolveSpecsDir(repo);
+        var file = FindSpecFile(specsDir, specId);
         if (file is null)
         {
             return null;
@@ -86,18 +96,38 @@ public sealed partial class SpecAppService : ISpecAppService
         await File.WriteAllTextAsync(file, rewritten, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken)
             .ConfigureAwait(false);
         _logger.LogInformation("Spec {SpecId} status updated to {Status}", specId, parsed);
-        return await GetAsync(specId, cancellationToken).ConfigureAwait(false);
+        return await GetAsync(specId, repo, cancellationToken).ConfigureAwait(false);
     }
 
-    internal IReadOnlyList<LivingSpecification> ScanSpecs()
+    /// <summary>
+    /// SPEC-20260920 RF-005: <paramref name="repo"/> → the clone's
+    /// <c>.specs</c> (only when both the clone and the dir exist); absent →
+    /// the configured dir / app-base walk-up. Missing dir → null → empty catalog.
+    /// </summary>
+    private string? ResolveSpecsDir(string? repo)
     {
-        if (_specsDir is null || !Directory.Exists(_specsDir))
+        if (!string.IsNullOrWhiteSpace(repo))
+        {
+            var workdir = _workspace.ResolveCardWorkdir(repo, out var cloneExists);
+            if (!cloneExists)
+            {
+                return null;
+            }
+            var specsDir = Path.Combine(workdir, ".specs");
+            return Directory.Exists(specsDir) ? specsDir : null;
+        }
+        return ResolveDefaultSpecsDir(_configuredSpecsDir);
+    }
+
+    internal IReadOnlyList<LivingSpecification> ScanSpecs(string? specsDir)
+    {
+        if (specsDir is null || !Directory.Exists(specsDir))
         {
             return [];
         }
 
         var specs = new List<LivingSpecification>();
-        foreach (var file in Directory.EnumerateFiles(_specsDir, "SPEC-*.md").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+        foreach (var file in Directory.EnumerateFiles(specsDir, "SPEC-*.md").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -117,17 +147,17 @@ public sealed partial class SpecAppService : ISpecAppService
         return specs;
     }
 
-    private string? FindSpecFile(string specId)
+    private static string? FindSpecFile(string? specsDir, string specId)
     {
-        if (_specsDir is null || specId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        if (specsDir is null || specId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
             return null;
         }
-        var candidate = Path.Combine(_specsDir, specId + ".md");
+        var candidate = Path.Combine(specsDir, specId + ".md");
         return File.Exists(candidate) ? candidate : null;
     }
 
-    private static string? ResolveSpecsDir(string? configured)
+    private static string? ResolveDefaultSpecsDir(string? configured)
     {
         if (!string.IsNullOrWhiteSpace(configured))
         {
@@ -163,11 +193,11 @@ public sealed partial class SpecAppService : ISpecAppService
             s.Tasks.Count, s.Tasks.Count(t => t.Done),
             s.Warnings.Select(w => $"{w.Code}: {w.Message}").ToList());
 
-    private LivingSpecDetailDto ToDetailDto(LivingSpecification s, string markdown) =>
+    private static LivingSpecDetailDto ToDetailDto(LivingSpecification s, string markdown, string? specsDir) =>
         new(
             s.Id, s.Title, s.Type, s.Status.ToString(), s.RawStatus,
             s.Date?.ToString("yyyy-MM-dd"), s.Ticket, s.Branch,
-            _specsDir is null ? null : Directory.GetParent(_specsDir)?.FullName,
+            specsDir is null ? null : Directory.GetParent(specsDir)?.FullName,
             s.Requirements.Select(r => new SpecRequirementDto(r.Code, r.Title)).ToList(),
             s.AcceptanceCriteria,
             s.Tasks.Select(t => new SpecTaskDto(t.Title, t.Done)).ToList(),

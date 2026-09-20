@@ -1,7 +1,9 @@
 @page "/specs"
 @attribute [Authorize]
+@implements IDisposable
 @inject TaskboardClient Client
 @inject ToastService ToastService
+@inject SelectedRepositoryService RepoService
 
 <PageTitle>Living Specs - Harness</PageTitle>
 
@@ -112,7 +114,9 @@
         }
         else
         {
-            <EmptyState Message="Nenhuma spec encontrada — verifique Taskboard:SpecsDir." />
+            <EmptyState Message="@(RepoService.Selected is { } sel
+                ? $"Nenhuma spec em {sel} — repositório não clonado ou sem .specs/."
+                : "Nenhuma spec encontrada — verifique Taskboard:SpecsDir.")" />
         }
     </div>
 </div>
@@ -126,7 +130,14 @@
     private string _query = "";
     private bool _loading = true;
 
-    protected override async Task OnInitializedAsync() => await RefreshAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        RepoService.Changed += OnRepoChangedAsync;
+        await RepoService.EnsureLoadedAsync();
+        await RefreshAsync();
+    }
+
+    private async Task OnRepoChangedAsync() => await InvokeAsync(RefreshAsync);
 
     private async Task RefreshAsync()
     {
@@ -135,8 +146,9 @@
         {
             var specsTask = Client.GetSpecsAsync(
                 string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter,
-                string.IsNullOrWhiteSpace(_query) ? null : _query);
-            var driftTask = Client.GetSpecDriftReportAsync();
+                string.IsNullOrWhiteSpace(_query) ? null : _query,
+                RepoService.Selected);
+            var driftTask = Client.GetSpecDriftReportAsync(RepoService.Selected);
             await Task.WhenAll(specsTask, driftTask);
             _specs = specsTask.Result;
             _drift = driftTask.Result;
@@ -164,11 +176,15 @@
     private async Task OpenDetailAsync(string specId) =>
         await _detailModal.ShowAsync<SpecDetailDialog>(
             title: specId,
-            parameters: new Dictionary<string, object> { ["SpecId"] = specId });
+            parameters: new Dictionary<string, object>
+            {
+                ["SpecId"] = specId,
+                ["Repo"] = RepoService.Selected ?? ""
+            });
 
     private async Task ApproveAsync(string specId)
     {
-        var dto = await Client.UpdateSpecStatusAsync(specId, "Approved");
+        var dto = await Client.UpdateSpecStatusAsync(specId, "Approved", RepoService.Selected);
         if (dto is null)
         {
             ToastService.Notify(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
@@ -180,7 +196,7 @@
 
     private async Task OpenRunAsync(string specId)
     {
-        var detail = await Client.GetSpecAsync(specId);
+        var detail = await Client.GetSpecAsync(specId, RepoService.Selected);
         if (detail is null)
         {
             ToastService.Notify(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
@@ -191,8 +207,14 @@
             parameters: new Dictionary<string, object>
             {
                 ["Spec"] = detail,
+                ["Repo"] = RepoService.Selected ?? "",
                 ["OnStarted"] = EventCallback.Factory.Create<string>(this, OnPipelineStartedAsync)
             });
+    }
+
+    public void Dispose()
+    {
+        RepoService.Changed -= OnRepoChangedAsync;
     }
 
     private async Task OnPipelineStartedAsync(string pipelineExecutionId)

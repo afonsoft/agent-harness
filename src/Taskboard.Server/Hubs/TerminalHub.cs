@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Integrations.Terminal;
+using Taskboard.Integrations.Workspace;
 
 namespace Taskboard.Server.Hubs;
 
@@ -16,17 +17,20 @@ public sealed class TerminalHub : Hub
     private readonly ILogger<TerminalHub> _logger;
     private readonly TerminalSessionManager _sessionManager;
     private readonly IHubContext<TerminalHub> _hubContext;
+    private readonly WorkspaceService _workspace;
 
     public TerminalHub(
         IConfiguration configuration,
         ILogger<TerminalHub> logger,
         TerminalSessionManager sessionManager,
-        IHubContext<TerminalHub> hubContext)
+        IHubContext<TerminalHub> hubContext,
+        WorkspaceService workspace)
     {
         _configuration = configuration;
         _logger = logger;
         _sessionManager = sessionManager;
         _hubContext = hubContext;
+        _workspace = workspace;
     }
 
     public override async Task OnConnectedAsync()
@@ -49,10 +53,19 @@ public sealed class TerminalHub : Hub
         await base.OnDisconnectedAsync(exception).ConfigureAwait(false);
     }
 
-    /// <summary>Opens a new PTY session; returns its sessionId.</summary>
-    public async Task<string> Open()
+    /// <summary>
+    /// Opens a new PTY session; returns its sessionId. SPEC-20260920 RF-006:
+    /// <paramref name="repo"/> (owner/name) resolves the clone workdir
+    /// server-side — only this new session gets the cwd; null keeps homeDir.
+    /// Required parameter — SignalR binds by exact argument count (no optional
+    /// parameters/overloads), so clients pass null for the default behavior.
+    /// </summary>
+    public async Task<string> Open(string? repo)
     {
         var connectionId = Context.ConnectionId;
+        var workdir = string.IsNullOrWhiteSpace(repo)
+            ? null
+            : _workspace.ResolveCardWorkdir(repo, out _);
 
         // Hub instances are transient per invocation — callbacks must use the
         // injected IHubContext with the captured connectionId.
@@ -64,7 +77,8 @@ public sealed class TerminalHub : Hub
                 (sessionId, chunk) => _hubContext.Clients.Client(connectionId)
                     .SendAsync("output", sessionId, chunk, CancellationToken.None),
                 (sessionId, reason) => _hubContext.Clients.Client(connectionId)
-                    .SendAsync("closed", sessionId, reason, CancellationToken.None)).ConfigureAwait(false);
+                    .SendAsync("closed", sessionId, reason, CancellationToken.None),
+                workdir).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {

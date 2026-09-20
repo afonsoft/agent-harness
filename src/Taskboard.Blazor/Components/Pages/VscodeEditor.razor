@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject TaskboardClient Client
 @inject NavigationManager NavigationManager
+@inject SelectedRepositoryService RepoService
 @implements IDisposable
 
 @*
@@ -74,11 +75,24 @@ else
     <div class="d-flex align-items-center gap-2 small text-body-secondary mb-2">
         <Icon Name="IconName.Folder2Open" />
         <code>@_folder</code>
-        <a href="@EditorUrl" target="_blank" rel="noopener noreferrer" class="ms-auto">
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" class="ms-auto"
+                @onclick="RestartAsync" Disabled="_restarting"
+                title="Restart the code-server process">
+            @if (_restarting)
+            {
+                <Spinner Size="SpinnerSize.Small" Class="me-1" />
+            }
+            else
+            {
+                <Icon Name="IconName.ArrowClockwise" class="me-1" />
+            }
+            Restart
+        </Button>
+        <a href="@EditorUrl" target="_blank" rel="noopener noreferrer">
             <Icon Name="IconName.BoxArrowUpRight" /> Open in new tab
         </a>
     </div>
-    <iframe src="@EditorUrl" class="vscode-frame border rounded" title="VS Code Web"></iframe>
+    <iframe @key="_iframeKey" src="@EditorUrl" class="vscode-frame border rounded" title="VS Code Web"></iframe>
 }
 
 @code {
@@ -86,6 +100,9 @@ else
     private VscodeInstallStatus? _install;
     private string? _folder;
     private bool _loading = true;
+    private bool _restarting;
+    private bool _hasExplicitFolder;
+    private int _iframeKey;
     private CancellationTokenSource? _cts;
 
     private string EditorUrl =>
@@ -94,10 +111,12 @@ else
     protected override async Task OnInitializedAsync()
     {
         _cts = new CancellationTokenSource();
+        RepoService.Changed += OnRepoChangedAsync;
 
         try
         {
             _status = await Client.GetVscodeStatusAsync(_cts.Token);
+            await RepoService.EnsureLoadedAsync();
             _folder = await ResolveFolderAsync(_cts.Token);
         }
         finally
@@ -106,25 +125,73 @@ else
         }
     }
 
+    /// <summary>
+    /// SPEC-20260920 RF-007: ?path → ?repo → selected repo → home. Explicit
+    /// query params always win and pin the page (Changed events are ignored).
+    /// </summary>
     private async Task<string?> ResolveFolderAsync(CancellationToken cancellationToken)
     {
         var parameters = ParseQuery(new Uri(NavigationManager.Uri).Query);
 
+        if (parameters.TryGetValue("path", out var path) && !string.IsNullOrWhiteSpace(path))
+        {
+            _hasExplicitFolder = true;
+            return path.ToString();
+        }
+
         if (parameters.TryGetValue("repo", out var repo) && !string.IsNullOrWhiteSpace(repo))
         {
+            _hasExplicitFolder = true;
             var workdir = await Client.GetVscodeWorkdirAsync(repo.ToString(), cancellationToken);
+            // An explicit repo pins the page even when it fails to resolve —
+            // never silently swap to the globally selected one.
+            return workdir?.Path ?? _status?.HomeDirectory;
+        }
+
+        if (RepoService.Selected is { } selected)
+        {
+            var workdir = await Client.GetVscodeWorkdirAsync(selected, cancellationToken);
             if (workdir is not null)
             {
                 return workdir.Path;
             }
         }
 
-        if (parameters.TryGetValue("path", out var path) && !string.IsNullOrWhiteSpace(path))
+        return _status?.HomeDirectory;
+    }
+
+    private async Task OnRepoChangedAsync()
+    {
+        if (_hasExplicitFolder)
         {
-            return path.ToString();
+            return;
         }
 
-        return _status?.HomeDirectory;
+        await InvokeAsync(async () =>
+        {
+            _folder = await ResolveFolderAsync(_cts?.Token ?? CancellationToken.None);
+            _iframeKey++; // force the iframe to reload the new workdir
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>SPEC-20260920 RF-008: kill → spawn → wait-listening, then reload the iframe.</summary>
+    private async Task RestartAsync()
+    {
+        _restarting = true;
+        try
+        {
+            var status = await Client.RestartVscodeAsync(_cts?.Token ?? CancellationToken.None);
+            if (status is not null)
+            {
+                _status = status;
+            }
+            _iframeKey++;
+        }
+        finally
+        {
+            _restarting = false;
+        }
     }
 
     private async Task StartInstallAsync()
@@ -185,5 +252,9 @@ else
         _ => string.Empty
     };
 
-    public void Dispose() => _cts?.Cancel();
+    public void Dispose()
+    {
+        RepoService.Changed -= OnRepoChangedAsync;
+        _cts?.Cancel();
+    }
 }

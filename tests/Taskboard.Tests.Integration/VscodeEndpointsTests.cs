@@ -117,4 +117,27 @@ public class VscodeEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
         body.ShouldNotBeNull();
         body["state"].ShouldNotBeNull();
     }
+
+    // SPEC-20260920-global-repo-selector RF-008 — POST /api/vscode/restart.
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_PostVscodeRestart_Entao_Retorna401()
+    {
+        var response = await _client.PostAsync("/api/vscode/restart", null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_PostVscodeRestart_Entao_200ComStatus()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsync("/api/vscode/restart", null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body.ShouldNotBeNull();
+        body["running"]!.GetValue<bool>().ShouldBeFalse();
+    }
 }

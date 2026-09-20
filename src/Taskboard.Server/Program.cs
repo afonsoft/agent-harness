@@ -340,6 +340,8 @@ builder.Services.AddSingleton(sp =>
     workspace.EnsureRoot();
     return workspace;
 });
+builder.Services.AddSingleton<Taskboard.Application.Contracts.Workspace.IWorkspacePathResolver>(
+    sp => sp.GetRequiredService<WorkspaceService>());
 
 builder.Services.AddSingleton<IVscodeInstallService>(sp => new VscodeInstallService(
     homeDir,
@@ -721,26 +723,42 @@ harness.MapGet("runs/{id}/telemetry", async (
     await finOps.GetRunTelemetryAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
 
 // SPEC-20260919-ade-living-specs §5: catálogo + drift das specs vivas.
+// SPEC-20260920-global-repo-selector RF-005: ?repo=owner/name reads
+// ~/repos/<name>/.specs; malformed repo → 400, missing clone → empty catalog.
 var specs = api.MapGroup("specs");
-specs.MapGet("", async (
+specs.MapGet("", async Task<IResult> (
         string? status,
         string? q,
+        string? repo,
         ISpecAppService svc,
         CancellationToken ct) =>
-    Results.Ok(await svc.ListAsync(status, q, ct)));
-specs.MapGet("drift-report", async (ISpecDriftDetector detector, CancellationToken ct) =>
-    Results.Ok(await detector.BuildReportAsync(ct)));
-specs.MapGet("{id}", async (
+    !IsRepoShapeValid(repo)
+        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        : Results.Ok(await svc.ListAsync(status, q, repo, ct)));
+specs.MapGet("drift-report", async Task<IResult> (
+        string? repo,
+        ISpecDriftDetector detector,
+        CancellationToken ct) =>
+    !IsRepoShapeValid(repo)
+        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        : Results.Ok(await detector.BuildReportAsync(repo, ct)));
+specs.MapGet("{id}", async Task<IResult> (
         string id,
+        string? repo,
         ISpecAppService svc,
         CancellationToken ct) =>
-        await svc.GetAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
-specs.MapPost("{id}/status", async (
+    !IsRepoShapeValid(repo)
+        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        : await svc.GetAsync(id, repo, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
+specs.MapPost("{id}/status", async Task<IResult> (
         string id,
         SpecStatusUpdateRequest request,
+        string? repo,
         ISpecAppService svc,
         CancellationToken ct) =>
-        await svc.UpdateStatusAsync(id, request.Status, ct) is { } dto
+    !IsRepoShapeValid(repo)
+        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        : await svc.UpdateStatusAsync(id, request.Status, repo, ct) is { } dto
             ? Results.Ok(dto)
             : Results.NotFound());
 
@@ -770,6 +788,12 @@ cliMetrics.MapGet("sessions", async (
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
 // RequireAuthorization (cookie or X-Api-Key).
 api.MapMcp("mcp");
+
+// SPEC-20260920 RF-005/RF-006: only 'owner/name' shapes are accepted — anything
+// else is rejected before it can reach a path resolver.
+static bool IsRepoShapeValid(string? repo) =>
+    string.IsNullOrEmpty(repo)
+    || repo.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2;
 
 static bool IsLocalUrl(string? url)
 {
@@ -1756,6 +1780,12 @@ api.MapPost("vscode/install", async (IVscodeInstallService installs, Cancellatio
 
 api.MapGet("vscode/install/status", (IVscodeInstallService installs) =>
     Results.Ok(installs.GetStatus()))
+    .RequireAuthorization();
+
+// SPEC-20260920-global-repo-selector RF-008: restart a wedged code-server —
+// kill → spawn → wait-listening inside the manager (serialized), not an app restart.
+api.MapPost("vscode/restart", async (ICodeServerManager manager, CancellationToken ct) =>
+    Results.Ok(await manager.RestartAsync(ct)))
     .RequireAuthorization();
 
 api.MapGet("vscode/workdir", (string repo, WorkspaceService workspace) =>

@@ -288,6 +288,9 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
 
         public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> EnsureStartedAsync(
             CancellationToken cancellationToken = default) => Task.FromResult(Status);
+
+        public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> RestartAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(Status);
     }
 
     /// <summary>Deterministic code-server install stub — never runs curl on the host.</summary>

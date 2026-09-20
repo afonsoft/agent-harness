@@ -1,6 +1,7 @@
 @page "/gantt"
 @attribute [Authorize]
-@inject IGitHubService GitHubService
+@implements IDisposable
+@inject SelectedRepositoryService RepoService
 @inject ITimelineMetricsService Timeline
 
 <PageTitle>Gantt - Harness</PageTitle>
@@ -14,24 +15,9 @@
 }
 else
 {
-    <div class="card mb-3">
-        <div class="card-body py-2">
-            <div class="field" style="max-width: 320px;">
-                <label for="gantt-repo">Repository</label>
-                <RepositoryCombobox Id="gantt-repo"
-                                    AriaLabel="Repository"
-                                    Placeholder="owner/repo"
-                                    Repositories="@_repoNames"
-                                    Disabled="@_tokenMissing"
-                                    @bind-Value="_repoInput"
-                                    OnCommit="OnRepoCommitted" />
-            </div>
-        </div>
-    </div>
-
-    @if (_repoWarning is not null)
+    @if (RepoService.Warning is not null)
     {
-        <div class="alert alert-warning">@_repoWarning</div>
+        <div class="alert alert-warning">@RepoService.Warning</div>
     }
     @if (_errorMessage is not null)
     {
@@ -132,7 +118,7 @@ else
             </div>
         }
     }
-    else if (!_tokenMissing)
+    else if (!RepoService.TokenMissing)
     {
         <EmptyState Message="Type or select a repository to load the timeline." />
     }
@@ -143,12 +129,7 @@ else
 
     private bool _isLoading = true;
     private bool _isTimelineLoading;
-    private bool _tokenMissing;
-    private string? _repoWarning;
     private string? _errorMessage;
-    private IReadOnlyList<string> _repoNames = [];
-    private string? _selectedRepo;
-    private string _repoInput = string.Empty;
     private RepoTimelineDto? _timeline;
     private RepoMetricsDto? _metrics;
     private DateTime _rangeStart;
@@ -156,56 +137,29 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            var repositories = await GitHubService.GetRepositoriesAsync();
-            _repoNames = repositories.Select(r => r.FullName).OrderBy(n => n).ToList();
-            if (_repoNames.Count > 0)
-            {
-                _selectedRepo = _repoNames[0];
-                _repoInput = _selectedRepo;
-                await LoadTimelineAsync();
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            _tokenMissing = true;
-            _repoWarning = "GitHub token not configured. Set the GITHUB_TOKEN environment variable or configure it in Settings.";
-        }
-        catch (Exception ex)
-        {
-            _repoWarning = $"Could not load GitHub repositories: {ex.Message}. You can still type a repository name.";
-        }
-        finally
-        {
-            _isLoading = false;
-        }
+        RepoService.Changed += OnRepoChangedAsync;
+        await RepoService.EnsureLoadedAsync();
+        await LoadTimelineAsync();
+        _isLoading = false;
     }
 
-    private async Task OnRepoCommitted(string value)
+    private Task OnRepoChangedAsync() => InvokeAsync(async () =>
     {
-        if (value == _selectedRepo)
-        {
-            return;
-        }
-
-        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length != 2)
-        {
-            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
-            _repoInput = _selectedRepo ?? string.Empty;
-            return;
-        }
-
-        _repoWarning = null;
-        _selectedRepo = value;
         await LoadTimelineAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        RepoService.Changed -= OnRepoChangedAsync;
     }
 
     private async Task LoadTimelineAsync()
     {
-        if (_selectedRepo is null)
+        if (RepoService.Selected is null)
         {
+            _timeline = null;
+            _metrics = null;
             return;
         }
 
@@ -213,7 +167,7 @@ else
         _errorMessage = null;
         try
         {
-            var parts = _selectedRepo.Split('/', 2);
+            var parts = RepoService.Selected.Split('/', 2);
             var timelineTask = Timeline.GetTimelineAsync(parts[0], parts[1], WindowDays);
             var metricsTask = Timeline.GetMetricsAsync(parts[0], parts[1], WindowDays);
             await Task.WhenAll(timelineTask, metricsTask);

@@ -10,7 +10,7 @@
 | Repository | `afonsoft/taskboard-ai` |
 | Branch | `feature/devin-20260920-global-repo-selector` |
 | Ticket | [#236 (E15)](https://github.com/afonsoft/taskboard-ai/issues/236) — slices #237–#243 |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 

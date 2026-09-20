@@ -1,6 +1,33 @@
 @inject IJSRuntime JS
+@inject SelectedRepositoryService RepoService
+@implements IDisposable
 
 <nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="Sidebar navigation">
+    <div class="sidebar-repo-selector">
+        <RepositoryCombobox Id="sidebar-repo"
+                            AriaLabel="Repository"
+                            Placeholder="owner/repo"
+                            Repositories="@RepoService.Repositories"
+                            IsLoading="@(!RepoService.IsLoaded)"
+                            Disabled="@RepoService.TokenMissing"
+                            @bind-Value="_repoInput"
+                            OnCommit="OnRepoCommittedAsync" />
+        @if (_repoWarning is not null)
+        {
+            <div class="small text-warning px-1 pt-1" role="alert">@_repoWarning</div>
+        }
+        else if (RepoService.Warning is not null)
+        {
+            <div class="small text-warning px-1 pt-1" role="alert">@RepoService.Warning</div>
+        }
+    </div>
+    <button type="button" class="nav-link sidebar-repo-rail"
+            data-label="@(RepoService.Selected ?? "Repository")"
+            title="@(RepoService.Selected ?? "Select repository")"
+            aria-label="Select repository"
+            @onclick="ExpandSidebarAsync">
+        <Icon Name="IconName.Folder2" />
+    </button>
     <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" data-label="Board" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Kanban" />
         <span class="nav-label">Board</span>
@@ -13,21 +40,9 @@
         <Icon Name="IconName.Diagram3" />
         <span class="nav-label">Workflow</span>
     </NavLink>
-    <NavLink class="nav-link" href="ai-chat" aria-label="AI Chat" data-label="AI Chat" @onclick="CloseSidebarAsync">
-        <Icon Name="IconName.ChatDots" />
-        <span class="nav-label">AI Chat</span>
-    </NavLink>
     <NavLink class="nav-link" href="specs" aria-label="Specs" data-label="Specs" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.FileEarmarkText" />
         <span class="nav-label">Specs</span>
-    </NavLink>
-    <NavLink class="nav-link" href="agents" aria-label="CLI Agents" data-label="CLI Agents" @onclick="CloseSidebarAsync">
-        <Icon Name="IconName.Robot" />
-        <span class="nav-label">CLI Agents</span>
-    </NavLink>
-    <NavLink class="nav-link" href="finops" aria-label="FinOps" data-label="FinOps" @onclick="CloseSidebarAsync">
-        <Icon Name="IconName.CurrencyDollar" />
-        <span class="nav-label">FinOps</span>
     </NavLink>
     <NavLink class="nav-link" href="editor" aria-label="VS Code" data-label="VS Code" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.CodeSlash" />
@@ -36,6 +51,19 @@
     <NavLink class="nav-link" href="terminal" aria-label="Terminal" data-label="Terminal" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Terminal" />
         <span class="nav-label">Terminal</span>
+    </NavLink>
+    <hr class="app-sidebar-divider" />
+    <NavLink class="nav-link" href="ai-chat" aria-label="AI Chat" data-label="AI Chat" @onclick="CloseSidebarAsync">
+        <Icon Name="IconName.ChatDots" />
+        <span class="nav-label">AI Chat</span>
+    </NavLink>
+    <NavLink class="nav-link" href="agents" aria-label="CLI Agents" data-label="CLI Agents" @onclick="CloseSidebarAsync">
+        <Icon Name="IconName.Robot" />
+        <span class="nav-label">CLI Agents</span>
+    </NavLink>
+    <NavLink class="nav-link" href="finops" aria-label="FinOps" data-label="FinOps" @onclick="CloseSidebarAsync">
+        <Icon Name="IconName.CurrencyDollar" />
+        <span class="nav-label">FinOps</span>
     </NavLink>
     <NavLink class="nav-link" href="settings" aria-label="Settings" data-label="Settings" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Gear" />
@@ -52,6 +80,55 @@
 </nav>
 
 @code {
+    [CascadingParameter] private MainLayout? Layout { get; set; }
+
+    private string _repoInput = string.Empty;
+    private string? _repoWarning;
+
+    protected override async Task OnInitializedAsync()
+    {
+        RepoService.Changed += OnRepoChangedAsync;
+        await RepoService.EnsureLoadedAsync();
+        _repoInput = RepoService.Selected ?? string.Empty;
+    }
+
+    private async Task OnRepoCommittedAsync(string value)
+    {
+        if (!await RepoService.SelectAsync(value))
+        {
+            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
+            _repoInput = RepoService.Selected ?? string.Empty;
+            return;
+        }
+
+        _repoWarning = null;
+        _repoInput = RepoService.Selected ?? string.Empty;
+    }
+
+    private async Task OnRepoChangedAsync()
+    {
+        _repoInput = RepoService.Selected ?? string.Empty;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ExpandSidebarAsync()
+    {
+        if (Layout is not null)
+        {
+            await Layout.SetSidebarCollapsedAsync(false);
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setSidebarCollapsed", false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop not available (e.g. prerender).
+        }
+    }
+
     private async Task CloseSidebarAsync()
     {
         try
@@ -62,5 +139,10 @@
         {
             // JS interop not available (e.g. prerender); navigation still works.
         }
+    }
+
+    public void Dispose()
+    {
+        RepoService.Changed -= OnRepoChangedAsync;
     }
 }

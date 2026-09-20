@@ -14,6 +14,7 @@ namespace Taskboard.Integrations.Terminal;
 public sealed class PtySession : IPtySession
 {
     private readonly string _homeDirectory;
+    private readonly string _workingDirectory;
     private readonly ILogger _logger;
     private readonly Func<string, string?> _locator;
     private readonly int _cols;
@@ -29,9 +30,13 @@ public sealed class PtySession : IPtySession
     private bool _ptyPathResolved;
 
     public PtySession(string homeDirectory, ILogger logger, int cols = 120, int rows = 30,
-        Func<string, string?>? executableLocator = null)
+        Func<string, string?>? executableLocator = null, string? workingDirectory = null)
     {
         _homeDirectory = homeDirectory;
+        // SPEC-20260920 RF-006: explicit workdir (repo clone) only for new
+        // sessions; default keeps the effective home directory. HOME env is
+        // intentionally left untouched either way.
+        _workingDirectory = workingDirectory ?? homeDirectory;
         _logger = logger;
         _cols = cols;
         _rows = rows;
@@ -84,7 +89,7 @@ public sealed class PtySession : IPtySession
 
         var startInfo = new ProcessStartInfo(script)
         {
-            WorkingDirectory = _homeDirectory,
+            WorkingDirectory = _workingDirectory,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

@@ -2,12 +2,13 @@
 @attribute [Authorize]
 @implements IDisposable
 @inject IGitHubService GitHubService
+@inject SelectedRepositoryService RepoService
 
 <PageTitle>Workflow - Harness</PageTitle>
 
 <div class="d-flex align-items-center mb-1">
     <h1 class="h4 fw-bold mb-0">Workflow</h1>
-    @if (_selectedRepo is not null)
+    @if (RepoService.Selected is not null)
     {
         <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="RefreshAsync" disabled="@_isLoadingWorkflows">
             <Icon Name="IconName.ArrowClockwise" /> Refresh
@@ -22,24 +23,9 @@
 }
 else
 {
-    <div class="card mb-3">
-        <div class="card-body py-2">
-            <div class="field" style="max-width: 320px;">
-                <label for="workflow-repo">Repository</label>
-                <RepositoryCombobox Id="workflow-repo"
-                                    AriaLabel="Repository"
-                                    Placeholder="owner/repo"
-                                    Repositories="@_repoNames"
-                                    Disabled="@_tokenMissing"
-                                    @bind-Value="_repoInput"
-                                    OnCommit="OnRepoCommitted" />
-            </div>
-        </div>
-    </div>
-
-    @if (_repoWarning is not null)
+    @if (RepoService.Warning is not null)
     {
-        <div class="alert alert-warning">@_repoWarning</div>
+        <div class="alert alert-warning">@RepoService.Warning</div>
     }
     @if (_errorMessage is not null)
     {
@@ -145,7 +131,7 @@ else
             }
         }
     }
-    else if (_selectedRepo is null)
+    else if (RepoService.Selected is null)
     {
         <EmptyState Message="Type or select a repository to load its workflows." />
     }
@@ -156,12 +142,7 @@ else
 
     private bool _isLoading = true;
     private bool _isLoadingWorkflows;
-    private bool _tokenMissing;
-    private string? _repoWarning;
     private string? _errorMessage;
-    private IReadOnlyList<string> _repoNames = [];
-    private string? _selectedRepo;
-    private string _repoInput = string.Empty;
     private IReadOnlyList<WorkflowDto>? _workflows;
     private readonly HashSet<long> _expanded = [];
     private readonly HashSet<long> _runsLoading = [];
@@ -170,60 +151,27 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        try
-        {
-            var repositories = await GitHubService.GetRepositoriesAsync();
-            _repoNames = repositories.Select(r => r.FullName).OrderBy(n => n).ToList();
-            if (_repoNames.Count > 0)
-            {
-                _selectedRepo = _repoNames[0];
-                _repoInput = _selectedRepo;
-                await LoadWorkflowsAsync();
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            _tokenMissing = true;
-            _repoWarning = "GitHub token not configured. Set the GITHUB_TOKEN environment variable or configure it in Settings.";
-        }
-        catch (Exception ex)
-        {
-            _repoWarning = $"Could not load GitHub repositories: {ex.Message}. You can still type a repository name.";
-        }
-        finally
-        {
-            _isLoading = false;
-        }
+        RepoService.Changed += OnRepoChangedAsync;
+        await RepoService.EnsureLoadedAsync();
+        await LoadWorkflowsAsync();
+        _isLoading = false;
     }
 
-    private async Task OnRepoCommitted(string value)
+    private Task OnRepoChangedAsync() => InvokeAsync(async () =>
     {
-        if (value == _selectedRepo)
-        {
-            return;
-        }
-
-        var parts = value.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length != 2)
-        {
-            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
-            _repoInput = _selectedRepo ?? string.Empty;
-            return;
-        }
-
-        _repoWarning = null;
-        _selectedRepo = value;
         _expanded.Clear();
         _runs.Clear();
         await LoadWorkflowsAsync();
-    }
+        StateHasChanged();
+    });
 
     private Task RefreshAsync() => LoadWorkflowsAsync();
 
     private async Task LoadWorkflowsAsync()
     {
-        if (_selectedRepo is null)
+        if (RepoService.Selected is null)
         {
+            _workflows = null;
             return;
         }
 
@@ -231,7 +179,7 @@ else
         _errorMessage = null;
         try
         {
-            _workflows = await GitHubService.GetWorkflowsAsync(_selectedRepo);
+            _workflows = await GitHubService.GetWorkflowsAsync(RepoService.Selected);
             foreach (var id in _expanded.ToList())
             {
                 await LoadRunsAsync(id);
@@ -263,7 +211,7 @@ else
 
     private async Task LoadRunsAsync(long workflowId)
     {
-        if (_selectedRepo is null)
+        if (RepoService.Selected is null)
         {
             return;
         }
@@ -271,7 +219,7 @@ else
         _runsLoading.Add(workflowId);
         try
         {
-            _runs[workflowId] = await GitHubService.GetWorkflowRunsAsync(_selectedRepo, workflowId, 10);
+            _runs[workflowId] = await GitHubService.GetWorkflowRunsAsync(RepoService.Selected, workflowId, 10);
         }
         catch (Exception)
         {
@@ -362,6 +310,7 @@ else
 
     public void Dispose()
     {
+        RepoService.Changed -= OnRepoChangedAsync;
         _refreshTimer?.Dispose();
     }
 }

@@ -8,5 +8,8 @@ namespace Taskboard.Application.Contracts.Specs;
 /// </summary>
 public interface ISpecDriftDetector
 {
-    Task<SpecDriftReportDto> BuildReportAsync(CancellationToken cancellationToken = default);
+    /// <param name="repo">Optional <c>owner/name</c> — scans
+    /// <c>~/repos/&lt;name&gt;/.specs</c> on demand; absent → the configured
+    /// default specs dir (SPEC-20260920 RF-005).</param>
+    Task<SpecDriftReportDto> BuildReportAsync(string? repo = null, CancellationToken cancellationToken = default);
 }

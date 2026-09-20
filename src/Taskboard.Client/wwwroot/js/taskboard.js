@@ -36,6 +36,26 @@ window.taskboard = {
         } else {
             delete document.documentElement.dataset.sidebarCollapsed;
         }
+    },
+
+    // SPEC-20260920-global-repo-selector RF-001: the shared repo selection is
+    // per-browser; storage failures degrade to session-only state.
+    getSelectedRepo: function () {
+        try {
+            return localStorage.getItem('harness.selectedRepo');
+        } catch (e) {
+            return null;
+        }
+    },
+
+    setSelectedRepo: function (repo) {
+        try {
+            if (repo) {
+                localStorage.setItem('harness.selectedRepo', repo);
+            } else {
+                localStorage.removeItem('harness.selectedRepo');
+            }
+        } catch (e) { /* storage unavailable — session-only state */ }
     }
 };
 

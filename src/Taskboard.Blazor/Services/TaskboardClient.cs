@@ -383,6 +383,16 @@ public sealed class TaskboardClient
             : null;
     }
 
+    /// <summary>Reinicia o code-server (kill → spawn → wait-listening) — SPEC-20260920 RF-008.</summary>
+    public async Task<Taskboard.Application.Contracts.Vscode.VscodeStatus?> RestartVscodeAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/vscode/restart", null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<Taskboard.Application.Contracts.Vscode.VscodeStatus>(cancellationToken)
+            : null;
+    }
+
     /// <summary>Snapshot do último run de instalação do code-server.</summary>
     public async Task<Taskboard.Application.Contracts.Vscode.VscodeInstallStatus?> GetVscodeInstallStatusAsync(
         CancellationToken cancellationToken = default) =>
@@ -409,9 +419,11 @@ public sealed class TaskboardClient
         return (IReadOnlyList<Taskboard.GitHub.IssueHistoryItemDto>?)response?.Items ?? [];
     }
 
-    /// <summary>Catálogo de living specs (E13) — filtro por status e texto.</summary>
+    /// <summary>Catálogo de living specs (E13) — filtro por status e texto.
+    /// <paramref name="repo"/> seleciona o .specs do clone (SPEC-20260920 RF-005).</summary>
     public async Task<IReadOnlyList<LivingSpecDto>> GetSpecsAsync(
-        string? status = null, string? query = null, CancellationToken cancellationToken = default)
+        string? status = null, string? query = null, string? repo = null,
+        CancellationToken cancellationToken = default)
     {
         var url = "/api/specs";
         var sep = '?';
@@ -423,15 +435,21 @@ public sealed class TaskboardClient
         if (!string.IsNullOrWhiteSpace(query))
         {
             url += $"{sep}q={Uri.EscapeDataString(query)}";
+            sep = '&';
+        }
+        if (!string.IsNullOrWhiteSpace(repo))
+        {
+            url += $"{sep}repo={Uri.EscapeDataString(repo)}";
         }
         return await _httpClient.GetFromJsonAsync<List<LivingSpecDto>>(url, cancellationToken) ?? [];
     }
 
     /// <summary>Spec completa incluindo markdown bruto; null quando inexistente.</summary>
-    public async Task<LivingSpecDetailDto?> GetSpecAsync(string specId, CancellationToken cancellationToken = default)
+    public async Task<LivingSpecDetailDto?> GetSpecAsync(
+        string specId, string? repo = null, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetAsync(
-            $"/api/specs/{Uri.EscapeDataString(specId)}", cancellationToken);
+            $"/api/specs/{Uri.EscapeDataString(specId)}{RepoQuery(repo)}", cancellationToken);
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<LivingSpecDetailDto>(cancellationToken)
             : null;
@@ -439,10 +457,10 @@ public sealed class TaskboardClient
 
     /// <summary>Atualiza a célula Status do metadata da spec; null quando inexistente.</summary>
     public async Task<LivingSpecDetailDto?> UpdateSpecStatusAsync(
-        string specId, string status, CancellationToken cancellationToken = default)
+        string specId, string status, string? repo = null, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
-            $"/api/specs/{Uri.EscapeDataString(specId)}/status",
+            $"/api/specs/{Uri.EscapeDataString(specId)}/status{RepoQuery(repo)}",
             new SpecStatusUpdateRequest(status), cancellationToken);
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<LivingSpecDetailDto>(cancellationToken)
@@ -450,8 +468,13 @@ public sealed class TaskboardClient
     }
 
     /// <summary>Relatório de spec drift (E13 RF-002).</summary>
-    public async Task<SpecDriftReportDto?> GetSpecDriftReportAsync(CancellationToken cancellationToken = default) =>
-        await _httpClient.GetFromJsonAsync<SpecDriftReportDto>("/api/specs/drift-report", cancellationToken);
+    public async Task<SpecDriftReportDto?> GetSpecDriftReportAsync(
+        string? repo = null, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<SpecDriftReportDto>(
+            $"/api/specs/drift-report{RepoQuery(repo)}", cancellationToken);
+
+    private static string RepoQuery(string? repo) =>
+        string.IsNullOrWhiteSpace(repo) ? "" : $"?repo={Uri.EscapeDataString(repo)}";
 
     /// <summary>Templates de pipeline multi-agente (E12).</summary>
     public async Task<IReadOnlyList<PipelineTemplateDto>> GetPipelineTemplatesAsync(
