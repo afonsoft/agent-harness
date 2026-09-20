@@ -311,6 +311,27 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentCliStatus>>("/api/agent-clis", cancellationToken)
         ?? [];
 
+    /// <summary>Métricas compactas por CLI (sessions/tokens no período) — SPEC-20260919-cli-metrics.</summary>
+    public async Task<CliMetricsSummaryDto?> GetCliMetricsSummaryAsync(
+        string period = "7d", CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<CliMetricsSummaryDto>(
+            $"/api/local/cli-metrics/summary?period={Uri.EscapeDataString(period)}", cancellationToken);
+
+    /// <summary>Status de ingestão por fonte (badge de saúde) — SPEC-20260919-cli-metrics.</summary>
+    public async Task<IReadOnlyList<CliMetricSourceDto>> GetCliMetricSourcesAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<CliMetricSourceDto>>(
+            "/api/local/cli-metrics/sources", cancellationToken) ?? [];
+
+    /// <summary>Sync manual sob demanda — SPEC-20260919-cli-metrics.</summary>
+    public async Task<CliMetricsSyncResultDto?> SyncCliMetricsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/local/cli-metrics/sync", content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<CliMetricsSyncResultDto>(cancellationToken)
+            : null;
+    }
+
     /// <summary>Inicia a instalação gerenciada de um CLI (SPEC-20260918-cli-agents-expansion).</summary>
     public async Task<AgentCliInstallStatus?> StartAgentCliInstallAsync(
         Taskboard.Agents.AgentCliKind kind, CancellationToken cancellationToken = default)

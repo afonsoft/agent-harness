@@ -20,8 +20,10 @@ using Taskboard;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
+using Taskboard.Application.CliMetrics;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Issues;
@@ -29,6 +31,7 @@ using Taskboard.Issues;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
+using Taskboard.EntityFrameworkCore.CliMetrics;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Harness;
 using Taskboard.Harness;
@@ -223,6 +226,22 @@ builder.Services.AddSingleton<ICliDbExtractor>(sp => new ClaudeContextModeCliDbE
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
     sp.GetRequiredService<ILogger<ClaudeContextModeCliDbExtractor>>()));
+
+// SPEC-20260919-cli-metrics: ingestão incremental das fontes do cli-db-reader.
+var cliMetricsOptions = builder.Configuration
+    .GetSection("Taskboard:CliMetrics")
+    .Get<CliMetricsOptions>() ?? new CliMetricsOptions();
+builder.Services.AddSingleton(cliMetricsOptions);
+builder.Services.AddScoped<ICliMetricsRepository, EfCoreCliMetricsRepository>();
+builder.Services.AddScoped<ICliUsageMetricsProvider, EfCoreCliUsageMetricsProvider>();
+builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(
+    sp.GetRequiredService<ICliMetricsRepository>(),
+    sp.GetServices<ICliDbExtractor>(),
+    sp.GetRequiredService<ICliDatabaseLocator>(),
+    sp.GetRequiredService<CliMetricsOptions>(),
+    sp.GetRequiredService<ILogger<CliMetricsService>>()));
+builder.Services.AddSingleton<CliMetricsSyncCoordinator>();
+builder.Services.AddHostedService<CliMetricsSyncService>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -609,6 +628,29 @@ harness.MapPost("verification/run", async (
     await reports.SaveAsync(request.WorktreePath, report, request.Attempt, ct);
     return Results.Ok(report);
 });
+
+// SPEC-20260919-cli-metrics §5: ingestion status + aggregates for /agents.
+var cliMetrics = api.MapGroup("local/cli-metrics");
+cliMetrics.MapPost("sync", async (
+        CliMetricsSyncCoordinator coordinator,
+        CliMetricsOptions options,
+        CancellationToken ct) =>
+{
+    if (!options.Enabled)
+    {
+        return Results.NotFound(new { error = "cli-metrics disabled" });
+    }
+
+    return Results.Ok(await coordinator.TrySyncAsync(ct));
+});
+cliMetrics.MapGet("sources", async (ICliMetricsService metrics, CancellationToken ct) =>
+    Results.Ok(await metrics.GetSourcesAsync(ct)));
+cliMetrics.MapGet("summary", async (string? period, ICliMetricsService metrics, CancellationToken ct) =>
+    Results.Ok(await metrics.GetSummaryAsync(period, ct)));
+cliMetrics.MapGet("sessions", async (
+        AgentCliKind? kind, DateTime? from, DateTime? to, int? take,
+        ICliMetricsService metrics, CancellationToken ct) =>
+    Results.Ok(await metrics.GetSessionsAsync(kind, from, to, take ?? 100, ct)));
 
 // RF-003: stateless Streamable HTTP MCP endpoint; inherits the group's
 // RequireAuthorization (cookie or X-Api-Key).

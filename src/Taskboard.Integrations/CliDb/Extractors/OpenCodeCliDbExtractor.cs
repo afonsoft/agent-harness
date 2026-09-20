@@ -29,7 +29,7 @@ public sealed class OpenCodeCliDbExtractor : CliDbExtractorBase
 
     public override AgentCliKind Kind => AgentCliKind.OpenCode;
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
-    protected override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
+    public override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
 
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,

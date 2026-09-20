@@ -155,7 +155,7 @@ public class CliDbFingerprintTests : IDisposable
 
         public override AgentCliKind Kind => kind;
         public override CliDbSchemaFingerprint ExpectedFingerprint => expected;
-        protected override IReadOnlyList<CliDbSource> Sources => sources;
+        public override IReadOnlyList<CliDbSource> Sources => sources;
 
         protected override Task<long?> ExtractSourceAsync(
             ICliDbConnection conn,

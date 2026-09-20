@@ -62,6 +62,18 @@ public sealed class CliDatabaseLocator : ICliDatabaseLocator
         }
     }
 
+    public CliDbFileStat? Stat(string absolutePath)
+    {
+        var path = Path.GetFullPath(absolutePath);
+        if (!IsUnderHome(path) || !File.Exists(path))
+        {
+            return null;
+        }
+
+        var info = new FileInfo(path);
+        return new CliDbFileStat(info.LastWriteTimeUtc, info.Length);
+    }
+
     public IReadOnlyList<CliDbSourceStatusDto> GetStatus()
     {
         var results = new List<CliDbSourceStatusDto>();

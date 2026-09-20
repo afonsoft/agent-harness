@@ -32,7 +32,7 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
 
     // v1 reads only the summaries DB — per-conversation files stay status-only.
-    protected override IReadOnlyList<CliDbSource> Sources =>
+    public override IReadOnlyList<CliDbSource> Sources =>
         CliDatabaseMap.SourcesFor(Kind).Where(s => s.Name == "antigravity-summaries").ToList();
 
     protected override async Task<long?> ExtractSourceAsync(

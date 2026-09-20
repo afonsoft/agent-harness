@@ -29,7 +29,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
     public abstract CliDbSchemaFingerprint ExpectedFingerprint { get; }
 
     /// <summary>Sources this extractor reads — normally <see cref="CliDatabaseMap.SourcesFor"/>.</summary>
-    protected abstract IReadOnlyList<CliDbSource> Sources { get; }
+    public abstract IReadOnlyList<CliDbSource> Sources { get; }
 
     /// <summary>
     /// Extractor-specific whitelisted queries for one opened database file.

@@ -250,6 +250,19 @@ Body `{ worktreePath, solutionFile, minCoverageThreshold, enforceFormat?, maxAtt
 
 Sem endpoints HTTP — camada interna de acesso consumida pelo `cli-metrics` (E11). `CliDatabaseMap` registra os SQLite que cada CLI gerenciado mantém em `$HOME`; `ICliDatabaseLocator` resolve paths/globs para `Available`/`Missing`; `ICliDatabaseReader` abre as fontes estritamente `Mode=ReadOnly` (arquivos WAL/ocupados são lidos de uma cópia temporária removida após o uso) com limites de linhas/timeout/tamanho, acesso somente a tabelas whitelisted, rejeição de tabelas negadas e exclusão de colunas com nome de segredo; `ICliDbExtractor`s por CLI emitem `CliSessionRecord`/`CliUsageRecord` normalizados com cursors watermark opacos `{arquivo}|{rowid}`. Fingerprints de schema (`user_version`, `application_id`, colunas whitelisted) gateiam a extração — drift reporta `SchemaDrifted` em vez de lançar exceção.
 
+### Harness — CLI Metrics (E11)
+
+Ingestão incremental dos extractors do E10 em `CliMetricSource` / `CliSessionMetric` / `CliDailyUsageAggregate` (dedupe por `(SourceId, ExternalId)`, skip por assinatura de arquivo, watermark por fonte, retenção de 90 dias para dados brutos — agregados mantidos). Auth obrigatória (cookie ou `X-Api-Key`).
+
+| Método | Path | Notas |
+|--------|------|-------|
+| POST | `/api/local/cli-metrics/sync` | Sync manual — `200` com `{ state, inFlight, sourcesSynced, sessionsIngested }`; `inFlight: true` quando já existe um sync; `404` quando `Taskboard:CliMetrics:Enabled=false` |
+| GET | `/api/local/cli-metrics/sources` | Status por fonte: `kind`, `sourceName`, `status` (Available/Missing/Error/SchemaDrifted), `schemaDrifted`, `lastSyncUtc`, `lastError`, `rowCount` |
+| GET | `/api/local/cli-metrics/summary?period=` | `period` = `7d` (padrão do /agents) `30d` `90d` `all`; totais + buckets por kind + por dia com `lastActivityUtc` |
+| GET | `/api/local/cli-metrics/sessions?kind=&from=&to=&take=` | Sessões, mais recentes primeiro; `take` limitado a 1–500 (padrão 100) |
+
+Sync em background: `CliMetricsSyncService` (`PeriodicTimer`, intervalo `Taskboard:CliMetrics:SyncIntervalMinutes`, padrão 15, mín 1) roda uma passagem no startup + syncs periódicos via `CliMetricsSyncCoordinator` single-flight. Feed FinOps: `ICliUsageMetricsProvider.GetUsageAsync` expõe agregados de tokens+sessões por kind/modelo para o `ade-observability-finops` (E14).
+
 ## SSE
 
 ### Eventos globais
