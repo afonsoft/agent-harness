@@ -1,0 +1,203 @@
+@page "/specs"
+@attribute [Authorize]
+@inject TaskboardClient Client
+@inject ToastService ToastService
+
+<PageTitle>Living Specs - Harness</PageTitle>
+
+<Modal @ref="_detailModal" Size="ModalSize.ExtraLarge" IsScrollable="true" />
+<Modal @ref="_runModal" Size="ModalSize.Large" />
+
+<h1 class="h4 fw-bold mb-1">Living Specs</h1>
+<p class="small text-body-secondary mb-4">Especificações SDD de <code>.specs/</code> — fonte única da verdade para humanos e agentes.</p>
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div class="d-flex gap-1 flex-wrap">
+                @foreach (var s in new[] { "", "Draft", "Approved", "InImplementation", "Done", "Deprecated" })
+                {
+                    var filter = s;
+                    <Button Color="@(_statusFilter == filter ? ButtonColor.Primary : ButtonColor.Secondary)"
+                            Outline="true" Size="ButtonSize.Small"
+                            @onclick="() => SetFilterAsync(filter)">
+                        @(filter == "" ? "All" : filter)
+                    </Button>
+                }
+            </div>
+            <div class="d-flex gap-2">
+                <input class="form-control form-control-sm" style="width: 220px"
+                       placeholder="Search specs..." @bind="_query" @bind:event="oninput"
+                       @onkeyup="OnQueryKeyUpAsync" />
+                <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                        @onclick="RefreshAsync" Disabled="_loading">
+                    <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+                </Button>
+            </div>
+        </div>
+
+        @if (_drift is { StaleSpecsCount: > 0 })
+        {
+            <Alert Color="AlertColor.Warning" Dismissable="false">
+                <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />
+                @_drift.StaleSpecsCount spec(s) com drift:
+                @string.Join("; ", _drift.DriftItems.Select(d => $"{d.SpecId} → sugerido {d.SuggestedStatus}"))
+            </Alert>
+        }
+
+        @if (_loading && _specs is null)
+        {
+            <Loading Message="Scanning .specs/ ..." />
+        }
+        else if (_specs is { Count: > 0 })
+        {
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Spec</th>
+                            <th>Status</th>
+                            <th>Type</th>
+                            <th>Date</th>
+                            <th title="Functional requirements">RFs</th>
+                            <th title="Acceptance criteria (BDD)">ACs</th>
+                            <th title="Task plan progress">Tasks</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var spec in _specs)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold small">@spec.Id</div>
+                                    <div class="small text-body-secondary text-truncate" style="max-width: 320px">@spec.Title</div>
+                                    @if (spec.Warnings.Count > 0)
+                                    {
+                                        <Icon Name="IconName.ExclamationTriangleFill" class="text-warning"
+                                              title="@string.Join("; ", spec.Warnings)" />
+                                    }
+                                </td>
+                                <td><Badge Color="@SpecDetailDialog.StatusColor(spec.Status)">@spec.Status</Badge></td>
+                                <td class="small">@spec.Type</td>
+                                <td class="small">@spec.Date</td>
+                                <td class="small">@spec.RequirementsCount</td>
+                                <td class="small">@spec.AcceptanceCriteriaCount</td>
+                                <td class="small">@spec.TasksDone/@spec.TasksTotal</td>
+                                <td class="text-end text-nowrap">
+                                    <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                                            @onclick="() => OpenDetailAsync(spec.Id)" title="View">
+                                        <Icon Name="IconName.Eye" />
+                                    </Button>
+                                    @if (spec.Status == "Draft")
+                                    {
+                                        <Button Color="ButtonColor.Success" Outline="true" Size="ButtonSize.Small"
+                                                @onclick="() => ApproveAsync(spec.Id)" title="Approve">
+                                            <Icon Name="IconName.CheckLg" />
+                                        </Button>
+                                    }
+                                    @if (spec.Status is "Approved" or "InImplementation")
+                                    {
+                                        <Button Color="ButtonColor.Primary" Outline="true" Size="ButtonSize.Small"
+                                                @onclick="() => OpenRunAsync(spec.Id)" title="Run with Agent">
+                                            <Icon Name="IconName.PlayFill" />
+                                        </Button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <EmptyState Message="Nenhuma spec encontrada — verifique Taskboard:SpecsDir." />
+        }
+    </div>
+</div>
+
+@code {
+    private Modal _detailModal = default!;
+    private Modal _runModal = default!;
+    private IReadOnlyList<LivingSpecDto>? _specs;
+    private SpecDriftReportDto? _drift;
+    private string _statusFilter = "";
+    private string _query = "";
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            var specsTask = Client.GetSpecsAsync(
+                string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter,
+                string.IsNullOrWhiteSpace(_query) ? null : _query);
+            var driftTask = Client.GetSpecDriftReportAsync();
+            await Task.WhenAll(specsTask, driftTask);
+            _specs = specsTask.Result;
+            _drift = driftTask.Result;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SetFilterAsync(string status)
+    {
+        _statusFilter = status;
+        await RefreshAsync();
+    }
+
+    private async Task OnQueryKeyUpAsync(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter")
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async Task OpenDetailAsync(string specId) =>
+        await _detailModal.ShowAsync<SpecDetailDialog>(
+            title: specId,
+            parameters: new Dictionary<string, object> { ["SpecId"] = specId });
+
+    private async Task ApproveAsync(string specId)
+    {
+        var dto = await Client.UpdateSpecStatusAsync(specId, "Approved");
+        if (dto is null)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
+            return;
+        }
+        ToastService.Notify(new ToastMessage(ToastType.Success, $"{specId} → Approved"));
+        await RefreshAsync();
+    }
+
+    private async Task OpenRunAsync(string specId)
+    {
+        var detail = await Client.GetSpecAsync(specId);
+        if (detail is null)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
+            return;
+        }
+        await _runModal.ShowAsync<RunSpecDialog>(
+            title: $"Run {specId}",
+            parameters: new Dictionary<string, object>
+            {
+                ["Spec"] = detail,
+                ["OnStarted"] = EventCallback.Factory.Create<string>(this, OnPipelineStartedAsync)
+            });
+    }
+
+    private async Task OnPipelineStartedAsync(string pipelineExecutionId)
+    {
+        await _runModal.HideAsync();
+        ToastService.Notify(new ToastMessage(ToastType.Success, $"Pipeline {pipelineExecutionId} iniciado."));
+    }
+}

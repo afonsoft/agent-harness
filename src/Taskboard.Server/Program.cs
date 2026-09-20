@@ -26,6 +26,8 @@ using Taskboard.Application.Harness;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
+using Taskboard.Application.Contracts.Specs;
+using Taskboard.Application.Specs;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Issues;
 using Taskboard.Issues;
@@ -51,6 +53,7 @@ using Taskboard.Integrations.Jira;
 using Taskboard.Integrations.Mcp;
 using Taskboard.Integrations.Terminal;
 using Taskboard.Integrations.Skills;
+using Taskboard.Integrations.Specs;
 using Taskboard.Integrations.Vscode;
 using Taskboard.Integrations.Workspace;
 using Taskboard.Agents;
@@ -249,6 +252,11 @@ builder.Services.AddHostedService<CliMetricsSyncService>();
 builder.Services.AddSingleton<PipelineEngine>();
 builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>();
 builder.Services.AddHostedService<PipelineEngineService>();
+
+// SPEC-20260919-ade-living-specs: catálogo vivo das specs .specs/SPEC-*.md.
+builder.Services.AddSingleton<ISpecDocumentParser, MarkdigSpecParser>();
+builder.Services.AddSingleton<ISpecAppService, SpecAppService>();
+builder.Services.AddSingleton<ISpecDriftDetector, SpecDriftDetector>();
 
 builder.Services.AddSingleton<SkillsOperationLog>();
 builder.Services.AddSingleton<McpOperationLog>();
@@ -672,6 +680,30 @@ pipelines.MapPost("{id}/cancel", async (
         IPipelineOrchestrator orchestrator,
         CancellationToken ct) =>
     Results.Ok(await orchestrator.CancelAsync(id, ct)));
+
+// SPEC-20260919-ade-living-specs §5: catálogo + drift das specs vivas.
+var specs = api.MapGroup("specs");
+specs.MapGet("", async (
+        string? status,
+        string? q,
+        ISpecAppService svc,
+        CancellationToken ct) =>
+    Results.Ok(await svc.ListAsync(status, q, ct)));
+specs.MapGet("drift-report", async (ISpecDriftDetector detector, CancellationToken ct) =>
+    Results.Ok(await detector.BuildReportAsync(ct)));
+specs.MapGet("{id}", async (
+        string id,
+        ISpecAppService svc,
+        CancellationToken ct) =>
+        await svc.GetAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
+specs.MapPost("{id}/status", async (
+        string id,
+        SpecStatusUpdateRequest request,
+        ISpecAppService svc,
+        CancellationToken ct) =>
+        await svc.UpdateStatusAsync(id, request.Status, ct) is { } dto
+            ? Results.Ok(dto)
+            : Results.NotFound());
 
 // SPEC-20260919-cli-metrics §5: ingestion status + aggregates for /agents.
 var cliMetrics = api.MapGroup("local/cli-metrics");

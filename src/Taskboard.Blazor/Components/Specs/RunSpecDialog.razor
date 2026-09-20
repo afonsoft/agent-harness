@@ -1,0 +1,119 @@
+@inject TaskboardClient Client
+
+@*
+    SPEC-20260919-ade-living-specs RF-004: "Executar com Agente" — dispara um
+    pipeline multi-agente (E12) a partir de uma spec aprovada.
+*@
+
+@if (_templates is null)
+{
+    <Loading Message="Loading pipeline templates..." />
+}
+else
+{
+    <div class="mb-3">
+        <label class="form-label small fw-semibold">Pipeline template</label>
+        <select class="form-select form-select-sm" @bind="_templateId">
+            @foreach (var t in _templates)
+            {
+                <option value="@t.TemplateId">@t.Name — @string.Join(" → ", t.StageKeys)</option>
+            }
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label small fw-semibold">Repository path (local)</label>
+        <input class="form-control form-control-sm font-monospace" @bind="_repositoryPath" />
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col">
+            <label class="form-label small fw-semibold">Repository (owner/name)</label>
+            <input class="form-control form-control-sm" @bind="_repositoryFullName" />
+        </div>
+        <div class="col">
+            <label class="form-label small fw-semibold">Base branch</label>
+            <input class="form-control form-control-sm" @bind="_baseBranch" />
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label small fw-semibold">Initial prompt</label>
+        <textarea class="form-control form-control-sm" rows="4" @bind="_initialPrompt"></textarea>
+    </div>
+
+    @if (_error is { } error)
+    {
+        <Alert Color="AlertColor.Danger" Dismissable="false">@error</Alert>
+    }
+
+    <div class="d-flex justify-content-end">
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="StartAsync" Disabled="_running">
+            @if (_running)
+            {
+                <Spinner Size="SpinnerSize.Small" Class="me-1" />
+            }
+            <Icon Name="IconName.PlayFill" class="me-1" /> Start pipeline
+        </Button>
+    </div>
+}
+
+@code {
+    [Parameter] public LivingSpecDetailDto Spec { get; set; } = default!;
+    [Parameter] public EventCallback<string> OnStarted { get; set; }
+
+    private IReadOnlyList<PipelineTemplateDto>? _templates;
+    private string _templateId = "standard-feature";
+    private string _repositoryPath = "";
+    private string _repositoryFullName = "";
+    private string _baseBranch = "main";
+    private string _initialPrompt = "";
+    private string? _error;
+    private bool _running;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _templates = await Client.GetPipelineTemplatesAsync();
+        _repositoryPath = Spec.RepositoryPath ?? "";
+        _repositoryFullName = RepoNameFromPath(_repositoryPath);
+        _initialPrompt = $"Implementar a spec {Spec.Id} ({Spec.Title}) conforme .specs/{Spec.Id}.md";
+    }
+
+    private static string RepoNameFromPath(string path) =>
+        string.IsNullOrWhiteSpace(path)
+            ? ""
+            : new DirectoryInfo(path.TrimEnd('/', '\\')).Name;
+
+    private async Task StartAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_repositoryPath))
+        {
+            _error = "Repository path is required — the pipeline worktree is created inside it.";
+            return;
+        }
+
+        _running = true;
+        try
+        {
+            var dto = await Client.StartPipelineAsync(new PipelineStartRequest(
+                _templateId,
+                string.IsNullOrWhiteSpace(_repositoryFullName) ? RepoNameFromPath(_repositoryPath) : _repositoryFullName,
+                _repositoryPath,
+                string.IsNullOrWhiteSpace(_baseBranch) ? "main" : _baseBranch,
+                Spec.Ticket,
+                _initialPrompt));
+
+            if (dto is null)
+            {
+                _error = "Pipeline start failed (check repository path and template).";
+                return;
+            }
+            await OnStarted.InvokeAsync(dto.PipelineExecutionId);
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+}
