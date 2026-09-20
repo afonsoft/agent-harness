@@ -130,7 +130,10 @@ public sealed class CliMetricsService : ICliMetricsService
             var state = await _repository.GetSourceStateAsync(extractor.Kind, source.Name, cancellationToken)
                 .ConfigureAwait(false);
             resumeCursor ??= state?.WatermarkCursor;
-            if (state?.ResolvedPath != joined || state.FileModifiedUtc?.Ticks != mtime || state.FileSizeBytes != size)
+            // Errored sources always retry — the failure may have been transient or
+            // caused by a previous build, and an unchanged file must not pin it.
+            if (state?.Status is CliDbSourceStatus.Error
+                || state?.ResolvedPath != joined || state.FileModifiedUtc?.Ticks != mtime || state.FileSizeBytes != size)
             {
                 unchanged = false;
             }

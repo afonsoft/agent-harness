@@ -201,6 +201,30 @@ public class CliDbExtractorsTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_ClineDbSemSessionId_Quando_Extrair_Entao_CursorAvanca()
+    {
+        // Linhas sem session_id não geram sessão, mas devem mover o cursor —
+        // senão todo sync re-lê o mesmo batch para sempre (bug real em produção).
+        CriarDb(".cline/data/db/hub-events-hub-production.db", """
+            CREATE TABLE hub_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT,
+                session_id TEXT, envelope_json TEXT, created_at INTEGER);
+            INSERT INTO hub_events (event, session_id, envelope_json, created_at)
+            VALUES ('e',NULL,'{}',1789336066864),('e','','{}',1789336166864),('e',NULL,'{}',1789336266864);
+            """);
+        var extractor = new ClineCliDbExtractor(
+            Locator(), Reader(), NullLogger<ClineCliDbExtractor>.Instance);
+
+        var result = await extractor.ExtractSinceAsync(null);
+
+        result.Sessions.ShouldBeEmpty();
+        result.NextCursor.ShouldNotBeNull().ShouldEndWith("|3",
+            customMessage: "cursor deve avançar pela última rowid escaneada");
+
+        var next = await extractor.ExtractSinceAsync(result.NextCursor);
+        next.Sessions.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Dado_ClaudeCtxDb_Quando_Extrair_Entao_SessionsDoPlugin()
     {
         CriarDb(".claude/context-mode/sessions/abc.db", ClaudeCtxDdl);
