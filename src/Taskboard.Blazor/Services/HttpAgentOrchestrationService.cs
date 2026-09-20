@@ -64,6 +64,9 @@ public sealed class HttpAgentOrchestrationService(HttpClient http) : IAgentOrche
         return result?.Runs ?? [];
     }
 
+    /// <summary>Client proxy — live run tracking exists only server-side.</summary>
+    public IReadOnlyCollection<Guid> GetLiveRunIds() => [];
+
     private sealed record AgentsResponse(List<AgentInfo> Agents);
     private sealed record LogsResponse(List<AgentLogMessage> Logs);
     private sealed record RunsResponse(List<AgentRunDto> Runs);

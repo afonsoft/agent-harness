@@ -499,6 +499,41 @@ public class AgentOrchestrationServiceTests
         }
     }
 
+    [Fact]
+    public async Task Dado_RunEnfileirado_Quando_Processar_Entao_LiveIdsApareceESome()
+    {
+        // SPEC-20260920-harness-maintenance-jobs RF-002 — o reaper reconcilia
+        // contra este snapshot; ids somem quando o job termina.
+        var runId = Guid.NewGuid();
+        var runRepository = Substitute.For<IAgentRunRepository>();
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(0, true)));
+        var service = CriarService(acpClient: acpClient, agentRunRepository: runRepository);
+        runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentRunDto(
+                runId, "issue-1", AgentType.Codex, AgentRunState.Queued,
+                DateTimeOffset.UtcNow, null)));
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            service.GetLiveRunIds().ShouldContain(runId);
+
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
+            await AguardarAsync(() => Task.FromResult(!service.GetLiveRunIds().Contains(runId)));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static WorktreeSessionDto CriarSession(string runId, string path)
         => new(
             "wt-1", runId, path, "feature/agent-x-y", "Active",
