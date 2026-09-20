@@ -522,7 +522,8 @@ public class AgentOrchestrationServiceTests
         try
         {
             await service.EnqueueAsync(request);
-            service.GetLiveRunIds().ShouldContain(runId);
+            // O id entra no snapshot quando o worker despacha o job — não no enqueue.
+            await AguardarAsync(() => Task.FromResult(service.GetLiveRunIds().Contains(runId)));
 
             await AguardarAsync(async () =>
                 (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
