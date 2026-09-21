@@ -288,6 +288,12 @@ else if (_runs is not null)
                 ? null
                 : $"https://github.com/{_start.RepositoryFullName}.git";
             _start.Prompt = AgentPromptTemplate.Render(info.Template, cloneUrl, title, body, comments);
+            // Older overrides may lack {issueComments} — append so the handoff
+            // channel still reaches the agent (same rule as AgentConfigTab).
+            if (!AgentPromptTemplate.HasCommentsPlaceholder(info.Template) && comments is not null)
+            {
+                _start.Prompt += $"\n\nComments:\n{comments}";
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -309,12 +315,21 @@ else if (_runs is not null)
 
         try
         {
-            var issue = (await GitHub.GetIssuesAsync(_start.RepositoryFullName, _cts.Token))
-                .FirstOrDefault(i => i.Number == number);
+            // GetIssueAsync hits the issue directly — GetIssuesAsync applies the
+            // board visibility window and would miss old closed issues.
+            var issue = await GitHub.GetIssueAsync(_start.RepositoryFullName, number, _cts.Token);
+            if (issue is null)
+            {
+                ToastService.Notify(new ToastMessage(ToastType.Warning,
+                    $"Issue #{number} não encontrada em {_start.RepositoryFullName} — placeholders de issue ficam vazios."));
+            }
+
             return (issue?.Title, issue?.Body, await BuildCommentsSectionAsync(number));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            ToastService.Notify(new ToastMessage(ToastType.Warning,
+                $"Não foi possível carregar a issue #{number}: {ex.Message}"));
             return (null, null, null);
         }
     }
@@ -350,6 +365,8 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            ToastService.Notify(new ToastMessage(ToastType.Warning,
+                $"Não foi possível carregar os comentários da issue #{issueNumber}: {ex.Message}"));
             return null;
         }
     }

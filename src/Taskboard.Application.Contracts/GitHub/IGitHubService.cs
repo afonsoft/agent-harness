@@ -22,6 +22,13 @@ public interface IGitHubService
     Task<IReadOnlyList<IssueDto>> GetIssuesAsync(string repositoryFullName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Busca uma issue pelo número, sem o filtro de visibilidade do board —
+    /// usado para carregar contexto (título/corpo) de issues antigas ou fechadas.
+    /// Retorna null quando a issue não existe.
+    /// </summary>
+    Task<IssueDto?> GetIssueAsync(string repositoryFullName, int issueNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Atualiza a coluna (label) de uma issue, removendo a label anterior e adicionando a nova.
     /// </summary>
     Task<IssueDto> UpdateIssueColumnAsync(string repositoryFullName, int issueNumber, GitHubBoardColumn? oldColumn, GitHubBoardColumn newColumn, CancellationToken cancellationToken = default);
