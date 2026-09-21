@@ -45,6 +45,28 @@ public interface IAgentSessionClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Altera uma config option da sessão (ACP <c>session/set_config_option</c>)
+    /// — modelo, modo, thought_level etc. conforme anunciado pelo agente.
+    /// </summary>
+    Task<bool> SetConfigOptionAsync(
+        string threadId,
+        string configId,
+        string value,
+        bool isBoolean = false,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    /// <summary>
+    /// Troca o modo da sessão (ACP <c>session/set_mode</c>) para agentes que
+    /// expõem <c>modes</c> em vez de configOptions.
+    /// </summary>
+    Task<bool> SetModeAsync(
+        string threadId,
+        string modeId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    /// <summary>
     /// Indica se a thread possui uma sessão interativa em execução.
     /// </summary>
     bool IsSessionActive(string threadId);

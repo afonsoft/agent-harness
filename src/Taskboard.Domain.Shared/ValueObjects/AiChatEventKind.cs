@@ -16,7 +16,10 @@ public sealed record AiChatEventKind : StringValueObject
         "tool_output",
         "session",
         "output",
-        "lifecycle"
+        "lifecycle",
+        // SPEC-20260921-acp-v1-conformance RF-007: ACP metadata kinds.
+        "commands",
+        "session_info"
     };
 
     public static readonly AiChatEventKind Message = new("message");

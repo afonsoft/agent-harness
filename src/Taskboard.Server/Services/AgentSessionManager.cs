@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -208,14 +209,42 @@ public sealed class AgentSessionManager : IAsyncDisposable
         return _sessionClient.CancelAsync(threadId, cancellationToken);
     }
 
+    /// <summary>RF-003: set a session config option (e.g. model) on the live session.</summary>
+    public Task<bool> SetConfigOptionAsync(
+        string threadId, string configId, string value, CancellationToken cancellationToken = default)
+    {
+        return _sessionClient.SetConfigOptionAsync(threadId, configId, value,
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>RF-003: switch session mode (plan/build/...) on the live session.</summary>
+    public Task<bool> SetModeAsync(string threadId, string modeId, CancellationToken cancellationToken = default)
+    {
+        return _sessionClient.SetModeAsync(threadId, modeId, cancellationToken);
+    }
+
+    /// <summary>Negotiated peer capabilities/info for the thread's live session, if any.</summary>
+    public AcpPeerInfo? GetPeerInfo(string threadId) => _sessionClient.GetPeerInfo(threadId);
+
     public Task StopSessionAsync(string threadId, CancellationToken cancellationToken = default)
     {
         _sessionClient.UnregisterEventListener(threadId);
         return _sessionClient.StopSessionAsync(threadId, cancellationToken);
     }
 
+    private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset WindowStart)> _reconnects = new();
+
     private void HandleSessionEvent(string threadId, AgentSessionEvent e)
     {
+        // RF-002/011: a "dead" lifecycle event means the channel died while the
+        // session was still wanted (deliberate stops unregister the listener
+        // first) — respawn so session/resume can restore the context. Bounded
+        // to 3 attempts per 5-minute window to avoid crash-loops.
+        if (e.Kind == "lifecycle" && e.PayloadJson?.Contains("\"dead\"") == true)
+        {
+            _ = Task.Run(() => TryReconnectAsync(threadId));
+        }
+
         _ = Task.Run(async () =>
         {
             try
@@ -279,6 +308,48 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 _logger.LogError(ex, "Failed to persist and publish agent session event for thread '{ThreadId}'.", threadId);
             }
         });
+    }
+
+    private async Task TryReconnectAsync(string threadId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var state = _reconnects.AddOrUpdate(
+            threadId,
+            _ => (1, now),
+            (_, prev) => now - prev.WindowStart > TimeSpan.FromMinutes(5)
+                ? (1, now)
+                : (prev.Count + 1, prev.WindowStart));
+
+        if (state.Count > 3)
+        {
+            _logger.LogWarning(
+                "Giving up reconnecting agent session for thread '{ThreadId}' after {Count} attempts.",
+                threadId,
+                state.Count);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Respawning dead agent session for thread '{ThreadId}' (attempt {Count}).",
+            threadId,
+            state.Count);
+
+        var ready = await EnsureSessionAsync(threadId).ConfigureAwait(false);
+        if (ready)
+        {
+            // Only forgive the counter after the respawn proves stable — a
+            // session that dies again inside the window keeps counting, so a
+            // crash-looping agent is eventually left dead instead of
+            // reconnecting forever.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+                if (_sessionClient.IsSessionActive(threadId))
+                {
+                    _reconnects.TryRemove(threadId, out _);
+                }
+            });
+        }
     }
 
     public async ValueTask DisposeAsync()

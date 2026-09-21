@@ -22,6 +22,10 @@ services:
       Admin__Password: ${ADMIN_PASSWORD:-}
       # GitHub PAT (repo, read:org) for the Kanban board — optional.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # ACP session-per-run for board/cockpit agent executions (SPEC-20260921-acp-v1-conformance
+      # RF-010): when "true", one-shot runs go through a real ACP session
+      # (initialize → session/new → session/prompt) instead of args-mode.
+      # TASKBOARD__ACP__SESSIONRUNS: ${ACP_SESSION_RUNS:-false}
       TZ: ${TZ:-UTC}
     volumes:
       - taskboard-data:/data

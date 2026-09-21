@@ -147,6 +147,50 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Accepted);
                 }
 
+            // SPEC-20260921-acp-v1-conformance RF-003: session/set_config_option
+            // (model, mode and agent-defined options) on a live thread session.
+            case (AgentEventScope.Thread, "set_config")
+                when !string.IsNullOrWhiteSpace(request.ConfigId) && request.Content is not null:
+                {
+                    var set = await _sessions.SetConfigOptionAsync(
+                        request.ScopeId, request.ConfigId.Trim(), request.Content, cancellationToken);
+                    if (!set)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                    }
+
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, $"Config '{request.ConfigId}' → '{request.Content}'",
+                        cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
+
+            case (AgentEventScope.Thread, "set_mode") when !string.IsNullOrWhiteSpace(request.Content):
+                {
+                    var set = await _sessions.SetModeAsync(request.ScopeId, request.Content.Trim(), cancellationToken);
+                    if (!set)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                    }
+
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, $"Mode → '{request.Content.Trim()}'", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
+
+            // SPEC-20260921-acp-v1-conformance RF-004: auth/logout, gated by the
+            // agent-advertised auth.logout capability.
+            case (AgentEventScope.Thread, "logout"):
+                {
+                    var done = await _sessionClient.LogoutAsync(request.ScopeId, cancellationToken);
+                    if (!done)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict,
+                            Error: "no-active-session-or-logout-unsupported");
+                    }
+
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Agent logout", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
+
             case (AgentEventScope.Issue, "steer") or (AgentEventScope.Issue, "retry")
                 or (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, "steer"):
                 return new AgentControlResult(AgentControlStatus.Conflict,
@@ -236,10 +280,25 @@ public sealed class AgentControlService
                 }
 
             case AgentEventScope.Thread:
-                return new AgentControlResult(AgentControlStatus.Ok, Payload: new AgentScopeState(
-                    scopeKind, scopeId,
-                    _sessionClient.IsSessionActive(scopeId) ? "running" : "idle",
-                    LastEventSequence: lastSeq));
+                {
+                    var peer = _sessionClient.GetPeerInfo(scopeId);
+                    var sessionInfo = peer is null
+                        ? null
+                        : JsonSerializer.Serialize(new
+                        {
+                            protocolVersion = peer.ProtocolVersion,
+                            agent = new { name = peer.AgentName, version = peer.AgentVersion },
+                            peer.Modes,
+                            peer.ConfigOptions,
+                            authMethods = peer.AuthMethods.Select(m => new { m.Id, m.Name, m.Type }),
+                        });
+                    return new AgentControlResult(AgentControlStatus.Ok, Payload: new AgentScopeState(
+                        scopeKind, scopeId,
+                        _sessionClient.IsSessionActive(scopeId) ? "running" : "idle",
+                        LastEventSequence: lastSeq,
+                        SessionId: peer?.SessionId,
+                        SessionInfoJson: sessionInfo));
+                }
 
             case AgentEventScope.Issue:
                 {
