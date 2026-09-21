@@ -56,11 +56,26 @@
     private bool _rawOnly;
     private long _lastSequence;
 
-    private IEnumerable<AgentExecutionEvent> VisibleEvents => _events
-        .Where(e => _rawOnly
-            ? e.Kind is AgentEventKinds.Output or AgentEventKinds.Message
-            : _enabledKinds.Count == 0 || _enabledKinds.Contains(e.Kind))
-        .OrderBy(e => e.Sequence);
+    private IEnumerable<AgentExecutionEvent> VisibleEvents
+    {
+        get
+        {
+            // Correlated tool_output rows are merged into their tool_call card —
+            // rendering both would duplicate the same logical call.
+            var correlatedCalls = new HashSet<string>(
+                _events.Where(e => e.Kind == AgentEventKinds.ToolCall && e.ToolCallId is not null)
+                       .Select(e => e.ToolCallId!), StringComparer.Ordinal);
+
+            return _events
+                .Where(e => !(e.Kind == AgentEventKinds.ToolOutput
+                              && e.ToolCallId is not null
+                              && correlatedCalls.Contains(e.ToolCallId)))
+                .Where(e => _rawOnly
+                    ? e.Kind is AgentEventKinds.Output or AgentEventKinds.Message
+                    : _enabledKinds.Count == 0 || _enabledKinds.Contains(e.Kind))
+                .OrderBy(e => e.Sequence);
+        }
+    }
 
     private bool IsKindEnabled(string kind) => _enabledKinds.Count == 0 || _enabledKinds.Contains(kind);
 
@@ -80,8 +95,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await ReloadAsync();
+        // Subscribe BEFORE the first replay so events emitted between mount and
+        // the fetch arrive live instead of being lost in the gap.
         await ConnectHubAsync();
+        await ReloadAsync();
     }
 
     private async Task ReloadAsync()
@@ -89,10 +106,31 @@
         _loading = true;
         try
         {
-            var page = await Client.GetAgentEventsAsync(ScopeKind, ScopeId, after: 0);
+            var fetched = new List<AgentExecutionEvent>();
+            var after = 0L;
+            const int maxPages = 50; // safety bound — ~25k events
+            for (var page = 0; page < maxPages; page++)
+            {
+                var p = await Client.GetAgentEventsAsync(ScopeKind, ScopeId, after);
+                fetched.AddRange(p.Events);
+                if (!p.HasMore || p.Events.Count == 0)
+                {
+                    break;
+                }
+
+                after = p.NextAfter;
+            }
+
+            // Merge live events that arrived while fetching (dedup by EventId);
+            // also drops events deleted by "clear" since the last load.
+            var known = new HashSet<string>(fetched.Select(e => e.EventId), StringComparer.Ordinal);
+            var merged = fetched
+                .Concat(_events.Where(e => !known.Contains(e.EventId)))
+                .OrderBy(e => e.Sequence)
+                .ToList();
             _events.Clear();
-            _events.AddRange(page);
-            _lastSequence = _events.Count > 0 ? _events[^1].Sequence : 0;
+            _events.AddRange(merged);
+            _lastSequence = merged.Count > 0 ? merged[^1].Sequence : 0;
         }
         catch (Exception ex)
         {
@@ -104,6 +142,44 @@
         }
     }
 
+    /// <summary>
+    /// Inserts an event keeping sequence order and EventId dedup. Several
+    /// `tool_output` rows for the same call collapse into the latest — the
+    /// merged card shows only the freshest output.
+    /// </summary>
+    private void Ingest(AgentExecutionEvent evt)
+    {
+        var byId = _events.FindIndex(e => e.EventId == evt.EventId);
+        if (byId >= 0)
+        {
+            _events[byId] = evt;
+            return;
+        }
+
+        if (evt.Kind == AgentEventKinds.ToolOutput && evt.ToolCallId is not null)
+        {
+            var prev = _events.FindIndex(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
+            if (prev >= 0)
+            {
+                _events[prev] = evt;
+                _lastSequence = Math.Max(_lastSequence, evt.Sequence);
+                return;
+            }
+        }
+
+        var pos = _events.FindIndex(e => e.Sequence > evt.Sequence);
+        if (pos < 0)
+        {
+            _events.Add(evt);
+        }
+        else
+        {
+            _events.Insert(pos, evt);
+        }
+
+        _lastSequence = Math.Max(_lastSequence, evt.Sequence);
+    }
+
     private async Task ConnectHubAsync()
     {
         _hub = new HubConnectionBuilder()
@@ -113,19 +189,9 @@
 
         _hub.On<AgentExecutionEvent>("ReceiveAgentEvent", evt =>
         {
-            if (evt.ScopeKind == ScopeKind && evt.ScopeId == ScopeId && evt.Sequence > _lastSequence)
+            if (evt.ScopeKind == ScopeKind && evt.ScopeId == ScopeId)
             {
-                _events.Add(evt);
-                _lastSequence = evt.Sequence;
-            }
-            else if (evt.ScopeKind == ScopeKind && evt.ScopeId == ScopeId)
-            {
-                // Seq regressiva (replay/duplicata) — atualiza o card vivo por ToolCallId.
-                var existing = _events.FindIndex(e => e.ToolCallId != null && e.ToolCallId == evt.ToolCallId && e.Kind == evt.Kind);
-                if (existing >= 0)
-                {
-                    _events[existing] = evt;
-                }
+                Ingest(evt);
             }
 
             InvokeAsync(StateHasChanged);
@@ -137,11 +203,20 @@
             {
                 // A nova conexão não herda a membership do grupo — re-assina antes do replay.
                 await _hub.InvokeAsync("SubscribeToScope", ScopeKind, ScopeId);
-                var missed = await Client.GetAgentEventsAsync(ScopeKind, ScopeId, _lastSequence);
-                _events.AddRange(missed);
-                if (missed.Count > 0)
+                var after = _lastSequence;
+                for (var i = 0; i < 50; i++)
                 {
-                    _lastSequence = missed[^1].Sequence;
+                    var page = await Client.GetAgentEventsAsync(ScopeKind, ScopeId, after);
+                    foreach (var evt in page.Events)
+                    {
+                        Ingest(evt);
+                    }
+                    if (!page.HasMore || page.Events.Count == 0)
+                    {
+                        break;
+                    }
+
+                    after = page.NextAfter;
                 }
                 await InvokeAsync(StateHasChanged);
             }
@@ -165,7 +240,7 @@
     private RenderFragment RenderEvent(AgentExecutionEvent evt) => evt.Kind switch
     {
         AgentEventKinds.ToolCall or AgentEventKinds.ToolOutput => RenderToolCall(evt),
-        AgentEventKinds.Permission => RenderPermission(evt),
+        AgentEventKinds.Permission or AgentEventKinds.Approval => RenderPermission(evt),
         AgentEventKinds.Plan => RenderPlan(evt),
         AgentEventKinds.Metric => RenderMetric(evt),
         AgentEventKinds.Verification => @<VerificationCard Title="@(evt.Title ?? "verification")" Timestamp="@evt.TimestampUtc" />,
@@ -181,16 +256,24 @@
     private RenderFragment RenderToolCall(AgentExecutionEvent evt) => __builder =>
     {
         var tool = ParseTool(evt.PayloadJson);
-        <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments" Status="@tool.Status" Output="@tool.Output" />
+        // Merge the latest correlated tool_output so the card shows the
+        // terminal status/output instead of a duplicate row.
+        var outputEvt = evt.ToolCallId is null ? null
+            : _events.LastOrDefault(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
+        var output = outputEvt is not null ? ParseTool(outputEvt.PayloadJson) : null;
+        <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments"
+                      Status="@(output?.Status ?? tool.Status)" Output="@(output?.Output ?? tool.Output)" />
     };
 
     private RenderFragment RenderPermission(AgentExecutionEvent evt) => __builder =>
     {
         var perm = ParsePermission(evt.PayloadJson);
+        var title = perm.Tool ?? evt.Title
+            ?? (evt.Kind == AgentEventKinds.Approval ? "Aprovação" : "Permissão");
         <div class="alert alert-warning py-2 px-2 my-1 small">
             <div class="d-flex align-items-center gap-2">
                 <Icon Name="IconName.ExclamationTriangle" />
-                <strong>@(perm.Tool ?? "Permissão")</strong>
+                <strong>@title</strong>
                 <span class="text-truncate">@perm.Detail</span>
             </div>
             @if (OnPermissionReply is not null)
@@ -198,13 +281,17 @@
                 <div class="d-flex gap-2 mt-2">
                     @foreach (var opt in perm.Options)
                     {
-                        <button type="button" class="btn btn-sm @(opt.Contains("reject") ? "btn-outline-danger" : "btn-outline-success")"
-                                @onclick="() => OnPermissionReply(evt, opt)">@opt</button>
+                        <button type="button" class="btn btn-sm @(IsDenyOption(opt.Id) ? "btn-outline-danger" : "btn-outline-success")"
+                                @onclick="() => OnPermissionReply(evt, opt.Id)">@opt.Label</button>
                     }
                 </div>
             }
         </div>
     };
+
+    private static bool IsDenyOption(string optionId) =>
+        optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
+        || optionId.Contains("reject", StringComparison.OrdinalIgnoreCase);
 
     private RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
     {
@@ -254,7 +341,8 @@
     }
 
     private sealed record ToolPayload(string Name, string? Arguments, string? Status, string? Output);
-    private sealed record PermPayload(string? Tool, string? Detail, IReadOnlyList<string> Options);
+    private sealed record PermOption(string Id, string Label);
+    private sealed record PermPayload(string? Tool, string? Detail, IReadOnlyList<PermOption> Options);
     private sealed record PlanEntry(string Title, string Status);
 
     private static ToolPayload ParseTool(string? json)
@@ -288,26 +376,45 @@
 
     private static PermPayload ParsePermission(string? json)
     {
+        var fallback = new List<PermOption> { new("allow", "allow"), new("deny", "deny") };
         if (string.IsNullOrWhiteSpace(json))
         {
-            return new PermPayload(null, null, ["allow", "deny"]);
+            return new PermPayload(null, null, fallback);
         }
 
         try
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            var options = root.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array
-                ? opts.EnumerateArray().Select(o => o.GetString() ?? string.Empty).Where(s => s.Length > 0).ToList()
-                : ["allow", "deny"];
+            var options = new List<PermOption>();
+            if (root.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var o in opts.EnumerateArray())
+                {
+                    // Normalized ACP shape: { optionId, name, kind };
+                    // legacy/pipeline shape: plain strings.
+                    if (o.ValueKind == JsonValueKind.String && o.GetString() is { Length: > 0 } s)
+                    {
+                        options.Add(new PermOption(s, s));
+                    }
+                    else if (o.ValueKind == JsonValueKind.Object
+                             && o.TryGetProperty("optionId", out var oid)
+                             && oid.GetString() is { Length: > 0 } id)
+                    {
+                        var label = o.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+                        options.Add(new PermOption(id, label ?? id));
+                    }
+                }
+            }
+
             return new PermPayload(
                 root.TryGetProperty("tool", out var t) ? t.GetString() : null,
                 root.TryGetProperty("detail", out var d) ? d.GetString() : null,
-                options);
+                options.Count > 0 ? options : fallback);
         }
         catch (JsonException)
         {
-            return new PermPayload(null, json, ["allow", "deny"]);
+            return new PermPayload(null, json, fallback);
         }
     }
 

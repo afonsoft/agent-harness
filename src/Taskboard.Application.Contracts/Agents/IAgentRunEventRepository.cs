@@ -17,4 +17,7 @@ public interface IAgentRunEventRepository
 
     /// <summary>Deletes events older than the cutoff (retention).</summary>
     Task<int> DeleteOlderThanAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes every event of a scope ("clear logs" semantics).</summary>
+    Task<int> DeleteByScopeAsync(string scopeKind, string scopeId, CancellationToken cancellationToken = default);
 }

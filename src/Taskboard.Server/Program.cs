@@ -181,6 +181,7 @@ builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
 // replay. Taskboard:AgentEvents:Enabled=false is the documented fast-rollback
 // path — events are dropped at the sink and replay returns empty.
 builder.Services.AddScoped<IAgentRunEventRepository, EfCoreAgentRunEventRepository>();
+builder.Services.AddScoped<AgentControlService>();
 builder.Services.AddSingleton<ISecretRedactor>(sp => sp.GetRequiredService<SecretScrubber>());
 if (builder.Configuration.GetValue("Taskboard:AgentEvents:Enabled", true))
 {
@@ -1890,155 +1891,39 @@ agents.MapPost("executions/{issueId}/cancel", async (string issueId, IAgentOrche
 });
 
 // SPEC-20260921-board-cockpit-agent-observability RF-004: superfície de
-// controle unificada — roteia por escopo para os serviços existentes e
-// audita a ação como evento normalizado.
+// controle unificada — AgentControlService roteia por escopo e audita a
+// ação como evento normalizado.
 agents.MapPost("control", async (
     AgentControlRequest request,
-    IAgentOrchestrationService orchestration,
-    ISteerQueue steer,
-    IPipelineOrchestrator pipelines,
-    AgentSessionManager sessions,
-    IAgentExecutionEventSink sink,
+    AgentControlService control,
     CancellationToken ct) =>
-{
-    var action = request.Action?.ToLowerInvariant();
-    if (string.IsNullOrWhiteSpace(request.ScopeId) || action is null)
-    {
-        return Results.BadRequest(new { error = "scopeId and action are required." });
-    }
-
-    async Task EmitAsync(string kind, string title, string? payload = null) =>
-        await sink.EmitAsync(new AgentExecutionEvent(
-            string.Empty, request.ScopeKind, request.ScopeId, 0, DateTimeOffset.UtcNow,
-            kind, request.StageId, Title: title, PayloadJson: payload), ct);
-
-    switch ((request.ScopeKind, action))
-    {
-        case ("issue", "cancel"):
-            await orchestration.CancelAsync(request.ScopeId, ct);
-            await EmitAsync(AgentEventKinds.Lifecycle, "Cancel requested (board)");
-            return Results.Accepted();
-
-        case ("run", "steer") when !string.IsNullOrWhiteSpace(request.Content):
-            steer.Enqueue(request.ScopeId, request.Content.Trim());
-            await EmitAsync(AgentEventKinds.Steer, "Steer queued",
-                System.Text.Json.JsonSerializer.Serialize(new { content = request.Content.Trim() }));
-            return Results.Accepted();
-
-        case ("run", "cancel"):
-            await pipelines.CancelAsync(request.ScopeId, ct);
-            await EmitAsync(AgentEventKinds.Lifecycle, "Cancel requested (run)");
-            return Results.Accepted();
-
-        case ("run", "retry") when !string.IsNullOrWhiteSpace(request.StageId):
-            var retried = await pipelines.RetryStageAsync(request.ScopeId, request.StageId, request.Content, ct);
-            await EmitAsync(AgentEventKinds.Lifecycle, $"Retry dispatched for stage '{request.StageId}'");
-            return Results.Ok(retried);
-
-        case ("thread", "cancel"):
-            var cancelled = await sessions.CancelAsync(request.ScopeId, ct);
-            return cancelled
-                ? Results.Accepted()
-                : Results.Conflict(new { error = "no-active-run" });
-
-        case ("thread", "steer") when !string.IsNullOrWhiteSpace(request.Content):
-            var sent = await sessions.PromptAsync(request.ScopeId, request.Content.Trim(), "steer", ct);
-            return sent
-                ? Results.Accepted()
-                : Results.Conflict(new { error = "no-active-session" });
-
-        case ("issue", "steer") or ("issue", "retry") or ("thread", "retry") or ("run", "steer"):
-            return Results.Conflict(new { error = $"action '{action}' is not supported for scope '{request.ScopeKind}' (content required or unsupported)." });
-
-        default:
-            return Results.BadRequest(new { error = $"unknown scope '{request.ScopeKind}' or action '{action}'." });
-    }
-});
+    MapControlResult(await control.ExecuteAsync(request, ct)));
 
 // Reply unificado de permissões: thread → PermissionGate da sessão ACP;
 // run → gate de stage do pipeline (requestId "stage:<key>").
 agents.MapPost("permissions/reply", async (
     AgentPermissionReplyRequest request,
-    PermissionGate permissionGate,
-    IPipelineOrchestrator pipelines,
+    AgentControlService control,
     CancellationToken ct) =>
-{
-    switch (request.ScopeKind)
-    {
-        case "thread":
-            var accepted = permissionGate.Reply(request.ScopeId, request.RequestId, request.Outcome);
-            return accepted
-                ? Results.Ok(new { outcome = request.Outcome })
-                : Results.Json(new { error = "request-expired-or-unknown" }, statusCode: 410);
-
-        case "run" when request.RequestId.StartsWith("stage:", StringComparison.Ordinal):
-            var stageKey = request.RequestId["stage:".Length..];
-            var exec = string.Equals(request.Outcome, "deny", StringComparison.OrdinalIgnoreCase)
-                ? await pipelines.RejectStageAsync(request.ScopeId, stageKey, request.Comment, ct)
-                : await pipelines.ApproveStageAsync(request.ScopeId, stageKey, request.Comment, ct);
-            return Results.Ok(exec);
-
-        case "issue":
-            return Results.Conflict(new { error = "one-shot issue runs cannot receive permission replies." });
-
-        default:
-            return Results.BadRequest(new { error = $"unknown scope '{request.ScopeKind}'." });
-    }
-});
+    MapControlResult(await control.ReplyPermissionAsync(request, ct)));
 
 // Snapshot de estado por escopo para montagem da UI (reconnect/poll).
 agents.MapGet("state", async (
     string scopeKind,
     string scopeId,
-    IAgentOrchestrationService orchestration,
-    IPipelineOrchestrator pipelines,
-    AcpSessionClient sessionClient,
-    IAgentRunEventRepository eventRepository,
+    AgentControlService control,
     CancellationToken ct) =>
+    MapControlResult(await control.GetScopeStateAsync(scopeKind, scopeId, ct)));
+
+static IResult MapControlResult(AgentControlResult result) => result.Status switch
 {
-    var lastSeq = await eventRepository.GetMaxSequenceAsync(scopeKind, scopeId, ct);
-
-    switch (scopeKind)
-    {
-        case "run":
-            var exec = await pipelines.GetAsync(scopeId, ct);
-            if (exec is null)
-            {
-                return Results.NotFound();
-            }
-            var state = exec.Status.ToString().ToLowerInvariant() switch
-            {
-                "running" or "inprogress" => "running",
-                "completed" => "completed",
-                "failed" => "failed",
-                "cancelled" or "canceled" => "stopped",
-                _ => "queued"
-            };
-            return Results.Ok(new AgentScopeState(scopeKind, scopeId, state, LastEventSequence: lastSeq));
-
-        case "thread":
-            return Results.Ok(new AgentScopeState(
-                scopeKind, scopeId,
-                sessionClient.IsSessionActive(scopeId) ? "running" : "idle",
-                LastEventSequence: lastSeq));
-
-        case "issue":
-            var latest = (await orchestration.GetRunsAsync(scopeId, 1, ct)).FirstOrDefault();
-            var issueState = latest?.State switch
-            {
-                AgentRunState.Running => "running",
-                AgentRunState.Queued => "queued",
-                AgentRunState.Succeeded => "completed",
-                AgentRunState.Failed => "failed",
-                AgentRunState.Canceled => "stopped",
-                _ => "idle"
-            };
-            return Results.Ok(new AgentScopeState(scopeKind, scopeId, issueState, LastEventSequence: lastSeq));
-
-        default:
-            return Results.BadRequest(new { error = "scopeKind must be run|thread|issue." });
-    }
-});
+    AgentControlStatus.Accepted => Results.Accepted(),
+    AgentControlStatus.Ok => Results.Ok(result.Payload),
+    AgentControlStatus.Conflict => Results.Conflict(new { error = result.Error }),
+    AgentControlStatus.NotFound => Results.NotFound(new { error = result.Error }),
+    AgentControlStatus.Gone => Results.Json(new { error = result.Error }, statusCode: 410),
+    _ => Results.BadRequest(new { error = result.Error }),
+};
 
 agents.MapGet("prompt-template", (IConfiguration configuration) =>
 {

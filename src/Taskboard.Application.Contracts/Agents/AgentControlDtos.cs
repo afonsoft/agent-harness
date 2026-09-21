@@ -28,7 +28,7 @@ public sealed record AgentPermissionReplyRequest(
 public sealed record AgentScopeState(
     string ScopeKind,
     string ScopeId,
-    /// <summary>queued | running | waiting_permission | stopping | stopped | failed | completed | idle.</summary>
+    /// <summary>queued | running | waiting_permission | awaiting_retry | paused | stopped | failed | completed | idle.</summary>
     string State,
     string? ActiveStageId = null,
     int PendingPermissions = 0,

@@ -214,7 +214,7 @@ O body das execuções aceita `modelTier` opcional (`"lite" | "normal" | "ultra"
 
 `POST /api/agents/permissions/reply` body `{ scopeKind, scopeId, requestId, outcome, comment? }` roteia respostas de permissão por escopo: `thread` → o gate de permissão da sessão ACP (`410` quando a request expirou/é desconhecida), `run` → o gate de estágio do pipeline quando `requestId` é `stage:{stageKey}` (`outcome` `deny` rejeita, qualquer outro aprova), `issue` → `409` (runs one-shot não aceitam replies).
 
-`GET /api/agents/state?scopeKind&scopeId` retorna `{ scopeKind, scopeId, state, lastEventSequence }` — `run` resolve o status do pipeline (`404` run desconhecido), `thread` reporta `running`/`idle` pela sessão ACP ativa, `issue` mapeia o estado do `AgentRun` mais recente. Usado pela UI para reconstruir a timeline após reconnect.
+`GET /api/agents/state?scopeKind&scopeId` retorna `{ scopeKind, scopeId, state, lastEventSequence }` — `run` resolve o status do pipeline explicitamente (`running|waiting_permission|awaiting_retry|paused|completed|stopped|queued`, `404` run desconhecido), `thread` reporta `running`/`idle` pela sessão ACP ativa, `issue` mapeia o estado do `AgentRun` mais recente. Usado pela UI para reconstruir a timeline após reconnect.
 
 ### Harness — Isolamento de Workspace (E6)
 

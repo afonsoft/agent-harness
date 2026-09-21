@@ -46,7 +46,7 @@
                 new AgentControlRequest("issue", IssueId, "cancel"));
             if (!accepted)
             {
-                await OrchestrationService.CancelAsync(IssueId);
+                ToastService.Notify(new(ToastType.Warning, "Nenhuma execução ativa para cancelar."));
             }
         }
         catch (Exception ex)
@@ -65,7 +65,9 @@
                 return;
             }
 
-            var outcome = optionId.Contains("reject", StringComparison.OrdinalIgnoreCase) ? "deny" : "allow";
+            var outcome = optionId.Contains("reject", StringComparison.OrdinalIgnoreCase)
+                || optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
+                ? "deny" : "allow";
             var ok = await Client.PostAgentPermissionReplyAsync(
                 new AgentPermissionReplyRequest("issue", IssueId, requestId, outcome));
             if (!ok)

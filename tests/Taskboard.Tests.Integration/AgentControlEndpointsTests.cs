@@ -128,6 +128,132 @@ public class AgentControlEndpointsTests : IClassFixture<TaskboardWebApplicationF
         state["lastEventSequence"]!.GetValue<long>().ShouldBeGreaterThanOrEqualTo(0);
     }
 
+    private async Task<string> CreateRunAsync(HttpClient client)
+    {
+        var created = await client.PostAsJsonAsync("/api/harness/runs",
+            new Taskboard.Dtos.RunStartRequest(
+                "quick-patch", "afonsoft/agent-harness", "main", null, null, "Implementar JWT"));
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var dto = await created.Content.ReadFromJsonAsync<Taskboard.Dtos.PipelineExecutionDto>();
+        return dto!.PipelineExecutionId;
+    }
+
+    [Fact]
+    public async Task Dado_IssueSemExecucao_Quando_Cancel_Entao_Retorna409()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "issue", scopeId = $"issue-{Guid.NewGuid():N}", action = "cancel" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Dado_RunInexistente_Quando_CancelOuSteer_Entao_409()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = $"run-{Guid.NewGuid():N}";
+
+        var cancel = await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "run", scopeId = runId, action = "cancel" });
+        var steer = await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "run", scopeId = runId, action = "steer", content = "tente de novo" });
+
+        cancel.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        steer.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Dado_RunAtivo_Quando_Steer_Entao_202EEventoAuditado()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CreateRunAsync(client);
+
+        var steer = await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "run", scopeId = runId, action = "steer", content = "priorize o refresh token" });
+
+        steer.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+
+        var events = await client.GetFromJsonAsync<JsonObject>(
+            $"/api/agents/events?scopeKind=run&scopeId={runId}");
+        var items = events!["events"]!.AsArray();
+        items.ShouldContain(e => e!["kind"]!.GetValue<string>() == "steer"
+            && e["title"]!.GetValue<string>() == "Steer queued");
+    }
+
+    [Fact]
+    public async Task Dado_RunAtivo_Quando_Cancel_Entao_202EEventoAuditado()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CreateRunAsync(client);
+
+        var cancel = await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "run", scopeId = runId, action = "cancel" });
+
+        cancel.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+
+        var events = await client.GetFromJsonAsync<JsonObject>(
+            $"/api/agents/events?scopeKind=run&scopeId={runId}");
+        events!["events"]!.AsArray()
+            .ShouldContain(e => e!["kind"]!.GetValue<string>() == "lifecycle"
+                && e["title"]!.GetValue<string>() == "Cancel requested (run)");
+    }
+
+    [Fact]
+    public async Task Dado_RunAtivo_Quando_CancelarDuasVezes_Entao_SegundoRetorna409()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CreateRunAsync(client);
+
+        await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "run", scopeId = runId, action = "cancel" });
+        var again = await client.PostAsJsonAsync("/api/agents/control",
+            new { scopeKind = "run", scopeId = runId, action = "cancel" });
+
+        again.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Dado_RunPausado_Quando_GetState_Entao_EstadoPaused()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CreateRunAsync(client);
+        await client.PostAsJsonAsync($"/api/harness/runs/{runId}/pause", (object?)null);
+
+        var state = await client.GetFromJsonAsync<JsonObject>(
+            $"/api/agents/state?scopeKind=run&scopeId={runId}");
+
+        state!["state"]!.GetValue<string>().ShouldBe("paused");
+    }
+
+    [Fact]
+    public async Task Dado_GateStage_Quando_ReplyDeny_Entao_200EStageFailed()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CreateRunAsync(client);
+
+        var reply = await client.PostAsJsonAsync("/api/agents/permissions/reply",
+            new { scopeKind = "run", scopeId = runId, requestId = "stage:builder", outcome = "deny", comment = "plano incompleto" });
+
+        reply.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var exec = await reply.Content.ReadFromJsonAsync<JsonObject>();
+        exec!["stages"]!.AsArray()
+            .Single(s => s!["stageKey"]!.GetValue<string>() == "builder")!
+            ["status"]!.GetValue<string>().ShouldBe("Failed");
+    }
+
+    [Fact]
+    public async Task Dado_RunInexistente_Quando_ReplyPermission_Entao_409()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var reply = await client.PostAsJsonAsync("/api/agents/permissions/reply",
+            new { scopeKind = "run", scopeId = $"run-{Guid.NewGuid():N}", requestId = "stage:builder", outcome = "allow" });
+
+        reply.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
     [Fact]
     public async Task Dado_EventosEmitidos_Quando_GetState_Entao_MaxSequenciaRefletida()
     {

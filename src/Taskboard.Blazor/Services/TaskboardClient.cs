@@ -534,13 +534,13 @@ public sealed class TaskboardClient
     /// Eventos normalizados de um escopo (run/thread/issue) —
     /// SPEC-20260921-board-cockpit-agent-observability.
     /// </summary>
-    public async Task<IReadOnlyList<AgentExecutionEvent>> GetAgentEventsAsync(
+    public async Task<AgentEventsPage> GetAgentEventsAsync(
         string scopeKind, string scopeId, long after = 0, int take = 500, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetFromJsonAsync<AgentEventsPage>(
             $"/api/agents/events?scopeKind={Uri.EscapeDataString(scopeKind)}&scopeId={Uri.EscapeDataString(scopeId)}&after={after}&take={take}",
             cancellationToken);
-        return response?.Events ?? [];
+        return response ?? new AgentEventsPage([], after, HasMore: false);
     }
 
     /// <summary>Ação de controle unificada (cancel/steer/retry) por escopo.</summary>
@@ -566,7 +566,8 @@ public sealed class TaskboardClient
             $"/api/agents/state?scopeKind={Uri.EscapeDataString(scopeKind)}&scopeId={Uri.EscapeDataString(scopeId)}",
             cancellationToken);
 
-    private sealed record AgentEventsPage(List<AgentExecutionEvent> Events, long NextAfter, bool HasMore);
+    /// <summary>Página de eventos normalizados — espelha o envelope do endpoint.</summary>
+    public sealed record AgentEventsPage(List<AgentExecutionEvent> Events, long NextAfter, bool HasMore);
 
     /// <summary>Envia instrução de steer — enfileirada para a próxima etapa (RF-003).</summary>
     public async Task SteerRunAsync(string runId, string instruction, CancellationToken cancellationToken = default)

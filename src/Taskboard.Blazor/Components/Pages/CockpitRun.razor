@@ -243,7 +243,9 @@
                 return;
             }
 
-            var outcome = optionId.Contains("reject", StringComparison.OrdinalIgnoreCase) ? "deny" : "allow";
+            var outcome = optionId.Contains("reject", StringComparison.OrdinalIgnoreCase)
+                || optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
+                ? "deny" : "allow";
             var ok = await Client.PostAgentPermissionReplyAsync(
                 new AgentPermissionReplyRequest("run", RunId, requestId, outcome));
             if (!ok)

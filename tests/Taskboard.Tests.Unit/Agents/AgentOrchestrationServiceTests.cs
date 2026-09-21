@@ -77,7 +77,8 @@ public class AgentOrchestrationServiceTests
         var logRepository = Substitute.For<IAgentLogRepository>();
         logRepository.GetByIssueIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<AgentLogMessage>>([]));
-        var service = CriarService(agentLogRepository: logRepository);
+        var eventRepository = Substitute.For<IAgentRunEventRepository>();
+        var service = CriarService(agentLogRepository: logRepository, agentRunEventRepository: eventRepository);
         var request = CriarRequest();
 
         await service.EnqueueAsync(request);
@@ -87,6 +88,18 @@ public class AgentOrchestrationServiceTests
 
         (await service.GetLogsAsync(request.IssueId)).ShouldBeEmpty();
         await logRepository.Received(1).DeleteByIssueIdAsync(request.IssueId, Arg.Any<CancellationToken>());
+        await eventRepository.Received(1).DeleteByScopeAsync(
+            AgentEventScope.Issue, request.IssueId, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_SemExecucaoAtiva_Quando_Cancelar_Entao_RetornaFalse()
+    {
+        var service = CriarService();
+
+        var cancelled = await service.CancelAsync("issue-sem-execucao");
+
+        cancelled.ShouldBeFalse();
     }
 
     [Fact]
@@ -557,12 +570,14 @@ public class AgentOrchestrationServiceTests
         IAgentLogBroadcaster? logBroadcaster = null,
         IAgentLogRepository? agentLogRepository = null,
         IAgentRunRepository? agentRunRepository = null,
+        IAgentRunEventRepository? agentRunEventRepository = null,
         IGitHubService? gitHubService = null,
         IWorkspaceIsolationService? isolation = null,
         IFinOpsService? finOps = null)
     {
         var repository = agentLogRepository ?? Substitute.For<IAgentLogRepository>();
         var runRepository = agentRunRepository ?? Substitute.For<IAgentRunRepository>();
+        var runEventRepository = agentRunEventRepository ?? Substitute.For<IAgentRunEventRepository>();
         runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult(new AgentRunDto(
                 Guid.NewGuid(), call.ArgAt<string>(0), call.ArgAt<AgentType>(1), AgentRunState.Queued,
@@ -577,6 +592,7 @@ public class AgentOrchestrationServiceTests
         var services = new ServiceCollection();
         services.AddScoped(_ => repository);
         services.AddScoped(_ => runRepository);
+        services.AddScoped(_ => runEventRepository);
         services.AddScoped(_ => eligibilityService);
         services.AddScoped(_ => modelConfig);
         services.AddScoped(_ => finOps ?? Substitute.For<IFinOpsService>());
