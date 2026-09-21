@@ -16,8 +16,9 @@ services:
     ports:
       - "47823:47823"
     environment:
-      # Admin login password; leave empty to auto-generate (see /data/admin.json
-      # inside the volume or `docker compose logs` on first boot).
+      # Admin login password; leave empty to auto-generate — the generated
+      # password is written to /data/.admin-password inside the volume:
+      #   docker compose exec harness cat /data/.admin-password
       Admin__Password: ${ADMIN_PASSWORD:-}
       # GitHub PAT (repo, read:org) for the Kanban board — optional.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
