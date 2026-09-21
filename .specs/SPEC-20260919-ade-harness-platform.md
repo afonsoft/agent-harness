@@ -10,7 +10,8 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-harness-platform` |
 | Ticket | [#171 — E16](https://github.com/afonsoft/taskboard-ai/issues/171) |
-| Status | `Approved` |
+| Status | `Done` |
+| PR | [#245](https://github.com/afonsoft/taskboard-ai/pull/245) |
 
 ---
 
@@ -167,11 +168,11 @@ POST /api/harness/runs/{id}/steer
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** uma requisição de run criada via API ou UI, **when** o run é inicializado, **then** o harness provisiona um Git worktree exclusivo sem afetar o repositório principal.
-- [ ] **Given** múltiplos runs em execução concorrente para o mesmo repositório, **when** ambos alteram arquivos, **then** eles operam em worktrees e branches distintas sem conflito local de workspace.
-- [ ] **Given** um pipeline configurado (Architect → Builder → Verifier → Reviewer), **when** a etapa Builder conclui com sucesso, **then** a etapa Verifier executa compilação e suíte de testes automaticamente.
-- [ ] **Given** falha de compilação ou testes na etapa Verifier, **when** o loop de auto-correção estiver dentro do limite de iterações (max 2), **then** os erros são retroalimentados ao Builder para correção antes de notificar o usuário.
-- [ ] **Given** o término do pipeline com sucesso, **when** o usuário inspeciona o run no Cockpit, **then** é apresentado o diff completo, logs estruturados e opção para abrir Pull Request ou realizar merge.
+- [x] **Given** uma requisição de run criada via API ou UI, **when** o run é inicializado, **then** o harness provisiona um Git worktree exclusivo sem afetar o repositório principal.
+- [x] **Given** múltiplos runs em execução concorrente para o mesmo repositório, **when** ambos alteram arquivos, **then** eles operam em worktrees e branches distintas sem conflito local de workspace.
+- [x] **Given** um pipeline configurado (Architect → Builder → Verifier → Reviewer), **when** a etapa Builder conclui com sucesso, **then** a etapa Verifier executa compilação e suíte de testes automaticamente.
+- [x] **Given** falha de compilação ou testes na etapa Verifier, **when** o loop de auto-correção estiver dentro do limite de iterações (max 2), **then** os erros são retroalimentados ao Builder para correção antes de notificar o usuário.
+- [x] **Given** o término do pipeline com sucesso, **when** o usuário inspeciona o run no Cockpit, **then** é apresentado o diff completo, logs estruturados e opção para abrir Pull Request ou realizar merge.
 
 **Edge cases:**
 
@@ -185,11 +186,11 @@ POST /api/harness/runs/{id}/steer
 
 ## 7. Task Plan
 
-- [ ] **T1 — Capability Map Formalization:** Atualizar `.specs/CAPABILITY-MAP.md` adicionando os 4 módulos da evolução ADE + Harness.
-- [ ] **T2 — Detailed Sub-Specs Creation:** Criar as 4 SPECs detalhadas (`harness-workspace-isolation`, `ade-multi-agent-orchestration`, `ade-cockpit-hitl`, `harness-verification-loop`).
-- [ ] **T3 — Domain & Contracts Modeling:** Modelar entidades base (`AgentRun`, `WorktreeSession`, `VerificationResult`, `PipelineStage`) e DTOs correspondentes.
-- [ ] **T4 — Integration Architecture & Verification:** Implementar os adapters de Worktree, Verification Runner e SignalR Hub.
-- [ ] **T5 — Cockpit UI & E2E Validation:** Desenvolver os componentes Blazor do Cockpit (Runs, Diff Viewer, Approval Prompts) e validar a suíte completa de testes.
+- [x] **T1 — Capability Map Formalization:** Atualizar `.specs/CAPABILITY-MAP.md` adicionando os 4 módulos da evolução ADE + Harness.
+- [x] **T2 — Detailed Sub-Specs Creation:** Criar as 4 SPECs detalhadas (`harness-workspace-isolation`, `ade-multi-agent-orchestration`, `ade-cockpit-hitl`, `harness-verification-loop`).
+- [x] **T3 — Domain & Contracts Modeling:** Modelar entidades base (`AgentRun`, `WorktreeSession`, `VerificationResult`, `PipelineStage`) e DTOs correspondentes.
+- [x] **T4 — Integration Architecture & Verification:** Implementar os adapters de Worktree, Verification Runner e SignalR Hub.
+- [x] **T5 — Cockpit UI & E2E Validation:** Desenvolver os componentes Blazor do Cockpit (Runs, Diff Viewer, Approval Prompts) e validar a suíte completa de testes.
 
 ---
 
@@ -205,8 +206,8 @@ POST /api/harness/runs/{id}/steer
 
 ## 9. Definition of Done
 
-- [ ] Arquitetura e Capability Map aprovados pelo usuário.
-- [ ] Sub-SPECs criadas e consistentes com o template SDD.
-- [ ] Entidades de domínio e contratos compilando sem warnings.
-- [ ] Testes unitários e de integração cobrindo o fluxo de lifecycle do Run e Worktrees.
-- [ ] Cockpit funcional em Blazor WASM.
+- [x] Arquitetura e Capability Map aprovados pelo usuário.
+- [x] Sub-SPECs criadas e consistentes com o template SDD.
+- [x] Entidades de domínio e contratos compilando sem warnings.
+- [x] Testes unitários e de integração cobrindo o fluxo de lifecycle do Run e Worktrees.
+- [x] Cockpit funcional em Blazor WASM.
