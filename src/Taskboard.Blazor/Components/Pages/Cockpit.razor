@@ -1,8 +1,10 @@
 @page "/cockpit"
+@using System.Text
 @attribute [Authorize]
 @inject TaskboardClient Client
 @inject IGitHubService GitHub
 @inject IAgentOrchestrationService Orchestration
+@inject IAgentPromptTemplateService PromptTemplateService
 @inject SelectedRepositoryService SelectedRepo
 @inject NavigationManager Nav
 @inject ToastService ToastService
@@ -123,9 +125,17 @@ else if (_runs is not null)
                 <input id="cockpit-budget" type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="_start.MaxBudgetUsd" />
             </div>
             <div class="col-12">
-                <label class="form-label" for="cockpit-prompt">Prompt</label>
-                <textarea id="cockpit-prompt" class="form-control form-control-sm" rows="4" @bind="_start.Prompt"
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label mb-0" for="cockpit-prompt">Prompt</label>
+                    <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                            @onclick="UseDefaultPromptAsync" Disabled="_promptTemplateLoading">
+                        @if (_promptTemplateLoading) { <Spinner Size="SpinnerSize.Small" Class="me-1" /> }
+                        <Icon Name="IconName.FileEarmarkText" class="me-1" /> Usar prompt padrão
+                    </Button>
+                </div>
+                <textarea id="cockpit-prompt" class="form-control form-control-sm font-monospace" rows="8" @bind="_start.Prompt"
                           placeholder="O que o pipeline deve fazer…"></textarea>
+                <div class="form-text">O botão acima carrega o prompt padrão de <em>CLI Agents</em> com os placeholders preenchidos — edite livremente antes de iniciar.</div>
             </div>
         </div>
     </BodyTemplate>
@@ -145,6 +155,7 @@ else if (_runs is not null)
     private bool _loading;
     private bool _reposLoading;
     private bool _starting;
+    private bool _promptTemplateLoading;
     private Modal _startModal = default!;
     private readonly RunStartForm _start = new();
     private CancellationTokenSource _cts = new();
@@ -258,6 +269,88 @@ else if (_runs is not null)
         finally
         {
             _starting = false;
+        }
+    }
+
+    /// <summary>
+    /// Loads the shared default prompt template (CLI Agents → Default agent
+    /// prompt) and renders its placeholders with the run's repository/issue
+    /// context, leaving the textarea editable before the run starts.
+    /// </summary>
+    private async Task UseDefaultPromptAsync()
+    {
+        _promptTemplateLoading = true;
+        try
+        {
+            var info = await PromptTemplateService.GetTemplateAsync(_cts.Token);
+            var (title, body, comments) = await LoadIssueContextAsync();
+            var cloneUrl = string.IsNullOrWhiteSpace(_start.RepositoryFullName)
+                ? null
+                : $"https://github.com/{_start.RepositoryFullName}.git";
+            _start.Prompt = AgentPromptTemplate.Render(info.Template, cloneUrl, title, body, comments);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Prompt padrão: {ex.Message}"));
+        }
+        finally
+        {
+            _promptTemplateLoading = false;
+        }
+    }
+
+    private async Task<(string? Title, string? Body, string? Comments)> LoadIssueContextAsync()
+    {
+        if (!int.TryParse(_start.IssueId?.TrimStart('#'), out var number)
+            || string.IsNullOrWhiteSpace(_start.RepositoryFullName))
+        {
+            return (null, null, null);
+        }
+
+        try
+        {
+            var issue = (await GitHub.GetIssuesAsync(_start.RepositoryFullName, _cts.Token))
+                .FirstOrDefault(i => i.Number == number);
+            return (issue?.Title, issue?.Body, await BuildCommentsSectionAsync(number));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return (null, null, null);
+        }
+    }
+
+    // Same bounded "Comments:" shape used by AgentConfigTab — a fetch failure
+    // must never block filling the prompt.
+    private async Task<string?> BuildCommentsSectionAsync(int issueNumber)
+    {
+        const int maxChars = 3000;
+        try
+        {
+            var comments = await GitHub.GetIssueCommentsAsync(
+                _start.RepositoryFullName!, issueNumber, take: 20, _cts.Token);
+            if (comments.Count == 0)
+            {
+                return null;
+            }
+
+            var sb = new StringBuilder();
+            foreach (var c in comments)
+            {
+                var line = $"- {c.AuthorLogin ?? "unknown"} ({c.CreatedAt:yyyy-MM-dd}): {c.Body}\n";
+                if (sb.Length + line.Length > maxChars)
+                {
+                    sb.Append("- …\n");
+                    break;
+                }
+
+                sb.Append(line);
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
         }
     }
 

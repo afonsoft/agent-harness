@@ -167,16 +167,16 @@ else if (_agents is not null)
             else
             {
                 var template = await LoadTemplateAsync();
-                var commentsSection = await BuildCommentsSectionAsync();
+                var commentLines = await BuildCommentLinesAsync();
                 if (!string.IsNullOrWhiteSpace(template))
                 {
                     _prompt = AgentPromptTemplate.Render(
-                        template, RepoCloneUrl, Issue.Title, Issue.Body, commentsSection.TrimStart());
+                        template, RepoCloneUrl, Issue.Title, Issue.Body, commentLines);
                     // Older overrides may lack {issueComments} — append so the
                     // handoff channel still reaches the agent (SPEC-20260918-github-comments-history RF-005).
-                    if (!AgentPromptTemplate.HasCommentsPlaceholder(template))
+                    if (!AgentPromptTemplate.HasCommentsPlaceholder(template) && commentLines is not null)
                     {
-                        _prompt += commentsSection;
+                        _prompt += $"\n\nComments:\n{commentLines}";
                     }
                 }
                 else
@@ -184,7 +184,10 @@ else if (_agents is not null)
                     _prompt = string.IsNullOrWhiteSpace(Issue.Body)
                         ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
                         : Issue.Body;
-                    _prompt += commentsSection;
+                    if (commentLines is not null)
+                    {
+                        _prompt += $"\n\nComments:\n{commentLines}";
+                    }
                 }
             }
         }
@@ -199,25 +202,26 @@ else if (_agents is not null)
     }
 
     // SPEC-20260918-github-comments-history RF-005: comments are the handoff
-    // channel — the rendered prompt carries them as a bounded "Comments:"
-    // section. A fetch failure must never block the run.
-    private async Task<string> BuildCommentsSectionAsync()
+    // channel — the rendered prompt carries them as a bounded list under the
+    // template's own "Comments:" header (or an appended section when the
+    // override lacks the placeholder). A fetch failure must never block the run.
+    private async Task<string?> BuildCommentLinesAsync()
     {
         const int maxChars = 3000;
         try
         {
             if (Issue is null || string.IsNullOrWhiteSpace(RepositoryFullName))
             {
-                return string.Empty;
+                return null;
             }
 
             var comments = await GitHub.GetIssueCommentsAsync(RepositoryFullName, Issue.Number, take: 20);
             if (comments.Count == 0)
             {
-                return string.Empty;
+                return null;
             }
 
-            var sb = new StringBuilder("\n\nComments:\n");
+            var sb = new StringBuilder();
             foreach (var c in comments)
             {
                 var line = $"- {c.AuthorLogin ?? "unknown"} ({c.CreatedAt:yyyy-MM-dd}): {c.Body}\n";
@@ -230,11 +234,11 @@ else if (_agents is not null)
                 sb.Append(line);
             }
 
-            return sb.ToString();
+            return sb.ToString().TrimEnd();
         }
         catch
         {
-            return string.Empty;
+            return null;
         }
     }
 
