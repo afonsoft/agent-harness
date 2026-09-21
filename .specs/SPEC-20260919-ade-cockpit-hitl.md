@@ -11,6 +11,7 @@
 | Branch | `feature/devin-20260919-ade-cockpit-hitl` |
 | Ticket | [#170 — E15](https://github.com/afonsoft/taskboard-ai/issues/170) |
 | Status | `Done` |
+| PR | [#245](https://github.com/afonsoft/taskboard-ai/pull/245) |
 
 ---
 
