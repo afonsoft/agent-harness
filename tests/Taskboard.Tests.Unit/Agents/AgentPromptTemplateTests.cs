@@ -50,8 +50,8 @@ public class AgentPromptTemplateTests
         rendered.ShouldContain("orchestrator");
         rendered.ShouldContain("~/repos");
         rendered.ShouldContain("manage-taskboard");
-        rendered.ShouldContain("Issue: t");
-        rendered.ShouldContain("b");
+        rendered.ShouldContain("Title:\n\nt");
+        rendered.ShouldContain("Body:\n\nb");
     }
 
     [Fact]

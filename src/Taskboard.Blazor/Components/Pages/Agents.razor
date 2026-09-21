@@ -149,7 +149,7 @@
             <code>{repoUrl}</code> (URL de clone), <code>{issueTitle}</code>, <code>{issueBody}</code>,
             <code>{issueComments}</code> (comentários do GitHub — handoff entre agentes).
         </p>
-        <textarea class="form-control font-monospace" rows="8" @bind="_template"
+        <textarea class="form-control font-monospace" rows="14" @bind="_template"
                   placeholder="@_builtinTemplate" disabled="@_templateLoading"></textarea>
         <div class="d-flex align-items-center gap-2 mt-2">
             <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SaveTemplateAsync" Disabled="_templateLoading">
