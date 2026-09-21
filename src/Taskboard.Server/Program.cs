@@ -729,6 +729,7 @@ runs.MapPost("", async (
         RunStartRequest request,
         IPipelineOrchestrator orchestrator,
         WorkspaceService workspace,
+        IRepository<IssueHistoryEvent> history,
         CancellationToken ct) =>
 {
     // The client sends only owner/repo — the repo path resolves server-side
@@ -745,8 +746,18 @@ runs.MapPost("", async (
             request.BaseBranch,
             request.IssueId,
             prompt,
-            request.MaxBudgetUsd),
+            request.MaxBudgetUsd,
+            request.AgentOverride,
+            request.TierOverride,
+            request.SkipVerification),
         ct);
+    if (!string.IsNullOrWhiteSpace(request.IssueId))
+    {
+        await RecordIssueHistoryByIdAsync(
+            history, request.IssueId, request.RepositoryFullName,
+            IssueHistoryEventKind.RunStarted, ct, detail: dto.PipelineExecutionId);
+    }
+
     return Results.Created($"/api/harness/runs/{dto.PipelineExecutionId}", dto);
 });
 runs.MapGet("{id}", async (
@@ -1608,6 +1619,7 @@ github.MapGet("issues/{issueId}/history", async (
                 IssueHistoryEventKind.ColumnMoved => IssueHistoryItemDto.ColumnMoved,
                 IssueHistoryEventKind.Edited => IssueHistoryItemDto.Edited,
                 IssueHistoryEventKind.Closed => IssueHistoryItemDto.Closed,
+                IssueHistoryEventKind.RunStarted => IssueHistoryItemDto.PipelineRun,
                 _ => "event"
             },
             e.OccurredAt,
@@ -2130,6 +2142,20 @@ static async System.Threading.Tasks.Task RecordIssueHistoryAsync(
     CancellationToken ct,
     string? from = null,
     string? to = null,
+    string? detail = null) =>
+    await RecordIssueHistoryByIdAsync(
+        history,
+        issue.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        repository, kind, ct, from, to, detail);
+
+static async System.Threading.Tasks.Task RecordIssueHistoryByIdAsync(
+    IRepository<IssueHistoryEvent> history,
+    string issueId,
+    string repository,
+    IssueHistoryEventKind kind,
+    CancellationToken ct,
+    string? from = null,
+    string? to = null,
     string? detail = null)
 {
     try
@@ -2137,7 +2163,7 @@ static async System.Threading.Tasks.Task RecordIssueHistoryAsync(
         await history.AddAsync(
             new IssueHistoryEvent(
                 Guid.NewGuid(),
-                issue.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                issueId,
                 repository,
                 kind,
                 DateTimeOffset.UtcNow,

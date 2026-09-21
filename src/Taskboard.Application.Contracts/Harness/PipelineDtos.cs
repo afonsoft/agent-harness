@@ -18,7 +18,13 @@ public sealed record PipelineStartRequest(
     string? IssueId,
     string InitialPrompt,
     /// <summary>Budget cap in USD — cumulative stage cost above this cancels the execution (E14 RF-003).</summary>
-    decimal? MaxBudgetUsd = null);
+    decimal? MaxBudgetUsd = null,
+    /// <summary>`single-agent` only — replaces the AgentWork stage's agent (SPEC-20260920 R1).</summary>
+    AgentType? AgentOverride = null,
+    /// <summary>`single-agent` only — replaces the AgentWork stage's model tier.</summary>
+    AgentModelTier? TierOverride = null,
+    /// <summary>`single-agent` only — drops the Verification stage when true.</summary>
+    bool SkipVerification = false);
 
 /// <summary>Body for `POST .../stages/{stageKey}/approve`.</summary>
 public sealed record PipelineApproveRequest(string? Comment);

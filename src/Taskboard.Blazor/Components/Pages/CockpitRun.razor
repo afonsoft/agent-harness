@@ -59,6 +59,9 @@
         <button class="nav-link @(_tab == "timeline" ? "active" : "")" @onclick='() => SetTab("timeline")'>Timeline</button>
     </li>
     <li class="nav-item">
+        <button class="nav-link @(_tab == "terminal" ? "active" : "")" @onclick='() => SetTab("terminal")'>Terminal</button>
+    </li>
+    <li class="nav-item">
         <button class="nav-link @(_tab == "diff" ? "active" : "")" @onclick="LoadDiffTabAsync">Diff</button>
     </li>
 </ul>
@@ -67,6 +70,10 @@
     @if (_tab == "timeline")
     {
         <RunTimeline Events="_events" />
+    }
+    else if (_tab == "terminal")
+    {
+        <RunTerminal Events="_events" />
     }
     else
     {

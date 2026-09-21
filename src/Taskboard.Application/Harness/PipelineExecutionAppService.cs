@@ -45,10 +45,24 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
     public async Task<PipelineExecutionDto> StartAsync(
         PipelineStartRequest request, CancellationToken cancellationToken = default)
     {
+        var hasOverrides = request.AgentOverride is not null
+            || request.TierOverride is not null
+            || request.SkipVerification;
+        if (hasOverrides && request.TemplateId != PipelineTemplates.SingleAgentId)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "Agent/tier/verification overrides are only supported by the 'single-agent' template.");
+        }
+
         var definition = PipelineTemplates.Find(request.TemplateId)
             ?? throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidPipelineDag,
                 $"Unknown pipeline template '{request.TemplateId}'.");
+        if (request.TemplateId == PipelineTemplates.SingleAgentId)
+        {
+            definition = ApplyOverrides(definition, request);
+        }
 
         var execution = PipelineExecution.Create(
             definition, request.RepositoryFullName, request.RepositoryPath,
@@ -110,6 +124,27 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(execution);
     }
+
+    /// <summary>
+    /// `single-agent` only — rewrites the AgentWork stage with the requested
+    /// agent/tier and drops Verification when skipped
+    /// (SPEC-20260920-board-cockpit-unified-runs R2).
+    /// </summary>
+    private static PipelineDefinition ApplyOverrides(
+        PipelineDefinition definition, PipelineStartRequest request) =>
+        definition with
+        {
+            Stages = definition.Stages
+                .Where(s => !(request.SkipVerification && s.Kind is PipelineStageKind.Verification))
+                .Select(s => s.Kind is PipelineStageKind.AgentWork
+                    ? s with
+                    {
+                        Agent = request.AgentOverride ?? s.Agent,
+                        ModelTier = request.TierOverride ?? s.ModelTier
+                    }
+                    : s)
+                .ToList()
+        };
 
     private Task<PipelineExecution> LoadAsync(string id, CancellationToken cancellationToken) =>
         _executions.Query

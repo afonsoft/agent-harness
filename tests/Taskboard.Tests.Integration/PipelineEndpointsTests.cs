@@ -24,7 +24,7 @@ public class PipelineEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         new(template, "afonsoft/agent-harness", "/repo/taskboard", "main", "150", "Implementar JWT");
 
     [Fact]
-    public async Task Dado_Autenticado_Quando_GetTemplates_Entao_ListaOs3Templates()
+    public async Task Dado_Autenticado_Quando_GetTemplates_Entao_ListaOs4Templates()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
@@ -34,7 +34,7 @@ public class PipelineEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         var templates = await response.Content.ReadFromJsonAsync<List<PipelineTemplateDto>>();
         templates.ShouldNotBeNull();
         templates.Select(t => t.TemplateId).ShouldBe(
-            ["standard-feature", "quick-patch", "test-driven"]);
+            ["standard-feature", "quick-patch", "test-driven", "single-agent"]);
     }
 
     [Fact]

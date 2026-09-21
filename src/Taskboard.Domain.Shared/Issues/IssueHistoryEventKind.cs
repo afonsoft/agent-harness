@@ -9,5 +9,7 @@ public enum IssueHistoryEventKind
 {
     ColumnMoved,
     Edited,
-    Closed
+    Closed,
+    /// <summary>Pipeline run started for the issue (SPEC-20260920-board-cockpit-unified-runs R7).</summary>
+    RunStarted
 }

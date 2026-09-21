@@ -1,3 +1,5 @@
+using Taskboard.Agents;
+using Taskboard.Harness;
 using Taskboard.Harness.FinOps;
 
 namespace Taskboard.Dtos;
@@ -34,7 +36,13 @@ public sealed record RunStartRequest(
     string? IssueId,
     string? SpecPath,
     string Prompt,
-    decimal? MaxBudgetUsd = null);
+    decimal? MaxBudgetUsd = null,
+    /// <summary>`single-agent` only — which agent CLI runs the AgentWork stage (SPEC-20260920 R1).</summary>
+    AgentType? AgentOverride = null,
+    /// <summary>`single-agent` only — model tier for the AgentWork stage.</summary>
+    AgentModelTier? TierOverride = null,
+    /// <summary>`single-agent` only — drops the Verification stage when true.</summary>
+    bool SkipVerification = false);
 
 /// <summary>Body for `POST /api/harness/runs/{id}/steer` (RF-003).</summary>
 public sealed record SteerRequest(string Instruction);
