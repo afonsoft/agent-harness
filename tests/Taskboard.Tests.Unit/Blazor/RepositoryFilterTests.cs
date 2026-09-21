@@ -12,7 +12,7 @@ public class RepositoryFilterTests
 {
     private static readonly string[] Repositories =
     [
-        "afonsoft/taskboard-ai",
+        "afonsoft/agent-harness",
         "afonsoft/skills",
         "afonsoft/LangGraph-UI",
         "octokit/octokit.net",
@@ -62,9 +62,9 @@ public class RepositoryFilterTests
     }
 
     [Theory]
-    [InlineData("afonsoft/taskboard-ai", true)]
+    [InlineData("afonsoft/agent-harness", true)]
     [InlineData("org.name/repo_1", true)]
-    [InlineData("taskboard-ai", false)]
+    [InlineData("agent-harness", false)]
     [InlineData("a/b/c", false)]
     [InlineData("", false)]
     [InlineData(" owner /repo", false)]

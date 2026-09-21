@@ -1,6 +1,6 @@
 # Gap Analysis — 20260915
 
-- Repository: /home/ubuntu/repos/taskboard-ai | Branch: main | Commit: fef0a20
+- Repository: /home/ubuntu/repos/agent-harness | Branch: main | Commit: fef0a20
 - Phase reached: issues (specs Approved + merged via PR #84; execution handoff pending user)
 - Mode: analyze
 
@@ -14,7 +14,7 @@
 | .claude/CONTEXT.md | present | |
 | CLAUDE.md / AGENTS.md / README.md | present | stale UI stack entries |
 | tests / linters / CI | present | 196 unit + 47 integration green; CodeQL + SonarCloud green |
-| gh auth + remote | ok | afonsoft/taskboard-ai |
+| gh auth + remote | ok | afonsoft/agent-harness |
 | Deployment | present | docker container `taskboard` @ fef0a20 verified |
 
 ## 2. AS-IS × TO-BE matrix
@@ -52,7 +52,7 @@
 
 ## 5. Issues
 
-- Epic: gap-analysis-20260915 → https://github.com/afonsoft/taskboard-ai/issues/81
+- Epic: gap-analysis-20260915 → https://github.com/afonsoft/agent-harness/issues/81
 - Slices: S1 api-authorization-hardening → #82; S2 wasm-post-migration-hardening → #83
 
 ## 6. Orchestrator handoff

@@ -7,7 +7,7 @@
 | Feature | `skills-repo-sync` |
 | Type | `Feature` |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / Blazor Server / EF Core SQLite` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-skills-repo-sync` |
 | Ticket | N/A |
 | Status | `Done (merged via PR #78)` |

@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | AI Chat |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | AI / Workflow |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-ai-workflow-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

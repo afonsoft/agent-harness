@@ -1,12 +1,12 @@
 # Installation
 
-This guide covers how to install, build, configure, and run `taskboard-ai` locally.
+This guide covers how to install, build, configure, and run `agent-harness` locally.
 
 > **Default language:** English (en-us). See [installation.pt-br.md](installation.pt-br.md) for the Portuguese version.
 
 ## Overview
 
-`taskboard-ai` is a local-first, AI-native taskboard written in **C# 14 / .NET 10**. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, and a Blazor WebAssembly web UI.
+`agent-harness` is a local-first, AI-native taskboard written in **C# 14 / .NET 10**. It provides a SQLite-backed task system, REST API, Server-Sent Events (SSE), a `taskctl` CLI, an MCP server, and a Blazor WebAssembly web UI.
 
 ## Prerequisites
 
@@ -28,8 +28,8 @@ The output must start with `10.`.
 ## Clone
 
 ```bash
-git clone https://github.com/afonsoft/taskboard-ai.git
-cd taskboard-ai
+git clone https://github.com/afonsoft/agent-harness.git
+cd agent-harness
 ```
 
 ## Build

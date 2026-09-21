@@ -11,7 +11,7 @@
 | `.claude/rules/`, `.claude/agents/` | present |
 | `src/` (14 projects), `tests/` (89 unit + 9 integration, all green) | present |
 | CI: `dotnet.yml`, `code-quality.yml`, `codeql.yml` | present |
-| `gh` auth: `afonsoft/taskboard-ai` | ok; all existing issues closed |
+| `gh` auth: `afonsoft/agent-harness` | ok; all existing issues closed |
 | Sibling skills `write-specs`, `create-issues`, `orchestrator` | present |
 
 ## Candidates and verdicts
@@ -36,8 +36,8 @@
 - Branch `feature/devin-20260914-menu-links-gap-analysis`
 - Fix: `src/Taskboard.Server/Taskboard.Server.csproj` (+1 line)
 - Draft SPECs: `SPEC-20260914-blazor-web-assets`, `-env-var-precedence`, `-stale-spec-status`, `-login-sidebar`, `-blazor-feature-parity`
-- PR: https://github.com/afonsoft/taskboard-ai/pull/59
-- Epic: https://github.com/afonsoft/taskboard-ai/issues/60
+- PR: https://github.com/afonsoft/agent-harness/pull/59
+- Epic: https://github.com/afonsoft/agent-harness/issues/60
 - Slices: #61 (blazor-web-assets, fixed in PR #59), #62 (env-var-precedence), #63 (stale-spec-status), #64 (login-sidebar), #65 (blazor-feature-parity)
 
 ## Execution result (2026-09-14, post-approval)

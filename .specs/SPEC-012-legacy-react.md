@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Frontend React original (reference) |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Presentation |
 | Change type | Reference |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | — |
 | Technical owner | afonsoft |
 | Status | Deprecated (referência) |

@@ -7,7 +7,7 @@
 | Feature | `rag-mcp-provisioning` |
 | Type | `Feature` |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / Blazor WASM / JSON + TOML config merge` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260917-rag-mcp-provisioning` |
 | Ticket | N/A |
 | Status | `Done` |

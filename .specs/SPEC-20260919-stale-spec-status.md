@@ -7,7 +7,7 @@
 | Feature | `stale-spec-status-2` |
 | Type | `Docs` / `Process` |
 | Stack | `Markdown` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `docs/devin-20260919-stale-spec-status` |
 | Ticket | `GAP-documentation-stale-spec-status` (gap-analysis-20260919) — Issue #143, Epic #140 |
 | Status | `Done` — entregue neste PR |
@@ -20,7 +20,7 @@ entregues seguem com `Status: Approved`, e `cli-migration.md` /
 
 ## 1. User Story
 
-**As a** maintainer do taskboard-ai,
+**As a** maintainer do agent-harness,
 **I want** que statuses de SPEC e arquivos de pendências reflitam o estado
 real de entrega — com uma convenção que impeça nova regressão,
 **so that** gap-analysis e orchestrator auditem contra contratos vivos, não

@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | ACP JSON-RPC Transport |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Agents (Integrations) |
 | Change type | Feature |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/acp-json-rpc` |
 | Technical owner | afonsoft |
 | Status | `Done` (status corrigido — implementado e issues fechadas; reconciliado em 2026-09-17) |

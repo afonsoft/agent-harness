@@ -7,14 +7,14 @@
 | Feature | `stale-spec-status` |
 | Type | `Docs` |
 | Stack | `Docs` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/{AgentLLM}-20260914-stale-spec-status` |
 | Ticket | `GAP-documentation-stale-specs` |
 | Status | `Done` |
 
 ## 1. User Story
 
-**As a** maintainer of taskboard-ai
+**As a** maintainer of agent-harness
 **I want** SPEC statuses and acceptance criteria to reflect reality
 **So that** future gap-analysis and orchestrator runs don't audit against dead contracts.
 

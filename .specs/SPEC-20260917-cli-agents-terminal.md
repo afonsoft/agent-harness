@@ -7,7 +7,7 @@
 | Feature | `cli-agents-terminal` |
 | Type | `Feature` |
 | Stack | `.NET 10 / ASP.NET Core SignalR / Blazor WASM / xterm.js / Dockerfile` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260917-cli-agents-terminal` |
 | Ticket | N/A |
 | Status | `Done` |
@@ -20,7 +20,7 @@
 
 **Problem context:**
 
-- The Docker image (`taskboard-ai:latest`) has no Node.js and no agent CLIs, so the `/settings` → Agent Skills install (`npx skills add`) fails inside the container.
+- The Docker image (`agent-harness:latest`) has no Node.js and no agent CLIs, so the `/settings` → Agent Skills install (`npx skills add`) fails inside the container.
 - CLI authentication is interactive (OAuth browser flow, TUI prompts). It cannot be scripted; it needs a real terminal.
 - In the container, CLI auth state lives in `HOME=/root` which is ephemeral — a recreate wipes every login.
 - On the VPS the app runs directly on the host, where the CLIs are already installed — the same UI must work there without changes.
@@ -177,7 +177,7 @@ tests/Taskboard.Tests.Integration/AgentCliEndpointsTests.cs      # NEW
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** the image is built **when** `docker run --rm taskboard-ai:latest bash -lc "node --version && claude --version && codex --version && opencode --version && devin --version && agy --version"` **then** all resolve.
+- [ ] **Given** the image is built **when** `docker run --rm agent-harness:latest bash -lc "node --version && claude --version && codex --version && opencode --version && devin --version && agy --version"` **then** all resolve.
 - [ ] **Given** `HOME=/data/home` **when** `claude login` completes inside the container **then** credentials persist in the `/data` volume across `docker rm` + recreate.
 - [ ] **Given** a CLI missing on PATH **when** `/agents` loads **then** its row shows `not installed` + `installHint`, no error.
 - [ ] **Given** an authenticated session **when** `/terminal` opens **then** `echo`/`ls` work and `claude login` renders its interactive prompt.

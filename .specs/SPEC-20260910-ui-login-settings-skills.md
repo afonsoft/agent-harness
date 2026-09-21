@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | UI Login, Settings and Skills |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Presentation |
 | Change type | Feature |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-ui-login-settings-skills` |
 | Technical owner | afonsoft |
 | Status | Done (framework superseded: MudBlazor → Bootstrap 5.3 + Blazor.Bootstrap; dark/light toggle removido por pedido — tema light-only) |

@@ -7,7 +7,7 @@
 | Feature | `harness-maintenance-jobs` |
 | Type | `Feature` (Background Jobs — batch 2 do catálogo) |
 | Stack | `.NET 10 / BackgroundService / EF Core 10 + SQLite / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/Devin-20260920-maintenance-jobs` |
 | Ticket | — |
 | Status | `Done` |

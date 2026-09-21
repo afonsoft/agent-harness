@@ -7,14 +7,14 @@
 | Feature | `installation-docs` |
 | Type | `Docs` |
 | Stack | `Docs` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260910-installation-docs` |
 | Ticket | `[A DEFINIR]` |
 | Status | `Done` |
 
 ## 1. User Story
 
-**As a** new developer or AI agent setting up `taskboard-ai`
+**As a** new developer or AI agent setting up `agent-harness`
 **I want** a dedicated installation guide in English and Portuguese
 **So that** I can clone, build, configure, and run the project without reading source code.
 

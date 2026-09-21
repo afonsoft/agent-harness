@@ -1,13 +1,13 @@
 # Harness
 
-[![.NET Build and Test](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml)
-[![Code Quality](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml)
-[![CodeQL](https://github.com/afonsoft/taskboard-ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/codeql.yml)
+[![.NET Build and Test](https://github.com/afonsoft/agent-harness/actions/workflows/dotnet.yml/badge.svg)](https://github.com/afonsoft/agent-harness/actions/workflows/dotnet.yml)
+[![Code Quality](https://github.com/afonsoft/agent-harness/actions/workflows/code-quality.yml/badge.svg)](https://github.com/afonsoft/agent-harness/actions/workflows/code-quality.yml)
+[![CodeQL](https://github.com/afonsoft/agent-harness/actions/workflows/codeql.yml/badge.svg)](https://github.com/afonsoft/agent-harness/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > **Idioma padrão:** Inglês (en-us). Veja a [README.md](README.md) para a versão em inglês.
 
-**Harness** é uma bancada local-first e AI-native para orquestrar agentes de código de IA — construído em **C# 14 / .NET 10**. (O repositório e os identificadores técnicos mantêm o nome `taskboard-ai`.)
+**Harness** é uma bancada local-first e AI-native para orquestrar agentes de código de IA — construído em **C# 14 / .NET 10**. O repositório é `agent-harness` (anteriormente `taskboard-ai`); os identificadores técnicos internos mantêm o nome `taskboard` (namespaces, projetos, CLI `taskctl`, env vars `TASKBOARD_*`).
 
 ## Visão Geral
 
@@ -73,8 +73,8 @@ tests/
 ## Início Rápido
 
 ```bash
-git clone https://github.com/afonsoft/taskboard-ai.git
-cd taskboard-ai
+git clone https://github.com/afonsoft/agent-harness.git
+cd agent-harness
 dotnet restore Taskboard.sln
 dotnet build Taskboard.sln
 dotnet test Taskboard.sln

@@ -7,7 +7,7 @@
 | Feature | `cli-agents-expansion` |
 | Type | `Feature` (Frontend + API + Infra) |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / Blazor WASM / SignalR` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-cli-agents-expansion` |
 | Ticket | N/A |
 | Status | `Done` — entregue via PR #94 (merged) |

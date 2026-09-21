@@ -7,7 +7,7 @@
 | Feature | `docs-stack-drift` |
 | Type | `Docs` |
 | Stack | `Markdown` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `docs/devin-20260919-docs-stack-drift` |
 | Ticket | `GAP-documentation-docs-stack-drift` (gap-analysis-20260919) — Issue #142, Epic #140 |
 | Status | `Done` — entregue neste PR |

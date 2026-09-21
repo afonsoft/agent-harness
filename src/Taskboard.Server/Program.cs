@@ -149,7 +149,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Harness API",
         Version = "v1",
-        Description = "API for taskboard-ai projects, tasks, agents and skills."
+        Description = "API for agent-harness projects, tasks, agents and skills."
     });
 });
 builder.Services.AddSingleton<IGitHubService, GitHubService>();

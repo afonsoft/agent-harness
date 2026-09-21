@@ -108,7 +108,7 @@ public class IssueHistoryEndpointsTests : IClassFixture<TaskboardWebApplicationF
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
-        var response = await client.GetAsync("/api/vscode/open?repo=afonsoft/taskboard-ai");
+        var response = await client.GetAsync("/api/vscode/open?repo=afonsoft/agent-harness");
 
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         var location = response.Headers.Location?.ToString();

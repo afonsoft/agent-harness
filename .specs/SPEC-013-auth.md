@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Authentication & Authorization |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Security |
 | Change type | Implementation |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-auth-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

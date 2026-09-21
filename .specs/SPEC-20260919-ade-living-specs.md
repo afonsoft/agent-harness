@@ -7,9 +7,9 @@
 | Feature | `ade-living-specs` |
 | Type | `Feature` (ADE Control Plane & Living Specifications) |
 | Stack | `.NET 10 / Blazor WASM / Markdig / SQLite / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-ade-living-specs` |
-| Ticket | [#168 — E13](https://github.com/afonsoft/taskboard-ai/issues/168) |
+| Ticket | [#168 — E13](https://github.com/afonsoft/agent-harness/issues/168) |
 | Status | `Done` |
 
 ---

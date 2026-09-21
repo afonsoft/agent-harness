@@ -7,7 +7,7 @@
 | Feature | `ai-chat-threads` |
 | Type | `Feature` (UI completa sobre backend existente) |
 | Stack | `.NET 10 / Blazor / SSE` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-ai-chat-threads` |
 | Ticket | — |
 | Status | `Done` |

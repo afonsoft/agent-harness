@@ -7,14 +7,14 @@
 | Feature | `env-rename` |
 | Type | `Refactor` |
 | Stack | `.NET` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260910-env-rename` |
 | Ticket | `[A DEFINIR]` |
 | Status | `Done` |
 
 ## 1. User Story
 
-**As a** developer and operator of `taskboard-ai`
+**As a** developer and operator of `agent-harness`
 **I want** environment variables to use the `TASKBOARD_` prefix instead of `CODEX_TASKBOARD_`
 **So that** configuration is shorter, consistent, and free of legacy Codex branding.
 

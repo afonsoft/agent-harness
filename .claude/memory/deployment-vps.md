@@ -43,7 +43,7 @@ falha por falta de `npx`. Backup do env: `~/.taskboard/env.bak-*`.
 ## Deploy flow
 
 ```bash
-cd ~/repos/taskboard-ai
+cd ~/repos/agent-harness
 git checkout main && git pull --ff-only
 systemctl --user stop taskboard-server
 # `dotnet publish -o` NÃO limpa o output dir — bundles fingerprinted
@@ -77,7 +77,7 @@ credenciais já existem em `/home/ubuntu`.
 (multi-arch) + CLIs pré-instalados + `ENV HOME=/data/home` (credenciais
 persistem no volume `/data`). Mounts usados: `~/.taskboard/data:/data` e
 `~/.taskboard/data/dataprotection:/data/home/.aspnet/DataProtection-Keys`.
-Imagem `taskboard-ai:latest` pode existir no daemon local.
+Imagem `agent-harness:latest` pode existir no daemon local.
 
 ## Notas operacionais
 

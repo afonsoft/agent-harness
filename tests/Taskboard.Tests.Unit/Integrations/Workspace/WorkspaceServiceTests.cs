@@ -33,10 +33,10 @@ public class WorkspaceServiceTests : IDisposable
     public void Dado_RepoDirExiste_Quando_ResolveCardWorkdir_Entao_RetornaRepoDir()
     {
         var service = Create();
-        var repoDir = Path.Join(service.Root, "taskboard-ai");
+        var repoDir = Path.Join(service.Root, "agent-harness");
         Directory.CreateDirectory(repoDir);
 
-        var path = service.ResolveCardWorkdir("afonsoft/taskboard-ai", out var exists);
+        var path = service.ResolveCardWorkdir("afonsoft/agent-harness", out var exists);
 
         exists.ShouldBeTrue();
         path.ShouldBe(repoDir);

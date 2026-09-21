@@ -3,7 +3,7 @@
 ## Metadata
 
 - Feature: Refine GitHub Actions
-- Product: taskboard-ai
+- Product: agent-harness
 - Bounded context: CI/CD
 - Suggested branch: feature/refine-github-actions
 - Status: Done — entregue via PRs #52–#56 (bumps de actions); verificado em gap-analysis-20260919

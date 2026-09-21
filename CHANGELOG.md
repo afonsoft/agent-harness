@@ -29,4 +29,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added CodeQL workflow for C# and GitHub Actions analysis.
 - Enabled `permissions` scoping in CI workflows.
 
-[Unreleased]: https://github.com/afonsoft/taskboard-ai/commits/main
+[Unreleased]: https://github.com/afonsoft/agent-harness/commits/main

@@ -7,7 +7,7 @@
 | Feature | `skills-cache-permissions` |
 | Type | `Bugfix` |
 | Stack | `.NET 10 / filesystem / process runner` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-skills-cache-permissions` |
 | Ticket | — |
 | Status | `Done` |

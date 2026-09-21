@@ -7,7 +7,7 @@
 | Feature | `projects-removal` |
 | Type | `Refactor` (remoção completa) |
 | Stack | `.NET 10 / Blazor / EF Core / taskctl / MCP` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-projects-removal` |
 | Ticket | — |
 | Status | `Done` |

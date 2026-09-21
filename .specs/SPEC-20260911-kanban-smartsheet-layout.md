@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Kanban Smartsheet-Style Layout & Colors |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Frontend |
 | Change type | Design / UI |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/devin-20260911-kanban-smartsheet-layout` |
 | Technical owner | afonsoft |
 | Status | Completed |

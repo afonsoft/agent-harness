@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Admin Change Password |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Security |
 | Change type | Feature |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/devin-20260911-admin-change-password` |
 | Technical owner | afonsoft |
 | Status | `Done` (status corrigido — implementado e issues fechadas; reconciliado em 2026-09-17) |

@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Persistence and Database |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Infrastructure |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-persistence-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

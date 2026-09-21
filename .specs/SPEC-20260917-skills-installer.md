@@ -7,7 +7,7 @@
 | Feature | `skills-installer` |
 | Type | `Feature` |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / Blazor WASM` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260917-skills-installer` |
 | Ticket | N/A |
 | Status | `Done` |

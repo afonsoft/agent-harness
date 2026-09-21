@@ -7,7 +7,7 @@
 | Feature | bootstrap-modernization |
 | Type | Frontend / Refactor |
 | Stack | .NET 10 / Blazor Server / Blazor.Bootstrap 4.0.0 / Bootstrap 5.3 |
-| Repository | taskboard-ai |
+| Repository | agent-harness |
 | Branch | `feature/devin-20260913-bootstrap-modernization` |
 | Ticket | N/A |
 | Status | Done |

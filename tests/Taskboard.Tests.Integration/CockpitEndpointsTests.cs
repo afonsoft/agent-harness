@@ -22,7 +22,7 @@ public class CockpitEndpointsTests : IClassFixture<TaskboardWebApplicationFactor
     }
 
     private static RunStartRequest StartRequest(string template = "quick-patch") =>
-        new(template, "afonsoft/taskboard-ai", "main", "150", null, "Implementar JWT");
+        new(template, "afonsoft/agent-harness", "main", "150", null, "Implementar JWT");
 
     [Fact]
     public async Task Dado_RunValido_Quando_PostRuns_Entao_201EApareceNaLista()

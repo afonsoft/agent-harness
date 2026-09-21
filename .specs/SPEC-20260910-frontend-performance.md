@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Frontend Performance & UX Improvements |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Presentation (Blazor / Static Fallback) |
 | Change type | Enhancement |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-frontend-ux-performance` |
 | Technical owner | afonsoft |
 | Status | Done (framework superseded: MudBlazor/Tailwind → Bootstrap 5.3 + Blazor.Bootstrap per SPEC-20260913-bootstrap-modernization) |

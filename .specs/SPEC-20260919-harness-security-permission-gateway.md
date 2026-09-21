@@ -7,9 +7,9 @@
 | Feature | `harness-security-permission-gateway` |
 | Type | `Feature` (Harness Security & Governance) |
 | Stack | `.NET 10 / AST Command Classifier / Security Sandbox / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-harness-security-permission-gateway` |
-| Ticket | [#163 — E8](https://github.com/afonsoft/taskboard-ai/issues/163) |
+| Ticket | [#163 — E8](https://github.com/afonsoft/agent-harness/issues/163) |
 | Status | `Done` |
 
 ---

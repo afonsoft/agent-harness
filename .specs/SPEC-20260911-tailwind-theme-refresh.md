@@ -7,7 +7,7 @@
 | Feature | tailwind-theme-refresh |
 | Type | Frontend |
 | Stack | .NET 10 / Blazor Server / Tailwind CSS 4.x CDN / MudBlazor (providers only) |
-| Repository | taskboard-ai |
+| Repository | agent-harness |
 | Branch | `feature/devin-20260911-tailwind-theme-refresh` |
 | Ticket | N/A |
 | Status | Deprecated — superseded by SPEC-20260913-bootstrap-modernization |

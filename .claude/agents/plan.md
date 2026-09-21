@@ -98,7 +98,7 @@ Produce an implementation plan with this structure:
 6. **Think incrementally** — each step should be verifiable.
 7. **Document decisions** — explain why, not just what.
 
-## Stack — taskboard-ai (.NET 10 / C# 14)
+## Stack — agent-harness (.NET 10 / C# 14)
 - **Layers:** ABP N-Layer `Domain → Application.Contracts → Application → EntityFrameworkCore → Server`; business logic never in endpoints or UI.
 - **API Standards:** Minimal APIs, contracts in `Application.Contracts`, SSE (`text/event-stream`), MCP server.
 - **Storage & Migrations:** EF Core 10 + SQLite; `dotnet ef migrations add`; `decimal` for monetary values; `long Version` optimistic concurrency (`VERSION_CONFLICT` 409).

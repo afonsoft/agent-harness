@@ -7,9 +7,9 @@
 | Feature | `ade-observability-finops` |
 | Type | `Feature` (ADE Control Plane & FinOps Analytics) |
 | Stack | `.NET 10 / OpenTelemetry / System.Diagnostics.Activity / Blazor WASM / SQLite / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-ade-observability-finops` |
-| Ticket | [#169 — E14](https://github.com/afonsoft/taskboard-ai/issues/169) |
+| Ticket | [#169 — E14](https://github.com/afonsoft/agent-harness/issues/169) |
 | Status | `Done` |
 
 ---
@@ -22,7 +22,7 @@
 
 ### Problem Context
 
-No estado atual do `taskboard-ai`:
+No estado atual do `agent-harness`:
 1. **Opacidade de Custos:** Não há nenhum registro de quantos tokens de input, output ou cache foram consumidos em um run ou issue. O usuário não sabe se uma execução custou $0.05 ou $5.00.
 2. **Ausência de Travas de Orçamento (Budget Caps):** Um agente preso em um loop de retry ou gerando saídas repetidas pode esgotar a cota da API sem nenhum limite de segurança.
 3. **Falta de Rastreamento Distribuído:** A depuração de pipelines multi-agente é difícil sem spans de OpenTelemetry correlacionando etapas, chamadas de ferramentas e tempos de resposta do modelo.

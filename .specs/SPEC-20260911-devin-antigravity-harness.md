@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Devin CLI and Antigravity Harness |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Agent Harness |
 | Change type | Fix / Setup |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/devin-antigravity-harness` |
 | Technical owner | afonsoft |
 | Status | Done (layout consolidado em .claude/skills — ver ACs atualizados) |

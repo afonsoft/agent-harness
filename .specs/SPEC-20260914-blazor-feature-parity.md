@@ -7,7 +7,7 @@
 | Feature | `blazor-feature-parity` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor Server` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/{AgentLLM}-20260914-blazor-feature-parity` |
 | Ticket | `GAP-implementation-blazor-feature-parity` |
 | Status | `Done` |

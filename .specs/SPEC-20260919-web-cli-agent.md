@@ -7,9 +7,9 @@
 | Feature | `web-cli-agent` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor WASM / SSE / JSON-RPC (ACP)` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-web-cli-agent` |
-| Ticket | [#153 — E5](https://github.com/afonsoft/taskboard-ai/issues/153) |
+| Ticket | [#153 — E5](https://github.com/afonsoft/agent-harness/issues/153) |
 | Status | `Done` |
 
 ## 1. User Story
@@ -19,7 +19,7 @@
 **So that** eu possa dirigir trabalho real de código pela web, com o mesmo modelo de funcionamento do OpenCode (`opencode web`), sem abrir um terminal.
 
 **Problem context:**
-Hoje `/ai-chat` conversa apenas com `MockLLMProvider` (texto plano, sem tools, sem efeitos colaterais) e o botão "Run agent" enfileira um CLI **one-shot fire-and-forget** via `AgentOrchestrationService.EnqueueAsync` — sem multi-turn, sem streaming estruturado, sem permissões, sem binding de workspace. O modelo de referência (OpenCode, `anomalyco/opencode`) é server-centric: o servidor possui sessões duráveis bound a um diretório, um agent loop com tools, um stream SSE global de eventos tipados (`tool_call`, `permission.request`, deltas), endpoint de reply de permissão e PTY por WebSocket. O taskboard-ai já possui 80% do substrate necessário — falta a camada de **sessão interativa por thread**.
+Hoje `/ai-chat` conversa apenas com `MockLLMProvider` (texto plano, sem tools, sem efeitos colaterais) e o botão "Run agent" enfileira um CLI **one-shot fire-and-forget** via `AgentOrchestrationService.EnqueueAsync` — sem multi-turn, sem streaming estruturado, sem permissões, sem binding de workspace. O modelo de referência (OpenCode, `anomalyco/opencode`) é server-centric: o servidor possui sessões duráveis bound a um diretório, um agent loop com tools, um stream SSE global de eventos tipados (`tool_call`, `permission.request`, deltas), endpoint de reply de permissão e PTY por WebSocket. O agent-harness já possui 80% do substrate necessário — falta a camada de **sessão interativa por thread**.
 
 **Reference architecture (OpenCode, reverse-engineered):**
 - `opencode web` → servidor HTTP local + SPA cliente; todo estado no servidor.

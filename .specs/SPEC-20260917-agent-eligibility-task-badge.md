@@ -7,7 +7,7 @@
 | Feature | `agent-eligibility-task-badge` |
 | Type | `Feature` |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / EF Core SQLite / Blazor WASM / CSS` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260917-agent-eligibility-task-badge` |
 | Ticket | N/A |
 | Status | `Done` |

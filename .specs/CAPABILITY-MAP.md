@@ -1,6 +1,6 @@
 # CAPABILITY-MAP
 
-Global capability map for the **taskboard-ai** .NET 10 implementation.
+Global capability map for the **agent-harness** .NET 10 implementation.
 
 This module order guarantees that lower layers are designed (and built) before upper layers consume them.
 

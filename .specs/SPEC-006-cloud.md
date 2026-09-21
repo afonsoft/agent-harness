@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Cloud Mode |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Cloud |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-cloud-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

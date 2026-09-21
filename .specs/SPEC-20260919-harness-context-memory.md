@@ -7,9 +7,9 @@
 | Feature | `harness-context-memory` |
 | Type | `Feature` (Harness Engine & Context Engineering) |
 | Stack | `.NET 10 / Microsoft.Extensions.AI or Semantic Kernel / SQLite / Tokenizer / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-harness-context-memory` |
-| Ticket | [#162 — E7](https://github.com/afonsoft/taskboard-ai/issues/162) |
+| Ticket | [#162 — E7](https://github.com/afonsoft/agent-harness/issues/162) |
 | Status | `Done` |
 
 ---
@@ -22,7 +22,7 @@
 
 ### Problem Context
 
-No `taskboard-ai` atual:
+No `agent-harness` atual:
 1. **Prompting Estático e Incompleto:** O `KnownCliAgentAdapter` apenas concatena `Branch:`, `Scope:` e `Instructions`. Ele não inspeciona `AGENTS.md`, `CLAUDE.md`, `.claude/rules/`, status git ou diffs recentes.
 2. **Context Rot em Sessões Longas:** Em sessões multi-turn (como a descrita na spec `web-cli-agent`), o histórico cresce indefinidamente. Não há motor de compactação (`microcompact`, `collapse`, `summarization`), degradando as respostas do modelo.
 3. **Amnésia entre Sessões:** Lições aprendidas em um run (ex: *"este repositório exige TreatWarningsAsErrors"* ou *"o bundle Blazor precisa de limpeza manual antes de publicar"*) são perdidas após o encerramento do processo.
@@ -138,7 +138,7 @@ Content-Type: application/json
 POST /api/harness/memory
 Content-Type: application/json
 {
-  "repositoryFullName": "afonsoft/taskboard-ai",
+  "repositoryFullName": "afonsoft/agent-harness",
   "topic": "build-system",
   "content": "Sempre executar rm -rf publish/wwwroot/_framework antes de rodar dotnet publish",
   "tags": ["build", "blazor", "publish"]

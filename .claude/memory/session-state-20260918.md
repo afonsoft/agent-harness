@@ -1,6 +1,6 @@
 # Session State — 2026-09-18
 
-Estado consolidado do trabalho entregue no `taskboard-ai` (main) — referência
+Estado consolidado do trabalho entregue no `agent-harness` (main) — referência
 para próximas sessões. Deploy host: ver `deployment-vps.md`.
 
 ## PRs entregues (todos merged em `main` + deploy no host)

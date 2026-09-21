@@ -7,7 +7,7 @@
 | Feature | `login-sidebar` |
 | Type | `Frontend` |
 | Stack | `.NET 10 / Blazor Server` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/{AgentLLM}-20260914-login-sidebar` |
 | Ticket | `GAP-ux-login-sidebar` |
 | Status | `Done` |

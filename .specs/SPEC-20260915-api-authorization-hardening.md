@@ -7,7 +7,7 @@
 | Feature | `api-authorization-hardening` |
 | Type | `Bugfix` |
 | Stack | `.NET` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-api-authorization-hardening` |
 | Ticket | `GAP-security-api-anonymous-surface` (gap-analysis-20260915) |
 | Status | `Implemented` |

@@ -7,7 +7,7 @@
 | Feature | board-repo-selector |
 | Type | Frontend / Feature |
 | Stack | .NET 10 / Blazor Server / Blazor.Bootstrap 4.0.0 / Octokit |
-| Repository | taskboard-ai |
+| Repository | agent-harness |
 | Branch | `feature/devin-20260913-bootstrap-modernization` |
 | Ticket | N/A |
 | Status | Done (merged via PR #51, commit c6dc888) |

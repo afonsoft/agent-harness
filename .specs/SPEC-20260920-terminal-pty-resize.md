@@ -7,7 +7,7 @@
 | Feature | `terminal-pty-resize` |
 | Type | `Bugfix` (PTY resize via ioctl + client fit guards + session reattach) |
 | Stack | `.NET 10 / P/Invoke libc ioctl / xterm.js / Blazor WASM / SignalR` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260920-recurring-jobs-terminal-resize` |
 | Ticket | — |
 | Status | `Done` |

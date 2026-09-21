@@ -7,7 +7,7 @@
 | Feature | `blazor-web-assets` |
 | Type | `Bugfix` |
 | Stack | `.NET 10 / Blazor Server` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260914-menu-links-gap-analysis` |
 | Ticket | `GAP-implementation-blazor-web-js` |
 | Status | `Done` (merged via PR #59) |

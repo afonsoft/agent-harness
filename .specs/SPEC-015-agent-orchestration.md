@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Agent Orchestration |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Agents (Application.Contracts / Integrations / Server / Blazor) |
 | Change type | Feature |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/agent-orchestration` |
 | Technical owner | afonsoft |
 | Status | Implemented |

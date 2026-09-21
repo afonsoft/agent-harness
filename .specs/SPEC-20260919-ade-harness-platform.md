@@ -7,11 +7,11 @@
 | Feature | `ade-harness-platform` |
 | Type | `Feature` (Architecture & Core Platform) |
 | Stack | `.NET 10 / ASP.NET Core / ABP N-Layer / Blazor WASM / SignalR / Git / MCP` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-ade-harness-platform` |
-| Ticket | [#171 — E16](https://github.com/afonsoft/taskboard-ai/issues/171) |
+| Ticket | [#171 — E16](https://github.com/afonsoft/agent-harness/issues/171) |
 | Status | `Done` |
-| PR | [#245](https://github.com/afonsoft/taskboard-ai/pull/245) |
+| PR | [#245](https://github.com/afonsoft/agent-harness/pull/245) |
 
 ---
 
@@ -23,7 +23,7 @@
 
 ### Problem Context
 
-O `taskboard-ai` (sob branding **Harness**) consolidou um Kanban integrado ao GitHub, suporte a 13 CLIs de agentes, terminal PTY, VS Code Web e servidor MCP. Contudo:
+O `agent-harness` (sob branding **Harness**) consolidou um Kanban integrado ao GitHub, suporte a 13 CLIs de agentes, terminal PTY, VS Code Web e servidor MCP. Contudo:
 1. **Limitação de unidade de trabalho:** A execução atual ainda é predominantemente orientada a disparos isolados (*fire-and-forget* de 1 CLI por issue) com terminal raw de logs (`TaskLogTab`), enquanto um verdadeiro **ADE** tem como unidade primária o **Ciclo de Vida do Run do Agente (Agent Run)** e a coordenação multi-agente (equipes de agentes especializados).
 2. **Ausência de isolamento do workspace (Sandbox):** Agentes executam comandos diretamente no diretório do repositório (`RepoPath`), criando risco de concorrência, dirty working tree e perda de código se múltiplos agentes trabalharem em paralelo.
 3. **Falta de loop determinístico de auto-verificação:** Quando o agente gera código com erros de compilação ou quebras de testes, não há um loop estruturado no harness que capture as falhas de build/test e re-injete no contexto do agente para correção incremental antes de reportar conclusão.
@@ -124,7 +124,7 @@ Content-Type: application/json
   "pipelineId": "feature-standard",
   "issueId": "145",
   "specPath": ".specs/SPEC-20260919-coverage-gate-ratchet.md",
-  "repositoryFullName": "afonsoft/taskboard-ai",
+  "repositoryFullName": "afonsoft/agent-harness",
   "baseBranch": "main",
   "prompt": "Implementar o ratchet do gate de cobertura conforme a spec"
 }
