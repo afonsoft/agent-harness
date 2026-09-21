@@ -10,7 +10,7 @@
 ## Seletor global de repositório
 
 - Um único combobox de repositório fica na barra lateral acima do item Board — `SelectedRepositoryService` (WASM, scoped) lista os repos via GitHub, mantém o `owner/repo` atual, persiste em `localStorage["harness.selectedRepo"]` e dispara `Changed` para todas as páginas que usam repo; texto livre `owner/repo` continua funcionando quando a listagem falha ou não há token
-- Agrupamento do menu: itens que usam repo no topo — Board, Gantt, Workflow, Specs, VS Code, Terminal — depois um divisor `---`, depois AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts
+- Agrupamento do menu: itens que usam repo no topo — Board, Gantt, Workflow, Specs, VS Code, Terminal — depois um divisor `---`, depois AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts e um link externo Issues (abre `github.com/afonsoft/agent-harness/issues` em nova aba)
 - Rail de ícones colapsado: o seletor vira um ícone de pasta com o repo atual como tooltip; clicar expande a sidebar
 - Consumidores: Board/Gantt/Workflow perdem o combo próprio e recarregam ao mudar; `/specs` lê `~/repos/<name>/.specs` do clone local (empty state quando não clonado); abas novas do terminal abrem em `~/repos/<name>`; `/editor` abre por padrão no workdir do clone, a menos que `?path`/`?repo` seja passado
 
