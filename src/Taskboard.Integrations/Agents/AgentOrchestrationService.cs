@@ -570,8 +570,8 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             await repository.AppendAsync(message);
         });
 
-        // SPEC-20260921-agent-execution-event-pipeline RF-003: toda linha também
-        // entra no fluxo normalizado persistido/sequenciado.
+        // SPEC-20260921-agent-execution-event-pipeline RF-003: every line also
+        // enters the normalized persisted/sequenced stream.
         if (_eventSink is not null)
         {
             _ = _eventSink.EmitAsync(

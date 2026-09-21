@@ -1,16 +1,19 @@
+using System.Text.Json;
+
 namespace Taskboard.Agents;
 
 /// <summary>
-/// Converte mensagens brutas dos transports (one-shot stdout/stderr,
-/// JSON-RPC oportunista) em <see cref="AgentExecutionEvent"/> normalizados.
-/// Sem estado — sequência/redação ficam no sink.
+/// Converts raw transport messages (one-shot stdout/stderr, opportunistic
+/// JSON-RPC) into normalized <see cref="AgentExecutionEvent"/>s.
+/// Stateless — sequencing/redaction happen in the sink.
 /// </summary>
 public static class AgentEventNormalizer
 {
     /// <summary>
-    /// Normaliza uma <see cref="AgentLogMessage"/>: quando o transporte já
-    /// preencheu <see cref="AgentLogMessage.Kind"/> (ex.: notificação JSON-RPC
-    /// parseada), preserva; caso contrário emite <c>output</c>.
+    /// Normalizes an <see cref="AgentLogMessage"/>: when the transport already
+    /// filled <see cref="AgentLogMessage.Kind"/> (e.g. a parsed JSON-RPC
+    /// notification), it is preserved; otherwise an <c>output</c> event is
+    /// emitted carrying the raw text in the payload so replay stays faithful.
     /// </summary>
     public static AgentExecutionEvent FromLogMessage(
         AgentLogMessage message,
@@ -26,8 +29,13 @@ public static class AgentEventNormalizer
             _ => "system"
         };
 
+        var payloadJson = message.PayloadJson
+            ?? (string.IsNullOrEmpty(message.Content)
+                ? null
+                : JsonSerializer.Serialize(new { line = message.Content }));
+
         return new AgentExecutionEvent(
-            EventId: string.Empty, // sink atribui
+            EventId: string.Empty, // assigned by the sink
             ScopeKind: scopeKind,
             ScopeId: scopeId,
             Sequence: 0,
@@ -36,7 +44,7 @@ public static class AgentEventNormalizer
             StageId: stageId,
             SessionId: sessionId,
             Title: null,
-            PayloadJson: message.PayloadJson,
+            PayloadJson: payloadJson,
             RawJson: null,
             Stream: stream);
     }

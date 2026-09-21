@@ -9,11 +9,11 @@ using Taskboard.ValueObjects;
 namespace Taskboard.Integrations.Agents;
 
 /// <summary>
-/// Cliente ACP de sessão interativa com agentes CLI via JSON-RPC sobre stdio.
-/// Handshake conforme SPEC-20260921-agent-execution-event-pipeline RF-002:
+/// Interactive ACP session client for CLI agents over JSON-RPC on stdio.
+/// Handshake per SPEC-20260921-agent-execution-event-pipeline RF-002:
 /// <c>initialize</c> → <c>session/new(cwd, mcpServers)</c> → <c>session/prompt(sessionId, content blocks)</c>;
-/// requests do agente (<c>session/request_permission</c>, <c>fs/*</c>, <c>terminal/*</c>)
-/// recebem resposta JSON-RPC no id original.
+/// agent requests (<c>session/request_permission</c>, <c>fs/*</c>, <c>terminal/*</c>)
+/// get a JSON-RPC response on the original id.
 /// </summary>
 public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 {
@@ -21,12 +21,18 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     private sealed record PendingPermission(string JsonRpcId, IReadOnlyList<string> Options);
 
+    /// <summary>Raised when the agent answers a JSON-RPC request with an error object.</summary>
+    private sealed class AcpRequestException(string method, string error)
+        : Exception($"ACP request '{method}' failed: {error}");
+
     private sealed class SessionHolder
     {
         public required string ThreadId { get; init; }
         public required Process Process { get; init; }
         public required StreamWriter Stdin { get; init; }
         public required CancellationTokenSource Cts { get; init; }
+        /// <summary>Serializes stdin writes — prompts, replies and error responses share the channel.</summary>
+        public SemaphoreSlim WriteLock { get; } = new(1, 1);
         public string? SessionId { get; set; }
         public ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> PendingResponses { get; } = new();
         public ConcurrentDictionary<string, PendingPermission> PendingPermissions { get; } = new();
@@ -125,7 +131,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        // RF-002: handshake ACP — initialize antes de session/new.
+        // RF-002: ACP handshake — initialize before session/new.
         var initResult = await SendRequestAsync(holder, "initialize", new
         {
             protocolVersion = 1,
@@ -178,10 +184,10 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
-        // ACP real: session/prompt recebe content blocks e só responde ao fim
-        // do turno (stopReason) — não se pode awaitar a response aqui ou o
-        // endpoint HTTP ficaria preso pela duração do turno. O id fica
-        // registrado e a resposta vira evento no dispatch.
+        // Real ACP: session/prompt takes content blocks and only responds when
+        // the turn ends (stopReason) — awaiting the response here would hold
+        // the HTTP endpoint for the whole turn. The id stays registered and
+        // the response becomes a session event in the dispatch loop.
         object promptParams = holder.SessionId is { } sessionId
             ? new { sessionId, prompt = new[] { new { type = "text", text } } }
             : (object)new { text, delivery };
@@ -198,6 +204,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     ? sr.GetString() : null;
                 EmitEvent(threadId, "session", "system", "Prompt turn completed",
                     JsonSerializer.Serialize(new { state = "ready", stopReason }));
+            }
+            else if (t.IsFaulted)
+            {
+                EmitEvent(threadId, "error", "system",
+                    $"Prompt turn rejected: {t.Exception?.GetBaseException().Message}", null);
             }
         }, CancellationToken.None);
 
@@ -234,12 +245,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                 @params = holder.SessionId is { } sid ? (object)new { sessionId = sid } : new { }
             };
 
-            await holder.Stdin.WriteLineAsync(JsonSerializer.Serialize(payload)).ConfigureAwait(false);
-            await holder.Stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await WriteLineAsync(holder, payload, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
-            // Fallback: kill da árvore se stdio falhar
+            // Fallback: kill the tree if stdio is broken.
             TryKill(holder.Process);
         }
 
@@ -257,8 +267,9 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
-        // ACP real: a resposta é uma JSON-RPC response no id da request
-        // session/request_permission — outcome.selected com o optionId escolhido.
+        // Real ACP: the reply is a JSON-RPC response on the id of the
+        // session/request_permission request — outcome.selected carries the
+        // chosen optionId.
         if (holder.PendingPermissions.TryRemove(requestId, out var pending))
         {
             var optionId = MapOutcomeToOption(outcome, pending.Options);
@@ -271,7 +282,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return true;
         }
 
-        // Shape legado: método session/reply_permission com params.requestId.
+        // Legacy shape: session/reply_permission method with params.requestId.
         var legacy = new
         {
             jsonrpc = "2.0",
@@ -285,8 +296,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     }
 
     /// <summary>
-    /// Mapeia o outcome do PermissionGate (allow/deny) para um optionId dentre
-    /// as opções oferecidas pelo agente; null → outcome "cancelled".
+    /// Maps a PermissionGate outcome (allow/deny) to an optionId among the
+    /// options offered by the agent; null → outcome "cancelled".
     /// </summary>
     internal static string? MapOutcomeToOption(string outcome, IReadOnlyList<string> options)
     {
@@ -357,9 +368,17 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     if (parsed.RequestId is { } rid
                         && holder.PendingResponses.TryRemove(rid, out var tcs))
                     {
-                        tcs.TrySetResult(parsed.ResponseResult.ValueKind == JsonValueKind.Undefined
-                            ? parsed.ResponseError
-                            : parsed.ResponseResult);
+                        if (parsed.ResponseResult.ValueKind == JsonValueKind.Undefined)
+                        {
+                            // Error response — fault the waiter so callers can
+                            // distinguish rejection from a missing answer.
+                            tcs.TrySetException(new AcpRequestException(
+                                rid, parsed.ResponseError.GetRawText()));
+                        }
+                        else
+                        {
+                            tcs.TrySetResult(parsed.ResponseResult);
+                        }
                     }
                     return;
 
@@ -368,7 +387,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     return;
 
                 default:
-                    EmitEvent(threadId, parsed.Kind, "assistant", parsed.Content, parsed.PayloadJson);
+                    EmitEvent(threadId, parsed.Kind, "assistant", parsed.Content, parsed.PayloadJson,
+                        parsed.SessionId, parsed.ToolCallId);
                     return;
             }
         }
@@ -382,7 +402,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     {
         if (parsed.Method == "session/request_permission" && parsed.RequestId is { } rpcId)
         {
-            // Extrai options do payload normalizado para mapear o reply depois.
+            // Extract options from the normalized payload for the reply mapping.
             var options = ExtractPermissionOptions(parsed.PayloadJson);
             var effectiveId = ExtractPermissionRequestId(parsed.PayloadJson) ?? rpcId;
             holder.PendingPermissions[effectiveId] = new PendingPermission(rpcId, options);
@@ -390,8 +410,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return;
         }
 
-        // Requests não suportadas (fs/*, terminal/* — capabilities declaradas false):
-        // responde Method not found para o agente não ficar travado.
+        // Unsupported requests (fs/*, terminal/* — capabilities declared false):
+        // answer Method not found so the agent does not hang.
         _ = Task.Run(async () =>
         {
             try
@@ -405,7 +425,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             }
             catch
             {
-                // stdio falhou — a sessão vai morrer pelo process watchdog.
+                // stdio failed — the session will die via the process watchdog.
             }
         });
         EmitEvent(holder.ThreadId, "activity", "system",
@@ -453,7 +473,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
     }
 
-    /// <summary>Envia request JSON-RPC e aguarda a response com timeout de handshake.</summary>
+    /// <summary>Sends a JSON-RPC request and awaits the response with the handshake timeout.</summary>
     private async Task<JsonElement?> SendRequestAsync(
         SessionHolder holder, string method, object @params, CancellationToken cancellationToken)
     {
@@ -481,6 +501,13 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             return await tcs.Task.ConfigureAwait(false);
         }
+        catch (AcpRequestException ex)
+        {
+            // The agent answered with a JSON-RPC error — surface it so the UI
+            // shows the rejection reason instead of a silent failure.
+            EmitEvent(holder.ThreadId, "error", "system", ex.Message, null);
+            return null;
+        }
         catch (OperationCanceledException)
         {
             return null;
@@ -493,13 +520,24 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     private static async Task WriteLineAsync(SessionHolder holder, object payload, CancellationToken cancellationToken)
     {
-        await holder.Stdin.WriteLineAsync(JsonSerializer.Serialize(payload)).ConfigureAwait(false);
-        await holder.Stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await holder.WriteLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await holder.Stdin.WriteLineAsync(JsonSerializer.Serialize(payload)).ConfigureAwait(false);
+            await holder.Stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            holder.WriteLock.Release();
+        }
     }
 
-    private void EmitEvent(string threadId, string kind, string role, string? content, string? payload)
+    private void EmitEvent(
+        string threadId, string kind, string role, string? content, string? payload,
+        string? sessionId = null, string? toolCallId = null)
     {
-        var evt = new AgentSessionEvent(threadId, DateTimeOffset.UtcNow, kind, role, content, payload);
+        var evt = new AgentSessionEvent(threadId, DateTimeOffset.UtcNow, kind, role, content, payload,
+            SessionId: sessionId, ToolCallId: toolCallId);
         if (_listeners.TryGetValue(threadId, out var listener))
         {
             listener(evt);
@@ -517,7 +555,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch
         {
-            // Ignora se o processo já morreu
+            // Process already dead — nothing to do.
         }
     }
 

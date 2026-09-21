@@ -87,6 +87,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
@@ -96,12 +97,18 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             throw;
         }
 
+        // RF-004: telemetry — duration and resolved model flow into the result.
         if (tcs.Task.IsCompleted)
         {
-            return await tcs.Task.ConfigureAwait(false);
+            var result = await tcs.Task.ConfigureAwait(false);
+            return result with { Duration = stopwatch.Elapsed, ModelUsed = request.ResolvedModelName };
         }
 
-        return new AgentExecutionResult(process.ExitCode, process.ExitCode == 0);
+        return new AgentExecutionResult(
+            process.ExitCode,
+            process.ExitCode == 0,
+            Duration: stopwatch.Elapsed,
+            ModelUsed: request.ResolvedModelName);
     }
 
     private static void TryHandleOutput(string line, string expectedId, TaskCompletionSource<AgentExecutionResult> tcs, IProgress<AgentLogMessage> progress)
@@ -149,9 +156,9 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
     }
 
     /// <summary>
-    /// Notificação JSON-RPC fora do id de resultado: notificações
-    /// <c>session/update</c> são normalizadas pelo parser ACP (tool_call, plan,
-    /// thought…); demais viram texto <c>method: params</c> como antes.
+    /// JSON-RPC notification outside the result id: <c>session/update</c>
+    /// notifications are normalized by the ACP parser (tool_call, plan,
+    /// thought…); everything else becomes <c>method: params</c> text as before.
     /// SPEC-20260921-agent-execution-event-pipeline RF-002.
     /// </summary>
     private static void ReportNotification(string line, string issueId, IProgress<AgentLogMessage> progress)

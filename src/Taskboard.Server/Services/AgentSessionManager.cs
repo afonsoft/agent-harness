@@ -220,14 +220,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
         {
             try
             {
-                // SPEC-20260921-agent-execution-event-pipeline RF-003: todo
-                // evento de sessão também entra no fluxo normalizado durável.
+                // SPEC-20260921-agent-execution-event-pipeline RF-003: every
+                // session event also enters the durable normalized stream,
+                // keeping the ACP correlation fields (session/tool call).
                 if (_eventSink is not null)
                 {
                     await _eventSink.EmitAsync(new AgentExecutionEvent(
                         string.Empty, AgentEventScope.Thread, threadId, 0,
                         e.Timestamp,
                         string.IsNullOrWhiteSpace(e.Kind) ? AgentEventKinds.Message : e.Kind,
+                        SessionId: e.SessionId,
+                        ToolCallId: e.ToolCallId,
                         Title: e.Content,
                         PayloadJson: e.PayloadJson,
                         Stream: e.Kind == "error" ? "stderr" : "system"), CancellationToken.None).ConfigureAwait(false);

@@ -5,23 +5,23 @@ namespace Taskboard.Integrations.Agents;
 
 /// <summary>
 /// Parser conforme ao protocolo ACP real (SPEC-20260921-agent-execution-event-pipeline
-/// RF-002): mensagens JSON-RPC de agente — notificações <c>session/update</c> com
-/// discriminador <c>update.sessionUpdate</c>, requests <c>session/request_permission</c>
-/// (com <c>id</c> para reply) e responses a requests do cliente.
-/// Tolera o shape legado (<c>params.kind</c>/<c>params.content</c>) para CLIs que
+/// RF-002): agent JSON-RPC messages — <c>session/update</c> notifications with
+/// the <c>update.sessionUpdate</c> discriminant, <c>session/request_permission</c>
+/// requests (with <c>id</c> for replies) and responses to client requests.
+/// Tolerates the legacy shape (<c>params.kind</c>/<c>params.content</c>) for CLIs that
 /// ainda o emitem.
 /// </summary>
 public static class AcpProtocolParser
 {
     public enum MessageType
     {
-        /// <summary>Agente → cliente, sem id: session/update e notificações.</summary>
+        /// <summary>Agent → client, no id: session/update and notifications.</summary>
         Notification,
 
-        /// <summary>Agente → cliente com id: exige resposta (request_permission, fs/*, terminal/*).</summary>
+        /// <summary>Agent → client with id: requires a response (request_permission, fs/*, terminal/*).</summary>
         Request,
 
-        /// <summary>Agente → cliente: resposta a um request nosso (initialize/session/new/prompt).</summary>
+        /// <summary>Agent → client: response to one of our requests (initialize/session/new/prompt).</summary>
         Response
     }
 
@@ -37,7 +37,7 @@ public static class AcpProtocolParser
         JsonElement ResponseResult = default,
         JsonElement ResponseError = default);
 
-    /// <summary>Retorna null quando a linha não é JSON.</summary>
+    /// <summary>Returns null when the line is not JSON.</summary>
     public static Parsed? Parse(string line)
     {
         JsonDocument doc;
@@ -101,7 +101,7 @@ public static class AcpProtocolParser
 
         if (!p.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
         {
-            // Shape legado: session/update com params.kind/content direto.
+            // Legacy shape: session/update with direct params.kind/content.
             if (p.TryGetProperty("kind", out var legacyKind))
             {
                 return new Parsed(
@@ -152,7 +152,7 @@ public static class AcpProtocolParser
     private static Parsed ParsePermission(JsonElement p, string? requestId, bool isRequest)
     {
         // Shape real ACP: params { sessionId, toolCall: {...}, options: [{optionId, name, kind}] }
-        // Shape legado: params { requestId, tool, detail, options: ["allow","deny"] }
+        // Legacy shape: params { requestId, tool, detail, options: ["allow","deny"] }
         string? sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
         string tool = string.Empty;
         string detail = string.Empty;
@@ -195,8 +195,8 @@ public static class AcpProtocolParser
             options.AddRange(["allow", "deny"]);
         }
 
-        // No ACP real o id da request JSON-RPC é a correlação do reply;
-        // no shape legado, params.requestId.
+        // In real ACP the JSON-RPC request id is the reply correlation;
+        // in the legacy shape, params.requestId.
         var effectiveRequestId = isRequest
             ? requestId ?? Guid.NewGuid().ToString("N")
             : p.TryGetProperty("requestId", out var rid) ? rid.GetString() ?? string.Empty : string.Empty;

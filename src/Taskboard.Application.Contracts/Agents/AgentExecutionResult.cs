@@ -7,7 +7,7 @@ namespace Taskboard.Agents;
 /// </summary>
 /// <param name="Usage">Token usage reported by the CLI/API when available (E14 RF-001).</param>
 /// <param name="Duration">Wall-clock duration of the execution (SPEC-20260921 RF-004).</param>
-/// <param name="ModelUsed">Modelo efetivamente resolvido para o run (null = decidido pela CLI).</param>
+/// <param name="ModelUsed">Model effectively resolved for the run (null = decided by the CLI).</param>
 public sealed record AgentExecutionResult(
     int ExitCode,
     bool IsSuccess,

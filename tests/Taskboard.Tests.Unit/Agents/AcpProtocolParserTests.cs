@@ -169,6 +169,59 @@ public sealed class AcpProtocolParserTests
     }
 
     [Fact]
+    public void Dado_PayloadPermissionNormalizado_Quando_ParsePermissionRequest_Entao_ExtraiRequestId()
+    {
+        // The normalized flat payload (no params wrapper) produced by
+        // AcpProtocolParser must still reach the PermissionGate consumer.
+        var payload = """{"requestId":"7","tool":"git push","detail":"{}","options":["allow_once","reject_once"]}""";
+
+        var req = AcpSessionMessageParser.ParsePermissionRequest(payload);
+
+        req.ShouldNotBeNull();
+        req!.RequestId.ShouldBe("7");
+        req.Tool.ShouldBe("git push");
+        req.Options.ShouldBe(["allow_once", "reject_once"]);
+    }
+
+    [Fact]
+    public void Dado_PayloadPermissionLegado_Quando_ParsePermissionRequest_Entao_ExtraiDeParams()
+    {
+        var payload = """{"params":{"requestId":"p1","tool":"rm","detail":"rm -rf","options":["allow","deny"]}}""";
+
+        var req = AcpSessionMessageParser.ParsePermissionRequest(payload);
+
+        req.ShouldNotBeNull();
+        req!.RequestId.ShouldBe("p1");
+        req.Options.ShouldBe(["allow", "deny"]);
+    }
+
+    [Fact]
+    public void Dado_LogMessageSemPayload_Quando_Normaliza_Entao_ConteudoNoPayloadJson()
+    {
+        var msg = new AgentLogMessage(
+            DateTimeOffset.UtcNow, "i1", AgentLogStream.StdOut, "hello world");
+
+        var evt = AgentEventNormalizer.FromLogMessage(msg, "issue", "i1");
+
+        evt.Kind.ShouldBe(AgentEventKinds.Output);
+        evt.PayloadJson.ShouldNotBeNull();
+        evt.PayloadJson!.ShouldContain("hello world");
+    }
+
+    [Fact]
+    public void Dado_EventoComEventId_Quando_From_Entao_PreservaIdentidade()
+    {
+        var id = Guid.NewGuid().ToString("N");
+        var evt = new AgentExecutionEvent(
+            id, "run", "r1", 3, DateTimeOffset.UtcNow, "output");
+
+        var entity = Taskboard.Domain.Agents.AgentRunEvent.From(evt);
+
+        entity.Id.ToString("N").ShouldBe(id);
+        entity.ToEvent().EventId.ShouldBe(id);
+    }
+
+    [Fact]
     public void Dado_ResponseJsonRpc_Quando_Parse_Entao_TipoResponseComRequestId()
     {
         var json = """{ "jsonrpc": "2.0", "id": "abc123", "result": { "sessionId": "s-9" } }""";

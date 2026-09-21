@@ -32,7 +32,14 @@ public static class AcpSessionMessageParser
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        if (!root.TryGetProperty("params", out var p))
+        // Two accepted shapes: the legacy JSON-RPC envelope
+        // { params: { requestId, tool, detail, options } } and the normalized
+        // flat payload emitted by AcpProtocolParser { requestId, tool, detail, options }.
+        var p = root.TryGetProperty("params", out var wrapped) && wrapped.ValueKind == JsonValueKind.Object
+            ? wrapped
+            : root;
+
+        if (p.ValueKind != JsonValueKind.Object)
         {
             return null;
         }

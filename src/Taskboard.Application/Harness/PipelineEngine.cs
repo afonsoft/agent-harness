@@ -310,8 +310,8 @@ public sealed class PipelineEngine
                         JsonOptions)));
             }
 
-            // SPEC-20260921-agent-execution-event-pipeline RF-003: fluxo
-            // normalizado durável (tool_call/plan/output) além do cockpit.
+            // SPEC-20260921-agent-execution-event-pipeline RF-003: durable
+            // normalized stream (tool_call/plan/output) alongside the cockpit.
             if (_eventSink is not null)
             {
                 _ = _eventSink.EmitAsync(
@@ -459,8 +459,8 @@ public sealed class PipelineEngine
 
     private async Task PublishAsync(string runId, string kind, string title, string? stageKey)
     {
-        // SPEC-20260921-agent-execution-event-pipeline: cockpit kinds mapam para
-        // a taxonomia normalizada — o evento durável sai mesmo sem cockpit.
+        // SPEC-20260921-agent-execution-event-pipeline: cockpit kinds map to
+        // the normalized taxonomy — the durable event goes out even without a cockpit.
         if (_eventSink is not null)
         {
             var normalizedKind = kind switch
