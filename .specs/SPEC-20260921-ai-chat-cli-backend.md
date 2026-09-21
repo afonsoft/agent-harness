@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-ai-chat-cli-backend` |
 | Ticket | [#270](https://github.com/afonsoft/agent-harness/issues/270) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
