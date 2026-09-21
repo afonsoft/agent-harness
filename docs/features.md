@@ -10,7 +10,7 @@
 ## Global repository selector
 
 - A single repository combobox lives in the sidebar above the Board item — `SelectedRepositoryService` (scoped WASM) lists repos via GitHub, holds the current `owner/repo`, persists to `localStorage["harness.selectedRepo"]` and raises `Changed` for every repo-aware page; free-text `owner/repo` still works when the list fetch fails or no token is configured
-- Menu grouping: repo-scoped items on top — Board, Gantt, Workflow, Specs, VS Code, Terminal — then a `---` divider, then AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts
+- Menu grouping: repo-scoped items on top — Board, Gantt, Workflow, Specs, VS Code, Terminal — then a `---` divider, then AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts, and an external Issues link (opens `github.com/afonsoft/agent-harness/issues` in a new tab)
 - Collapsed icon rail: the selector becomes a folder icon with the current repo as tooltip; clicking it expands the sidebar
 - Consumers: Board/Gantt/Workflow drop their per-page combo and reload on change; `/specs` reads `~/repos/<name>/.specs` from the local clone (empty state when not cloned); new terminal tabs open in `~/repos/<name>`; `/editor` defaults to the clone workdir unless `?path`/`?repo` is given
 
