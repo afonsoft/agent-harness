@@ -50,7 +50,7 @@ public sealed class SpecDriftScanService : BackgroundService
         try
         {
             var previous = _cache.Last;
-            var report = await _detector.BuildReportAsync(stoppingToken).ConfigureAwait(false);
+            var report = await _detector.BuildReportAsync(null, stoppingToken).ConfigureAwait(false);
             _cache.Update(report);
 
             var previousIds = previous is null

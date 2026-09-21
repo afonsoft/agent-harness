@@ -218,6 +218,41 @@ body {
     }
 }
 
+/* Global repository selector — sidebar (SPEC-20260920-global-repo-selector) */
+
+.sidebar-repo-selector {
+    padding-bottom: 0.125rem;
+}
+
+.sidebar-repo-rail {
+    display: none;
+    border: 0;
+    background: transparent;
+    width: 100%;
+}
+
+.sidebar-repo-selector .small.text-warning {
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--bs-warning-text-emphasis);
+}
+
+.app-sidebar-divider {
+    margin: 0.375rem 0;
+    border-color: var(--bs-border-color);
+    opacity: 1;
+}
+
+@media (min-width: 992px) {
+    html[data-sidebar-collapsed] .app-sidebar .sidebar-repo-selector {
+        display: none;
+    }
+
+    html[data-sidebar-collapsed] .app-sidebar .sidebar-repo-rail {
+        display: flex;
+    }
+}
+
 /* Kanban board */
 
 .kanban-board-header {

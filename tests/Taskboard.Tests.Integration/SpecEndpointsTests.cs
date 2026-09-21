@@ -18,9 +18,24 @@ public class SpecEndpointsTests : IClassFixture<SpecEndpointsTests.SpecsFactory>
         public string SpecsDir { get; } =
             Path.Combine(Path.GetTempPath(), "tb-itest-specs-" + Guid.NewGuid().ToString("N"));
 
+        public string WorkspaceRoot { get; } =
+            Path.Combine(Path.GetTempPath(), "tb-itest-ws-" + Guid.NewGuid().ToString("N"));
+
         public SpecsFactory()
         {
             Directory.CreateDirectory(SpecsDir);
+            // SPEC-20260920 RF-005 fixture: clone myrepo with its own .specs/.
+            var repoSpecsDir = Path.Combine(WorkspaceRoot, "myrepo", ".specs");
+            Directory.CreateDirectory(repoSpecsDir);
+            File.WriteAllText(Path.Combine(repoSpecsDir, "SPEC-9-repo.md"), """
+                # SPEC-9-repo
+
+                ## 0. Metadata
+
+                | Field | Value |
+                |---|---|
+                | Status | `Draft` |
+                """);
             File.WriteAllText(Path.Combine(SpecsDir, "SPEC-1-alpha.md"), """
                 # SPEC-1-alpha
 
@@ -53,6 +68,7 @@ public class SpecEndpointsTests : IClassFixture<SpecEndpointsTests.SpecsFactory>
         {
             base.ConfigureWebHost(builder);
             builder.UseSetting("Taskboard:SpecsDir", SpecsDir);
+            builder.UseSetting("Taskboard:WorkspaceRoot", WorkspaceRoot);
         }
     }
 
@@ -150,5 +166,82 @@ public class SpecEndpointsTests : IClassFixture<SpecEndpointsTests.SpecsFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var report = await response.Content.ReadFromJsonAsync<SpecDriftReportDto>();
         report!.TotalSpecs.ShouldBe(2);
+    }
+
+    // SPEC-20260920-global-repo-selector RF-005 — ?repo=owner/name.
+
+    [Fact]
+    public async Task Dado_RepoClonado_Quando_GetSpecsComRepo_Entao_LeDoClone()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var specs = await client.GetFromJsonAsync<List<LivingSpecDto>>("/api/specs?repo=owner/myrepo");
+
+        specs.ShouldNotBeNull();
+        specs.Select(s => s.Id).ShouldBe(["SPEC-9-repo"]);
+    }
+
+    [Fact]
+    public async Task Dado_RepoNaoClonado_Quando_GetSpecsComRepo_Entao_200Vazio()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var specs = await client.GetFromJsonAsync<List<LivingSpecDto>>("/api/specs?repo=owner/fantasma");
+
+        specs.ShouldNotBeNull();
+        specs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_RepoMalformado_Quando_GetSpecsComRepo_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/specs?repo=sem-dono");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_RepoClonado_Quando_GetSpecPorIdComRepo_Entao_200()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/specs/SPEC-9-repo?repo=owner/myrepo");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Dado_RepoMalformado_Quando_GetSpecPorIdComRepo_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/specs/SPEC-9-repo?repo=sem-dono");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_RepoMalformado_Quando_PostStatusComRepo_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/specs/SPEC-9-repo/status?repo=sem-dono", new SpecStatusUpdateRequest("Approved"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_RepoClonado_Quando_DriftReportComRepo_Entao_200()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/specs/drift-report?repo=owner/myrepo");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var report = await response.Content.ReadFromJsonAsync<SpecDriftReportDto>();
+        report!.TotalSpecs.ShouldBe(1);
     }
 }

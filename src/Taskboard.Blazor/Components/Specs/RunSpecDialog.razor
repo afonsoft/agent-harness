@@ -60,6 +60,8 @@ else
 
 @code {
     [Parameter] public LivingSpecDetailDto Spec { get; set; } = default!;
+    /// <summary>owner/repo context (SPEC-20260920 RF-005) — prefills the pipeline repo.</summary>
+    [Parameter] public string? Repo { get; set; }
     [Parameter] public EventCallback<string> OnStarted { get; set; }
 
     private IReadOnlyList<PipelineTemplateDto>? _templates;
@@ -75,7 +77,7 @@ else
     {
         _templates = await Client.GetPipelineTemplatesAsync();
         _repositoryPath = Spec.RepositoryPath ?? "";
-        _repositoryFullName = RepoNameFromPath(_repositoryPath);
+        _repositoryFullName = string.IsNullOrWhiteSpace(Repo) ? RepoNameFromPath(_repositoryPath) : Repo;
         _initialPrompt = $"Implementar a spec {Spec.Id} ({Spec.Title}) conforme .specs/{Spec.Id}.md";
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Workspace;
 
 namespace Taskboard.Integrations.Workspace;
@@ -8,7 +9,7 @@ namespace Taskboard.Integrations.Workspace;
 /// RF-001/RF-003): default <c>~/repos</c>, created on demand. All agent runs and
 /// repository clones live under it.
 /// </summary>
-public sealed class WorkspaceService
+public sealed class WorkspaceService : IWorkspacePathResolver
 {
     private readonly string _homeDirectory;
     private readonly ILogger<WorkspaceService> _logger;

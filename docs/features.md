@@ -7,6 +7,13 @@
 - GitHub issue comments as the agent handoff channel
 - Markdown GFM + mermaid support (read-only)
 
+## Global repository selector
+
+- A single repository combobox lives in the sidebar above the Board item — `SelectedRepositoryService` (scoped WASM) lists repos via GitHub, holds the current `owner/repo`, persists to `localStorage["harness.selectedRepo"]` and raises `Changed` for every repo-aware page; free-text `owner/repo` still works when the list fetch fails or no token is configured
+- Menu grouping: repo-scoped items on top — Board, Gantt, Workflow, Specs, VS Code, Terminal — then a `---` divider, then AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts
+- Collapsed icon rail: the selector becomes a folder icon with the current repo as tooltip; clicking it expands the sidebar
+- Consumers: Board/Gantt/Workflow drop their per-page combo and reload on change; `/specs` reads `~/repos/<name>/.specs` from the local clone (empty state when not cloned); new terminal tabs open in `~/repos/<name>`; `/editor` defaults to the clone workdir unless `?path`/`?repo` is given
+
 ## Real-time
 
 - Global SSE stream: `/api/events`
@@ -66,12 +73,12 @@
 
 - `/agents` page: install/auth status board for 13 CLIs — Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`, Kimi Code, Grok, Aider, Cline, Continue, GitHub Copilot CLI, Qwen Code and Kiro CLI (`GET /api/agent-clis`); a **Models** button on installed CLIs opens a dialog to override the Lite/Normal/Ultra model per tier with an editable searchable dropdown fed by the models the CLI reports itself (`GET /api/agents/{type}/models/available` — `opencode models`, `devin models list`, `agy models`) merged with the curated catalog (`GET/PUT/DELETE /api/agents/{type}/models` — overrides stored as JSON in `ConfigurationOverrides`, winning over the curated `AgentCliModels` table at execution time)
 - Managed install from the UI: `POST /api/agent-clis/{kind}/install` runs the allowlisted install command (npm/pipx/curl) in the background with a live log console popup (`GET /api/agent-clis/{kind}/install/status`) — closes automatically on success; Login action appears once installed
-- `/terminal` page: interactive bash PTYs over SignalR (`/terminal-hub`) with xterm.js — **multiple tabbed sessions** (up to 8 per user, `Open()` returns a `sessionId` routed over one connection), per-tab 30 min idle timeout, per-tab close/reopen, `?cmd=` pre-fills the first tab; native terminal keys: Ctrl+C copies the selection (or sends SIGINT), Ctrl+V / Ctrl+Shift+V / Shift+Insert paste, `Taskboard:Terminal:Enabled` flag
+- `/terminal` page: interactive bash PTYs over SignalR (`/terminal-hub`) with xterm.js — **multiple tabbed sessions** (up to 8 per user, `Open()` returns a `sessionId` routed over one connection), per-tab 30 min idle timeout, per-tab close/reopen, `?cmd=` pre-fills the first tab; new tabs open in the selected repository's workdir (`~/repos/<name>`, falling back to the workspace root); native terminal keys: Ctrl+C copies the selection (or sends SIGINT), Ctrl+V / Ctrl+Shift+V / Shift+Insert paste, `Taskboard:Terminal:Enabled` flag
 - Docker image ships Node.js LTS + the five CLIs with `HOME=/data/home` so credentials persist in the `/data` volume
 
 ## VS Code Web & Workspace
 
-- `/editor` page (left menu "VS Code"): VS Code Web via managed `code-server` — embedded iframe, path toolbar, open-in-new-tab; defaults to `$HOME`, `?repo=owner/name` opens the card's repo workdir
+- `/editor` page (left menu "VS Code"): VS Code Web via managed `code-server` — embedded iframe, path toolbar, open-in-new-tab; defaults to the globally selected repo's workdir (`~/repos/<name>`; `?path=`/`?repo=owner/name` always win); **Restart** button kills and respawns code-server (`POST /api/vscode/restart`)
 - Managed install: `POST /api/vscode/install` runs the allowlisted standalone installer in the background with a live log console (`GET /api/vscode/install/status`)
 - code-server runs as a lazy child process bound to `127.0.0.1` with `--auth none --disable-workspace-trust --app-name Taskboard`, reachable only through the authenticated YARP proxy at `/vscode/{**}` (WebSocket-enabled, prefix stripped); `EnsureStartedAsync` waits for the port to accept connections (TCP probe, 30s timeout) so the first proxied request never races the listener into a 502; `VSCODE_PROXY_URI=/vscode/proxy/{{port}}` keeps port-forward links working under the subpath
 - Workspace root `Taskboard:WorkspaceRoot` (default `~/repos`, auto-created): default cwd for agent runs and clones; card workdir resolves to `<root>/<repo>` (sanitized, traversal-proof) via `GET /api/vscode/workdir`

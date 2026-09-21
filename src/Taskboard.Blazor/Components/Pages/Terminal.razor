@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
+@inject SelectedRepositoryService RepoService
 @implements IAsyncDisposable
 
 <PageTitle>Terminal - Harness</PageTitle>
@@ -111,6 +112,7 @@
         }
 
         _selfRef = DotNetObjectReference.Create(this);
+        await RepoService.EnsureLoadedAsync();
         await ConnectHubAsync();
         await OpenTabAsync(_cmdConsumed ? null : Cmd);
         _cmdConsumed = true;
@@ -247,7 +249,7 @@
         {
             tab.State = TabState.Connecting;
             StateHasChanged();
-            tab.SessionId = await _hub.InvokeAsync<string>("Open");
+            tab.SessionId = await _hub.InvokeAsync<string>("Open", RepoService.Selected);
             tab.State = TabState.Open;
             tab.CloseReason = null;
 

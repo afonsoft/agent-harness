@@ -49,4 +49,12 @@ public interface ICodeServerManager
     /// Returns the post-attempt status (<c>Running=false</c> when not installed or failed).
     /// </summary>
     Task<VscodeStatus> EnsureStartedAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Kill → spawn → wait-for-listening (SPEC-20260920-global-repo-selector
+    /// RF-008): recovers a wedged code-server without restarting the host app.
+    /// Serialized with <see cref="EnsureStartedAsync"/>; when not installed the
+    /// process stays down and the returned status reports it.
+    /// </summary>
+    Task<VscodeStatus> RestartAsync(CancellationToken cancellationToken = default);
 }

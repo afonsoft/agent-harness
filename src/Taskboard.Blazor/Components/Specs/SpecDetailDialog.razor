@@ -85,12 +85,14 @@ else
 
 @code {
     [Parameter] public string SpecId { get; set; } = "";
+    /// <summary>owner/repo context (SPEC-20260920 RF-005); empty → default specs dir.</summary>
+    [Parameter] public string? Repo { get; set; }
 
     private LivingSpecDetailDto? _spec;
 
     protected override async Task OnInitializedAsync()
     {
-        _spec = await Client.GetSpecAsync(SpecId);
+        _spec = await Client.GetSpecAsync(SpecId, Repo);
     }
 
     internal static BadgeColor StatusColor(string status) => status switch

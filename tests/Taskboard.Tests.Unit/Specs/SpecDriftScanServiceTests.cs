@@ -31,7 +31,7 @@ public sealed class SpecDriftScanServiceTests
             new SpecDriftItemDto("SPEC-1", "Done", "Deprecated", "arquivos deletados", ["x.cs"])
         ]);
         var detector = Substitute.For<ISpecDriftDetector>();
-        detector.BuildReportAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(report));
+        detector.BuildReportAsync(null, Arg.Any<CancellationToken>()).Returns(Task.FromResult(report));
         var cache = new SpecDriftReportCache();
         var service = new SpecDriftScanService(detector, cache, NullLogger<SpecDriftScanService>.Instance);
 
@@ -45,7 +45,7 @@ public sealed class SpecDriftScanServiceTests
             }
 
             cache.Last.ShouldBe(report);
-            await detector.Received(1).BuildReportAsync(Arg.Any<CancellationToken>());
+            await detector.Received(1).BuildReportAsync(null, Arg.Any<CancellationToken>());
         }
         finally
         {
@@ -57,7 +57,7 @@ public sealed class SpecDriftScanServiceTests
     public async Task Dado_DetectorFalhando_Quando_StartAsync_Entao_ServicoSobrevive()
     {
         var detector = Substitute.For<ISpecDriftDetector>();
-        detector.BuildReportAsync(Arg.Any<CancellationToken>())
+        detector.BuildReportAsync(null, Arg.Any<CancellationToken>())
             .Returns<Task<SpecDriftReportDto>>(_ => throw new InvalidOperationException("boom"));
         var cache = new SpecDriftReportCache();
         var service = new SpecDriftScanService(detector, cache, NullLogger<SpecDriftScanService>.Instance);

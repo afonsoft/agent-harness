@@ -91,7 +91,9 @@ public class AgentCliEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         connection.State.ShouldBe(HubConnectionState.Connected);
 
         // SPEC-20260917-terminal-tabs: sessions are explicit — Open() returns a sessionId.
-        var sessionId = await connection.InvokeAsync<string>("Open");
+        // SPEC-20260920 RF-006: repo param is required (SignalR binds by exact
+        // arg count) — null keeps the default homeDir cwd.
+        var sessionId = await connection.InvokeAsync<string>("Open", (string?)null);
         sessionId.ShouldNotBeNullOrEmpty();
 
         // The initial prompt may race the first poll — write fresh input instead.

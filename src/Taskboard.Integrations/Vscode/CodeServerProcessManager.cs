@@ -36,6 +36,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
 
     private Process? _process;
     private Task? _pumpTask;
+    private Task<VscodeStatus>? _restartInFlight;
     private bool _lastStartFailed;
     private bool _listening;
 
@@ -106,6 +107,79 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
         return await GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// SPEC-20260920 RF-008: kill → spawn → wait-listening as a single-flight
+    /// operation — concurrent callers share the same in-flight task instead of
+    /// each running their own kill/spawn (which would kill the process the
+    /// first caller just created).
+    /// </summary>
+    public Task<VscodeStatus> RestartAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            return _restartInFlight ??= RestartCoreAsync(cancellationToken);
+        }
+    }
+
+    private async Task<VscodeStatus> RestartCoreAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var binary = FindBinary();
+            lock (_gate)
+            {
+                StopLocked();
+                if (binary is not null)
+                {
+                    StartLocked(binary);
+                }
+            }
+
+            if (IsRunning())
+            {
+                await WaitForListeningAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _restartInFlight = null;
+            }
+        }
+    }
+
+    /// <summary>Kills the current child (if any) and waits briefly for it to exit — caller must hold <see cref="_gate"/>.</summary>
+    private void StopLocked()
+    {
+        _listening = false;
+        var process = _process;
+        _process = null;
+        if (process is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(5000);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "code-server kill on restart failed.");
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+
     internal string? FindBinary()
     {
         var onPath = _locator("code-server");
@@ -135,52 +209,58 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
     {
         lock (_gate)
         {
-            if (IsRunning())
-            {
-                return;
-            }
+            StartLocked(binary);
+        }
+    }
 
-            var startInfo = new ProcessStartInfo(binary)
-            {
-                WorkingDirectory = _workspace.EnsureRoot(),
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            startInfo.ArgumentList.Add("--bind-addr");
-            startInfo.ArgumentList.Add($"127.0.0.1:{_port}");
-            startInfo.ArgumentList.Add("--auth");
-            startInfo.ArgumentList.Add("none");
-            startInfo.ArgumentList.Add("--disable-telemetry");
-            startInfo.ArgumentList.Add("--disable-update-check");
-            // Agent runs keep cloning fresh repos under the workspace root;
-            // without this every new folder opens in Restricted Mode.
-            startInfo.ArgumentList.Add("--disable-workspace-trust");
-            startInfo.ArgumentList.Add("--app-name");
-            startInfo.ArgumentList.Add("Harness");
-            // code-server is mounted at a subpath — without this its ports
-            // panel and /proxy/<port> links point at the domain root and 404.
-            startInfo.Environment["VSCODE_PROXY_URI"] = _publicPathPrefix + "/proxy/{{port}}";
+    /// <summary>Spawn path — caller must hold <see cref="_gate"/>.</summary>
+    private void StartLocked(string binary)
+    {
+        if (IsRunning())
+        {
+            return;
+        }
 
-            try
-            {
-                _listening = false;
-                _process = _processStarter(startInfo);
-                _lastStartFailed = _process is null;
-            }
-            catch (Exception ex)
-            {
-                _lastStartFailed = true;
-                _logger.LogWarning(ex, "code-server failed to start.");
-                return;
-            }
+        var startInfo = new ProcessStartInfo(binary)
+        {
+            WorkingDirectory = _workspace.EnsureRoot(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("--bind-addr");
+        startInfo.ArgumentList.Add($"127.0.0.1:{_port}");
+        startInfo.ArgumentList.Add("--auth");
+        startInfo.ArgumentList.Add("none");
+        startInfo.ArgumentList.Add("--disable-telemetry");
+        startInfo.ArgumentList.Add("--disable-update-check");
+        // Agent runs keep cloning fresh repos under the workspace root;
+        // without this every new folder opens in Restricted Mode.
+        startInfo.ArgumentList.Add("--disable-workspace-trust");
+        startInfo.ArgumentList.Add("--app-name");
+        startInfo.ArgumentList.Add("Harness");
+        // code-server is mounted at a subpath — without this its ports
+        // panel and /proxy/<port> links point at the domain root and 404.
+        startInfo.Environment["VSCODE_PROXY_URI"] = _publicPathPrefix + "/proxy/{{port}}";
 
-            if (_process is not null)
-            {
-                _pumpTask = Task.Run(PumpAsync);
-                _logger.LogInformation("code-server started (pid {Pid}, {Url}).", _process.Id, BaseUrl);
-            }
+        try
+        {
+            _listening = false;
+            _process = _processStarter(startInfo);
+            _lastStartFailed = _process is null;
+        }
+        catch (Exception ex)
+        {
+            _lastStartFailed = true;
+            _logger.LogWarning(ex, "code-server failed to start.");
+            return;
+        }
+
+        if (_process is not null)
+        {
+            _pumpTask = Task.Run(PumpAsync);
+            _logger.LogInformation("code-server started (pid {Pid}, {Url}).", _process.Id, BaseUrl);
         }
     }
 

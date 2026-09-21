@@ -123,7 +123,7 @@ POST   /terminal-hub/negotiate   (hub SignalR)
 
 `POST /api/agent-clis/{kind}/install` executa o comando de instalação fixo e allowlisted do `{kind}` (nome do CLI, case-insensitive — `cline`, `qwen`, `kiro`, ...) em background: `202` enquanto executa, `200` quando um run anterior já terminou, `404` para kinds desconhecidos. `GET .../install/status` retorna `{ kind, state (0 idle / 1 running / 2 succeeded / 3 failed), startedAtUtc, exitCode, lines: [{ atUtc, stream, content }] }` — buffer em memória limitado (~500 linhas, sanitizado) que a UI consulta para renderizar o popup de instalação.
 
-`/terminal-hub` é um hub SignalR que transmite bash PTYs interativos (`script -qfc`, `TERM=xterm-256color`) para a página `/terminal` — **múltiplas sessões em abas** por usuário autenticado (máx. 8), cada uma identificada por `sessionId` e multiplexada numa única conexão; sessões fecham após 30 minutos ociosas ou quando a conexão termina. Métodos do hub: `Open() → string sessionId`, `Input(string sessionId, string data)`, `Resize(string sessionId, int cols, int rows)`, `Close(string sessionId)`; callbacks do cliente: `output(string sessionId, string chunk)`, `closed(string sessionId, string reason)` (`exited` / `idle-timeout` / `closed`). Controlado por `Taskboard:Terminal:Enabled` (padrão `true`, env `TASKBOARD_TERMINAL_ENABLED`, editável em runtime).
+`/terminal-hub` é um hub SignalR que transmite bash PTYs interativos (`script -qfc`, `TERM=xterm-256color`) para a página `/terminal` — **múltiplas sessões em abas** por usuário autenticado (máx. 8), cada uma identificada por `sessionId` e multiplexada numa única conexão; sessões fecham após 30 minutos ociosas ou quando a conexão termina. Métodos do hub: `Open(string? repo) → string sessionId`, `Input(string sessionId, string data)`, `Resize(string sessionId, int cols, int rows)`, `Close(string sessionId)`; `repo` (`owner/name`) define o cwd da nova sessão para o workdir do clone — resolvido server-side e confinado à raiz do workspace — enquanto sessões vivas e reattach mantêm o cwd original; callbacks do cliente: `output(string sessionId, string chunk)`, `closed(string sessionId, string reason)` (`exited` / `idle-timeout` / `closed`). Controlado por `Taskboard:Terminal:Enabled` (padrão `true`, env `TASKBOARD_TERMINAL_ENABLED`, editável em runtime).
 
 ### VS Code Web (code-server)
 
@@ -131,13 +131,14 @@ POST   /terminal-hub/negotiate   (hub SignalR)
 GET    /api/vscode/status
 POST   /api/vscode/install
 GET    /api/vscode/install/status
+POST   /api/vscode/restart
 GET    /api/vscode/workdir?repo=owner/name
 GET    /api/vscode/open?repo=owner/name  → 302 → /vscode/?folder=<workdir> (link direto para o editor)
 GET    /vscode                  → 302 → /vscode/ (barra final exigida pelo code-server)
 GET    /vscode/{**}             → proxy reverso YARP → http://127.0.0.1:8377
 ```
 
-`GET /api/vscode/status` retorna `{ installed, binaryPath?, version?, running, port, homeDirectory, workspaceRoot }`. `POST /api/vscode/install` executa o comando allowlisted fixo `bash -c "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone"` em background (`202`/`200`, mesmo contrato de `install/status` dos CLIs de agente — buffer limitado de ~500 linhas sanitizadas, sem argumentos do cliente). `GET /api/vscode/workdir?repo=owner/name` resolve o workdir do card sob o workspace root → `{ path, exists }` (cai para o root quando o diretório do repo ainda não existe; entrada fora do padrão `owner/name` → `404`).
+`GET /api/vscode/status` retorna `{ installed, binaryPath?, version?, running, port, homeDirectory, workspaceRoot }`. `POST /api/vscode/install` executa o comando allowlisted fixo `bash -c "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone"` em background (`202`/`200`, mesmo contrato de `install/status` dos CLIs de agente — buffer limitado de ~500 linhas sanitizadas, sem argumentos do cliente). `GET /api/vscode/workdir?repo=owner/name` resolve o workdir do card sob o workspace root → `{ path, exists }` (cai para o root quando o diretório do repo ainda não existe; entrada fora do padrão `owner/name` → `404`). `POST /api/vscode/restart` mata e recria o code-server gerenciado — kill → spawn → espera do listener, serializado dentro do process manager — e retorna `200` com o status pós-restart; use quando o editor trava e para de responder.
 
 A rota `/vscode/{**}` é um proxy reverso YARP para o processo filho gerenciado `code-server` (`--bind-addr 127.0.0.1:<porta> --auth none --disable-telemetry`, spawn lazy e morto junto com o host): remove o prefixo `/vscode` (code-server é agnóstico de path — URLs relativas resolvem sob o `/vscode/` do browser), faz upgrade de WebSocket e exige a auth por cookie do app — a única porta de entrada, já que o code-server roda sem auth no loopback. `503` quando não instalado ou o processo falhou ao subir. Porta: `Taskboard:Vscode:Port` (padrão `8377`).
 
@@ -325,6 +326,8 @@ GET  /api/specs/drift-report
 `GET drift-report` → `200 { totalSpecs, staleSpecsCount, driftItems: [{ specId, currentStatus, suggestedStatus, reason, missingFiles }] }`. Specs Draft/Approved/InImplementation cujos arquivos em "Files to create or modify" já existem em disco são sinalizadas → `Done`; specs `Done` referenciando arquivos removidos → `Deprecated`.
 
 As specs são lidas de `Taskboard:SpecsDir` (padrão: `.specs/` mais próximo subindo a partir do diretório do app) — parseadas a cada request pelo `MarkdigSpecParser`, então o arquivo em disco é sempre a fonte da verdade. A página Blazor é `/specs`.
+
+Os quatro endpoints aceitam `?repo=owner/name` (SPEC-20260920 RF-005): o diretório de specs resolve server-side para `<raiz do workspace>/<name>/.specs` — clone ausente ou sem `.specs/` → catálogo vazio (`404` para `{id}`); `repo` malformado → `400`. Sem `repo`, usa o diretório padrão configurado. `drift-report` com `repo` faz varredura sob demanda (sem cache).
 
 ### Observabilidade & FinOps (E14)
 

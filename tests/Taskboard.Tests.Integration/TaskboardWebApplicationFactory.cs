@@ -282,9 +282,10 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>Deterministic code-server status — never installed/running on test hosts.</summary>
-    private sealed class FakeCodeServerManager : Taskboard.Application.Contracts.Vscode.ICodeServerManager
+    internal sealed class FakeCodeServerManager : Taskboard.Application.Contracts.Vscode.ICodeServerManager
     {
-        private static readonly Taskboard.Application.Contracts.Vscode.VscodeStatus Status = new(
+        /// <summary>Status retornado pelos stubs — testes ajustam por cenário.</summary>
+        public static Taskboard.Application.Contracts.Vscode.VscodeStatus Status { get; set; } = new(
             Installed: false, BinaryPath: null, Version: null, Running: false,
             Port: 8377, HomeDirectory: "/tmp/itest-home", WorkspaceRoot: "/tmp/itest-home/repos");
 
@@ -292,6 +293,9 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             CancellationToken cancellationToken = default) => Task.FromResult(Status);
 
         public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> EnsureStartedAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(Status);
+
+        public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> RestartAsync(
             CancellationToken cancellationToken = default) => Task.FromResult(Status);
     }
 

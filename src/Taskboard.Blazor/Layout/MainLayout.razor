@@ -20,7 +20,9 @@
             </button>
             <button type="button" class="btn-close ms-auto d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Close"></button>
         </div>
-        <NavMenu />
+        <CascadingValue Value="this">
+            <NavMenu />
+        </CascadingValue>
     </div>
     <div class="app-content">
         <header class="app-topbar">
@@ -96,18 +98,31 @@
         }
     }
 
-    private async Task ToggleSidebarAsync()
+    /// <summary>
+    /// SPEC-20260920-global-repo-selector RF-003: shared entry point so the
+    /// rail repo icon (NavMenu) and the brand toggle stay in sync.
+    /// </summary>
+    public async Task SetSidebarCollapsedAsync(bool collapsed)
     {
-        _sidebarCollapsed = !_sidebarCollapsed;
+        if (_sidebarCollapsed == collapsed)
+        {
+            return;
+        }
+
+        _sidebarCollapsed = collapsed;
         try
         {
-            await JS.InvokeVoidAsync("taskboard.setSidebarCollapsed", _sidebarCollapsed);
+            await JS.InvokeVoidAsync("taskboard.setSidebarCollapsed", collapsed);
         }
         catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
         {
             // JS interop not available; the in-memory state still toggles.
         }
+
+        StateHasChanged();
     }
+
+    private Task ToggleSidebarAsync() => SetSidebarCollapsedAsync(!_sidebarCollapsed);
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
