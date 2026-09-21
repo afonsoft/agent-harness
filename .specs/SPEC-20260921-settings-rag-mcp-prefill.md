@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-settings-rag-mcp-prefill` |
 | Ticket | [#269](https://github.com/afonsoft/agent-harness/issues/269) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
