@@ -11,6 +11,9 @@ public interface IPipelineOrchestrator
     /// <summary>Pre-configured pipeline templates (RF-001).</summary>
     Task<IReadOnlyList<PipelineTemplateDto>> ListTemplatesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Recent executions, newest first — backs `GET /api/harness/runs`.</summary>
+    Task<IReadOnlyList<PipelineExecutionDto>> ListAsync(int take = 50, CancellationToken cancellationToken = default);
+
     /// <summary>Creates the execution and dispatches eligible stages.</summary>
     Task<PipelineExecutionDto> StartAsync(PipelineStartRequest request, CancellationToken cancellationToken = default);
 
@@ -19,6 +22,13 @@ public interface IPipelineOrchestrator
 
     /// <summary>Approves a `WaitingApproval` stage; dependents become eligible (RF gates).</summary>
     Task<PipelineExecutionDto> ApproveStageAsync(
+        string pipelineExecutionId, string stageKey, string? comment, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Rejects a `WaitingApproval` stage — fails it with the reviewer's reason
+    /// (SPEC-20260919-ade-cockpit-hitl RF-004 deny path).
+    /// </summary>
+    Task<PipelineExecutionDto> RejectStageAsync(
         string pipelineExecutionId, string stageKey, string? comment, CancellationToken cancellationToken = default);
 
     /// <summary>Re-queues a failed stage with an optional corrected prompt (RF-005).</summary>

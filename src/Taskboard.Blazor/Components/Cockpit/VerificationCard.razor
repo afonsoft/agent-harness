@@ -1,0 +1,15 @@
+@* SPEC-20260919-ade-cockpit-hitl RF-001: card de verificação (build/test/coverage). *@
+
+<div class="card my-1 border-info-subtle">
+    <div class="card-header py-1 px-2 d-flex align-items-center gap-2 bg-body-tertiary">
+        <Icon Name="IconName.CheckCircle" />
+        <span class="badge text-bg-info">verificação</span>
+        <strong>@Title</strong>
+        <span class="ms-auto small text-body-secondary">@Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public DateTimeOffset Timestamp { get; set; }
+}

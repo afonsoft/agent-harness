@@ -1,0 +1,234 @@
+@page "/cockpit"
+@attribute [Authorize]
+@inject TaskboardClient Client
+@inject IGitHubService GitHub
+@inject NavigationManager Nav
+@inject ToastService ToastService
+@implements IDisposable
+
+<PageTitle>Cockpit - Harness</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h4 fw-bold mb-1">Cockpit</h1>
+        <p class="small text-body-secondary mb-0">ADE runs — timeline ao vivo, HITL e diffs.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
+            <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+        </Button>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="OpenStartAsync">
+            <Icon Name="IconName.Play" class="me-1" /> New Run
+        </Button>
+    </div>
+</div>
+
+@if (_loading && _runs is null)
+{
+    <Loading Message="Loading runs..." />
+}
+else if (_runs is { Count: 0 })
+{
+    <div class="alert alert-secondary" role="status">Nenhum run ainda — inicie um pipeline com <strong>New Run</strong>.</div>
+}
+else if (_runs is not null)
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Template</th>
+                    <th>Repositório</th>
+                    <th>Criado</th>
+                    <th>Etapas</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var run in _runs)
+                {
+                    <tr role="button" style="cursor: pointer" @onclick="() => OpenRun(run.PipelineExecutionId)">
+                        <td><StatusBadge Status="@run.Status" /></td>
+                        <td><code>@run.TemplateId</code></td>
+                        <td>@run.RepositoryFullName</td>
+                        <td class="small text-body-secondary">@run.CreatedAtUtc.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                        <td class="small">@CompletedStages(run) / @run.Stages.Count</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<Modal @ref="_startModal" Title="New Run" Size="ModalSize.Large" IsVerticallyCentered="true">
+    <BodyTemplate>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label" for="cockpit-template">Pipeline template</label>
+                <select id="cockpit-template" class="form-select form-select-sm" @bind="_start.TemplateId">
+                    @foreach (var t in _templates ?? [])
+                    {
+                        <option value="@t.TemplateId">@t.Name (@string.Join(" → ", t.StageKeys))</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Repository</label>
+                <RepositoryCombobox Id="cockpit-repo" AriaLabel="Repository" Placeholder="owner/repo"
+                                    Repositories="@_repoNames" IsLoading="@_reposLoading"
+                                    @bind-Value="_start.RepositoryFullName" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="cockpit-branch">Base branch</label>
+                <input id="cockpit-branch" class="form-control form-control-sm" @bind="_start.BaseBranch" placeholder="main" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="cockpit-issue">Issue (opcional)</label>
+                <input id="cockpit-issue" class="form-control form-control-sm" @bind="_start.IssueId" placeholder="#123" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="cockpit-spec">Spec path (opcional)</label>
+                <input id="cockpit-spec" class="form-control form-control-sm" @bind="_start.SpecPath" placeholder=".specs/SPEC-….md" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="cockpit-budget">Budget cap USD (opcional)</label>
+                <input id="cockpit-budget" type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="_start.MaxBudgetUsd" />
+            </div>
+            <div class="col-12">
+                <label class="form-label" for="cockpit-prompt">Prompt</label>
+                <textarea id="cockpit-prompt" class="form-control form-control-sm" rows="4" @bind="_start.Prompt"
+                          placeholder="O que o pipeline deve fazer…"></textarea>
+            </div>
+        </div>
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => _startModal.HideAsync()">Cancel</Button>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="StartRunAsync" Disabled="@(!CanStart || _starting)">
+            @if (_starting) { <Spinner Size="SpinnerSize.Small" /> } Start
+        </Button>
+    </FooterTemplate>
+</Modal>
+
+@code {
+    private IReadOnlyList<PipelineExecutionDto>? _runs;
+    private IReadOnlyList<PipelineTemplateDto>? _templates;
+    private IReadOnlyList<string> _repoNames = [];
+    private bool _loading;
+    private bool _reposLoading;
+    private bool _starting;
+    private Modal _startModal = default!;
+    private readonly RunStartForm _start = new();
+    private CancellationTokenSource _cts = new();
+
+    private bool CanStart =>
+        !string.IsNullOrWhiteSpace(_start.TemplateId)
+        && !string.IsNullOrWhiteSpace(_start.RepositoryFullName)
+        && !string.IsNullOrWhiteSpace(_start.Prompt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = LoadPickersAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            _runs = await Client.ListRunsAsync(_cts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            _runs ??= [];
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadPickersAsync()
+    {
+        try
+        {
+            _templates = await Client.ListPipelineTemplatesAsync(_cts.Token);
+            _start.TemplateId ??= _templates.FirstOrDefault()?.TemplateId;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Templates: {ex.Message}"));
+        }
+
+        _reposLoading = true;
+        try
+        {
+            var repos = await GitHub.GetRepositoriesAsync(_cts.Token);
+            _repoNames = repos.Select(r => r.FullName).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Repositories: {ex.Message}"));
+        }
+        finally
+        {
+            _reposLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OpenStartAsync()
+    {
+        _start.BaseBranch = string.IsNullOrWhiteSpace(_start.BaseBranch) ? "main" : _start.BaseBranch;
+        await _startModal.ShowAsync();
+    }
+
+    private async Task StartRunAsync()
+    {
+        _starting = true;
+        try
+        {
+            var run = await Client.StartRunAsync(new RunStartRequest(
+                _start.TemplateId!, _start.RepositoryFullName!, _start.BaseBranch ?? "main",
+                string.IsNullOrWhiteSpace(_start.IssueId) ? null : _start.IssueId,
+                string.IsNullOrWhiteSpace(_start.SpecPath) ? null : _start.SpecPath,
+                _start.Prompt!, _start.MaxBudgetUsd), _cts.Token);
+            await _startModal.HideAsync();
+            if (run is not null)
+            {
+                Nav.NavigateTo($"/cockpit/runs/{run.PipelineExecutionId}");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private void OpenRun(string runId) => Nav.NavigateTo($"/cockpit/runs/{runId}");
+
+    private static int CompletedStages(PipelineExecutionDto run) =>
+        run.Stages.Count(s => s.Status is "Completed" or "Skipped");
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+
+    private sealed class RunStartForm
+    {
+        public string? TemplateId { get; set; }
+        public string? RepositoryFullName { get; set; }
+        public string? BaseBranch { get; set; } = "main";
+        public string? IssueId { get; set; }
+        public string? SpecPath { get; set; }
+        public string? Prompt { get; set; }
+        public decimal? MaxBudgetUsd { get; set; }
+    }
+}

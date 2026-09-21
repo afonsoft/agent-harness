@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/taskboard-ai` |
 | Branch | `feature/devin-20260919-ade-cockpit-hitl` |
 | Ticket | [#170 — E15](https://github.com/afonsoft/taskboard-ai/issues/170) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -147,11 +147,11 @@ POST /api/harness/runs/{id}/create-pr
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** um run em andamento, **when** o usuário abre a página `/cockpit/runs/{id}`, **then** a timeline conecta ao SignalR e exibe os eventos anteriores e os novos em tempo real.
-- [ ] **Given** tool calls executadas pelo agente, **when** renderizadas no Cockpit, **then** exibem ícones distintos (terminal para bash, arquivo para read/write), tempos de execução e código formatado.
-- [ ] **Given** arquivos modificados no worktree, **when** o usuário seleciona a aba "Diff", **then** visualiza os arquivos modificados e o diff com cores verde (adições) e vermelho (remoções).
-- [ ] **Given** uma requisição de aprovação disparada pelo agente, **when** o modal é exibido, **then** o clique em "Aprovar" destrava a execução do pipeline.
-- [ ] **Given** run finalizado com sucesso, **when** o usuário clica em "Criar Pull Request", **then** o PR é aberto no GitHub e o link é exibido.
+- [x] **Given** um run em andamento, **when** o usuário abre a página `/cockpit/runs/{id}`, **then** a timeline conecta ao SignalR e exibe os eventos anteriores e os novos em tempo real.
+- [x] **Given** tool calls executadas pelo agente, **when** renderizadas no Cockpit, **then** exibem ícones distintos (terminal para bash, arquivo para read/write), tempos de execução e código formatado.
+- [x] **Given** arquivos modificados no worktree, **when** o usuário seleciona a aba "Diff", **then** visualiza os arquivos modificados e o diff com cores verde (adições) e vermelho (remoções).
+- [x] **Given** uma requisição de aprovação disparada pelo agente, **when** o modal é exibido, **then** o clique em "Aprovar" destrava a execução do pipeline.
+- [x] **Given** run finalizado com sucesso, **when** o usuário clica em "Criar Pull Request", **then** o PR é aberto no GitHub e o link é exibido.
 
 **Edge cases:**
 
@@ -164,11 +164,11 @@ POST /api/harness/runs/{id}/create-pr
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contracts & SignalR Hub:** Criar `CockpitEventDto`, `ApprovalRequestDto` e implementar `HarnessCockpitHub`.
-- [ ] **T2 — Diff Viewer Component:** Implementar componente Blazor interativo para renderização de git diff com realce de sintaxe.
-- [ ] **T3 — Timeline & Event Cards:** Desenvolver `RunTimeline`, `ToolCallCard`, `ThoughtBlock` e badges de status.
-- [ ] **T4 — Intervenção & Controles:** Implementar `RunControlBar` com Steer, Pause, Cancel e modal de aprovação.
-- [ ] **T5 — Navegação & Integração:** Adicionar rota no `NavMenu` (`/cockpit`), integrar com o Kanban e validar o fluxo completo.
+- [x] **T1 — Contracts & SignalR Hub:** Criar `CockpitEventDto`, `ApprovalRequestDto` e implementar `HarnessCockpitHub`.
+- [x] **T2 — Diff Viewer Component:** Implementar componente Blazor interativo para renderização de git diff com realce de sintaxe.
+- [x] **T3 — Timeline & Event Cards:** Desenvolver `RunTimeline`, `ToolCallCard`, `ThoughtBlock` e badges de status.
+- [x] **T4 — Intervenção & Controles:** Implementar `RunControlBar` com Steer, Pause, Cancel e modal de aprovação.
+- [x] **T5 — Navegação & Integração:** Adicionar rota no `NavMenu` (`/cockpit`), integrar com o Kanban e validar o fluxo completo.
 
 ---
 
@@ -182,7 +182,7 @@ POST /api/harness/runs/{id}/create-pr
 
 ## 9. Definition of Done
 
-- [ ] Cockpit funcional acessível em `/cockpit`.
-- [ ] Streaming de eventos ao vivo via SignalR validado.
-- [ ] Visualização de diffs de worktrees funcionando com dados reais.
-- [ ] Ações de Steer, Aprovação e Criação de PR operacionais.
+- [x] Cockpit funcional acessível em `/cockpit`.
+- [x] Streaming de eventos ao vivo via SignalR validado.
+- [x] Visualização de diffs de worktrees funcionando com dados reais.
+- [x] Ações de Steer, Aprovação e Criação de PR operacionais.

@@ -163,6 +163,7 @@ GET   /api/github/repos/{owner}/{repo}/timeline?days=90
 GET   /api/github/repos/{owner}/{repo}/metrics?days=90
 GET   /api/github/repos/{owner}/{repo}/workflows
 GET   /api/github/repos/{owner}/{repo}/workflows/{workflowId}/runs?take=10
+POST  /api/github/repos/{owner}/{repo}/pulls
 ```
 
 O estado do kanban é baseado em labels: `PATCH .../issues/{n}` edita `{ title?, body }` (corpo markdown renderizado sanitizado na UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` troca as labels `priority:*` (`none` remove); `POST .../close` `{ "resolution": "canceled|archived" }` fecha a issue — `canceled` também aplica a label `canceled` (coluna Canceled), `archived` fecha sem label de coluna (Archived). Todos retornam `200 { issue }`; enum inválido → `400`, issue desconhecida → `404`, anônimo → `401`.
@@ -174,6 +175,8 @@ Comentários da issue vivem no GitHub (nunca persistidos localmente): `GET .../i
 O timeline do Gantt e as métricas de kanban vêm de `GET .../repos/{owner}/{repo}/timeline` → `200 { issues: [{ id, number, title, column, priority, assigneeLogin, createdAt, closedAt, milestoneNumber, milestoneDueOn, transitions: [{ at, from, to }] }], milestones: [{ number, title, dueOn, state }] }` e `GET .../repos/{owner}/{repo}/metrics` → `200 { leadTimeAvgDays, leadTimeMedianDays, cycleTimeAvgDays, throughputPerWeek: [{ weekStart, closed }], wip, openMedianAgeDays }`. Ambos aceitam `days` (padrão 90) — issues fechadas antes da janela são excluídas; as transições reconstroem os eventos `labeled`/`unlabeled` do GitHub mesclados com os `IssueHistoryEvent` locais (deduplicados por `(at, from, to)`); o fetch de timeline por issue é limitado (≤8 concorrentes) e best-effort. Repositório desconhecido → `404 { "error": "repo-not-found" }`.
 
 A página `/workflow` é um monitor read-only de GitHub Actions: `GET .../workflows` → `200 { workflows: [{ id, name, path, state, htmlUrl, lastRun }] }` (cada workflow embute o run mais recente — buscado por workflow, limitado a 20 fetches e ≤8 concorrentes, best-effort: histórico não listável deixa `lastRun` nulo) e `GET .../workflows/{id}/runs?take=10` → `200 { runs: [{ id, name, displayTitle, runNumber, event, status, conclusion, headBranch, headSha, actorLogin, createdAt, updatedAt, runStartedAt, htmlUrl }] }`. Repo desconhecido → `404 { "error": "repo-not-found" }`. Os badges mapeiam `success`→verde, `failure`/`timed_out`/`startup_failure`/`action_required`→vermelho, `in_progress`/`queued`/`requested`/`waiting`/`pending`→âmbar pulsante (dirige o auto-refresh de 60s), demais→cinza.
+
+`POST .../pulls` body `{ title, head, baseBranch, body? }` abre um pull request via Octokit → `201 { prUrl }`; usado pela ação `create-pr` do cockpit após o push da branch do worktree.
 
 
 ### Orquestração de Agentes
@@ -283,6 +286,30 @@ Todos os estágios de uma execução compartilham um único git worktree do `IWo
 `POST .../approve` body `{ comment? }` libera um gate `WaitingApproval` e despacha os dependentes → `200`. `POST .../retry` body `{ adjustedPrompt? }` reenfileira um estágio `Failed` sem reiniciar o pipeline → `202`. `POST .../cancel` encerra os processos em voo e transiciona o pipeline para `Cancelled` → `200`. Aprovar/retentar estágio em estado incompatível → `400`; pipeline desconhecido → `404`.
 
 O despacho roda no timer do `PipelineEngineService` mais kicks síncronos após `start`/`approve`/`retry`; o `PipelineEngine` resolve o DAG por escopo de execução para que estágios paralelos nunca compartilhem um `DbContext`.
+
+### Harness — Cockpit (HITL)
+
+```http
+GET  /api/harness/runs
+POST /api/harness/runs
+GET  /api/harness/runs/{id}
+GET  /api/harness/runs/{id}/events
+POST /api/harness/runs/{id}/steer
+POST /api/harness/runs/{id}/approvals/{requestId}
+POST /api/harness/runs/{id}/create-pr
+```
+
+"Runs" do cockpit são execuções de pipeline. `GET runs` → `200` com as execuções recentes (mais novas primeiro, mesmo shape de `GET /api/harness/pipelines/{id}`). `POST runs` body `{ templateId, repositoryFullName, baseBranch, issueId?, specPath?, prompt, maxBudgetUsd? }` resolve `repositoryPath` no servidor via `IWorkspacePathResolver` (`~/repos/<name>`, confinado ao workspace root), anexa o conteúdo de `specPath` ao prompt quando legível e inicia o pipeline → `201`. `GET {id}` → `200 { execution, telemetry?, worktree? }` ou `404`.
+
+`GET {id}/events` → `200` com os `CockpitEventDto[]` buffered em memória (`{ runId, timestampUtc, kind, title, payloadJson? }`; kinds: `stage`, `agent_output`, `verification`, `approval`, `steer`) para replay em reconexão/join tardio — os eventos também são transmitidos ao vivo pelo hub SignalR abaixo.
+
+`POST {id}/steer` body `{ instruction }` → `202`; a instrução é enfileirada (`ISteerQueue`) e anexada ao prompt do próximo estágio despachado como "operator steer". Run desconhecido → `404`.
+
+`POST {id}/approvals/{requestId}` body `{ action, comment? }` — `requestId` usa a convenção `stage:<stageKey>` publicada pelo `RequireApproval`; `Allow` aprova o estágio `WaitingApproval`, `Deny` rejeita com o comentário como motivo → `200`. Run/request desconhecido → `404`.
+
+`POST {id}/create-pr` body `{ title, body? }` → `201 { prUrl }` — exige run `Completed`; commita as mudanças pendentes do worktree, dá push na branch e abre o PR via Octokit. Run não completado → `409`; desconhecido → `404`.
+
+Hub SignalR `/harness-cockpit-hub` (autenticado): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` e `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). As páginas Blazor são `/cockpit` (lista + start) e `/cockpit/runs/{id}` (timeline ao vivo, aba de diff, barra de steer, modal de aprovação, header FinOps).
 
 ### Living Specs (E13)
 

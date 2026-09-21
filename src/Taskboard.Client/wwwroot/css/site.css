@@ -1603,3 +1603,49 @@ body {
 .ai-chat-composer {
     resize: none;
 }
+
+/* SPEC-20260919-ade-cockpit-hitl — cockpit timeline + unified diff viewer. */
+.cockpit-timeline {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.cockpit-thought-body {
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.cockpit-diff {
+    max-height: 60vh;
+    overflow: auto;
+    white-space: pre;
+}
+
+.cockpit-diff .diff-add {
+    display: block;
+    background: rgba(25, 135, 84, 0.15);
+    color: var(--bs-success-text-emphasis, #198754);
+}
+
+.cockpit-diff .diff-del {
+    display: block;
+    background: rgba(220, 53, 69, 0.12);
+    color: var(--bs-danger-text-emphasis, #dc3545);
+}
+
+.cockpit-diff .diff-hunk {
+    display: block;
+    color: var(--bs-info-text-emphasis, #0dcaf0);
+    background: rgba(13, 202, 240, 0.08);
+}
+
+.cockpit-diff .diff-file {
+    display: block;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.cockpit-diff .diff-ctx {
+    display: block;
+    color: var(--bs-body-color);
+}
