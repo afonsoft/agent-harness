@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-acp-v1-conformance` |
 | Ticket | [#281](https://github.com/afonsoft/agent-harness/issues/281) |
-| Status | `Approved` |
+| Status | `Done` |
 | Depends on | `SPEC-20260921-agent-execution-event-pipeline` (Done, #277) |
 | Consumed by | `SPEC-20260921-acp-v2-readiness` |
 | References | <https://agentclientprotocol.com/protocol/v1/overview> · <https://docs.github.com/pt/copilot/reference/copilot-cli-reference/acp-server> · <https://github.com/agentclientprotocol/claude-agent-acp> |

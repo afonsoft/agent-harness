@@ -166,11 +166,57 @@ builder.Services.AddSingleton<ISkillDiscoveryService>(sp => new SkillDiscoverySe
 }));
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<RuntimeConfigurationService>();
-builder.Services.AddSingleton<IAgentAcpClient, JsonRpcAcpClient>();
 builder.Services.AddSingleton<IAgentAdapter>(sp =>
     new KnownCliAgentAdapter(sp.GetRequiredService<WorkspaceService>()));
+// SPEC-20260921-acp-v1-conformance: one-shot runs go through a real ACP
+// session when Taskboard:Acp:SessionRuns=true; otherwise keep args-mode.
+builder.Services.AddSingleton<IAgentAcpClient>(sp =>
+{
+    var fallback = new JsonRpcAcpClient(sp.GetServices<IAgentAdapter>());
+    return sp.GetRequiredService<IConfiguration>().GetValue("Taskboard:Acp:SessionRuns", false)
+        ? new AcpSessionRunClient(sp.GetRequiredService<AcpSessionClient>(), fallback)
+        : (IAgentAcpClient)fallback;
+});
+// ACP session options: timeouts + client fs/terminal surface + RAG MCP
+// passthrough into session/new.mcpServers (RF-011/012).
+builder.Services.AddSingleton(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var options = new AcpSessionOptions
+    {
+        ClientFs = cfg.GetValue("Taskboard:Acp:ClientFs", true),
+        ClientTerminal = cfg.GetValue("Taskboard:Acp:ClientTerminal", false),
+        TerminalAuth = cfg.GetValue("Taskboard:Acp:TerminalAuth", true),
+        BooleanConfigOptions = cfg.GetValue("Taskboard:Acp:BooleanConfigOptions", true),
+        RequestTimeout = TimeSpan.FromSeconds(cfg.GetValue("Taskboard:Acp:RequestTimeoutSeconds", 60)),
+        TurnTimeout = TimeSpan.FromMinutes(cfg.GetValue("Taskboard:Acp:TurnTimeoutMinutes", 30)),
+        HandshakeTimeout = TimeSpan.FromSeconds(cfg.GetValue("Taskboard:Acp:HandshakeTimeoutSeconds", 15)),
+        AgentTcpPort = cfg.GetValue<int?>("Taskboard:Acp:TcpPort"),
+    };
+    var ragUrl = cfg["Taskboard:Rag:Url"];
+    if (!string.IsNullOrWhiteSpace(ragUrl))
+    {
+        var ragApiKey = cfg["Taskboard:Rag:ApiKey"];
+        options.McpServers =
+        [
+            new AcpMcpServerSpec(
+                cfg["Taskboard:Rag:ServerName"] ?? "knowledge",
+                ragUrl,
+                Command: null,
+                Args: [],
+                Headers: string.IsNullOrWhiteSpace(ragApiKey)
+                    ? null
+                    : new Dictionary<string, string> { ["Authorization"] = $"Bearer {ragApiKey}" }),
+        ];
+    }
+    return options;
+});
+builder.Services.AddSingleton<IAcpClientToolHandler, AcpClientToolHandler>();
 builder.Services.AddSingleton<AcpSessionClient>(sp =>
-    new AcpSessionClient(sp.GetServices<IAgentAdapter>()));
+    new AcpSessionClient(
+        sp.GetServices<IAgentAdapter>(),
+        sp.GetRequiredService<AcpSessionOptions>(),
+        sp.GetService<IAcpClientToolHandler>()));
 builder.Services.AddSingleton<IAgentSessionClient>(sp => sp.GetRequiredService<AcpSessionClient>());
 builder.Services.AddSingleton<PermissionGate>();
 builder.Services.AddSingleton<AgentSessionManager>();

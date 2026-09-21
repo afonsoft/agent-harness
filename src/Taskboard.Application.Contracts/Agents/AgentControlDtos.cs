@@ -8,12 +8,15 @@ public sealed record AgentControlRequest(
     /// <summary>Escopo: <c>run</c> (pipeline/cockpit), <c>thread</c> (AI Chat) ou <c>issue</c> (board one-shot).</summary>
     string ScopeKind,
     string ScopeId,
-    /// <summary><c>cancel</c> | <c>steer</c> | <c>retry</c>.</summary>
+    /// <summary><c>cancel</c> | <c>steer</c> | <c>retry</c> | <c>set_config</c> | <c>set_mode</c>.</summary>
     string Action,
-    /// <summary>Instrução para <c>steer</c>; prompt ajustado para <c>retry</c>.</summary>
+    /// <summary>Instrução para <c>steer</c>; prompt ajustado para <c>retry</c>;
+    /// value para <c>set_config</c>; modeId para <c>set_mode</c>.</summary>
     string? Content = null,
     /// <summary>Stage alvo para <c>retry</c> em escopo <c>run</c>.</summary>
-    string? StageId = null);
+    string? StageId = null,
+    /// <summary>ACP config option id for <c>set_config</c> (e.g. <c>model</c>, <c>mode</c>).</summary>
+    string? ConfigId = null);
 
 /// <summary>Resposta de permissão unificada por escopo.</summary>
 public sealed record AgentPermissionReplyRequest(
@@ -32,4 +35,8 @@ public sealed record AgentScopeState(
     string State,
     string? ActiveStageId = null,
     int PendingPermissions = 0,
-    long LastEventSequence = 0);
+    long LastEventSequence = 0,
+    /// <summary>ACP session id for live thread sessions.</summary>
+    string? SessionId = null,
+    /// <summary>JSON snapshot of the negotiated peer info (modes, configOptions, protocolVersion, agent identity).</summary>
+    string? SessionInfoJson = null);

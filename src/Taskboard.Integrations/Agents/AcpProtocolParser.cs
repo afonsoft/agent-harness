@@ -35,7 +35,8 @@ public static class AcpProtocolParser
         string? ToolCallId = null,
         string? RequestId = null,
         JsonElement ResponseResult = default,
-        JsonElement ResponseError = default);
+        JsonElement ResponseError = default,
+        JsonElement Params = default);
 
     /// <summary>Returns null when the line is not JSON.</summary>
     public static Parsed? Parse(string line)
@@ -79,10 +80,11 @@ public static class AcpProtocolParser
 
             if (!root.TryGetProperty("params", out var p) || p.ValueKind != JsonValueKind.Object)
             {
-                return new Parsed(type, method, "message", null, null, RequestId: requestId);
+                return new Parsed(type, method, "message", null, null, RequestId: requestId,
+                    Params: root.TryGetProperty("params", out var raw) ? raw.Clone() : default);
             }
 
-            return method switch
+            var parsed = method switch
             {
                 "session/update" => ParseSessionUpdate(p, requestId),
                 "session/request_permission" => ParsePermission(p, requestId, isRequest),
@@ -92,6 +94,7 @@ public static class AcpProtocolParser
                     p.GetRawText(), RequestId: requestId),
                 _ => new Parsed(type, method, "activity", null, p.GetRawText(), RequestId: requestId)
             };
+            return parsed with { Params = p.Clone() };
         }
     }
 
@@ -130,6 +133,18 @@ public static class AcpProtocolParser
             "agent_thought_chunk" => new Parsed(
                 MessageType.Notification, "session/update", AgentEventKinds.Thought,
                 ExtractText(update), payload, sessionId, RequestId: requestId),
+            // RF-007: replayed user messages (session/load) and agent-advertised
+            // slash commands / mode / config / session metadata all get their
+            // own normalized kinds instead of falling into generic activity.
+            "user_message_chunk" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Message,
+                ExtractText(update), payload, sessionId, RequestId: requestId),
+            "available_commands_update" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Commands,
+                null, payload, sessionId, RequestId: requestId),
+            "current_mode_update" or "config_option_update" or "session_info_update" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.SessionInfo,
+                null, payload, sessionId, RequestId: requestId),
             "tool_call" => new Parsed(
                 MessageType.Notification, "session/update", AgentEventKinds.ToolCall,
                 update.TryGetProperty("title", out var t) ? t.GetString() : null,

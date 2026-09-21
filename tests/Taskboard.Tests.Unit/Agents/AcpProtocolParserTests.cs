@@ -279,10 +279,160 @@ public sealed class AcpProtocolParserTests
     [Fact]
     public void Dado_OutcomeAllow_Quando_MapaOpcao_Entao_EscolheAllowOnce()
     {
-        var options = new[] { "allow_once", "allow_always", "reject_once" };
+        var options = new[]
+        {
+            new AcpSessionClient.AcpPermissionOption("opt-1", "Allow once", "allow_once"),
+            new AcpSessionClient.AcpPermissionOption("opt-2", "Allow always", "allow_always"),
+            new AcpSessionClient.AcpPermissionOption("opt-3", "Reject", "reject_once"),
+        };
 
-        AcpSessionClient.MapOutcomeToOption("allow", options).ShouldBe("allow_once");
-        AcpSessionClient.MapOutcomeToOption("deny", options).ShouldBe("reject_once");
-        AcpSessionClient.MapOutcomeToOption("deny", ["allow_once"]).ShouldBeNull();
+        AcpSessionClient.MapOutcomeToOption("allow", options).ShouldBe("opt-1");
+        AcpSessionClient.MapOutcomeToOption("always", options).ShouldBe("opt-2");
+        AcpSessionClient.MapOutcomeToOption("deny", options).ShouldBe("opt-3");
+        AcpSessionClient.MapOutcomeToOption("deny",
+            [new AcpSessionClient.AcpPermissionOption("opt-1", "Allow", "allow_once")]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Dado_OpcoesSemKind_Quando_MapaOpcao_Entao_CasamentoPorNome()
+    {
+        var options = new[]
+        {
+            new AcpSessionClient.AcpPermissionOption("a", "Allow", null),
+            new AcpSessionClient.AcpPermissionOption("d", "Deny", null),
+        };
+
+        AcpSessionClient.MapOutcomeToOption("allow", options).ShouldBe("a");
+        AcpSessionClient.MapOutcomeToOption("deny", options).ShouldBe("d");
+    }
+
+    [Fact]
+    public void Dado_AvailableCommandsUpdate_Quando_Parse_Entao_KindCommands()
+    {
+        var json = """
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s",
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": [
+                        { "name": "review", "description": "Review code" },
+                        { "name": "test", "description": "Run tests" }
+                    ]
+                }
+            }
+        }
+        """;
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        parsed!.Kind.ShouldBe(AgentEventKinds.Commands);
+        parsed!.PayloadJson!.ShouldContain("availableCommands");
+    }
+
+    [Fact]
+    public void Dado_ConfigOptionUpdate_Quando_Parse_Entao_KindSessionInfo()
+    {
+        var json = """
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s",
+                "update": {
+                    "sessionUpdate": "config_option_update",
+                    "configOptions": [
+                        { "id": "model", "name": "Model", "category": "model", "value": "gpt-5" }
+                    ]
+                }
+            }
+        }
+        """;
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        parsed!.Kind.ShouldBe(AgentEventKinds.SessionInfo);
+        parsed!.PayloadJson!.ShouldContain("configOptions");
+        parsed.Params.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Object);
+    }
+
+    [Fact]
+    public void Dado_UsageUpdate_Quando_Parse_Entao_KindMetric()
+    {
+        var json = """
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s",
+                "update": {
+                    "sessionUpdate": "usage_update",
+                    "used": 1200, "size": 200000
+                }
+            }
+        }
+        """;
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        parsed!.Kind.ShouldBe(AgentEventKinds.Metric);
+    }
+
+    [Fact]
+    public void Dado_UserMessageChunk_Quando_Parse_Entao_KindMessage()
+    {
+        var json = """
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "s",
+                "update": {
+                    "sessionUpdate": "user_message_chunk",
+                    "content": { "type": "text", "text": "echo do usuario" }
+                }
+            }
+        }
+        """;
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        parsed!.Kind.ShouldBe(AgentEventKinds.Message);
+        parsed.Content.ShouldBe("echo do usuario");
+    }
+
+    [Fact]
+    public void Dado_CancelRequestNotification_Quando_Parse_Entao_NotificationSemResposta()
+    {
+        var json = """{ "jsonrpc": "2.0", "method": "$/cancel_request", "params": { "id": 42 } }""";
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        parsed!.Type.ShouldBe(AcpProtocolParser.MessageType.Notification);
+        parsed.Method.ShouldBe("$/cancel_request");
+        parsed.Params.TryGetProperty("id", out var id).ShouldBeTrue();
+        id.GetInt32().ShouldBe(42);
+    }
+
+    [Fact]
+    public void Dado_FsReadRequest_Quando_Parse_Entao_RequestParaToolHandler()
+    {
+        var json = """
+        {
+            "jsonrpc": "2.0",
+            "id": "req-9",
+            "method": "fs/read_text_file",
+            "params": { "sessionId": "s", "path": "/abs/file.txt" }
+        }
+        """;
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        parsed!.Type.ShouldBe(AcpProtocolParser.MessageType.Request);
+        parsed.Method.ShouldBe("fs/read_text_file");
+        parsed.RequestId.ShouldBe("req-9");
+        parsed.Params.GetProperty("path").GetString().ShouldBe("/abs/file.txt");
     }
 }

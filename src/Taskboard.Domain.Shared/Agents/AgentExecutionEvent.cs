@@ -47,4 +47,10 @@ public static class AgentEventKinds
     public const string Approval = "approval";
     public const string Steer = "steer";
     public const string Activity = "activity";
+
+    /// <summary>Agent-advertised slash commands (ACP available_commands_update).</summary>
+    public const string Commands = "commands";
+
+    /// <summary>Session metadata: modes, config options, negotiated peer info.</summary>
+    public const string SessionInfo = "session_info";
 }
