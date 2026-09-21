@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-acp-v2-readiness` |
 | Ticket | [#282](https://github.com/afonsoft/agent-harness/issues/282) |
-| Status | `Draft` |
+| Status | `Approved` |
 | Depends on | `SPEC-20260921-acp-v1-conformance` |
 | Consumed by | futura migração v2 estável |
 | References | <https://agentclientprotocol.com/protocol/v2/migration> · <https://agentclientprotocol.com/protocol/v2/overview> |
