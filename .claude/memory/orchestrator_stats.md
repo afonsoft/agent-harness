@@ -6,12 +6,12 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-19 UTC` (sessão 2)
-- **fase_atual**: `Phase 4 — E13 Living Specs (em PR; E12 merged+deploy)`
-- **repositorio**: `afonsoft/agent-harness`
+- **iniciado_em**: `2026-09-20 UTC` (sessão 3)
+- **fase_atual**: `Phase 8 — fluxo encerrado, zero issues abertas, main verde`
+- **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
-- **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
+- **framework_update_check**: `up-to-date` (commit `dc353de` em `/home/ubuntu/repos/skills`)
 
 ### Epics em curso (fila sequencial — todos SPECs aprovados 2026-09-19)
 
@@ -24,10 +24,10 @@
 | E10 - CLI DB Reader | `SPEC-20260919-cli-db-reader` | #165 | merged via PR #201 (`846a01f`) + deploy |
 | E11 - CLI Metrics | `SPEC-20260919-cli-metrics` | #166 | merged via PR #209 + fixes #210/#211/#212 (`0cbbf66`) + deploy validado |
 | E12 - Multi-Agent Orchestration | `SPEC-20260919-ade-multi-agent-orchestration` | #167 | merged via PR #218 (`6258c4f`) + deploy |
-| E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | implementado — PR aberto (slices #220–#224) |
-| E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | queued (blocked by #167) |
-| E15 - Cockpit HITL | `SPEC-20260919-ade-cockpit-hitl` | #170 | queued (blocked by #167,#168,#169) |
-| E16 - Harness Platform (mestre) | `SPEC-20260919-ade-harness-platform` | #171 | queued (blocked by #170,#166,#163) |
+| E13 - Living Specs | `SPEC-20260919-ade-living-specs` | #168 | Done — merged + slices #220–#224 fechadas |
+| E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | Done — merged (recurring jobs PR #234, maintenance jobs PR #235) |
+| E15 - Cockpit HITL | `SPEC-20260919-ade-cockpit-hitl` | #170 | Done — merged via PR #245 (`03d90c1`) + deploy; issue fechada 2026-09-20 |
+| E16 - Harness Platform (mestre) | `SPEC-20260919-ade-harness-platform` | #171 | Done — todos sub-Epics entregues; issue fechada 2026-09-20 |
 
 ```yaml
 fila_e6:
@@ -494,3 +494,35 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - `dotnet build -c Release`: ✅ 0 warnings/0 errors · unit: ✅ 755 · integration: ✅ 192 (flakes conhecidos passaram neste run)
 - Decisões: primitivos de telemetria/custo/parser em Domain.Shared (mesmo desvio de E13 — `Application`/`Integrations` não se referenciam); `DateTime` (não `DateTimeOffset`) em `RunCostMetric.RecordedAtUtc` — SQLite não traduz comparações/ORDER BY de DateTimeOffset; telemetry nunca quebra orquestração (helpers `Try*` com AppendLog de aviso); `IFinOpsService` resolvido por escopo no engine via `GetService` (null-safe nos testes).
+
+---
+
+## Execução da sessão 2026-09-20 (sessão 3 — rename + reconciliação)
+
+### Entregas anteriores registradas (contexto)
+
+- Repo renomeado `afonsoft/taskboard-ai` → `afonsoft/agent-harness` (GitHub redirect ativo).
+- PRs mergeados: #232 skills sync, #233 terminal resilience, #234 FinOps recurring job + PTY resize, #235 maintenance jobs, #244 global-repo-selector (E15 UI), #245 cockpit HITL (E15).
+- Deploy host `taskboard-server` republicado de `main` 2x (17:33 e 23:09/23:17); `_framework` limpo entre deploys; health checks verdes.
+
+### Phase 0/1 — Reconciliação
+
+- Issues #170 (E15 cockpit) e #171 (E16 master) fechadas com evidência (PR #245 + sub-Epics). **Zero issues abertas.**
+
+### Phase 6 — SPECs não aprovados
+
+- Scan completo: 60+ SPECs todos em status terminal (Done/Implemented/Completed/Deprecated/corrigido). Nenhum Draft pendente.
+
+### Phase 7 — Verificação
+
+- `dotnet build -c Release`: ✅ 0 warnings/0 errors
+- `dotnet test`: ✅ 821 unit + 214 integration — **após fix**
+- **Gap encontrado**: rename PR #246 quebrou 5 testes de `SelectedRepositoryServiceTests` (fixture renomeado mudou ordem alfabética do fallback; asserções esperavam `afonsoft/skills`). Corrigido via **PR #248** (merged).
+- TODO/FIXME/ponytail em src/tests: nenhum
+- Branches: cleanup feito — só `main` local + `origin/main` (3 remotas merged deletadas, 3 locais merged deletadas)
+
+### Deploy
+
+- Serviço `taskboard-server` (systemd user) ativo em `127.0.0.1:47823`, unit description atualizada, env/`~/.taskboard/agent-harness` alinhados ao rename. Endpoints novos (`/api/specs`, `/api/harness/runs`, `/api/vscode/workdir`) respondendo 401 anônimo.
+
+**Status**: fluxo encerrado — zero issues abertas, zero SPECs pendentes, main verde, deploy atual.
