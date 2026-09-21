@@ -151,6 +151,7 @@ A rota `/vscode/{**}` é um proxy reverso YARP para o processo filho gerenciado 
 ```http
 GET   /api/github/repositories
 GET   /api/github/repos/{owner}/{repo}/issues
+GET   /api/github/repos/{owner}/{repo}/issues/{number}
 POST  /api/github/repos/{owner}/{repo}/issues
 PATCH /api/github/repos/{owner}/{repo}/issues/{number}
 PUT   /api/github/repos/{owner}/{repo}/issues/{number}/column
@@ -167,7 +168,7 @@ GET   /api/github/repos/{owner}/{repo}/workflows/{workflowId}/runs?take=10
 POST  /api/github/repos/{owner}/{repo}/pulls
 ```
 
-O estado do kanban é baseado em labels: `PATCH .../issues/{n}` edita `{ title?, body }` (corpo markdown renderizado sanitizado na UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` troca as labels `priority:*` (`none` remove); `POST .../close` `{ "resolution": "canceled|archived" }` fecha a issue — `canceled` também aplica a label `canceled` (coluna Canceled), `archived` fecha sem label de coluna (Archived). Todos retornam `200 { issue }`; enum inválido → `400`, issue desconhecida → `404`, anônimo → `401`.
+O estado do kanban é baseado em labels: `PATCH .../issues/{n}` edita `{ title?, body }` (corpo markdown renderizado sanitizado na UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` troca as labels `priority:*` (`none` remove); `POST .../close` `{ "resolution": "canceled|archived" }` fecha a issue — `canceled` também aplica a label `canceled` (coluna Canceled), `archived` fecha sem label de coluna (Archived). Todos retornam `200 { issue }`; enum inválido → `400`, issue desconhecida → `404`, anônimo → `401`. `GET .../issues/{number}` busca uma issue diretamente — diferente da lista, ignora a janela de visibilidade do board, então issues fechadas/antigas também resolvem (usado para montar o contexto do prompt do agente); `200 { issue }` ou `404` quando o número não existe.
 
 Cada mutação do board também é persistida como `IssueHistoryEvent` (`column-moved` com `from`/`to`, `edited` com os campos alterados, `closed` com a resolução, `pipeline-run` com o id da execução do pipeline em `detail`) indexada pelo id da issue do GitHub — best-effort, nunca falha a mutação. `GET .../issues/{issueId}/history` mescla esses eventos com os agent runs da issue em `200 { items: [{ kind, occurredAt, agentType?, agentRunState?, finishedAt?, from?, to?, detail? }] }` do mais recente ao mais antigo — os dados da aba `Histórico` no dialog da issue.
 

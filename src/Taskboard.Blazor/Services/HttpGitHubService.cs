@@ -35,6 +35,23 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         return result?.Issues ?? [];
     }
 
+    public async Task<IssueDto?> GetIssueAsync(
+        string repositoryFullName, int issueNumber, CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.GetAsync(
+            $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}", cancellationToken);
+        await ThrowOnTokenMissingAsync(response, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<IssueResponse>(cancellationToken);
+        return result?.Issue;
+    }
+
     public async Task<IssueDto> UpdateIssueColumnAsync(
         string repositoryFullName,
         int issueNumber,

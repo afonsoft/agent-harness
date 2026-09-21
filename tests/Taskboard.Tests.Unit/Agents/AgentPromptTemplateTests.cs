@@ -65,6 +65,41 @@ public class AgentPromptTemplateTests
     }
 
     [Fact]
+    public void Dado_TemplateSemCabecalhoComments_Quando_Renderizar_Entao_AdicionaCabecalho()
+    {
+        // Overrides antigos podem ter {issueComments} sem o cabeçalho
+        // "Comments:" — a seção renderizada deve permanecer rotulada.
+        var rendered = AgentPromptTemplate.Render(
+            "Issue: {issueTitle}\n\n{issueComments}",
+            "u", "T", "B", "- dev: nota");
+
+        rendered.ShouldBe("Issue: T\n\nComments:\n- dev: nota");
+    }
+
+    [Fact]
+    public void Dado_TemplateComCabecalhoComments_Quando_Renderizar_Entao_NaoDuplicaCabecalho()
+    {
+        // Caller passa linhas nuas; o cabeçalho do template é reaproveitado.
+        var rendered = AgentPromptTemplate.Render(
+            "Body:\n{issueBody}\n\nComments:\n\n{issueComments}",
+            "u", "T", "B", "- dev: nota");
+
+        rendered.ShouldBe("Body:\nB\n\nComments:\n\n- dev: nota");
+    }
+
+    [Fact]
+    public void Dado_ValorComCabecalhoETemplateComCabecalho_Quando_Renderizar_Entao_CabecalhoUnico()
+    {
+        // Caller passa a seção rotulada e o template também tem o cabeçalho —
+        // o resultado não pode renderizar "Comments:" duas vezes.
+        var rendered = AgentPromptTemplate.Render(
+            "Comments:\n\n{issueComments}",
+            "u", "T", "B", "Comments:\n- dev: nota");
+
+        rendered.ShouldBe("Comments:\n\n- dev: nota");
+    }
+
+    [Fact]
     public void Dado_TemplateComIssueComments_Quando_SemComentarios_Entao_PlaceholderVazio()
     {
         var rendered = AgentPromptTemplate.Render(

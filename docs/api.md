@@ -151,6 +151,7 @@ The `/vscode/{**}` route is a YARP reverse proxy to the managed `code-server` ch
 ```http
 GET   /api/github/repositories
 GET   /api/github/repos/{owner}/{repo}/issues
+GET   /api/github/repos/{owner}/{repo}/issues/{number}
 POST  /api/github/repos/{owner}/{repo}/issues
 PATCH /api/github/repos/{owner}/{repo}/issues/{number}
 PUT   /api/github/repos/{owner}/{repo}/issues/{number}/column
@@ -167,7 +168,7 @@ GET   /api/github/repos/{owner}/{repo}/workflows/{workflowId}/runs?take=10
 POST  /api/github/repos/{owner}/{repo}/pulls
 ```
 
-Kanban state is label-backed: `PATCH .../issues/{n}` edits `{ title?, body }` (markdown body rendered sanitized in the UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` swaps the `priority:*` labels (`none` removes them); `POST .../close` `{ "resolution": "canceled|archived" }` closes the issue — `canceled` also applies the `canceled` label (Canceled column), `archived` closes without a column label (Archived). All return `200 { issue }`; invalid enum values → `400`, unknown issue → `404`, anonymous → `401`.
+Kanban state is label-backed: `PATCH .../issues/{n}` edits `{ title?, body }` (markdown body rendered sanitized in the UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` swaps the `priority:*` labels (`none` removes them); `POST .../close` `{ "resolution": "canceled|archived" }` closes the issue — `canceled` also applies the `canceled` label (Canceled column), `archived` closes without a column label (Archived). All return `200 { issue }`; invalid enum values → `400`, unknown issue → `404`, anonymous → `401`. `GET .../issues/{number}` fetches a single issue directly — unlike the issues list it ignores the board visibility window, so closed/old issues resolve too (used to build agent prompt context); `200 { issue }` or `404` when the number does not exist.
 
 Every board-side mutation is also persisted as an `IssueHistoryEvent` (`column-moved` with `from`/`to`, `edited` with the changed fields, `closed` with the resolution, `pipeline-run` with the pipeline execution id in `detail`) keyed by the GitHub issue id — best-effort, never fails the mutation. `GET .../issues/{issueId}/history` merges those events with the issue's agent runs into `200 { items: [{ kind, occurredAt, agentType?, agentRunState?, finishedAt?, from?, to?, detail? }] }` newest-first — the data behind the `Histórico` tab in the issue dialog.
 

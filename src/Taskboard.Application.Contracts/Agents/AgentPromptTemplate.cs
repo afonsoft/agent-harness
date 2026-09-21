@@ -234,13 +234,42 @@ public static class AgentPromptTemplate
     public static bool HasCommentsPlaceholder(string template) =>
         template.Contains("{issueComments}", StringComparison.Ordinal);
 
-    /// <summary>Substitutes <c>{repoUrl}</c>, <c>{issueTitle}</c>, <c>{issueBody}</c> and <c>{issueComments}</c>.</summary>
+    /// <summary>
+    /// Substitutes <c>{repoUrl}</c>, <c>{issueTitle}</c>, <c>{issueBody}</c> and
+    /// <c>{issueComments}</c>. The comments section keeps exactly one
+    /// "Comments:" header — whether it comes from the template or from the
+    /// supplied value — so older overrides without the header still render a
+    /// labelled section and callers may pass bare lines or a labelled section.
+    /// </summary>
     public static string Render(
-        string template, string? repoUrl, string? issueTitle, string? issueBody, string? issueComments = null) =>
-        template
+        string template, string? repoUrl, string? issueTitle, string? issueBody, string? issueComments = null)
+    {
+        var comments = NormalizeComments(template, issueComments);
+        return template
             .Replace("{repoUrl}", repoUrl ?? string.Empty, StringComparison.Ordinal)
             .Replace("{issueTitle}", issueTitle ?? string.Empty, StringComparison.Ordinal)
             .Replace("{issueBody}", issueBody ?? string.Empty, StringComparison.Ordinal)
-            .Replace("{issueComments}", issueComments ?? string.Empty, StringComparison.Ordinal)
+            .Replace("{issueComments}", comments ?? string.Empty, StringComparison.Ordinal)
             .Trim();
+    }
+
+    private static string? NormalizeComments(string template, string? issueComments)
+    {
+        if (string.IsNullOrWhiteSpace(issueComments))
+        {
+            return issueComments;
+        }
+
+        var lines = issueComments.Trim();
+        const string header = "Comments:";
+        if (lines.StartsWith(header, StringComparison.Ordinal))
+        {
+            lines = lines[header.Length..].TrimStart();
+        }
+
+        var placeholderIndex = template.IndexOf("{issueComments}", StringComparison.Ordinal);
+        var templateHasHeader = placeholderIndex >= 0
+            && template[..placeholderIndex].TrimEnd().EndsWith(header, StringComparison.Ordinal);
+        return templateHasHeader ? lines : $"Comments:\n{lines}";
+    }
 }

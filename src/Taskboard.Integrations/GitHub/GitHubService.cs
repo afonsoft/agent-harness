@@ -72,6 +72,26 @@ public sealed class GitHubService : IGitHubService
     }
 
     /// <inheritdoc />
+    public async Task<IssueDto?> GetIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        try
+        {
+            var issue = await _client.Issue.Get(owner, name, issueNumber);
+            return MapToDto(issue, repositoryFullName);
+        }
+        catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<IssueDto> UpdateIssueColumnAsync(
         string repositoryFullName,
         int issueNumber,

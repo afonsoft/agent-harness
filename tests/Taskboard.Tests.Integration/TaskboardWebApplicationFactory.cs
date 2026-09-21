@@ -118,6 +118,11 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             string repositoryFullName, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Taskboard.GitHub.IssueDto>>([Issue]);
 
+        public Task<Taskboard.GitHub.IssueDto?> GetIssueAsync(
+            string repositoryFullName, int issueNumber,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(issueNumber == Issue.Number ? Issue : null);
+
         public Task<Taskboard.GitHub.IssueDto> UpdateIssueColumnAsync(
             string repositoryFullName, int issueNumber,
             Taskboard.GitHub.GitHubBoardColumn? oldColumn,

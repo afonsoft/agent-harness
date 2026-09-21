@@ -1504,6 +1504,24 @@ github.MapGet("repos/{owner}/{repo}/issues", async (string owner, string repo, I
     }
 });
 
+github.MapGet("repos/{owner}/{repo}/issues/{number:int}", async (
+    string owner,
+    string repo,
+    int number,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    try
+    {
+        var issue = await gitHub.GetIssueAsync($"{owner}/{repo}", number, ct);
+        return issue is null ? Results.NotFound() : Results.Ok(new { issue });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = new { code = "GITHUB_TOKEN_MISSING", message = ex.Message } });
+    }
+});
+
 github.MapPost("repos/{owner}/{repo}/issues", async (
     string owner,
     string repo,
