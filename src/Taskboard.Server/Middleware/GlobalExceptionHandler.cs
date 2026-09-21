@@ -33,7 +33,8 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         {
             var statusCode = domainException.Code switch
             {
-                var c when c == TaskboardDomainErrorCodes.VersionConflict => 409,
+                var c when c == TaskboardDomainErrorCodes.VersionConflict
+                    || c == TaskboardDomainErrorCodes.InvalidPipelineState => 409,
                 _ => 400
             };
 

@@ -549,6 +549,24 @@ public sealed class TaskboardClient
         return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
     }
 
+    /// <summary>Pausa o run entre estágios (SPEC-20260920-cockpit-pause-resume).</summary>
+    public async Task<PipelineExecutionDto?> PauseRunAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/pause", (object?)null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
+    }
+
+    /// <summary>Resume um run pausado — despacha os estágios pendentes.</summary>
+    public async Task<PipelineExecutionDto?> ResumeRunAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/resume", (object?)null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
+    }
+
     /// <summary>Cancela o run (delega para o cancel do pipeline).</summary>
     public async Task<PipelineExecutionDto?> CancelRunAsync(string runId, CancellationToken cancellationToken = default)
     {

@@ -100,9 +100,14 @@ public sealed class PipelineEngine
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRepository<PipelineExecution>>();
         var isolation = scope.ServiceProvider.GetRequiredService<IWorkspaceIsolationService>();
+        // SPEC-20260920-cockpit-pause-resume: Paused executions are skipped
+        // entirely — no dispatch, no worktree attach, no budget-cap cancel —
+        // until Resume returns them to a live status.
         var active = await repo.Query
             .Include(e => e.Stages)
-            .Where(e => e.Status != PipelineStatus.Completed && e.Status != PipelineStatus.Cancelled)
+            .Where(e => e.Status != PipelineStatus.Completed
+                && e.Status != PipelineStatus.Cancelled
+                && e.Status != PipelineStatus.Paused)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

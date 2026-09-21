@@ -158,6 +158,37 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
         RecomputeStatus(now);
     }
 
+    /// <summary>
+    /// Operator pause — freezes the DAG between stages: in-flight stages still
+    /// complete, but nothing new is dispatched until <see cref="Resume"/>
+    /// (SPEC-20260920-cockpit-pause-resume AC1).
+    /// </summary>
+    public void Pause()
+    {
+        if (Status is not (PipelineStatus.Running or PipelineStatus.WaitingApproval or PipelineStatus.AwaitingRetry))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineState,
+                $"Pipeline cannot pause from {Status}.");
+        }
+
+        Status = PipelineStatus.Paused;
+    }
+
+    /// <summary>Resumes a paused execution — the next tick dispatches eligible stages (AC2).</summary>
+    public void Resume()
+    {
+        if (Status is not PipelineStatus.Paused)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineState,
+                $"Pipeline cannot resume from {Status}.");
+        }
+
+        Status = PipelineStatus.Running;
+        RecomputeStatus();
+    }
+
     public void Cancel(DateTime now)
     {
         if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled)
@@ -183,7 +214,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
 
     private void RecomputeStatus(DateTime? now = null)
     {
-        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled)
+        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled or PipelineStatus.Paused)
         {
             return;
         }

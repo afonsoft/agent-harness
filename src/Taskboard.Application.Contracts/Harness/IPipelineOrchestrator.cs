@@ -37,4 +37,14 @@ public interface IPipelineOrchestrator
 
     /// <summary>Safe shutdown of running stages; pipeline → Cancelled.</summary>
     Task<PipelineExecutionDto> CancelAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pauses the execution between stages — in-flight stages finish, nothing
+    /// new is dispatched (SPEC-20260920-cockpit-pause-resume). `null` when the
+    /// run does not exist; invalid transitions throw `InvalidPipelineState` (409).
+    /// </summary>
+    Task<PipelineExecutionDto?> PauseAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Resumes a paused execution and re-dispatches pending stages.</summary>
+    Task<PipelineExecutionDto?> ResumeAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
 }
