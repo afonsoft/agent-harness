@@ -220,7 +220,34 @@ chmod +x install.sh
 The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`TASKBOARD_TERMINAL_ENABLED`).
 
 - **Bare-metal/host install:** the server uses the real `$HOME`, so CLIs already installed on the host are detected as-is.
-- **Docker image:** the runtime stage ships Node.js LTS plus all five CLIs pre-installed, and sets `HOME=/data/home` so CLI credentials land inside the `/data` volume and survive container recreation. Mount `~/.taskboard/data` at `/data` as usual and authenticate each CLI once from `/terminal`.
+- **Docker image:** the runtime stage ships Node.js LTS plus all five CLIs pre-installed, and sets `HOME=/data/home` so CLI credentials land inside the `/data` volume and survive container recreation. Authenticate each CLI once from `/terminal`.
+
+### Docker / docker-compose
+
+```bash
+docker compose up -d          # build + run on http://localhost:47823
+```
+
+Everything persistent lives in the `taskboard-data` named volume mounted at `/data`:
+
+| Path | Contents |
+|---|---|
+| `/data/taskboard.sqlite` | database + configuration overrides |
+| `/data/admin.json` | generated admin credentials |
+| `/data/skills-cache/` | skills repository cache |
+| `/data/home/` | container `$HOME` — CLI credentials (`.claude`, `.codex`, `.config/…`) |
+| `/data/home/repos` | agent workspace — the container's `~/repos`, default workdir for agent runs, pipelines and the terminal |
+
+The image sets `TASKBOARD_DATA_DIR=/data` (overriding `appsettings.Production.json`), declares `VOLUME /data` and a `HEALTHCHECK` on `/health`. Git safe.directory is preconfigured, so bind-mounting host-owned repos works:
+
+```yaml
+# docker-compose.yml — opt-in: expose the server's real repos to the agents
+volumes:
+  - taskboard-data:/data
+  - ${HARNESS_REPOS_DIR}:/data/home/repos   # e.g. HARNESS_REPOS_DIR=~/repos
+```
+
+Files the agents create inside the bind mount belong to root on the host (the container runs as root); run `user: "$(id -u):$(id -g)"` only if you also chown the volume content.
 
 ## Next steps
 
