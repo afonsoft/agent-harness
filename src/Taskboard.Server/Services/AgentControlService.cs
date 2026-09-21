@@ -69,83 +69,83 @@ public sealed class AgentControlService
         switch ((request.ScopeKind, action))
         {
             case (AgentEventScope.Issue, "cancel"):
-            {
-                var signalled = await _orchestration.CancelAsync(request.ScopeId, cancellationToken);
-                if (!signalled)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
-                }
+                    var signalled = await _orchestration.CancelAsync(request.ScopeId, cancellationToken);
+                    if (!signalled)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
+                    }
 
-                await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Accepted);
-            }
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
 
             case (AgentEventScope.Run, "steer") when !string.IsNullOrWhiteSpace(request.Content):
-            {
-                if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
-                }
+                    if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                    }
 
-                _steer.Enqueue(request.ScopeId, request.Content.Trim());
-                await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
-                    JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Accepted);
-            }
+                    _steer.Enqueue(request.ScopeId, request.Content.Trim());
+                    await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
+                        JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
 
             case (AgentEventScope.Run, "cancel"):
-            {
-                var exec = await _pipelines.GetAsync(request.ScopeId, cancellationToken);
-                if (exec is null)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
-                }
-                if (exec.Status is "Completed" or "Cancelled")
-                {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "run-already-finished");
-                }
+                    var exec = await _pipelines.GetAsync(request.ScopeId, cancellationToken);
+                    if (exec is null)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                    }
+                    if (exec.Status is "Completed" or "Cancelled")
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "run-already-finished");
+                    }
 
-                await _pipelines.CancelAsync(request.ScopeId, cancellationToken);
-                await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (run)", cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Accepted);
-            }
+                    await _pipelines.CancelAsync(request.ScopeId, cancellationToken);
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (run)", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
 
             case (AgentEventScope.Run, "retry") when !string.IsNullOrWhiteSpace(request.StageId):
-            {
-                if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
-                }
+                    if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                    }
 
-                var retried = await _pipelines.RetryStageAsync(request.ScopeId, request.StageId, request.Content, cancellationToken);
-                await EmitAsync(request, AgentEventKinds.Lifecycle, $"Retry dispatched for stage '{request.StageId}'", cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
-            }
+                    var retried = await _pipelines.RetryStageAsync(request.ScopeId, request.StageId, request.Content, cancellationToken);
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, $"Retry dispatched for stage '{request.StageId}'", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
+                }
 
             case (AgentEventScope.Thread, "cancel"):
-            {
-                var cancelled = await _sessions.CancelAsync(request.ScopeId, cancellationToken);
-                if (!cancelled)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
-                }
+                    var cancelled = await _sessions.CancelAsync(request.ScopeId, cancellationToken);
+                    if (!cancelled)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                    }
 
-                await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (thread)", cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Accepted);
-            }
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (thread)", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
 
             case (AgentEventScope.Thread, "steer") when !string.IsNullOrWhiteSpace(request.Content):
-            {
-                var sent = await _sessions.PromptAsync(request.ScopeId, request.Content.Trim(), "steer", cancellationToken);
-                if (!sent)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
-                }
+                    var sent = await _sessions.PromptAsync(request.ScopeId, request.Content.Trim(), "steer", cancellationToken);
+                    if (!sent)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                    }
 
-                await EmitAsync(request, AgentEventKinds.Steer, "Steer sent (thread)",
-                    JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Accepted);
-            }
+                    await EmitAsync(request, AgentEventKinds.Steer, "Steer sent (thread)",
+                        JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
 
             case (AgentEventScope.Issue, "steer") or (AgentEventScope.Issue, "retry")
                 or (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, "steer"):
@@ -167,33 +167,33 @@ public sealed class AgentControlService
         switch (request.ScopeKind)
         {
             case AgentEventScope.Thread:
-            {
-                var accepted = _permissionGate.Reply(request.ScopeId, request.RequestId, request.Outcome);
-                if (accepted)
                 {
-                    await EmitAsync(AgentEventScope.Thread, request.ScopeId, AgentEventKinds.Lifecycle,
-                        $"Permission '{request.RequestId}' → {request.Outcome}", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Ok, Payload: new { outcome = request.Outcome });
-                }
+                    var accepted = _permissionGate.Reply(request.ScopeId, request.RequestId, request.Outcome);
+                    if (accepted)
+                    {
+                        await EmitAsync(AgentEventScope.Thread, request.ScopeId, AgentEventKinds.Lifecycle,
+                            $"Permission '{request.RequestId}' → {request.Outcome}", cancellationToken);
+                        return new AgentControlResult(AgentControlStatus.Ok, Payload: new { outcome = request.Outcome });
+                    }
 
-                return new AgentControlResult(AgentControlStatus.Gone, Error: "request-expired-or-unknown");
-            }
+                    return new AgentControlResult(AgentControlStatus.Gone, Error: "request-expired-or-unknown");
+                }
 
             case AgentEventScope.Run when request.RequestId.StartsWith("stage:", StringComparison.Ordinal):
-            {
-                var stageKey = request.RequestId["stage:".Length..];
-                if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
                 {
-                    return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
-                }
+                    var stageKey = request.RequestId["stage:".Length..];
+                    if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                    }
 
-                var exec = string.Equals(request.Outcome, "deny", StringComparison.OrdinalIgnoreCase)
-                    ? await _pipelines.RejectStageAsync(request.ScopeId, stageKey, request.Comment, cancellationToken)
-                    : await _pipelines.ApproveStageAsync(request.ScopeId, stageKey, request.Comment, cancellationToken);
-                await EmitAsync(AgentEventScope.Run, request.ScopeId, AgentEventKinds.Approval,
-                    $"Approval '{request.RequestId}' → {request.Outcome}", cancellationToken);
-                return new AgentControlResult(AgentControlStatus.Ok, Payload: exec);
-            }
+                    var exec = string.Equals(request.Outcome, "deny", StringComparison.OrdinalIgnoreCase)
+                        ? await _pipelines.RejectStageAsync(request.ScopeId, stageKey, request.Comment, cancellationToken)
+                        : await _pipelines.ApproveStageAsync(request.ScopeId, stageKey, request.Comment, cancellationToken);
+                    await EmitAsync(AgentEventScope.Run, request.ScopeId, AgentEventKinds.Approval,
+                        $"Approval '{request.RequestId}' → {request.Outcome}", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Ok, Payload: exec);
+                }
 
             case AgentEventScope.Issue:
                 return new AgentControlResult(AgentControlStatus.Conflict,
@@ -213,27 +213,27 @@ public sealed class AgentControlService
         switch (scopeKind)
         {
             case AgentEventScope.Run:
-            {
-                var exec = await _pipelines.GetAsync(scopeId, cancellationToken);
-                if (exec is null)
                 {
-                    return new AgentControlResult(AgentControlStatus.NotFound, Error: "no-such-run");
-                }
+                    var exec = await _pipelines.GetAsync(scopeId, cancellationToken);
+                    if (exec is null)
+                    {
+                        return new AgentControlResult(AgentControlStatus.NotFound, Error: "no-such-run");
+                    }
 
-                var state = exec.Status.ToLowerInvariant() switch
-                {
-                    "running" or "inprogress" => "running",
-                    "waitingapproval" => "waiting_permission",
-                    "awaitingretry" => "awaiting_retry",
-                    "paused" => "paused",
-                    "completed" => "completed",
-                    "failed" => "failed",
-                    "cancelled" or "canceled" => "stopped",
-                    _ => "queued",
-                };
-                return new AgentControlResult(AgentControlStatus.Ok,
-                    Payload: new AgentScopeState(scopeKind, scopeId, state, LastEventSequence: lastSeq));
-            }
+                    var state = exec.Status.ToLowerInvariant() switch
+                    {
+                        "running" or "inprogress" => "running",
+                        "waitingapproval" => "waiting_permission",
+                        "awaitingretry" => "awaiting_retry",
+                        "paused" => "paused",
+                        "completed" => "completed",
+                        "failed" => "failed",
+                        "cancelled" or "canceled" => "stopped",
+                        _ => "queued",
+                    };
+                    return new AgentControlResult(AgentControlStatus.Ok,
+                        Payload: new AgentScopeState(scopeKind, scopeId, state, LastEventSequence: lastSeq));
+                }
 
             case AgentEventScope.Thread:
                 return new AgentControlResult(AgentControlStatus.Ok, Payload: new AgentScopeState(
@@ -242,20 +242,20 @@ public sealed class AgentControlService
                     LastEventSequence: lastSeq));
 
             case AgentEventScope.Issue:
-            {
-                var latest = (await _orchestration.GetRunsAsync(scopeId, 1, cancellationToken)).FirstOrDefault();
-                var issueState = latest?.State switch
                 {
-                    AgentRunState.Running => "running",
-                    AgentRunState.Queued => "queued",
-                    AgentRunState.Succeeded => "completed",
-                    AgentRunState.Failed => "failed",
-                    AgentRunState.Canceled => "stopped",
-                    _ => "idle",
-                };
-                return new AgentControlResult(AgentControlStatus.Ok,
-                    Payload: new AgentScopeState(scopeKind, scopeId, issueState, LastEventSequence: lastSeq));
-            }
+                    var latest = (await _orchestration.GetRunsAsync(scopeId, 1, cancellationToken)).FirstOrDefault();
+                    var issueState = latest?.State switch
+                    {
+                        AgentRunState.Running => "running",
+                        AgentRunState.Queued => "queued",
+                        AgentRunState.Succeeded => "completed",
+                        AgentRunState.Failed => "failed",
+                        AgentRunState.Canceled => "stopped",
+                        _ => "idle",
+                    };
+                    return new AgentControlResult(AgentControlStatus.Ok,
+                        Payload: new AgentScopeState(scopeKind, scopeId, issueState, LastEventSequence: lastSeq));
+                }
 
             default:
                 return new AgentControlResult(AgentControlStatus.BadRequest,
