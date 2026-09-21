@@ -224,6 +224,36 @@ public class CodeServerProcessManagerTests : IDisposable
         await manager.DisposeAsync();
     }
 
+    [Fact]
+    public async Task Dado_RestartsConcorrentes_Quando_Restart_Entao_CompartilhaMesmaOperacao()
+    {
+        // Single-flight (PR #244 review): concurrent callers must share the same
+        // in-flight restart — a second caller must not kill the process the
+        // first one just spawned.
+        var spawned = 0;
+        var manager = Create(
+            locator: _ => "/usr/bin/code-server",
+            starter: _ =>
+            {
+                Interlocked.Increment(ref spawned);
+                return Process.Start(new ProcessStartInfo("/bin/sleep", "60")
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                });
+            },
+            portProbe: async (_, _) => { await Task.Delay(50); return true; });
+
+        var first = manager.RestartAsync();
+        var second = manager.RestartAsync();
+
+        first.ShouldBeSameAs(second);
+        await Task.WhenAll(first, second);
+        spawned.ShouldBe(1);
+
+        await manager.DisposeAsync();
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_home))

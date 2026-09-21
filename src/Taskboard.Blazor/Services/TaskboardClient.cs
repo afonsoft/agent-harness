@@ -493,6 +493,89 @@ public sealed class TaskboardClient
             : null;
     }
 
+    // SPEC-20260919-ade-cockpit-hitl §5 — runs (pipeline executions) para o cockpit.
+
+    /// <summary>Pipeline templates disponíveis para iniciar um run.</summary>
+    public async Task<IReadOnlyList<PipelineTemplateDto>> ListPipelineTemplatesAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<List<PipelineTemplateDto>>("/api/harness/pipelines/templates", cancellationToken) ?? [];
+
+    /// <summary>Runs recentes (pipeline executions), mais novos primeiro.</summary>
+    public async Task<IReadOnlyList<PipelineExecutionDto>> ListRunsAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<List<PipelineExecutionDto>>("/api/harness/runs", cancellationToken) ?? [];
+
+    /// <summary>Inicia um run (pipeline) para o repositório.</summary>
+    public async Task<PipelineExecutionDto?> StartRunAsync(RunStartRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/harness/runs", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
+    }
+
+    /// <summary>Snapshot do run: execução + telemetria + worktree.</summary>
+    public async Task<RunDetailsDto?> GetRunAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"/api/harness/runs/{Uri.EscapeDataString(runId)}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<RunDetailsDto>(cancellationToken);
+    }
+
+    /// <summary>Eventos buffered do run (replay para reconexão/join tardio).</summary>
+    public async Task<IReadOnlyList<CockpitEventDto>> GetRunEventsAsync(string runId, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<List<CockpitEventDto>>(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/events", cancellationToken) ?? [];
+
+    /// <summary>Envia instrução de steer — enfileirada para a próxima etapa (RF-003).</summary>
+    public async Task SteerRunAsync(string runId, string instruction, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/steer",
+            new SteerRequest(instruction), cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Responde um gate de aprovação (`stage:` requestIds) — Allow ou Deny (RF-004).</summary>
+    public async Task<PipelineExecutionDto?> RespondRunApprovalAsync(
+        string runId, string requestId, string action, string? comment, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/approvals/{Uri.EscapeDataString(requestId)}",
+            new ApprovalReplyRequest(action, comment), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
+    }
+
+    /// <summary>Cancela o run (delega para o cancel do pipeline).</summary>
+    public async Task<PipelineExecutionDto?> CancelRunAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/harness/pipelines/{Uri.EscapeDataString(runId)}/cancel", (object?)null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
+    }
+
+    /// <summary>Commita pendências, dá push na branch do worktree e abre o PR (RF-005).</summary>
+    public async Task<string?> CreateRunPullRequestAsync(string runId, string title, string? body, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/create-pr",
+            new CreatePrRequest(title, body), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<CreatePrResponse>(cancellationToken);
+        return result?.PrUrl;
+    }
+
+    /// <summary>Diff do worktree do run contra a branch base.</summary>
+    public async Task<WorkspaceDiffDto?> GetWorktreeDiffAsync(string runId, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<WorkspaceDiffDto>(
+            $"/api/harness/worktrees/{Uri.EscapeDataString(runId)}/diff", cancellationToken);
+
+    private sealed record CreatePrResponse(string PrUrl);
+
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         try

@@ -156,7 +156,8 @@ else
 
     private async Task LoadTimelineAsync()
     {
-        if (RepoService.Selected is null)
+        var repo = RepoService.Selected;
+        if (repo is null)
         {
             _timeline = null;
             _metrics = null;
@@ -167,10 +168,16 @@ else
         _errorMessage = null;
         try
         {
-            var parts = RepoService.Selected.Split('/', 2);
+            var parts = repo.Split('/', 2);
             var timelineTask = Timeline.GetTimelineAsync(parts[0], parts[1], WindowDays);
             var metricsTask = Timeline.GetMetricsAsync(parts[0], parts[1], WindowDays);
             await Task.WhenAll(timelineTask, metricsTask);
+            // Discard stale responses on rapid repo switches.
+            if (!string.Equals(repo, RepoService.Selected, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             _timeline = timelineTask.Result;
             _metrics = metricsTask.Result;
 

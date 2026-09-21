@@ -169,7 +169,8 @@ else
 
     private async Task LoadWorkflowsAsync()
     {
-        if (RepoService.Selected is null)
+        var repo = RepoService.Selected;
+        if (repo is null)
         {
             _workflows = null;
             return;
@@ -179,7 +180,14 @@ else
         _errorMessage = null;
         try
         {
-            _workflows = await GitHubService.GetWorkflowsAsync(RepoService.Selected);
+            var workflows = await GitHubService.GetWorkflowsAsync(repo);
+            // Discard stale responses on rapid repo switches.
+            if (!string.Equals(repo, RepoService.Selected, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _workflows = workflows;
             foreach (var id in _expanded.ToList())
             {
                 await LoadRunsAsync(id);
@@ -211,7 +219,8 @@ else
 
     private async Task LoadRunsAsync(long workflowId)
     {
-        if (RepoService.Selected is null)
+        var repo = RepoService.Selected;
+        if (repo is null)
         {
             return;
         }
@@ -219,7 +228,13 @@ else
         _runsLoading.Add(workflowId);
         try
         {
-            _runs[workflowId] = await GitHubService.GetWorkflowRunsAsync(RepoService.Selected, workflowId, 10);
+            var runs = await GitHubService.GetWorkflowRunsAsync(repo, workflowId, 10);
+            if (!string.Equals(repo, RepoService.Selected, StringComparison.Ordinal))
+            {
+                return; // stale response from a previous selection
+            }
+
+            _runs[workflowId] = runs;
         }
         catch (Exception)
         {

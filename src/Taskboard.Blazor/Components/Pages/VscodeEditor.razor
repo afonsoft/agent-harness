@@ -92,6 +92,12 @@ else
             <Icon Name="IconName.BoxArrowUpRight" /> Open in new tab
         </a>
     </div>
+    @if (_restartError is not null)
+    {
+        <Alert Color="AlertColor.Warning" Dismissable="true" Class="py-1 px-2 small" role="alert">
+            @_restartError
+        </Alert>
+    }
     <iframe @key="_iframeKey" src="@EditorUrl" class="vscode-frame border rounded" title="VS Code Web"></iframe>
 }
 
@@ -101,6 +107,7 @@ else
     private string? _folder;
     private bool _loading = true;
     private bool _restarting;
+    private string? _restartError;
     private bool _hasExplicitFolder;
     private int _iframeKey;
     private CancellationTokenSource? _cts;
@@ -175,18 +182,25 @@ else
         });
     }
 
-    /// <summary>SPEC-20260920 RF-008: kill → spawn → wait-listening, then reload the iframe.</summary>
+    /// <summary>SPEC-20260920 RF-008: kill → spawn → wait-listening, then reload the iframe — only when the server confirms it is listening again.</summary>
     private async Task RestartAsync()
     {
         _restarting = true;
         try
         {
             var status = await Client.RestartVscodeAsync(_cts?.Token ?? CancellationToken.None);
-            if (status is not null)
+            if (status is null)
             {
-                _status = status;
+                _restartError = "code-server is not installed — restart skipped.";
+                return;
             }
-            _iframeKey++;
+
+            _status = status;
+            _restartError = status.Running ? null : "code-server did not come back after restart.";
+            if (status.Running)
+            {
+                _iframeKey++;
+            }
         }
         finally
         {

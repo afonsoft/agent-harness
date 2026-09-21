@@ -213,6 +213,11 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             string repositoryFullName, long workflowId, int take = 10,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Taskboard.GitHub.WorkflowRunDto>>([WorkflowRun]);
+
+        public Task<string> CreatePullRequestAsync(
+            string repositoryFullName, string title, string head, string baseBranch,
+            string? body, CancellationToken cancellationToken = default) =>
+            Task.FromResult($"https://github.com/{repositoryFullName}/pull/7");
     }
 
     /// <summary>Reports every known agent as Available — PATH-independent discovery.</summary>
@@ -277,9 +282,10 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>Deterministic code-server status — never installed/running on test hosts.</summary>
-    private sealed class FakeCodeServerManager : Taskboard.Application.Contracts.Vscode.ICodeServerManager
+    internal sealed class FakeCodeServerManager : Taskboard.Application.Contracts.Vscode.ICodeServerManager
     {
-        private static readonly Taskboard.Application.Contracts.Vscode.VscodeStatus Status = new(
+        /// <summary>Status retornado pelos stubs — testes ajustam por cenário.</summary>
+        public static Taskboard.Application.Contracts.Vscode.VscodeStatus Status { get; set; } = new(
             Installed: false, BinaryPath: null, Version: null, Running: false,
             Port: 8377, HomeDirectory: "/tmp/itest-home", WorkspaceRoot: "/tmp/itest-home/repos");
 

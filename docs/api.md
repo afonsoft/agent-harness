@@ -164,6 +164,7 @@ GET   /api/github/repos/{owner}/{repo}/timeline?days=90
 GET   /api/github/repos/{owner}/{repo}/metrics?days=90
 GET   /api/github/repos/{owner}/{repo}/workflows
 GET   /api/github/repos/{owner}/{repo}/workflows/{workflowId}/runs?take=10
+POST  /api/github/repos/{owner}/{repo}/pulls
 ```
 
 Kanban state is label-backed: `PATCH .../issues/{n}` edits `{ title?, body }` (markdown body rendered sanitized in the UI); `PUT .../priority` `{ "priority": "none|urgent|high|medium|low" }` swaps the `priority:*` labels (`none` removes them); `POST .../close` `{ "resolution": "canceled|archived" }` closes the issue — `canceled` also applies the `canceled` label (Canceled column), `archived` closes without a column label (Archived). All return `200 { issue }`; invalid enum values → `400`, unknown issue → `404`, anonymous → `401`.
@@ -175,6 +176,8 @@ Issue comments live in GitHub (never persisted locally): `GET .../issues/{n}/com
 The Gantt timeline and kanban metrics come from `GET .../repos/{owner}/{repo}/timeline` → `200 { issues: [{ id, number, title, column, priority, assigneeLogin, createdAt, closedAt, milestoneNumber, milestoneDueOn, transitions: [{ at, from, to }] }], milestones: [{ number, title, dueOn, state }] }` and `GET .../repos/{owner}/{repo}/metrics` → `200 { leadTimeAvgDays, leadTimeMedianDays, cycleTimeAvgDays, throughputPerWeek: [{ weekStart, closed }], wip, openMedianAgeDays }`. Both take `days` (default 90) — issues closed before the window are excluded; transitions replay the issue's `labeled`/`unlabeled` GitHub events merged with local `IssueHistoryEvent` records (deduplicated by `(at, from, to)`); per-issue timeline fetches run bounded (≤8 concurrent) and best-effort. Unknown repo → `404 { "error": "repo-not-found" }`.
 
 The `/workflow` page is a read-only GitHub Actions monitor: `GET .../workflows` → `200 { workflows: [{ id, name, path, state, htmlUrl, lastRun }] }` (each workflow embeds its most recent run — fetched per-workflow, capped at 20 fetches and ≤8 concurrent, best-effort so an unlistable run history just leaves `lastRun` null) and `GET .../workflows/{id}/runs?take=10` → `200 { runs: [{ id, name, displayTitle, runNumber, event, status, conclusion, headBranch, headSha, actorLogin, createdAt, updatedAt, runStartedAt, htmlUrl }] }`. Unknown repo → `404 { "error": "repo-not-found" }`. The UI badges map `success`→green, `failure`/`timed_out`/`startup_failure`/`action_required`→red, `in_progress`/`queued`/`requested`/`waiting`/`pending`→pulsing amber (drives a 60s auto-refresh), everything else→gray.
+
+`POST .../pulls` body `{ title, head, baseBranch, body? }` opens a pull request via Octokit → `201 { prUrl }`; used by the cockpit `create-pr` action after pushing the worktree branch.
 
 ### Agent Orchestration
 
@@ -283,6 +286,30 @@ All stages of an execution share one `IWorkspaceIsolationService` git worktree; 
 `POST .../approve` body `{ comment? }` releases a `WaitingApproval` gate and dispatches dependents → `200`. `POST .../retry` body `{ adjustedPrompt? }` re-queues a `Failed` stage without restarting the pipeline → `202`. `POST .../cancel` stops in-flight stage processes and transitions the pipeline to `Cancelled` → `200`. Approving/retrying a stage in a non-matching state → `400`; unknown pipeline → `404`.
 
 Dispatch runs on the `PipelineEngineService` background timer plus synchronous kicks after `start`/`approve`/`retry`; `PipelineEngine` resolves the DAG per execution scope so parallel stages never share a `DbContext`.
+
+### Harness — Cockpit (HITL)
+
+```http
+GET  /api/harness/runs
+POST /api/harness/runs
+GET  /api/harness/runs/{id}
+GET  /api/harness/runs/{id}/events
+POST /api/harness/runs/{id}/steer
+POST /api/harness/runs/{id}/approvals/{requestId}
+POST /api/harness/runs/{id}/create-pr
+```
+
+Cockpit "runs" are pipeline executions. `GET runs` → `200` with recent executions (newest first, same shape as `GET /api/harness/pipelines/{id}`). `POST runs` body `{ templateId, repositoryFullName, baseBranch, issueId?, specPath?, prompt, maxBudgetUsd? }` resolves `repositoryPath` server-side via `IWorkspacePathResolver` (`~/repos/<name>`, confined to the workspace root), appends `specPath` content to the prompt when readable, and starts the pipeline → `201`. `GET {id}` → `200 { execution, telemetry?, worktree? }` or `404`.
+
+`GET {id}/events` → `200` with the in-memory buffered `CockpitEventDto[]` (`{ runId, timestampUtc, kind, title, payloadJson? }`; kinds: `stage`, `agent_output`, `verification`, `approval`, `steer`) for late-join/reconnect replay — events are also streamed live over the SignalR hub below.
+
+`POST {id}/steer` body `{ instruction }` → `202`; the instruction is enqueued (`ISteerQueue`) and appended to the next dispatched stage prompt as "operator steer". Unknown run → `404`.
+
+`POST {id}/approvals/{requestId}` body `{ action, comment? }` — `requestId` uses the `stage:<stageKey>` convention published by `RequireApproval`; `Allow` approves the `WaitingApproval` stage, `Deny` rejects it with the comment as the reason → `200`. Unknown run/request → `404`.
+
+`POST {id}/create-pr` body `{ title, body? }` → `201 { prUrl }` — requires a `Completed` run; commits pending worktree changes, pushes the worktree branch and opens the PR via Octokit. Non-completed run → `409`; unknown run → `404`.
+
+SignalR hub `/harness-cockpit-hub` (authenticated): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` and `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). The Blazor pages are `/cockpit` (list + start) and `/cockpit/runs/{id}` (live timeline, diff tab, steer bar, approval modal, FinOps header).
 
 ### Living Specs (E13)
 

@@ -36,6 +36,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
 
     private Process? _process;
     private Task? _pumpTask;
+    private Task<VscodeStatus>? _restartInFlight;
     private bool _lastStartFailed;
     private bool _listening;
 
@@ -107,27 +108,47 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
     }
 
     /// <summary>
-    /// SPEC-20260920 RF-008: kill → spawn → wait-listening, serialized under
-    /// <see cref="_gate"/> so a concurrent EnsureStarted cannot interleave.
+    /// SPEC-20260920 RF-008: kill → spawn → wait-listening as a single-flight
+    /// operation — concurrent callers share the same in-flight task instead of
+    /// each running their own kill/spawn (which would kill the process the
+    /// first caller just created).
     /// </summary>
-    public async Task<VscodeStatus> RestartAsync(CancellationToken cancellationToken = default)
+    public Task<VscodeStatus> RestartAsync(CancellationToken cancellationToken = default)
     {
-        var binary = FindBinary();
         lock (_gate)
         {
-            StopLocked();
-            if (binary is not null)
+            return _restartInFlight ??= RestartCoreAsync(cancellationToken);
+        }
+    }
+
+    private async Task<VscodeStatus> RestartCoreAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var binary = FindBinary();
+            lock (_gate)
             {
-                StartLocked(binary);
+                StopLocked();
+                if (binary is not null)
+                {
+                    StartLocked(binary);
+                }
+            }
+
+            if (IsRunning())
+            {
+                await WaitForListeningAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _restartInFlight = null;
             }
         }
-
-        if (IsRunning())
-        {
-            await WaitForListeningAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        return await GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Kills the current child (if any) and waits briefly for it to exit — caller must hold <see cref="_gate"/>.</summary>

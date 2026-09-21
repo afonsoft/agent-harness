@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -260,6 +261,10 @@ builder.Services.AddHostedService<CliMetricsSyncService>();
 builder.Services.AddSingleton<PipelineEngine>();
 builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>();
 builder.Services.AddHostedService<PipelineEngineService>();
+// SPEC-20260919-ade-cockpit-hitl: cockpit event stream (buffered replay +
+// SignalR broadcast) e fila in-memory de steer do RF-003.
+builder.Services.AddSingleton<ISteerQueue, SteerQueue>();
+builder.Services.AddSingleton<ICockpitEventStream, CockpitEventStream>();
 // SPEC-20260919-ade-observability-finops: métricas de custo + budget caps.
 builder.Services.AddScoped<IFinOpsService, FinOpsService>();
 // SPEC-20260920-harness-recurring-jobs: projeção de custo sobre uso CLI a cada 30s.
@@ -714,6 +719,128 @@ pipelines.MapPost("{id}/cancel", async (
         CancellationToken ct) =>
     Results.Ok(await orchestrator.CancelAsync(id, ct)));
 
+// SPEC-20260919-ade-cockpit-hitl §5: runs (pipeline executions) para o cockpit.
+var runs = api.MapGroup("harness/runs");
+runs.MapGet("", async (
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    Results.Ok(await orchestrator.ListAsync(cancellationToken: ct)));
+runs.MapPost("", async (
+        RunStartRequest request,
+        IPipelineOrchestrator orchestrator,
+        WorkspaceService workspace,
+        CancellationToken ct) =>
+{
+    // The client sends only owner/repo — the repo path resolves server-side
+    // and stays confined to the workspace root.
+    var repositoryPath = workspace.ResolveCardWorkdir(request.RepositoryFullName, out _);
+    var prompt = string.IsNullOrWhiteSpace(request.SpecPath)
+        ? request.Prompt
+        : $"{request.Prompt}\n\nSpec: `{request.SpecPath}`";
+    var dto = await orchestrator.StartAsync(
+        new PipelineStartRequest(
+            request.TemplateId,
+            request.RepositoryFullName,
+            repositoryPath,
+            request.BaseBranch,
+            request.IssueId,
+            prompt,
+            request.MaxBudgetUsd),
+        ct);
+    return Results.Created($"/api/harness/runs/{dto.PipelineExecutionId}", dto);
+});
+runs.MapGet("{id}", async (
+        string id,
+        IPipelineOrchestrator orchestrator,
+        IFinOpsService finOps,
+        IWorkspaceIsolationService isolation,
+        CancellationToken ct) =>
+    await orchestrator.GetAsync(id, ct) is { } execution
+        ? Results.Ok(new RunDetailsDto(
+            execution,
+            await finOps.GetRunTelemetryAsync(id, ct),
+            await isolation.GetAsync(id, ct)))
+        : Results.NotFound());
+runs.MapGet("{id}/events", (
+        string id,
+        ICockpitEventStream stream) =>
+    Results.Ok(stream.GetBuffered(id)));
+runs.MapPost("{id}/steer", async (
+        string id,
+        SteerRequest request,
+        ISteerQueue steer,
+        ICockpitEventStream stream,
+        CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Instruction))
+    {
+        return Results.BadRequest(new { error = "Instruction cannot be empty." });
+    }
+
+    steer.Enqueue(id, request.Instruction.Trim());
+    await stream.PublishAsync(
+        new CockpitEventDto(id, DateTimeOffset.UtcNow, "steer", "Steer queued", request.Instruction.Trim()),
+        ct);
+    return Results.Accepted();
+});
+runs.MapPost("{id}/approvals/{requestId}", async (
+        string id,
+        string requestId,
+        ApprovalReplyRequest request,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+{
+    // `stage:<key>` requestIds resolve back to the stage gate (RF-004);
+    // anything else is an unknown request.
+    if (!requestId.StartsWith("stage:", StringComparison.Ordinal))
+    {
+        return Results.NotFound();
+    }
+
+    var stageKey = requestId["stage:".Length..];
+    var execution = string.Equals(request.Action, "Allow", StringComparison.OrdinalIgnoreCase)
+        ? await orchestrator.ApproveStageAsync(id, stageKey, request.Comment, ct)
+        : await orchestrator.RejectStageAsync(id, stageKey, request.Comment, ct);
+    return Results.Ok(execution);
+});
+runs.MapPost("{id}/create-pr", async (
+        string id,
+        CreatePrRequest request,
+        IPipelineOrchestrator orchestrator,
+        IWorkspaceIsolationService isolation,
+        IGitHubService gitHub,
+        CancellationToken ct) =>
+{
+    var execution = await orchestrator.GetAsync(id, ct);
+    if (execution is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!string.Equals(execution.Status, PipelineStatus.Completed.ToString(), StringComparison.Ordinal))
+    {
+        return Results.Conflict(new { error = $"Run is {execution.Status} — a PR can only be created once the pipeline completes." });
+    }
+
+    var session = await isolation.GetAsync(id, ct);
+    if (session is null)
+    {
+        return Results.Conflict(new { error = "Run has no worktree — nothing to push." });
+    }
+
+    // RF-005: commit pending changes, push the worktree branch, open the PR.
+    var diff = await isolation.GetDiffAsync(id, ct);
+    if (diff.FilesChanged > 0)
+    {
+        await isolation.CommitAsync(id, request.Title, "Harness <harness@taskboard.local>", ct);
+    }
+
+    var branch = await isolation.PushAsync(id, ct);
+    var prUrl = await gitHub.CreatePullRequestAsync(
+        execution.RepositoryFullName, request.Title, branch, execution.BaseBranch, request.Body, ct);
+    return Results.Created(prUrl, (object?)new { prUrl });
+});
+
 // SPEC-20260919-ade-observability-finops §5: summary agregado + telemetria por run.
 var finops = api.MapGroup("harness/finops");
 finops.MapGet("summary", async (
@@ -800,11 +927,12 @@ cliMetrics.MapGet("sessions", async (
 // RequireAuthorization (cookie or X-Api-Key).
 api.MapMcp("mcp");
 
-// SPEC-20260920 RF-005/RF-006: only 'owner/name' shapes are accepted — anything
-// else is rejected before it can reach a path resolver.
+// SPEC-20260920 RF-005/RF-006: only 'owner/name' shapes are accepted — same
+// charset the WASM selector enforces (RepositoryFilter.RepositoryNamePattern),
+// so a name the client rejects is never silently sanitized server-side.
 static bool IsRepoShapeValid(string? repo) =>
     string.IsNullOrEmpty(repo)
-    || repo.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2;
+    || Regex.IsMatch(repo.Trim(), @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");
 
 static bool IsLocalUrl(string? url)
 {
@@ -1122,6 +1250,8 @@ app.MapStaticAssets();
 app.MapFrameworkAssetsApi();
 app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
 app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
+// SPEC-20260919-ade-cockpit-hitl §5: stream de eventos estruturados por run.
+app.MapHub<HarnessCockpitHub>("/harness-cockpit-hub").RequireAuthorization();
 
 // SPEC-20260917-vscode-web-workspace RF-006: /vscode mount handling lives in
 // middleware (not an endpoint) because endpoint routing ignores the trailing
@@ -1439,6 +1569,20 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/comments", async (
     {
         return Results.NotFound(new { error = "issue-not-found" });
     }
+});
+
+// SPEC-20260919-ade-cockpit-hitl RF-005: criação de PR via Octokit (token fica
+// server-side; o WASM client chama este endpoint via HttpGitHubService).
+github.MapPost("repos/{owner}/{repo}/pulls", async (
+    string owner,
+    string repo,
+    CreatePullRequestBody request,
+    IGitHubService gitHub,
+    CancellationToken ct) =>
+{
+    var prUrl = await gitHub.CreatePullRequestAsync(
+        $"{owner}/{repo}", request.Title, request.Head, request.BaseBranch, request.Body, ct);
+    return Results.Created(prUrl, new { prUrl });
 });
 
 // Unified issue timeline: persisted board events + agent runs, newest first.
@@ -1794,10 +1938,19 @@ api.MapGet("vscode/install/status", (IVscodeInstallService installs) =>
     .RequireAuthorization();
 
 // SPEC-20260920-global-repo-selector RF-008: restart a wedged code-server —
-// kill → spawn → wait-listening inside the manager (serialized), not an app restart.
-api.MapPost("vscode/restart", async (ICodeServerManager manager, CancellationToken ct) =>
-    Results.Ok(await manager.RestartAsync(ct)))
-    .RequireAuthorization();
+// kill → spawn → wait-listening inside the manager (single-flight), not an app
+// restart. 404 when code-server is not installed, 503 when it is not listening
+// after the restart — a bare 200 would make the UI reload a dead editor.
+api.MapPost("vscode/restart", async Task<IResult> (ICodeServerManager manager, CancellationToken ct) =>
+{
+    var status = await manager.RestartAsync(ct);
+    return status switch
+    {
+        { Installed: false } => Results.NotFound(status),
+        { Running: false } => Results.Json(status, statusCode: StatusCodes.Status503ServiceUnavailable),
+        _ => Results.Ok(status),
+    };
+}).RequireAuthorization();
 
 api.MapGet("vscode/workdir", (string repo, WorkspaceService workspace) =>
 {

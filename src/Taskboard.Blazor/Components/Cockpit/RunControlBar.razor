@@ -1,0 +1,102 @@
+@* SPEC-20260919-ade-cockpit-hitl RF-003/RF-005: steer input + ações do run
+   (cancelar sempre; criar PR quando completado). *@
+
+<div class="cockpit-control-bar d-flex flex-wrap align-items-center gap-2 p-2 border rounded bg-body-tertiary">
+    <div class="input-group input-group-sm flex-grow-1" style="min-width: 240px;">
+        <input class="form-control" placeholder="Steer: instrução para a próxima etapa do run…"
+               @bind="_steer" @bind:event="oninput" @onkeydown="OnKeyDown" disabled="@(!CanSteer || _busy)" aria-label="Steer instruction" />
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SteerAsync"
+                disabled="@(!CanSteer || _busy || string.IsNullOrWhiteSpace(_steer))">
+            <Icon Name="IconName.Send" /> Steer
+        </Button>
+    </div>
+    <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" Outline="true" @onclick="CancelAsync"
+            disabled="@(!IsActive || _busy)">
+        <Icon Name="IconName.StopCircle" /> Stop
+    </Button>
+    <Button Color="ButtonColor.Success" Size="ButtonSize.Small" @onclick="CreatePrAsync"
+            disabled="@(!IsCompleted || _busy)" title="@(IsCompleted ? "Commit + push + open PR" : "Disponível quando o run completar")">
+        @if (_creatingPr)
+        {
+            <Spinner Size="SpinnerSize.Small" />
+        }
+        else
+        {
+            <Icon Name="IconName.Git" />
+        }
+        Create PR
+    </Button>
+</div>
+
+@code {
+    private string? _steer;
+    private bool _busy;
+    private bool _creatingPr;
+
+    /// <summary>Run status (Running, WaitingApproval, Completed, …).</summary>
+    [Parameter] public string Status { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> OnSteer { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback<(string Title, string? Body)> OnCreatePr { get; set; }
+    /// <summary>Título sugerido do PR (ex: prompt do run).</summary>
+    [Parameter] public string SuggestedPrTitle { get; set; } = "chore: agent run output";
+
+    private bool IsActive => Status is "Running" or "WaitingApproval" or "AwaitingRetry";
+    private bool IsCompleted => Status == "Completed";
+    private bool CanSteer => IsActive;
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SteerAsync();
+        }
+    }
+
+    private async Task SteerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_steer) || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await OnSteer.InvokeAsync(_steer.Trim());
+            _steer = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        _busy = true;
+        try
+        {
+            await OnCancel.InvokeAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreatePrAsync()
+    {
+        _busy = true;
+        _creatingPr = true;
+        try
+        {
+            await OnCreatePr.InvokeAsync((SuggestedPrTitle, null));
+        }
+        finally
+        {
+            _busy = false;
+            _creatingPr = false;
+        }
+    }
+}

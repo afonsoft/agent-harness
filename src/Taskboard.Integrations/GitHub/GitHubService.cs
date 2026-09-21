@@ -454,6 +454,24 @@ public sealed class GitHubService : IGitHubService
         return dto with { Column = GitHubBoardGrouper.ResolveColumn(dto) };
     }
 
+    /// <inheritdoc />
+    public async Task<string> CreatePullRequestAsync(
+        string repositoryFullName,
+        string title,
+        string head,
+        string baseBranch,
+        string? body,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+        var pr = await _client.PullRequest.Create(
+            owner,
+            name,
+            new NewPullRequest(title, head, baseBranch) { Body = body });
+        return pr.HtmlUrl;
+    }
+
     private static (string Owner, string Name) SplitRepositoryName(string repositoryFullName)
     {
         var parts = repositoryFullName.Split('/', StringSplitOptions.RemoveEmptyEntries);

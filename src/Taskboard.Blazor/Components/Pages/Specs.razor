@@ -142,14 +142,22 @@
     private async Task RefreshAsync()
     {
         _loading = true;
+        // Snapshot the selection — a newer fetch may land after this one on a
+        // rapid repo switch; discard the stale response instead of assigning it.
+        var repo = RepoService.Selected;
         try
         {
             var specsTask = Client.GetSpecsAsync(
                 string.IsNullOrEmpty(_statusFilter) ? null : _statusFilter,
                 string.IsNullOrWhiteSpace(_query) ? null : _query,
-                RepoService.Selected);
-            var driftTask = Client.GetSpecDriftReportAsync(RepoService.Selected);
+                repo);
+            var driftTask = Client.GetSpecDriftReportAsync(repo);
             await Task.WhenAll(specsTask, driftTask);
+            if (!string.Equals(repo, RepoService.Selected, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             _specs = specsTask.Result;
             _drift = driftTask.Result;
         }

@@ -32,6 +32,16 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                     t.TemplateId, t.Name, t.Stages.Select(s => s.Key).ToList()))
                 .ToList());
 
+    public async Task<IReadOnlyList<PipelineExecutionDto>> ListAsync(
+        int take = 50, CancellationToken cancellationToken = default) =>
+        await _executions.Query
+            .Include(e => e.Stages)
+            .OrderByDescending(e => e.CreatedAtUtc)
+            .Take(take)
+            .Select(e => ToDto(e))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
     public async Task<PipelineExecutionDto> StartAsync(
         PipelineStartRequest request, CancellationToken cancellationToken = default)
     {
@@ -64,6 +74,17 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
     {
         var execution = await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
         execution.ApproveStage(stageKey, comment, DateTime.UtcNow);
+        await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
+        return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<PipelineExecutionDto> RejectStageAsync(
+        string pipelineExecutionId, string stageKey, string? comment,
+        CancellationToken cancellationToken = default)
+    {
+        var execution = await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        execution.FailStage(stageKey, $"Rejected by reviewer{(string.IsNullOrWhiteSpace(comment) ? "." : $": {comment}")}", DateTime.UtcNow);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));

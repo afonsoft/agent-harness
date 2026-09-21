@@ -129,15 +129,68 @@ public class VscodeEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     }
 
     [Fact]
+    public async Task Dado_NaoInstalado_Quando_PostVscodeRestart_Entao_404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        TaskboardWebApplicationFactory.FakeCodeServerManager.Status = new Taskboard.Application.Contracts.Vscode.VscodeStatus(
+            Installed: false, BinaryPath: null, Version: null, Running: false,
+            Port: 8377, HomeDirectory: "/tmp", WorkspaceRoot: "/tmp/repos");
+        try
+        {
+            var response = await client.PostAsync("/api/vscode/restart", null);
+
+            response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        }
+        finally
+        {
+            TaskboardWebApplicationFactory.FakeCodeServerManager.Status = new Taskboard.Application.Contracts.Vscode.VscodeStatus(
+                Installed: false, BinaryPath: null, Version: null, Running: false,
+                Port: 8377, HomeDirectory: "/tmp", WorkspaceRoot: "/tmp/repos");
+        }
+    }
+
+    [Fact]
+    public async Task Dado_InstaladoSemListener_Quando_PostVscodeRestart_Entao_503()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        TaskboardWebApplicationFactory.FakeCodeServerManager.Status = new Taskboard.Application.Contracts.Vscode.VscodeStatus(
+            Installed: true, BinaryPath: "/usr/bin/code-server", Version: "4.0", Running: false,
+            Port: 8377, HomeDirectory: "/tmp", WorkspaceRoot: "/tmp/repos");
+        try
+        {
+            var response = await client.PostAsync("/api/vscode/restart", null);
+
+            response.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        }
+        finally
+        {
+            TaskboardWebApplicationFactory.FakeCodeServerManager.Status = new Taskboard.Application.Contracts.Vscode.VscodeStatus(
+                Installed: false, BinaryPath: null, Version: null, Running: false,
+                Port: 8377, HomeDirectory: "/tmp", WorkspaceRoot: "/tmp/repos");
+        }
+    }
+
+    [Fact]
     public async Task Dado_Autenticado_Quando_PostVscodeRestart_Entao_200ComStatus()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
+        TaskboardWebApplicationFactory.FakeCodeServerManager.Status = new Taskboard.Application.Contracts.Vscode.VscodeStatus(
+            Installed: true, BinaryPath: "/usr/bin/code-server", Version: "4.0", Running: true,
+            Port: 8377, HomeDirectory: "/tmp", WorkspaceRoot: "/tmp/repos");
+        try
+        {
+            var response = await client.PostAsync("/api/vscode/restart", null);
 
-        var response = await client.PostAsync("/api/vscode/restart", null);
-
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
-        body.ShouldNotBeNull();
-        body["running"]!.GetValue<bool>().ShouldBeFalse();
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+            body.ShouldNotBeNull();
+            body["running"]!.GetValue<bool>().ShouldBeTrue();
+        }
+        finally
+        {
+            TaskboardWebApplicationFactory.FakeCodeServerManager.Status = new Taskboard.Application.Contracts.Vscode.VscodeStatus(
+                Installed: false, BinaryPath: null, Version: null, Running: false,
+                Port: 8377, HomeDirectory: "/tmp", WorkspaceRoot: "/tmp/repos");
+        }
     }
 }

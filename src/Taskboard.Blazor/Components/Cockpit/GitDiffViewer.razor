@@ -1,0 +1,64 @@
+@* SPEC-20260919-ade-cockpit-hitl RF-002: unified diff com realce por linha.
+   Diffs grandes (>2MB) são truncados com aviso — edge case do §6. *@
+
+@if (Diff is null)
+{
+    <div class="text-body-secondary small p-3">Sem diff disponível para este run.</div>
+}
+else
+{
+    <div class="cockpit-diff-summary d-flex align-items-center gap-3 px-2 py-1 small border-bottom">
+        <span><strong>@Diff.FilesChanged</strong> arquivo(s)</span>
+        <span class="text-success">+@Diff.Insertions</span>
+        <span class="text-danger">-@Diff.Deletions</span>
+        @if (Truncated)
+        {
+            <span class="badge text-bg-warning">Diff muito grande — renderização truncada, listando resumo dos arquivos</span>
+        }
+    </div>
+
+    @if (Truncated)
+    {
+        <ul class="list-group list-group-flush small">
+            @foreach (var file in Diff.Files)
+            {
+                <li class="list-group-item py-1 d-flex justify-content-between">
+                    <code>@file.Path</code>
+                    <span class="badge text-bg-secondary">@file.Status</span>
+                </li>
+            }
+        </ul>
+    }
+    else
+    {
+        <pre class="cockpit-diff font-monospace small mb-0 p-2">@foreach (var line in _lines)
+{<span class="@LineClass(line)">@line
+</span>}</pre>
+    }
+}
+
+@code {
+    private const int MaxPatchChars = 2 * 1024 * 1024;
+
+    private string[] _lines = [];
+
+    /// <summary>Diff do worktree retornado por GET /api/harness/worktrees/{runId}/diff.</summary>
+    [Parameter] public WorkspaceDiffDto? Diff { get; set; }
+
+    private bool Truncated => Diff?.Patch.Length > MaxPatchChars;
+
+    protected override void OnParametersSet()
+    {
+        _lines = Truncated
+            ? []
+            : (Diff?.Patch ?? string.Empty).Split('\n');
+    }
+
+    private static string LineClass(string line) =>
+        line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal) ? "diff-file"
+        : line.StartsWith("@@", StringComparison.Ordinal) ? "diff-hunk"
+        : line.StartsWith('+') ? "diff-add"
+        : line.StartsWith('-') ? "diff-del"
+        : line.StartsWith("diff --git", StringComparison.Ordinal) ? "diff-file"
+        : "diff-ctx";
+}
