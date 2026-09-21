@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | — |
 | Ticket | [#253](https://github.com/afonsoft/agent-harness/issues/253) — GAP-automation-sonar-project-key (gap-analysis-20260920) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -65,7 +65,7 @@ O repo foi renomeado `afonsoft/taskboard-ai` → `afonsoft/agent-harness` (2026-
 
 ## 4. Tasks
 
-- [ ] **T1:** decisão do usuário → executar opção escolhida + verificar CI.
+- [x] **T1:** decisão do usuário → executar opção escolhida + verificar CI.
 
 ---
 
@@ -80,3 +80,13 @@ O repo foi renomeado `afonsoft/taskboard-ai` → `afonsoft/agent-harness` (2026-
 
 1. Opção B perde o baseline de issues do Sonar (quality gate pode re-computar "new code" do zero — primeiro scan pode acusar issues antigas como novas).
 2. Verificar se SonarCloud permite renomear a key preservando histórico (opção C) antes de assumir B.
+
+---
+
+## Decisão registrada (2026-09-21)
+
+**Opção B já aplicada** — o rename commit `cd8fd6f` (PR #246) migrou `SONAR_PROJECT_KEY` para `afonsoft_agent-harness` em `code-quality.yml:27`. Nenhuma edição adicional de workflow é necessária.
+
+**Estado real da análise:** o job `SonarCloud Analysis` está **dormant** — `SONAR_TOKEN` não está configurado nos secrets do repo e o step `Check SONAR_TOKEN` sai com "skipping SonarCloud analysis" (verificado em run 35557772067, 2026-09-21). O "pass" do check é vacuoso: nenhuma análise roda.
+
+**Pendência operacional (fora do repo):** para ativar a análise é preciso (1) confirmar/criar o projeto `afonsoft_agent-harness` no SonarCloud org `afonsoft` e (2) adicionar o secret `SONAR_TOKEN`. Ambos exigem acesso admin ao SonarCloud — ação manual do mantenedor. A key no workflow já está correta para quando o token for configurado.
