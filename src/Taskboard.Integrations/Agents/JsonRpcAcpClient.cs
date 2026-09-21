@@ -134,23 +134,58 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
                 }
                 else
                 {
-                    var content = root.TryGetProperty("method", out var methodElement)
-                        ? $"{methodElement.GetString()}: {GetParamsText(root)}"
-                        : line;
-                    progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, expectedId, AgentLogStream.System, content));
+                    ReportNotification(line, expectedId, progress);
                 }
             }
             else
             {
-                var content = root.TryGetProperty("method", out var methodElement)
-                    ? $"{methodElement.GetString()}: {GetParamsText(root)}"
-                    : line;
-                progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, expectedId, AgentLogStream.System, content));
+                ReportNotification(line, expectedId, progress);
             }
         }
         catch (JsonException)
         {
             progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, expectedId, AgentLogStream.System, line));
+        }
+    }
+
+    /// <summary>
+    /// Notificação JSON-RPC fora do id de resultado: notificações
+    /// <c>session/update</c> são normalizadas pelo parser ACP (tool_call, plan,
+    /// thought…); demais viram texto <c>method: params</c> como antes.
+    /// SPEC-20260921-agent-execution-event-pipeline RF-002.
+    /// </summary>
+    private static void ReportNotification(string line, string issueId, IProgress<AgentLogMessage> progress)
+    {
+        var parsed = AcpProtocolParser.Parse(line);
+        if (parsed is not null
+            && parsed.Method is "session/update" or "session/request_permission")
+        {
+            progress?.Report(new AgentLogMessage(
+                DateTimeOffset.UtcNow,
+                issueId,
+                AgentLogStream.System,
+                parsed.Content ?? parsed.Method,
+                parsed.Kind,
+                parsed.PayloadJson));
+            return;
+        }
+
+        var content = parsed is { Method.Length: > 0 }
+            ? $"{parsed.Method}: {GetParamsText(line)}"
+            : line;
+        progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, issueId, AgentLogStream.System, content));
+    }
+
+    private static string GetParamsText(string line)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            return doc.RootElement.TryGetProperty("params", out var p) ? p.GetRawText() : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
         }
     }
 

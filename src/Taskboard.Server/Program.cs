@@ -177,6 +177,10 @@ builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
+// SPEC-20260921-agent-execution-event-pipeline: sink normalizado + replay durável.
+builder.Services.AddScoped<IAgentRunEventRepository, EfCoreAgentRunEventRepository>();
+builder.Services.AddSingleton<ISecretRedactor>(sp => sp.GetRequiredService<SecretScrubber>());
+builder.Services.AddSingleton<IAgentExecutionEventSink, AgentExecutionEventSink>();
 builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
 builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -1842,6 +1846,26 @@ agents.MapDelete("logs/{issueId}", async (string issueId, IAgentOrchestrationSer
 {
     await orchestration.ClearLogsAsync(issueId, ct);
     return Results.NoContent();
+});
+
+// SPEC-20260921-agent-execution-event-pipeline RF-003: replay paginado de
+// eventos normalizados por escopo (run | thread | issue).
+agents.MapGet("events", async (
+    string scopeKind,
+    string scopeId,
+    IAgentExecutionEventSink sink,
+    long? after,
+    int? take,
+    CancellationToken ct) =>
+{
+    if (scopeKind is not ("run" or "thread" or "issue") || string.IsNullOrWhiteSpace(scopeId))
+    {
+        return Results.BadRequest(new { error = "scopeKind must be run|thread|issue and scopeId is required." });
+    }
+
+    var events = await sink.GetEventsAsync(scopeKind, scopeId, after ?? 0, take ?? 500, ct);
+    var nextAfter = events.Count > 0 ? events[^1].Sequence : after ?? 0;
+    return Results.Ok(new { events, nextAfter, hasMore = events.Count >= (take ?? 500) });
 });
 
 agents.MapPost("executions/{issueId}/cancel", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>

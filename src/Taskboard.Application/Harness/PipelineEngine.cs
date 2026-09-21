@@ -26,6 +26,7 @@ public sealed class PipelineEngine
     private readonly IVerificationEngine _verification;
     private readonly ICockpitEventStream? _cockpit;
     private readonly ISteerQueue? _steer;
+    private readonly IAgentExecutionEventSink? _eventSink;
     private readonly ILogger<PipelineEngine> _logger;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runningStages = new();
     private readonly ConcurrentDictionary<Task, byte> _stageTasks = new();
@@ -37,7 +38,8 @@ public sealed class PipelineEngine
         IVerificationEngine verification,
         ILogger<PipelineEngine> logger,
         ICockpitEventStream? cockpit = null,
-        ISteerQueue? steer = null)
+        ISteerQueue? steer = null,
+        IAgentExecutionEventSink? eventSink = null)
     {
         _scopeFactory = scopeFactory;
         _acpClient = acpClient;
@@ -45,6 +47,7 @@ public sealed class PipelineEngine
         _logger = logger;
         _cockpit = cockpit;
         _steer = steer;
+        _eventSink = eventSink;
     }
 
     /// <summary>Scans active executions and dispatches every eligible stage.</summary>
@@ -306,6 +309,16 @@ public sealed class PipelineEngine
                         new { stream = message.Stream.ToString(), content = message.Content },
                         JsonOptions)));
             }
+
+            // SPEC-20260921-agent-execution-event-pipeline RF-003: fluxo
+            // normalizado durável (tool_call/plan/output) além do cockpit.
+            if (_eventSink is not null)
+            {
+                _ = _eventSink.EmitAsync(
+                    AgentEventNormalizer.FromLogMessage(
+                        message, AgentEventScope.Run, runId, stageId: stageKey),
+                    CancellationToken.None);
+            }
         });
 
         var instructions = PipelineContextSynthesizer.BuildStagePrompt(exec, stage);
@@ -446,6 +459,24 @@ public sealed class PipelineEngine
 
     private async Task PublishAsync(string runId, string kind, string title, string? stageKey)
     {
+        // SPEC-20260921-agent-execution-event-pipeline: cockpit kinds mapam para
+        // a taxonomia normalizada — o evento durável sai mesmo sem cockpit.
+        if (_eventSink is not null)
+        {
+            var normalizedKind = kind switch
+            {
+                "stage" or "status" => AgentEventKinds.Lifecycle,
+                "verification" => AgentEventKinds.Verification,
+                "steer" => AgentEventKinds.Steer,
+                "diff" => AgentEventKinds.Diff,
+                "approval" => AgentEventKinds.Approval,
+                _ => AgentEventKinds.Activity
+            };
+            _ = _eventSink.EmitAsync(new AgentExecutionEvent(
+                string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
+                normalizedKind, stageKey, Title: title), CancellationToken.None);
+        }
+
         if (_cockpit is null)
         {
             return;
@@ -464,13 +495,23 @@ public sealed class PipelineEngine
 
     private async Task PublishApprovalAsync(string runId, PipelineStageExecution stage)
     {
+        // The `stage:` requestId prefix is how the approvals endpoint resolves
+        // the reply back to the stage gate (SPEC-20260919-ade-cockpit-hitl §5).
+        if (_eventSink is not null)
+        {
+            _ = _eventSink.EmitAsync(new AgentExecutionEvent(
+                string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
+                AgentEventKinds.Approval, stage.StageKey,
+                Title: $"Stage '{stage.Name}' awaits approval",
+                PayloadJson: JsonSerializer.Serialize(new { requestId = $"stage:{stage.StageKey}", options = new[] { "Allow", "Deny" } }, JsonOptions)),
+                CancellationToken.None);
+        }
+
         if (_cockpit is null)
         {
             return;
         }
 
-        // The `stage:` requestId prefix is how the approvals endpoint resolves
-        // the reply back to the stage gate (SPEC-20260919-ade-cockpit-hitl §5).
         try
         {
             await _cockpit.PublishApprovalAsync(new ApprovalRequestDto(
