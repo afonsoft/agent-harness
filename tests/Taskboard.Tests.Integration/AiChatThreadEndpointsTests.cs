@@ -43,9 +43,10 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
         {
             title = "Integration thread",
-            model = "gpt-4o",
+            model = "opencode/claude-sonnet-5",
             reasoningEffort = "medium",
-            sandbox = "read-only"
+            sandbox = "read-only",
+            agentType = "OpenCode"
         });
 
         create.StatusCode.ShouldBe(HttpStatusCode.Created);
@@ -54,6 +55,7 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         thread.ShouldNotBeNull();
         var threadId = thread!["id"]!.GetValue<string>();
         thread["title"]!.GetValue<string>().ShouldBe("Integration thread");
+        thread["agentType"]!.GetValue<string>().ShouldBe("OpenCode");
 
         var list = await client.GetFromJsonAsync<JsonObject>("/api/local/ai/threads");
         var threads = list?["threads"] as JsonArray;
@@ -198,14 +200,30 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Dado_SemAgentType_Quando_CreateThread_Entao_Retorna400()
+    {
+        // SPEC-20260921-ai-chat-cli-backend RF-002: toda thread exige um agente.
+        var client = await ApiClientAsync();
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "no agent",
+            sandbox = "read-only"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
     private static async Task<string> CreateThreadAsync(HttpClient client, string title)
     {
         var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
         {
             title,
-            model = "gpt-4o",
+            model = "opencode/claude-sonnet-5",
             reasoningEffort = "medium",
-            sandbox = "read-only"
+            sandbox = "read-only",
+            agentType = "OpenCode"
         });
         create.EnsureSuccessStatusCode();
         var body = await create.Content.ReadFromJsonAsync<JsonObject>();

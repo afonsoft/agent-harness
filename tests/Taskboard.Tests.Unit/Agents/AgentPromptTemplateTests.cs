@@ -187,6 +187,19 @@ public class AgentCliModelTests
     }
 
     [Fact]
+    public void Dado_OmitModelFlag_Quando_BuildArguments_Entao_CliDecideSemCurado()
+    {
+        // SPEC-20260921-ai-chat-cli-backend: "default" na thread significa que a
+        // CLI escolhe o modelo — nenhuma flag (nem o curado Normal) é emitida.
+        var args = AgentCliInvocation.BuildArguments(
+            AgentType.OpenCode, "P", AgentModelTier.Normal, modelName: null, omitModelFlag: true);
+
+        args.ShouldNotContain("-m");
+        args.ShouldNotContain("opencode/claude-sonnet-5");
+        args.Last().ShouldBe("P");
+    }
+
+    [Fact]
     public void Dado_ModeloResolvidoEmCliGerenciada_Quando_BuildArguments_Entao_SemFlag()
     {
         // CLI-managed nunca recebe flag, mesmo com nome explícito.

@@ -123,6 +123,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<IEventStreamService, InMemoryEventStreamService>();
 builder.Services.AddSingleton<IThreadEventStreamService, InMemoryThreadEventStreamService>();
 builder.Services.AddSingleton<AiCatalogService>();
+builder.Services.AddScoped<AiChatCatalogService>();
+builder.Services.AddSingleton<ICliChatRunner, CliChatRunner>();
 builder.Services.AddSingleton<CloudSessionService>();
 builder.Services.AddSingleton<IJiraService, JiraService>();
 builder.Services.AddSingleton<IExecutableResolver, CodexExecutableResolver>();
@@ -1063,11 +1065,18 @@ api.MapPost("local/jira-connection/sync", async (IJiraService jira, Cancellation
     var result = await jira.SyncAsync(ct);
     return Results.Ok(result);
 });
-api.MapGet("local/ai/catalog", (AiCatalogService catalog) => Results.Ok(new { models = catalog.List() }));
-api.MapPost("local/ai/catalog", (AiChatModelDto model, AiCatalogService catalog) =>
+api.MapGet("local/ai/catalog", async (AiChatCatalogService catalog, CancellationToken ct) =>
+    Results.Ok(new { models = await catalog.ListAsync(ct) }));
+api.MapPost("local/ai/catalog", async (AiChatModelDto model, AiChatCatalogService catalog, CancellationToken ct) =>
 {
-    var added = catalog.TryAdd(model);
-    return added ? Results.Created($"/api/local/ai/catalog/{model.Id}", new { model }) : Results.Conflict(new { error = new { code = "MODEL_EXISTS", message = $"Model '{model.Id}' already exists." } });
+    var error = await catalog.AddAsync(model, ct);
+    return error switch
+    {
+        null => Results.Created($"/api/local/ai/catalog/{model.Id}", new { model }),
+        "MODEL_EXISTS" => Results.Conflict(new { error = new { code = "MODEL_EXISTS", message = $"Model '{model.Id}' already exists." } }),
+        "INVALID_AGENT" => Results.BadRequest(new { error = new { code = "INVALID_AGENT", message = $"Invalid agent type '{model.AgentType}'." } }),
+        _ => Results.UnprocessableEntity(new { error = new { code = "agent-not-eligible", message = $"Agent '{model.AgentType}' is not installed, authenticated or enabled." } })
+    };
 });
 api.MapGet("local/ai/composer/candidates", () => Results.Ok(new { candidates = Array.Empty<object>() }));
 api.MapPost("local/ai/composer/rebind", (object? _) => Results.NoContent());

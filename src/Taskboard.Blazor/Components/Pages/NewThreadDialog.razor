@@ -1,10 +1,19 @@
 @inject TaskboardClient Client
+@inject IAgentOrchestrationService OrchestrationService
 
-@if (_models is null)
+@if (_loading)
 {
     <div class="d-flex align-items-center">
         <Spinner Size="SpinnerSize.Small" Class="me-2" />
-        <span>Loading models...</span>
+        <span>Loading agents and models...</span>
+    </div>
+}
+else if (_agents is not null && _agents.Count == 0)
+{
+    <div class="alert alert-warning" role="status">
+        No enabled and authenticated agent CLI. Enable one in
+        <a href="/settings" class="alert-link">Settings → Agents</a> or
+        <a href="/agents" class="alert-link">Agents</a>.
     </div>
 }
 else
@@ -17,23 +26,24 @@ else
     <div class="mb-3">
         <label for="thread-mode" class="form-label">Mode</label>
         <select id="thread-mode" class="form-select" @bind="_mode">
-            <option value="assistant">Assistant (Standard LLM Chat)</option>
-            <option value="agent">Agent (Interactive Web CLI Session)</option>
+            <option value="assistant">Assistant (chat — agent CLI, no workspace)</option>
+            <option value="agent">Agent (interactive CLI session on a workspace)</option>
         </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="thread-agent" class="form-label">Agent CLI</label>
+        <select id="thread-agent" class="form-select" value="@_agentType" @onchange="OnAgentChanged">
+            @foreach (var agent in _agents!)
+            {
+                <option value="@agent.Type" disabled="@(agent.Status != AgentStatus.Available)">@agent.Name (@agent.Status)</option>
+            }
+        </select>
+        <p class="form-text mb-0">The chat runs through this CLI — its own credentials are used.</p>
     </div>
 
     @if (_mode == "agent")
     {
-        <div class="mb-3">
-            <label for="thread-agent" class="form-label">Agent CLI</label>
-            <select id="thread-agent" class="form-select" @bind="_agentType">
-                <option value="OpenCode">OpenCode</option>
-                <option value="Claude">Claude Code</option>
-                <option value="Codex">Codex</option>
-                <option value="Devin">Devin CLI</option>
-            </select>
-        </div>
-
         <div class="mb-3">
             <label for="thread-workdir" class="form-label">Workspace Path</label>
             <input id="thread-workdir" type="text" class="form-control" @bind="_workspacePath" placeholder="/path/to/project (optional)" />
@@ -43,33 +53,29 @@ else
     <div class="mb-3">
         <label for="thread-model" class="form-label">Model</label>
         <select id="thread-model" class="form-select" @bind="_modelId">
-            @foreach (var model in _models)
+            <option value="">CLI default</option>
+            @foreach (var model in AgentModels)
             {
-                <option value="@model.Id">@model.Name (@model.Provider)</option>
+                <option value="@model.Name">@model.Name</option>
             }
         </select>
+        @if (AgentModels.Count == 0)
+        {
+            <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
+        }
     </div>
 
-    @if (SelectedModel?.ReasoningEffortSupported == true)
+    @if (_mode == "agent")
     {
         <div class="mb-3">
-            <label for="thread-effort" class="form-label">Reasoning effort</label>
-            <select id="thread-effort" class="form-select" @bind="_reasoningEffort">
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
+            <label for="thread-sandbox" class="form-label">Sandbox</label>
+            <select id="thread-sandbox" class="form-select" @bind="_sandbox">
+                <option value="read-only">read-only</option>
+                <option value="workspace-write">workspace-write</option>
+                <option value="danger-full-access">danger-full-access</option>
             </select>
         </div>
     }
-
-    <div class="mb-3">
-        <label for="thread-sandbox" class="form-label">Sandbox</label>
-        <select id="thread-sandbox" class="form-select" @bind="_sandbox">
-            <option value="read-only">read-only</option>
-            <option value="workspace-write">workspace-write</option>
-            <option value="danger-full-access">danger-full-access</option>
-        </select>
-    </div>
 }
 
 <div class="d-flex justify-content-end gap-2 pt-3 border-top">
@@ -83,45 +89,63 @@ else
     [Parameter] public EventCallback<CreateAiChatThreadRequest> OnSubmit { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
-    private IReadOnlyList<AiChatModelDto>? _models;
+    private bool _loading = true;
+    private IReadOnlyList<AgentInfo>? _agents;
+    private IReadOnlyList<AiChatModelDto> _models = [];
     private string _title = string.Empty;
     private string _mode = "assistant";
-    private string _agentType = "OpenCode";
+    private string _agentType = string.Empty;
     private string _workspacePath = string.Empty;
     private string _modelId = string.Empty;
-    private string _reasoningEffort = "medium";
     private string _sandbox = "read-only";
 
-    private AiChatModelDto? SelectedModel => _models?.FirstOrDefault(m => m.Id == _modelId);
+    private IReadOnlyList<AiChatModelDto> AgentModels =>
+        _models.Where(m => string.Equals(m.AgentType, _agentType, StringComparison.OrdinalIgnoreCase)).ToList();
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            _agents = await OrchestrationService.GetAvailableAgentsAsync();
             _models = await Client.GetAiChatCatalogAsync();
-            _modelId = _models.FirstOrDefault()?.Id ?? string.Empty;
+            var first = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            if (first is not null)
+            {
+                _agentType = first.Type.ToString();
+            }
         }
         catch
         {
+            _agents ??= [];
             _models = [];
+        }
+        finally
+        {
+            _loading = false;
         }
     }
 
+    private void OnAgentChanged(ChangeEventArgs e)
+    {
+        _agentType = e.Value?.ToString() ?? string.Empty;
+        _modelId = string.Empty; // reset to CLI default when switching agents
+    }
+
     private bool CanConfirm() =>
-        !string.IsNullOrWhiteSpace(_title) && !string.IsNullOrWhiteSpace(_modelId);
+        !string.IsNullOrWhiteSpace(_title)
+        && _agents?.Any(a => a.Status == AgentStatus.Available && a.Type.ToString() == _agentType) == true;
 
     private async Task CancelAsync() => await OnCancel.InvokeAsync();
 
     private async Task ConfirmAsync()
     {
-        var model = SelectedModel;
         var request = new CreateAiChatThreadRequest(
             _title.Trim(),
-            _modelId,
-            model?.ReasoningEffortSupported == true ? _reasoningEffort : "none",
-            _sandbox,
+            _modelId, // empty → CLI default
+            "none",
+            _mode == "agent" ? _sandbox : "read-only",
             Mode: _mode,
-            AgentType: _mode == "agent" ? _agentType : null,
+            AgentType: _agentType,
             WorkspacePath: _mode == "agent" && !string.IsNullOrWhiteSpace(_workspacePath) ? _workspacePath.Trim() : null);
 
         await OnSubmit.InvokeAsync(request);

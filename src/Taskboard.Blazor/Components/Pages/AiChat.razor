@@ -80,7 +80,7 @@ else
                     <div class="text-truncate">
                         <strong>@_activeThread.Title</strong>
                         <span class="text-body-secondary small ms-2">@_activeThread.Model</span>
-                        @if (_activeThread.Mode == "agent")
+                        @if (!string.IsNullOrWhiteSpace(_activeThread.AgentType))
                         {
                             <span class="badge text-bg-primary ms-2">agent: @_activeThread.AgentType</span>
                         }

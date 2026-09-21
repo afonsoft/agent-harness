@@ -33,6 +33,31 @@ public sealed class AcpSessionClientTests
     }
 
     [Fact]
+    public void Dado_ModeloNaThread_Quando_BuildSessionCommand_Entao_ArgvContemFlag()
+    {
+        // SPEC-20260921-ai-chat-cli-backend: a escolha de modelo da thread chega
+        // à sessão interativa — "default" (null) não emite flag.
+        var adapter = new KnownCliAgentAdapter();
+
+        var withModel = adapter.BuildSessionCommand(AgentType.OpenCode, "/tmp", Sandbox.WorkspaceWrite, "opencode/extra-1");
+        withModel.Arguments.ShouldContain("-m");
+        withModel.Arguments.ShouldContain("opencode/extra-1");
+
+        var cliDefault = adapter.BuildSessionCommand(AgentType.OpenCode, "/tmp", Sandbox.WorkspaceWrite, null);
+        cliDefault.Arguments.ShouldNotContain("-m");
+    }
+
+    [Fact]
+    public void Dado_CliGerenciadaComModelo_Quando_BuildSessionCommand_Entao_SemFlag()
+    {
+        var adapter = new KnownCliAgentAdapter();
+        var cmd = adapter.BuildSessionCommand(AgentType.Cline, "/tmp", Sandbox.WorkspaceWrite, "any-model");
+
+        cmd.Arguments.ShouldNotContain("--model");
+        cmd.Arguments.ShouldNotContain("any-model");
+    }
+
+    [Fact]
     public void Dado_NotificationSessionUpdate_Quando_Parseada_Entao_GeraEventoEstruturado()
     {
         // Covers RF-004: parsing de session/update

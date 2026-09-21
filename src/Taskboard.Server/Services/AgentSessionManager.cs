@@ -86,11 +86,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
         _sessionClient.RegisterEventListener(threadId, e => HandleSessionEvent(threadId, e));
 
+        // Thread model reaches the session command; "default" = no flag, CLI decides.
+        var sessionModel = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : thread.Model.Value;
+
         var started = await _sessionClient.StartSessionAsync(
             threadId,
             thread.AgentType.Value,
             workdir,
             thread.Sandbox,
+            sessionModel,
             cancellationToken).ConfigureAwait(false);
 
         if (started)

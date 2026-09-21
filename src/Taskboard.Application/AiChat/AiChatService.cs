@@ -1,7 +1,11 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Taskboard;
+using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Mapping;
 using Taskboard.Domain.Entities;
@@ -20,6 +24,10 @@ public sealed class AiChatService
     private readonly ILLMProvider _llmProvider;
     private readonly IThreadEventStreamService _threadEvents;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IAgentEligibilityService _eligibility;
+    private readonly ICliChatRunner _cliChatRunner;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<AiChatService> _logger;
 
     public AiChatService(
         IRepository<AiChatThread> threadRepo,
@@ -27,7 +35,11 @@ public sealed class AiChatService
         IRepository<AiChatEvent> eventRepo,
         ILLMProvider llmProvider,
         IThreadEventStreamService threadEvents,
-        IServiceScopeFactory serviceScopeFactory)
+        IServiceScopeFactory serviceScopeFactory,
+        IAgentEligibilityService eligibility,
+        ICliChatRunner cliChatRunner,
+        IConfiguration configuration,
+        ILogger<AiChatService> logger)
     {
         _threadRepo = threadRepo;
         _runRepo = runRepo;
@@ -35,6 +47,10 @@ public sealed class AiChatService
         _llmProvider = llmProvider;
         _threadEvents = threadEvents;
         _serviceScopeFactory = serviceScopeFactory;
+        _eligibility = eligibility;
+        _cliChatRunner = cliChatRunner;
+        _configuration = configuration;
+        _logger = logger;
     }
 
     public async Task<AiChatThreadDto> CreateThreadAsync(
@@ -42,21 +58,35 @@ public sealed class AiChatService
         Actor actor,
         CancellationToken ct = default)
     {
+        // SPEC-20260921-ai-chat-cli-backend RF-002: every thread is backed by an
+        // eligible agent CLI — there is no direct-LLM provider in the server.
+        if (string.IsNullOrWhiteSpace(request.AgentType) ||
+            !Enum.TryParse<AgentType>(request.AgentType, true, out var agentType))
+        {
+            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
+        }
+
+        var eligible = await _eligibility.GetEligibleTypesAsync(ct);
+        if (!eligible.Contains(agentType))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.AgentNotEligible,
+                $"Agent '{agentType}' is not eligible — the CLI must be installed, authenticated and enabled.");
+        }
+
+        var model = string.IsNullOrWhiteSpace(request.Model) ? ModelRef.From("default") : ModelRef.From(request.Model);
+        var reasoningEffort = string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort;
+        var sandbox = string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox);
+
         AiChatThread thread;
         if (string.Equals(request.Mode, "agent", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrWhiteSpace(request.AgentType) ||
-                !Enum.TryParse<Taskboard.Agents.AgentType>(request.AgentType, true, out var agentType))
-            {
-                throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
-            }
-
             thread = AiChatThread.CreateAgentThread(
                 AiChatThreadId.NewGuid(),
                 request.Title,
-                string.IsNullOrWhiteSpace(request.Model) ? ModelRef.From("default") : ModelRef.From(request.Model),
-                string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort,
-                string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox),
+                model,
+                reasoningEffort,
+                sandbox,
                 agentType,
                 request.WorkspacePath,
                 request.RepositoryFullName);
@@ -66,9 +96,10 @@ public sealed class AiChatService
             thread = AiChatThread.Create(
                 AiChatThreadId.NewGuid(),
                 request.Title,
-                string.IsNullOrWhiteSpace(request.Model) ? ModelRef.From("default") : ModelRef.From(request.Model),
-                string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort,
-                string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox));
+                model,
+                reasoningEffort,
+                sandbox,
+                agentType: agentType);
         }
 
         await _threadRepo.AddAsync(thread, ct);
@@ -113,6 +144,24 @@ public sealed class AiChatService
             throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Thread '{threadId.Value}' not found.");
         }
 
+        // SPEC-20260921-ai-chat-cli-backend RF-005: legacy assistant threads
+        // without a bound agent auto-migrate to the first eligible CLI.
+        if (thread.Mode == "assistant" && thread.AgentType is null)
+        {
+            var eligible = await _eligibility.GetEligibleTypesAsync(ct);
+            var pick = eligible.OrderBy(t => t.ToString(), StringComparer.Ordinal).FirstOrDefault();
+            if (eligible.Count > 0)
+            {
+                // Keep the stored model only when it is a real model of the
+                // bound CLI; legacy provider names (gpt-4o, …) reset to default.
+                var model = AgentCliModels.Catalog(pick).Contains(thread.Model.Value, StringComparer.Ordinal)
+                    ? thread.Model
+                    : ModelRef.From("default");
+                thread.BindAgent(pick, model);
+                await _threadRepo.UpdateAsync(thread, ct);
+            }
+        }
+
         var run = thread.StartRun();
         await _runRepo.AddAsync(run, ct);
         await _threadRepo.SaveChangesAsync(ct);
@@ -152,50 +201,112 @@ public sealed class AiChatService
                 .OrderBy(e => e.CreatedAt)
                 .ToListAsync(ct);
 
-            var messages = new List<LLMMessage>
+            // SPEC-20260921-ai-chat-cli-backend: assistant runs go through the
+            // bound agent CLI (one-shot, transcript as prompt). The mock
+            // provider is kept only behind Taskboard:AiChat:MockProvider=true
+            // for dev/tests; a thread without a bound agent fails loudly.
+            var mockEnabled = bool.TryParse(_configuration["Taskboard:AiChat:MockProvider"], out var mock) && mock;
+            if (!mockEnabled && thread.AgentType is null)
             {
-                new("system", $"You are an AI assistant in sandbox mode: {thread.Sandbox.Value}.")
-            };
-
-            foreach (var ev in events)
-            {
-                messages.Add(new LLMMessage(
-                    ev.Role.Value switch
-                    {
-                        "user" => "user",
-                        "assistant" => "assistant",
-                        _ => "system"
-                    },
-                    ev.Content));
+                await EmitCliEventAsync(
+                    threadId,
+                    "No eligible agent CLI is bound to this thread — authenticate one in Agents or Settings and send again.",
+                    AiChatEventKind.Error);
+                run.Fail(-1);
+                thread.SetStatus(AiChatThreadStatus.Failed);
             }
-
-            await foreach (var chunk in _llmProvider.StreamAsync(messages, cancellationToken: ct))
+            else if (!mockEnabled && thread.AgentType is not null)
             {
-                if (chunk.IsComplete)
+                // Eligibility is dynamic (installed + authenticated + enabled) —
+                // re-check at run time so disabling an agent in Settings stops
+                // existing threads from executing.
+                var eligibleNow = await _eligibility.GetEligibleTypesAsync(ct);
+                if (!eligibleNow.Contains(thread.AgentType.GetValueOrDefault()))
                 {
-                    run.Complete(chunk.Usage?.TotalTokens ?? 0);
-                    break;
-                }
-
-                if (!string.IsNullOrEmpty(chunk.ContentDelta))
-                {
-                    var chatEvent = AiChatEvent.Create(
-                        AiChatEventId.NewGuid(),
+                    await EmitCliEventAsync(
                         threadId,
-                        AiChatEventRole.Assistant,
-                        chunk.ContentDelta);
+                        $"Agent '{thread.AgentType}' is no longer eligible — it was disabled or its CLI lost authentication after this thread was created.",
+                        AiChatEventKind.Error);
+                    run.Fail(-1);
+                    thread.SetStatus(AiChatThreadStatus.Failed);
+                }
+                else
+                {
+                    var prompt = AgentThreadPromptBuilder.BuildAssistantPrompt(
+                        thread.Title,
+                        events.Select(e => e.ToDto()).ToList());
+                    var modelName = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : thread.Model.Value;
+                    var progress = new SequentialEmitProgress(this, threadId);
 
-                    thread.AddEvent(chatEvent);
-                    await _eventRepo.AddAsync(chatEvent, ct);
+                    var result = await _cliChatRunner.RunAsync(
+                        thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct);
 
-                    await _threadEvents.PublishAsync(
-                        threadId.Value,
-                        new ServerSentEvent("ai_chat.event", chatEvent.ToDto()),
-                        ct);
+                    // Drain every queued write before closing the run — the run
+                    // record must not complete while response lines are pending.
+                    await progress.Completion;
+
+                    if (result.IsSuccess)
+                    {
+                        run.Complete((int)(result.Usage?.TotalTokens ?? 0));
+                        thread.SetStatus(AiChatThreadStatus.Idle);
+                    }
+                    else
+                    {
+                        run.Fail(result.ExitCode);
+                        thread.SetStatus(AiChatThreadStatus.Failed);
+                        await EmitCliEventAsync(threadId, $"Agent CLI exited with code {result.ExitCode}.", AiChatEventKind.Error);
+                    }
                 }
             }
+            else
+            {
+                var messages = new List<LLMMessage>
+                {
+                    new("system", $"You are an AI assistant in sandbox mode: {thread.Sandbox.Value}.")
+                };
 
-            thread.SetStatus(AiChatThreadStatus.Idle);
+                foreach (var ev in events)
+                {
+                    messages.Add(new LLMMessage(
+                        ev.Role.Value switch
+                        {
+                            "user" => "user",
+                            "assistant" => "assistant",
+                            _ => "system"
+                        },
+                        ev.Content));
+                }
+
+                await foreach (var chunk in _llmProvider.StreamAsync(messages, cancellationToken: ct))
+                {
+                    if (chunk.IsComplete)
+                    {
+                        run.Complete(chunk.Usage?.TotalTokens ?? 0);
+                        break;
+                    }
+
+                    if (!string.IsNullOrEmpty(chunk.ContentDelta))
+                    {
+                        var chatEvent = AiChatEvent.Create(
+                            AiChatEventId.NewGuid(),
+                            threadId,
+                            AiChatEventRole.Assistant,
+                            chunk.ContentDelta);
+
+                        thread.AddEvent(chatEvent);
+                        await _eventRepo.AddAsync(chatEvent, ct);
+
+                        await _threadEvents.PublishAsync(
+                            threadId.Value,
+                            new ServerSentEvent("ai_chat.event", chatEvent.ToDto()),
+                            ct);
+                    }
+                }
+
+                thread.SetStatus(AiChatThreadStatus.Idle);
+            }
             await _runRepo.UpdateAsync(run, ct);
             await _threadRepo.UpdateAsync(thread, ct);
             await _threadRepo.SaveChangesAsync(ct);
@@ -231,6 +342,63 @@ public sealed class AiChatService
                     new ServerSentEvent("ai_chat.run", run.ToDto()),
                     CancellationToken.None);
             }
+        }
+    }
+
+    // IProgress<T> implementation whose Report() runs synchronously on the
+    // producer (process-output) thread and appends each emit to a sequential
+    // task chain — unlike Progress<T>, which dispatches callbacks to the thread
+    // pool and can interleave or reorder the persisted lines.
+    private sealed class SequentialEmitProgress(AiChatService service, AiChatThreadId threadId)
+        : IProgress<AgentLogMessage>
+    {
+        private readonly object _gate = new();
+        private Task _chain = Task.CompletedTask;
+
+        public Task Completion
+        {
+            get { lock (_gate) { return _chain; } }
+        }
+
+        public void Report(AgentLogMessage log)
+        {
+            var kind = log.Stream == AgentLogStream.StdErr ? AiChatEventKind.Error : AiChatEventKind.Message;
+            lock (_gate)
+            {
+                _chain = _chain.ContinueWith(
+                    _ => service.EmitCliEventAsync(threadId, log.Content, kind),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default).Unwrap();
+            }
+        }
+    }
+
+    // Persists a CLI-produced line as a thread event in a fresh scope — the
+    // progress callback fires on the process-output thread, so the scoped
+    // DbContext of this run must not be touched there (same pattern as
+    // AgentSessionManager.ExecuteOneShotFallbackAsync).
+    private async Task EmitCliEventAsync(AiChatThreadId threadId, string content, AiChatEventKind kind)
+    {
+        try
+        {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+            var evt = AiChatEvent.CreateTyped(
+                AiChatEventId.NewGuid(),
+                threadId,
+                AiChatEventRole.Assistant,
+                content,
+                kind);
+            await eventRepo.AddAsync(evt);
+            await eventRepo.SaveChangesAsync();
+            await _threadEvents.PublishAsync(
+                threadId.Value,
+                new ServerSentEvent("ai_chat.event", evt.ToDto()));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist CLI chat event for thread '{ThreadId}'.", threadId.Value);
         }
     }
 

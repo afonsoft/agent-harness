@@ -367,7 +367,7 @@ GET /api/local/ai/threads/:id/events
 Accept: text/event-stream
 ```
 
-`GET .../events` is dual-mode: `Accept: application/json` returns a one-shot `200 { events: [{ id, threadId, role, content, createdAt }] }` snapshot; any other Accept streams SSE — the stored backlog replayed as `ai_chat.event` frames followed by live `ai_chat.event` (new messages, including streamed assistant deltas) and `ai_chat.run` (run status changes: `running`/`completed`/`failed`) frames. `POST .../events` `{ role: "user|assistant|activity|error", content }` persists and publishes an event; `POST .../runs` starts a background LLM run over the real event history (the assistant answers the latest user message — no fixed prompt is injected); `DELETE /api/local/ai/threads/:id` removes the thread with its events and runs (204 | 404).
+`GET .../events` is dual-mode: `Accept: application/json` returns a one-shot `200 { events: [{ id, threadId, role, content, createdAt }] }` snapshot; any other Accept streams SSE — the stored backlog replayed as `ai_chat.event` frames followed by live `ai_chat.event` (new messages, including streamed assistant deltas) and `ai_chat.run` (run status changes: `running`/`completed`/`failed`) frames. `POST .../events` `{ role: "user|assistant|activity|error", content }` persists and publishes an event; `POST .../runs` starts a background run executed by the thread's bound agent CLI — one-shot, transcript as prompt (the assistant answers the latest user message); `DELETE /api/local/ai/threads/:id` removes the thread with its events and runs (204 | 404).
 
 ## Error Contract
 
