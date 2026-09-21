@@ -39,9 +39,9 @@ public class SelectedRepositoryServiceTests
     {
         var (service, _, _) = Create();
         await service.EnsureLoadedAsync();
-        service.Selected.ShouldBe("afonsoft/skills");
+        service.Selected.ShouldBe("afonsoft/agent-harness");
         service.Repositories.ShouldBe(
-            ["afonsoft/skills", "afonsoft/agent-harness", "octokit/octokit.net"]);
+            ["afonsoft/agent-harness", "afonsoft/skills", "octokit/octokit.net"]);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class SelectedRepositoryServiceTests
     {
         var (service, _, _) = Create(persisted: persisted);
         await service.EnsureLoadedAsync();
-        service.Selected.ShouldBe("afonsoft/skills");
+        service.Selected.ShouldBe("afonsoft/agent-harness");
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class SelectedRepositoryServiceTests
                 Task.FromException<string?>(new JSException("storage blocked"))));
 
         await service.EnsureLoadedAsync();
-        service.Selected.ShouldBe("afonsoft/skills");
+        service.Selected.ShouldBe("afonsoft/agent-harness");
         (await service.SelectAsync("octokit/octokit.net")).ShouldBeTrue();
         service.Selected.ShouldBe("octokit/octokit.net");
     }
