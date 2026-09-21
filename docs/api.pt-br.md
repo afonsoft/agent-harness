@@ -282,7 +282,7 @@ POST /api/harness/pipelines/{id}/cancel
 
 `POST start` body `{ templateId, repositoryFullName, repositoryPath, baseBranch, issueId?, initialPrompt, maxBudgetUsd?, agentOverride?, tierOverride?, skipVerification? }` → `201` com `{ pipelineExecutionId, templateId, status, worktreePath?, stages: [{ stageKey, name, kind, status, role?, agent?, attempts, handoffSummary?, lastError?, dependsOn }] }`. Template desconhecido ou grafo cíclico → `400 INVALID_PIPELINE_DAG`. `agentOverride`/`tierOverride`/`skipVerification` são exclusivos de `single-agent` — substituem o agente/tier do estágio AgentWork e removem o estágio Verification; enviá-los com outro template → `400`.
 
-Todos os estágios de uma execução compartilham um único git worktree do `IWorkspaceIsolationService`; a saída de cada estágio é sintetizada em `handoffSummary` e injetada como contexto upstream nos dependentes. `kind`: `AgentWork` | `Approval` | `Verification`; `status`: `Pending` | `Running` | `WaitingApproval` | `Completed` | `Failed` | `Skipped`. `status` do pipeline: `Running` | `WaitingApproval` | `AwaitingRetry` | `Completed` | `Failed` | `Cancelled`.
+Todos os estágios de uma execução compartilham um único git worktree do `IWorkspaceIsolationService`; a saída de cada estágio é sintetizada em `handoffSummary` e injetada como contexto upstream nos dependentes. `kind`: `AgentWork` | `Approval` | `Verification`; `status`: `Pending` | `Running` | `WaitingApproval` | `Completed` | `Failed` | `Skipped`. `status` do pipeline: `Running` | `WaitingApproval` | `AwaitingRetry` | `Paused` | `Completed` | `Failed` | `Cancelled`.
 
 `POST .../approve` body `{ comment? }` libera um gate `WaitingApproval` e despacha os dependentes → `200`. `POST .../retry` body `{ adjustedPrompt? }` reenfileira um estágio `Failed` sem reiniciar o pipeline → `202`. `POST .../cancel` encerra os processos em voo e transiciona o pipeline para `Cancelled` → `200`. Aprovar/retentar estágio em estado incompatível → `400`; pipeline desconhecido → `404`.
 
@@ -296,6 +296,8 @@ POST /api/harness/runs
 GET  /api/harness/runs/{id}
 GET  /api/harness/runs/{id}/events
 POST /api/harness/runs/{id}/steer
+POST /api/harness/runs/{id}/pause
+POST /api/harness/runs/{id}/resume
 POST /api/harness/runs/{id}/approvals/{requestId}
 POST /api/harness/runs/{id}/create-pr
 ```
@@ -305,6 +307,8 @@ POST /api/harness/runs/{id}/create-pr
 `GET {id}/events` → `200` com os `CockpitEventDto[]` buffered em memória (`{ runId, timestampUtc, kind, title, payloadJson? }`; kinds: `stage`, `agent_output`, `verification`, `approval`, `steer`) para replay em reconexão/join tardio — os eventos também são transmitidos ao vivo pelo hub SignalR abaixo.
 
 `POST {id}/steer` body `{ instruction }` → `202`; a instrução é enfileirada (`ISteerQueue`) e anexada ao prompt do próximo estágio despachado como "operator steer". Run desconhecido → `404`.
+
+`POST {id}/pause` → `200` congela o DAG entre estágios: o estágio em voo completa, nenhum novo é despachado e o tick do engine ignora a execução (sem worktree attach, sem cancel por budget) até o resume. `POST {id}/resume` → `200` redespacha os estágios pendentes. Ambos publicam um evento `status` no cockpit ("Run paused"/"Run resumed"); transições inválidas → `409 InvalidPipelineState`, run inexistente → `404`. `status` do pipeline ganha `Paused` (badge warning). Execuções pausadas nunca são colhidas como stale — o reaper só cobre registros `AgentRun` legados.
 
 `POST {id}/approvals/{requestId}` body `{ action, comment? }` — `requestId` usa a convenção `stage:<stageKey>` publicada pelo `RequireApproval`; `Allow` aprova o estágio `WaitingApproval`, `Deny` rejeita com o comentário como motivo → `200`. Run/request desconhecido → `404`.
 

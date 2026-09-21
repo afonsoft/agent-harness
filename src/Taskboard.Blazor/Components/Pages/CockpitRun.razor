@@ -93,6 +93,8 @@
     <RunControlBar Status="@_details.Execution.Status"
                    SuggestedPrTitle="@PrTitle"
                    OnSteer="SteerAsync"
+                   OnPause="PauseAsync"
+                   OnResume="ResumeAsync"
                    OnCancel="CancelAsync"
                    OnCreatePr="CreatePrAsync" />
 }
@@ -166,6 +168,12 @@
             if (_diffLoaded && evt.Kind == "stage" && evt.Title.Contains("completed", StringComparison.OrdinalIgnoreCase))
             {
                 _diff = await Client.GetWorktreeDiffAsync(RunId);
+            }
+
+            // Pause/resume status events refresh the execution snapshot (badge/buttons).
+            if (evt.Kind == "status")
+            {
+                _details = await Client.GetRunAsync(RunId);
             }
 
             await InvokeAsync(StateHasChanged);
@@ -245,6 +253,34 @@
         {
             await Client.SteerRunAsync(RunId, instruction);
             ToastService.Notify(new ToastMessage(ToastType.Info, "Steer enfileirado — aplicado na próxima etapa."));
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+    }
+
+    private async Task PauseAsync()
+    {
+        try
+        {
+            _details = await Client.PauseRunAsync(RunId) is { } exec
+                ? _details! with { Execution = exec }
+                : _details;
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+    }
+
+    private async Task ResumeAsync()
+    {
+        try
+        {
+            _details = await Client.ResumeRunAsync(RunId) is { } exec
+                ? _details! with { Execution = exec }
+                : _details;
         }
         catch (Exception ex)
         {

@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | — |
 | Ticket | [#250](https://github.com/afonsoft/agent-harness/issues/250) — GAP-implementation-cockpit-pause-resume (gap-analysis-20260920) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -63,11 +63,11 @@
 
 ## 4. Tasks
 
-- [ ] **T1 — Domain:** estado `Paused` no `PipelineExecution` (+ EF config/migration se novo valor enum ou coluna), transições `Pause()`/`Resume()` com guard de estado, `PipelineStatus` mapping.
-- [ ] **T2 — Engine:** checkpoint de pause no loop do `PipelineEngine` (checar flag entre estágios; `WaitHandle`/`SemaphoreSlim` ou canal de controle como o `ISteerQueue`); eventos `RunPaused`/`RunResumed` via `ICockpitEventStream`.
-- [ ] **T3 — REST:** endpoints pause/resume com mapeamento de erros (404/409) + testes de integração (`CockpitEndpointsTests`).
-- [ ] **T4 — UI:** botões em `RunControlBar`, badge `Paused`, cartões de timeline para os eventos novos.
-- [ ] **T5 — Reaper + docs:** ajuste do `StaleRunReaper`, `docs/api.md` (+pt-br), `docs/features.md` (+pt-br), correção da T4/AC na SPEC origem, este SPEC → `Done`.
+- [x] **T1 — Domain:** estado `Paused` no `PipelineExecution` (+ EF config/migration se novo valor enum ou coluna), transições `Pause()`/`Resume()` com guard de estado, `PipelineStatus` mapping.
+- [x] **T2 — Engine:** checkpoint de pause no loop do `PipelineEngine` (checar flag entre estágios; `WaitHandle`/`SemaphoreSlim` ou canal de controle como o `ISteerQueue`); eventos `RunPaused`/`RunResumed` via `ICockpitEventStream`.
+- [x] **T3 — REST:** endpoints pause/resume com mapeamento de erros (404/409) + testes de integração (`CockpitEndpointsTests`).
+- [x] **T4 — UI:** botões em `RunControlBar`, badge `Paused`, cartões de timeline para os eventos novos.
+- [x] **T5 — Reaper + docs:** ajuste do `StaleRunReaper`, `docs/api.md` (+pt-br), `docs/features.md` (+pt-br), correção da T4/AC na SPEC origem, este SPEC → `Done`.
 
 ---
 
@@ -84,3 +84,4 @@
 1. Pause cooperativo intra-estágio exigiria plumbing no adapter do agente — fora de escopo; boundary de estágio é o contrato.
 2. Decisão necessária: `Paused` como novo membro de `PipelineStatus` (migration segura — SQLite guarda string/int) vs flag separada `IsPaused`.
 3. Restart do host com run paused: política = stale após threshold ampliado ou resume manual apenas — registrar no código + docs.
+   - **Decisão registrada (2026-09-20):** não existe reaper para `PipelineExecution` — o `StaleRunReaper`/`StaleAgentRunReaperService` só reconcilia `AgentRun` legado, então execuções pausadas nunca são colhidas como stale. O tick do `PipelineEngine` também ignora execuções `Paused` (sem dispatch, sem worktree attach, sem budget-cap cancel). Runs pausadas aguardam resume/cancel manual; após restart do host elas permanecem `Paused` e podem ser resumidas — os estágios pendentes são redespachados normalmente.

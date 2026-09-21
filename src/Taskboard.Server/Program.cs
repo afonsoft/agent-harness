@@ -760,6 +760,19 @@ runs.MapPost("", async (
 
     return Results.Created($"/api/harness/runs/{dto.PipelineExecutionId}", dto);
 });
+
+// SPEC-20260920-cockpit-pause-resume: pause/resume entre estágios — 404 run
+// inexistente, 409 transição inválida (InvalidPipelineState).
+runs.MapPost("{id}/pause", async (
+        string id,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    await orchestrator.PauseAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
+runs.MapPost("{id}/resume", async (
+        string id,
+        IPipelineOrchestrator orchestrator,
+        CancellationToken ct) =>
+    await orchestrator.ResumeAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
 runs.MapGet("{id}", async (
         string id,
         IPipelineOrchestrator orchestrator,

@@ -223,6 +223,67 @@ public class CockpitEndpointsTests : IClassFixture<TaskboardWebApplicationFactor
     }
 
     [Fact]
+    public async Task Dado_RunAtivo_Quando_PauseResume_Entao_200ComStatusCorreto()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var created = await client.PostAsJsonAsync("/api/harness/runs", StartRequest());
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+
+        var paused = await client.PostAsJsonAsync(
+            $"/api/harness/runs/{dto!.PipelineExecutionId}/pause", (object?)null);
+
+        paused.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await paused.Content.ReadFromJsonAsync<PipelineExecutionDto>())!
+            .Status.ShouldBe("Paused");
+
+        var resumed = await client.PostAsJsonAsync(
+            $"/api/harness/runs/{dto.PipelineExecutionId}/resume", (object?)null);
+
+        resumed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await resumed.Content.ReadFromJsonAsync<PipelineExecutionDto>())!
+            .Status.ShouldBe("Running");
+    }
+
+    [Fact]
+    public async Task Dado_RunPaused_Quando_PauseNovamente_Entao_409()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var created = await client.PostAsJsonAsync("/api/harness/runs", StartRequest());
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+        await client.PostAsJsonAsync($"/api/harness/runs/{dto!.PipelineExecutionId}/pause", (object?)null);
+
+        var again = await client.PostAsJsonAsync(
+            $"/api/harness/runs/{dto.PipelineExecutionId}/pause", (object?)null);
+
+        again.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Dado_RunRunning_Quando_Resume_Entao_409()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var created = await client.PostAsJsonAsync("/api/harness/runs", StartRequest());
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/harness/runs/{dto!.PipelineExecutionId}/resume", (object?)null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Dado_RunInexistente_Quando_PauseOuResume_Entao_404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var pause = await client.PostAsJsonAsync("/api/harness/runs/run_naoexiste/pause", (object?)null);
+        var resume = await client.PostAsJsonAsync("/api/harness/runs/run_naoexiste/resume", (object?)null);
+
+        pause.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        resume.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Dado_ClienteNoGrupo_Quando_SteerPublicado_Entao_RecebeEventoNoHub()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

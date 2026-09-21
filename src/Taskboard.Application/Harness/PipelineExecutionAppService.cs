@@ -16,12 +16,16 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
 {
     private readonly IRepository<PipelineExecution> _executions;
     private readonly PipelineEngine _engine;
+    private readonly ICockpitEventStream? _cockpit;
 
     public PipelineExecutionAppService(
-        IRepository<PipelineExecution> executions, PipelineEngine engine)
+        IRepository<PipelineExecution> executions,
+        PipelineEngine engine,
+        ICockpitEventStream? cockpit = null)
     {
         _executions = executions;
         _engine = engine;
+        _cockpit = cockpit;
     }
 
     public Task<IReadOnlyList<PipelineTemplateDto>> ListTemplatesAsync(
@@ -124,6 +128,41 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(execution);
     }
+
+    public async Task<PipelineExecutionDto?> PauseAsync(
+        string pipelineExecutionId, CancellationToken cancellationToken = default)
+    {
+        var execution = await FindAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        if (execution is null)
+        {
+            return null;
+        }
+
+        execution.Pause();
+        await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishStatusAsync(pipelineExecutionId, "Run paused").ConfigureAwait(false);
+        return ToDto(execution);
+    }
+
+    public async Task<PipelineExecutionDto?> ResumeAsync(
+        string pipelineExecutionId, CancellationToken cancellationToken = default)
+    {
+        var execution = await FindAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        if (execution is null)
+        {
+            return null;
+        }
+
+        execution.Resume();
+        await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishStatusAsync(pipelineExecutionId, "Run resumed").ConfigureAwait(false);
+        await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
+        return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
+    }
+
+    private Task PublishStatusAsync(string runId, string title) =>
+        _cockpit?.PublishAsync(new CockpitEventDto(runId, DateTimeOffset.UtcNow, "status", title, null))
+            ?? Task.CompletedTask;
 
     /// <summary>
     /// `single-agent` only — rewrites the AgentWork stage with the requested

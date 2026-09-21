@@ -10,8 +10,22 @@
             <Icon Name="IconName.Send" /> Steer
         </Button>
     </div>
+    @if (IsPaused)
+    {
+        <Button Color="ButtonColor.Success" Size="ButtonSize.Small" Outline="true" @onclick="ResumeAsync"
+                disabled="@_busy" title="Retomar o run — despacha os estágios pendentes">
+            <Icon Name="IconName.PlayCircle" /> Resume
+        </Button>
+    }
+    else
+    {
+        <Button Color="ButtonColor.Warning" Size="ButtonSize.Small" Outline="true" @onclick="PauseAsync"
+                disabled="@(!IsActive || _busy)" title="Pausa entre estágios — o estágio em voo completa, nenhum novo inicia">
+            <Icon Name="IconName.PauseCircle" /> Pause
+        </Button>
+    }
     <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" Outline="true" @onclick="CancelAsync"
-            disabled="@(!IsActive || _busy)">
+            disabled="@(!(IsActive || IsPaused) || _busy)">
         <Icon Name="IconName.StopCircle" /> Stop
     </Button>
     <Button Color="ButtonColor.Success" Size="ButtonSize.Small" @onclick="CreatePrAsync"
@@ -36,12 +50,15 @@
     /// <summary>Run status (Running, WaitingApproval, Completed, …).</summary>
     [Parameter] public string Status { get; set; } = string.Empty;
     [Parameter] public EventCallback<string> OnSteer { get; set; }
+    [Parameter] public EventCallback OnPause { get; set; }
+    [Parameter] public EventCallback OnResume { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
     [Parameter] public EventCallback<(string Title, string? Body)> OnCreatePr { get; set; }
     /// <summary>Título sugerido do PR (ex: prompt do run).</summary>
     [Parameter] public string SuggestedPrTitle { get; set; } = "chore: agent run output";
 
     private bool IsActive => Status is "Running" or "WaitingApproval" or "AwaitingRetry";
+    private bool IsPaused => Status == "Paused";
     private bool IsCompleted => Status == "Completed";
     private bool CanSteer => IsActive;
 
@@ -65,6 +82,32 @@
         {
             await OnSteer.InvokeAsync(_steer.Trim());
             _steer = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task PauseAsync()
+    {
+        _busy = true;
+        try
+        {
+            await OnPause.InvokeAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResumeAsync()
+    {
+        _busy = true;
+        try
+        {
+            await OnResume.InvokeAsync();
         }
         finally
         {

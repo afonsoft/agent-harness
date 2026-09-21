@@ -15,6 +15,12 @@ public enum PipelineStatus
     /// <summary>A stage failed; the pipeline is paused until retry/cancel.</summary>
     AwaitingRetry,
 
+    /// <summary>
+    /// Operator-paused between stages (SPEC-20260920-cockpit-pause-resume) —
+    /// in-flight stages finish but nothing new is dispatched until resume.
+    /// </summary>
+    Paused,
+
     /// <summary>All stages completed successfully.</summary>
     Completed,
 

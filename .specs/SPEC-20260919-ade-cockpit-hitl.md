@@ -45,7 +45,7 @@ A interface atual do `agent-harness` disponibiliza apenas:
   - Componente Blazor `GitDiffViewer` capaz de renderizar side-by-side ou unified diff com syntax highlighting e contagem de linhas adicionadas/removidas.
 - **Painel de Controle e Intervenção (HITL):**
   - **Steer Input:** campo de prompt rápido para interjeição do usuário (enviar instrução sem matar a sessão).
-  - **Run Action Buttons:** Pause, Resume, Stop (Cancel), e Create Pull Request.
+  - **Run Action Buttons:** Pause, Resume, Stop (Cancel), e Create Pull Request. *(Pause/Resume entregue via `SPEC-20260920-cockpit-pause-resume` — Issue #250.)*
   - **Approval Dialog / Permission Prompt:** Card interativo para aprovar ou rejeitar operações de alto risco (ex: execução de comando `rm`, alteração de migrations ou push remoto) com opções `Allow Once`, `Allow Always (session)` e `Deny`.
 - **Métricas de FinOps no cabeçalho:**
   - Contador de tokens gastos (Input/Output/Total), custo estimado em USD e tempo decorrido do run.
@@ -168,7 +168,7 @@ POST /api/harness/runs/{id}/create-pr
 - [x] **T1 — Contracts & SignalR Hub:** Criar `CockpitEventDto`, `ApprovalRequestDto` e implementar `HarnessCockpitHub`.
 - [x] **T2 — Diff Viewer Component:** Implementar componente Blazor interativo para renderização de git diff com realce de sintaxe.
 - [x] **T3 — Timeline & Event Cards:** Desenvolver `RunTimeline`, `ToolCallCard`, `ThoughtBlock` e badges de status.
-- [x] **T4 — Intervenção & Controles:** Implementar `RunControlBar` com Steer, Pause, Cancel e modal de aprovação.
+- [x] **T4 — Intervenção & Controles:** Implementar `RunControlBar` com Steer, Cancel e modal de aprovação. *(Pause/Resume ficou fora da entrega original e foi implementado depois em `SPEC-20260920-cockpit-pause-resume` — Issue #250.)*
 - [x] **T5 — Navegação & Integração:** Adicionar rota no `NavMenu` (`/cockpit`), integrar com o Kanban e validar o fluxo completo.
 
 ---
