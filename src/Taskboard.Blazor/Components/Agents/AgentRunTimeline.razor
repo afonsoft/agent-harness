@@ -1,0 +1,461 @@
+@using System.Text.Json
+@using Microsoft.AspNetCore.SignalR.Client
+@using Taskboard.Agents
+@inject TaskboardClient Client
+@inject NavigationManager NavigationManager
+@inject ToastService ToastService
+@implements IAsyncDisposable
+@* SPEC-20260921-board-cockpit-agent-observability RF-001: timeline compartilhada
+   de eventos normalizados — board (issue), cockpit (run) e chat (thread). *@
+
+<div class="agent-timeline d-flex flex-column gap-1">
+    <div class="d-flex align-items-center gap-2 flex-wrap agent-timeline-toolbar">
+        <div class="d-flex gap-1 flex-wrap">
+            @foreach (var kind in FilterableKinds)
+            {
+                <button type="button"
+                        class="btn btn-sm @(IsKindEnabled(kind) ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick="() => ToggleKind(kind)">@kind</button>
+            }
+        </div>
+        <div class="form-check form-switch ms-auto">
+            <input class="form-check-input" type="checkbox" id="raw-toggle-@_componentId" @bind="_rawOnly" />
+            <label class="form-check-label small" for="raw-toggle-@_componentId">Raw output</label>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ReloadAsync" disabled="_loading">
+            @( _loading ? "…" : "↻" )
+        </button>
+    </div>
+
+    <div class="agent-timeline-stream border rounded p-2" style="max-height: 60vh; overflow-y: auto;" role="log">
+        @if (_events.Count == 0 && !_loading)
+        {
+            <div class="text-body-secondary small p-2">Nenhum evento ainda — o agente está na fila ou ainda não emitiu eventos.</div>
+        }
+        @foreach (var evt in VisibleEvents)
+        {
+            @RenderEvent(evt)
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string ScopeKind { get; set; } = "issue";
+    [Parameter, EditorRequired] public string ScopeId { get; set; } = string.Empty;
+    /// <summary>Callback de reply de permissão inline (approve/deny).</summary>
+    [Parameter] public Func<AgentExecutionEvent, string, Task>? OnPermissionReply { get; set; }
+
+    private static readonly string[] FilterableKinds =
+        ["message", "thought", "plan", "tool_call", "output", "verification", "error", "metric"];
+
+    private readonly List<AgentExecutionEvent> _events = [];
+    private readonly HashSet<string> _enabledKinds = new(StringComparer.Ordinal);
+    private readonly string _componentId = Guid.NewGuid().ToString("N")[..8];
+    private HubConnection? _hub;
+    private bool _loading;
+    private bool _rawOnly;
+    private long _lastSequence;
+
+    private IEnumerable<AgentExecutionEvent> VisibleEvents
+    {
+        get
+        {
+            // Correlated tool_output rows are merged into their tool_call card —
+            // rendering both would duplicate the same logical call.
+            var correlatedCalls = new HashSet<string>(
+                _events.Where(e => e.Kind == AgentEventKinds.ToolCall && e.ToolCallId is not null)
+                       .Select(e => e.ToolCallId!), StringComparer.Ordinal);
+
+            return _events
+                .Where(e => !(e.Kind == AgentEventKinds.ToolOutput
+                              && e.ToolCallId is not null
+                              && correlatedCalls.Contains(e.ToolCallId)))
+                .Where(e => _rawOnly
+                    ? e.Kind is AgentEventKinds.Output or AgentEventKinds.Message
+                    : _enabledKinds.Count == 0 || _enabledKinds.Contains(e.Kind))
+                .OrderBy(e => e.Sequence);
+        }
+    }
+
+    private bool IsKindEnabled(string kind) => _enabledKinds.Count == 0 || _enabledKinds.Contains(kind);
+
+    private void ToggleKind(string kind)
+    {
+        if (!_enabledKinds.Remove(kind))
+        {
+            _enabledKinds.Add(kind);
+        }
+
+        // todos desmarcados = filtro "all" implícito não se aplica; manter vazio = all
+        if (_enabledKinds.Count == FilterableKinds.Length)
+        {
+            _enabledKinds.Clear();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe BEFORE the first replay so events emitted between mount and
+        // the fetch arrive live instead of being lost in the gap.
+        await ConnectHubAsync();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var fetched = new List<AgentExecutionEvent>();
+            var after = 0L;
+            const int maxPages = 50; // safety bound — ~25k events
+            for (var page = 0; page < maxPages; page++)
+            {
+                var p = await Client.GetAgentEventsAsync(ScopeKind, ScopeId, after);
+                fetched.AddRange(p.Events);
+                if (!p.HasMore || p.Events.Count == 0)
+                {
+                    break;
+                }
+
+                after = p.NextAfter;
+            }
+
+            // Merge live events that arrived while fetching (dedup by EventId);
+            // also drops events deleted by "clear" since the last load.
+            var known = new HashSet<string>(fetched.Select(e => e.EventId), StringComparer.Ordinal);
+            var merged = fetched
+                .Concat(_events.Where(e => !known.Contains(e.EventId)))
+                .OrderBy(e => e.Sequence)
+                .ToList();
+            _events.Clear();
+            _events.AddRange(merged);
+            _lastSequence = merged.Count > 0 ? merged[^1].Sequence : 0;
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Falha ao carregar eventos: {ex.Message}"));
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>
+    /// Inserts an event keeping sequence order and EventId dedup. Several
+    /// `tool_output` rows for the same call collapse into the latest — the
+    /// merged card shows only the freshest output.
+    /// </summary>
+    private void Ingest(AgentExecutionEvent evt)
+    {
+        var byId = _events.FindIndex(e => e.EventId == evt.EventId);
+        if (byId >= 0)
+        {
+            _events[byId] = evt;
+            return;
+        }
+
+        if (evt.Kind == AgentEventKinds.ToolOutput && evt.ToolCallId is not null)
+        {
+            var prev = _events.FindIndex(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
+            if (prev >= 0)
+            {
+                _events[prev] = evt;
+                _lastSequence = Math.Max(_lastSequence, evt.Sequence);
+                return;
+            }
+        }
+
+        var pos = _events.FindIndex(e => e.Sequence > evt.Sequence);
+        if (pos < 0)
+        {
+            _events.Add(evt);
+        }
+        else
+        {
+            _events.Insert(pos, evt);
+        }
+
+        _lastSequence = Math.Max(_lastSequence, evt.Sequence);
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/agent-log-hub"))
+            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15)])
+            .Build();
+
+        _hub.On<AgentExecutionEvent>("ReceiveAgentEvent", evt =>
+        {
+            if (evt.ScopeKind == ScopeKind && evt.ScopeId == ScopeId)
+            {
+                Ingest(evt);
+            }
+
+            InvokeAsync(StateHasChanged);
+        });
+
+        _hub.Reconnected += async _ =>
+        {
+            try
+            {
+                // A nova conexão não herda a membership do grupo — re-assina antes do replay.
+                await _hub.InvokeAsync("SubscribeToScope", ScopeKind, ScopeId);
+                var after = _lastSequence;
+                for (var i = 0; i < 50; i++)
+                {
+                    var page = await Client.GetAgentEventsAsync(ScopeKind, ScopeId, after);
+                    foreach (var evt in page.Events)
+                    {
+                        Ingest(evt);
+                    }
+                    if (!page.HasMore || page.Events.Count == 0)
+                    {
+                        break;
+                    }
+
+                    after = page.NextAfter;
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+            catch
+            {
+                // replay best-effort
+            }
+        };
+
+        try
+        {
+            await _hub.StartAsync();
+            await _hub.InvokeAsync("SubscribeToScope", ScopeKind, ScopeId);
+        }
+        catch
+        {
+            // SignalR indisponível — a timeline continua via reload manual.
+        }
+    }
+
+    private RenderFragment RenderEvent(AgentExecutionEvent evt) => evt.Kind switch
+    {
+        AgentEventKinds.ToolCall or AgentEventKinds.ToolOutput => RenderToolCall(evt),
+        AgentEventKinds.Permission or AgentEventKinds.Approval => RenderPermission(evt),
+        AgentEventKinds.Plan => RenderPlan(evt),
+        AgentEventKinds.Metric => RenderMetric(evt),
+        AgentEventKinds.Verification => @<VerificationCard Title="@(evt.Title ?? "verification")" Timestamp="@evt.TimestampUtc" />,
+        AgentEventKinds.Error => @<div class="alert alert-danger py-1 px-2 my-1 small"><strong>Erro</strong> @(evt.Title ?? PayloadText(evt))</div>,
+        AgentEventKinds.Steer => @<div class="alert alert-info py-1 px-2 my-1 small"><strong>Steer:</strong> @(evt.Title ?? PayloadText(evt))</div>,
+        AgentEventKinds.Thought => @<ThoughtBlock Content="@(evt.Title ?? PayloadText(evt))" Stream="thought" />,
+        AgentEventKinds.Message => @<ThoughtBlock Content="@(evt.Title ?? PayloadText(evt))" Stream="@evt.Stream" />,
+        AgentEventKinds.Output => @<div class="agent-log-line agent-log-@evt.Stream small font-monospace"><span class="text-body-secondary">@evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span> @(evt.Title ?? PayloadText(evt))</div>,
+        AgentEventKinds.Lifecycle => @<div class="badge text-bg-secondary my-1">@(evt.Title ?? "lifecycle")</div>,
+        _ => @<div class="small text-body-secondary">@evt.Kind — @(evt.Title ?? PayloadText(evt))</div>
+    };
+
+    private RenderFragment RenderToolCall(AgentExecutionEvent evt) => __builder =>
+    {
+        var tool = ParseTool(evt.PayloadJson);
+        // Merge the latest correlated tool_output so the card shows the
+        // terminal status/output instead of a duplicate row.
+        var outputEvt = evt.ToolCallId is null ? null
+            : _events.LastOrDefault(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
+        var output = outputEvt is not null ? ParseTool(outputEvt.PayloadJson) : null;
+        <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments"
+                      Status="@(output?.Status ?? tool.Status)" Output="@(output?.Output ?? tool.Output)" />
+    };
+
+    private RenderFragment RenderPermission(AgentExecutionEvent evt) => __builder =>
+    {
+        var perm = ParsePermission(evt.PayloadJson);
+        var title = perm.Tool ?? evt.Title
+            ?? (evt.Kind == AgentEventKinds.Approval ? "Aprovação" : "Permissão");
+        <div class="alert alert-warning py-2 px-2 my-1 small">
+            <div class="d-flex align-items-center gap-2">
+                <Icon Name="IconName.ExclamationTriangle" />
+                <strong>@title</strong>
+                <span class="text-truncate">@perm.Detail</span>
+            </div>
+            @if (OnPermissionReply is not null)
+            {
+                <div class="d-flex gap-2 mt-2">
+                    @foreach (var opt in perm.Options)
+                    {
+                        <button type="button" class="btn btn-sm @(IsDenyOption(opt.Id) ? "btn-outline-danger" : "btn-outline-success")"
+                                @onclick="() => OnPermissionReply(evt, opt.Id)">@opt.Label</button>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private static bool IsDenyOption(string optionId) =>
+        optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
+        || optionId.Contains("reject", StringComparison.OrdinalIgnoreCase);
+
+    private RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
+    {
+        <div class="border rounded p-2 my-1 small">
+            <strong>Plano do agente</strong>
+            <ul class="mb-0 mt-1">
+                @foreach (var entry in ParsePlanEntries(evt.PayloadJson))
+                {
+                    <li class="@(entry.Status == "completed" ? "text-success" : entry.Status == "in_progress" ? "text-primary" : "")">
+                        @entry.Title <span class="text-body-secondary">(@entry.Status)</span>
+                    </li>
+                }
+            </ul>
+        </div>
+    };
+
+    private RenderFragment RenderMetric(AgentExecutionEvent evt) => __builder =>
+    {
+        <span class="badge text-bg-light border my-1">⏱ @evt.Title @(PayloadText(evt))</span>
+    };
+
+    private static string PayloadText(AgentExecutionEvent evt)
+    {
+        if (string.IsNullOrWhiteSpace(evt.PayloadJson))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(evt.PayloadJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String)
+            {
+                return c.GetString() ?? string.Empty;
+            }
+            if (root.TryGetProperty("line", out var l) && l.ValueKind == JsonValueKind.String)
+            {
+                return l.GetString() ?? string.Empty;
+            }
+            return root.GetRawText();
+        }
+        catch (JsonException)
+        {
+            return evt.PayloadJson;
+        }
+    }
+
+    private sealed record ToolPayload(string Name, string? Arguments, string? Status, string? Output);
+    private sealed record PermOption(string Id, string Label);
+    private sealed record PermPayload(string? Tool, string? Detail, IReadOnlyList<PermOption> Options);
+    private sealed record PlanEntry(string Title, string Status);
+
+    private static ToolPayload ParseTool(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new ToolPayload("tool", null, "running", null);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var name = root.TryGetProperty("title", out var t) ? t.GetString()
+                : root.TryGetProperty("name", out var n) ? n.GetString()
+                : "tool";
+            var args = root.TryGetProperty("rawInput", out var ri) ? ri.GetRawText()
+                : root.TryGetProperty("arguments", out var a) ? a.GetRawText()
+                : null;
+            var status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "running" : "running";
+            var output = root.TryGetProperty("rawOutput", out var o) ? o.GetRawText()
+                : root.TryGetProperty("output", out var oo) ? oo.GetRawText()
+                : null;
+            return new ToolPayload(name ?? "tool", args, status, output);
+        }
+        catch (JsonException)
+        {
+            return new ToolPayload("tool", json, "running", null);
+        }
+    }
+
+    private static PermPayload ParsePermission(string? json)
+    {
+        var fallback = new List<PermOption> { new("allow", "allow"), new("deny", "deny") };
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new PermPayload(null, null, fallback);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var options = new List<PermOption>();
+            if (root.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var o in opts.EnumerateArray())
+                {
+                    // Normalized ACP shape: { optionId, name, kind };
+                    // legacy/pipeline shape: plain strings.
+                    if (o.ValueKind == JsonValueKind.String && o.GetString() is { Length: > 0 } s)
+                    {
+                        options.Add(new PermOption(s, s));
+                    }
+                    else if (o.ValueKind == JsonValueKind.Object
+                             && o.TryGetProperty("optionId", out var oid)
+                             && oid.GetString() is { Length: > 0 } id)
+                    {
+                        var label = o.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+                        options.Add(new PermOption(id, label ?? id));
+                    }
+                }
+            }
+
+            return new PermPayload(
+                root.TryGetProperty("tool", out var t) ? t.GetString() : null,
+                root.TryGetProperty("detail", out var d) ? d.GetString() : null,
+                options.Count > 0 ? options : fallback);
+        }
+        catch (JsonException)
+        {
+            return new PermPayload(null, json, fallback);
+        }
+    }
+
+    private static IReadOnlyList<PlanEntry> ParsePlanEntries(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return entries.EnumerateArray().Select(e => new PlanEntry(
+                e.TryGetProperty("content", out var c) ? c.GetString() ?? string.Empty : string.Empty,
+                e.TryGetProperty("status", out var s) ? s.GetString() ?? "pending" : "pending")).ToList();
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try
+            {
+                await _hub.InvokeAsync("UnsubscribeFromScope", ScopeKind, ScopeId);
+                await _hub.DisposeAsync();
+            }
+            catch
+            {
+                // cleanup best-effort
+            }
+        }
+    }
+}

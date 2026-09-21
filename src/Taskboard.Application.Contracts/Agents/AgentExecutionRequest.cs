@@ -14,6 +14,8 @@ public sealed record AgentExecutionRequest(
     AgentType AgentType,
     AgentModelTier ModelTier = AgentModelTier.Normal,
     string? ResolvedModelName = null,
+    /// <summary>When true, no model flag is emitted at all — the CLI picks its own default (SPEC-20260921-ai-chat-cli-backend).</summary>
+    bool OmitModelFlag = false,
     /// <summary>Opt-in: run the verification loop on this solution after the agent finishes (SPEC-20260919-harness-verification-loop).</summary>
     string? VerifySolutionFile = null,
     double? VerifyMinCoverage = null,

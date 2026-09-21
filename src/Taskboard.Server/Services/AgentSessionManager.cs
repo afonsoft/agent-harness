@@ -25,6 +25,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
     private readonly PermissionGate _permissionGate;
     private readonly WorkspaceService _workspaceService;
     private readonly ILogger<AgentSessionManager> _logger;
+    private readonly IAgentExecutionEventSink? _eventSink;
     private readonly CancellationTokenSource _reaperCts = new();
 
     public AgentSessionManager(
@@ -35,7 +36,8 @@ public sealed class AgentSessionManager : IAsyncDisposable
         IThreadEventStreamService threadEvents,
         PermissionGate permissionGate,
         WorkspaceService workspaceService,
-        ILogger<AgentSessionManager> logger)
+        ILogger<AgentSessionManager> logger,
+        IAgentExecutionEventSink? eventSink = null)
     {
         _sessionClient = sessionClient;
         _fallbackAcpClient = fallbackAcpClient;
@@ -45,6 +47,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
         _permissionGate = permissionGate;
         _workspaceService = workspaceService;
         _logger = logger;
+        _eventSink = eventSink;
     }
 
     public async Task<bool> EnsureSessionAsync(string threadId, CancellationToken cancellationToken = default)
@@ -86,11 +89,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
         _sessionClient.RegisterEventListener(threadId, e => HandleSessionEvent(threadId, e));
 
+        // Thread model reaches the session command; "default" = no flag, CLI decides.
+        var sessionModel = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : thread.Model.Value;
+
         var started = await _sessionClient.StartSessionAsync(
             threadId,
             thread.AgentType.Value,
             workdir,
             thread.Sandbox,
+            sessionModel,
             cancellationToken).ConfigureAwait(false);
 
         if (started)
@@ -211,6 +220,22 @@ public sealed class AgentSessionManager : IAsyncDisposable
         {
             try
             {
+                // SPEC-20260921-agent-execution-event-pipeline RF-003: every
+                // session event also enters the durable normalized stream,
+                // keeping the ACP correlation fields (session/tool call).
+                if (_eventSink is not null)
+                {
+                    await _eventSink.EmitAsync(new AgentExecutionEvent(
+                        string.Empty, AgentEventScope.Thread, threadId, 0,
+                        e.Timestamp,
+                        string.IsNullOrWhiteSpace(e.Kind) ? AgentEventKinds.Message : e.Kind,
+                        SessionId: e.SessionId,
+                        ToolCallId: e.ToolCallId,
+                        Title: e.Content,
+                        PayloadJson: e.PayloadJson,
+                        Stream: e.Kind == "error" ? "stderr" : "system"), CancellationToken.None).ConfigureAwait(false);
+                }
+
                 if (e.Kind == "permission" && !string.IsNullOrWhiteSpace(e.PayloadJson))
                 {
                     var req = AcpSessionMessageParser.ParsePermissionRequest(e.PayloadJson);

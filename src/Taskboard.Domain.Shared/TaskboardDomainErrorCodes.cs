@@ -12,4 +12,5 @@ public static class TaskboardDomainErrorCodes
     public const string InvalidPipelineDag = "Taskboard:00032";
     public const string InvalidSpecStatus = "Taskboard:00033";
     public const string InvalidPipelineState = "Taskboard:00034";
+    public const string AgentNotEligible = "Taskboard:00035";
 }

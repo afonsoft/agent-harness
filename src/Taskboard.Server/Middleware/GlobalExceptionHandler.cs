@@ -35,6 +35,7 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
             {
                 var c when c == TaskboardDomainErrorCodes.VersionConflict
                     || c == TaskboardDomainErrorCodes.InvalidPipelineState => 409,
+                var c when c == TaskboardDomainErrorCodes.AgentNotEligible => 422,
                 _ => 400
             };
 

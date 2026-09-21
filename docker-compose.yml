@@ -1,0 +1,40 @@
+# Agent Harness — self-hosted single-container deployment.
+# All persistent state lives in the `taskboard-data` volume mounted at /data:
+#   /data/taskboard.sqlite   — database + configuration overrides
+#   /data/admin.json         — generated admin credentials
+#   /data/skills-cache/      — skills repository cache
+#   /data/home/              — $HOME of the container: CLI credentials
+#                              (.claude, .codex, .config/...) and the agent
+#                              workspace ~/repos → /data/home/repos
+#
+# Run:  cp .env.example .env   (optional)  &&  docker compose up -d
+services:
+  harness:
+    build: .
+    image: agent-harness:latest
+    container_name: agent-harness
+    ports:
+      - "47823:47823"
+    environment:
+      # Admin login password; leave empty to auto-generate — the generated
+      # password is written to /data/.admin-password inside the volume:
+      #   docker compose exec harness cat /data/.admin-password
+      Admin__Password: ${ADMIN_PASSWORD:-}
+      # GitHub PAT (repo, read:org) for the Kanban board — optional.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - taskboard-data:/data
+      # Opt-in: bind the server's real repos so agents/terminal/cockpit work on
+      # them directly. Uncomment and set HARNESS_REPOS_DIR in .env:
+      # - ${HARNESS_REPOS_DIR}:/data/home/repos
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:47823/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  taskboard-data:

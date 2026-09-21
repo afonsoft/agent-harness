@@ -37,10 +37,13 @@
 
 ## AI Chat
 
-- UI de chat completa em `/ai-chat`: sidebar de threads (criar via catálogo de modelos + picker de sandbox, excluir com confirmação), área de mensagens com renderização markdown, composer, indicador "digitando" e auto-scroll
+- UI de chat completa em `/ai-chat`: sidebar de threads (criar via CLI de agente elegível + picker de modelo + picker de sandbox, excluir com confirmação), área de mensagens com renderização markdown, composer, indicador "digitando" e auto-scroll
+- Toda thread é vinculada a uma CLI de agente elegível — não existe provider de LLM direto no servidor (SPEC-20260921-ai-chat-cli-backend). O catálogo de modelos lista modelos por agente: reportados pela CLI (`opencode models`, `devin models list`…) combinados com a tabela curada e overrides de tier salvos; "CLI default" deixa o agente escolher o modelo
+- Threads `assistant` executam one-shot pela CLI vinculada (`IAgentAcpClient`) com o transcript como prompt — o run falha com erro claro se nenhum agente for elegível; threads legadas sem agente fazem bind automático ao primeiro CLI elegível no próximo run; desabilitar um agente interrompe suas threads no run
+- Threads `agent` mantêm a sessão ACP interativa (`AgentSessionManager`); o modelo escolhido chega à sessão via flag de modelo da CLI
 - Respostas do assistente em streaming via SSE (deltas `ai_chat.event` + status `ai_chat.run`); snapshot JSON via `Accept: application/json`
 - Sub-tarefa **Run agent**: picker (repositório + CLI de agente elegível + tier de modelo) enfileira `POST /api/agents/executions` com o contexto da thread como instruções (últimas 20 mensagens, cap ~8k); fila e status final voltam como eventos da thread
-- Abstração de provider (OpenAI, Claude, Azure OpenAI)
+- `MockLLMProvider` é só para dev/teste (`Taskboard:AiChat:MockProvider=true`) — nunca é o default de produção
 
 ## Cloud
 

@@ -14,16 +14,23 @@ window.taskboardTerminal = (() => {
         }
     }
 
-    function pasteClipboard(term) {
-        if (navigator.clipboard && navigator.clipboard.readText) {
-            navigator.clipboard.readText()
-                .then(t => { if (t) { term.paste(t); } })
-                .catch(() => { /* permission denied */ });
-            return true;
-        }
-        // Clipboard API unavailable (non-secure context): don't swallow the key.
-        term.writeln('\r\n\x1b[33m[paste indisponível neste contexto — use o menu do browser]\x1b[0m');
-        return false;
+    // Single paste path (SPEC-20260921-terminal-paste-dedup): capture-phase
+    // 'paste' listener on the host element runs before xterm's own textarea
+    // handler; preventDefault + stopPropagation make term.paste the only write.
+    // Uses event.clipboardData so it works in non-secure (http://) contexts
+    // where navigator.clipboard.readText is unavailable.
+    function attachPaste(term, el) {
+        const onPaste = ev => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const cd = ev.clipboardData;
+            const text = (cd && (cd.getData('text/plain') || cd.getData('text'))) || '';
+            if (text) {
+                term.paste(text);
+            }
+        };
+        el.addEventListener('paste', onPaste, { capture: true });
+        return onPaste;
     }
 
     function attachKeys(term) {
@@ -45,7 +52,10 @@ window.taskboardTerminal = (() => {
             }
 
             if ((ctrl && key === 'v') || (ev.shiftKey && ev.key === 'Insert' && !ctrl)) {
-                return !pasteClipboard(term);
+                // Swallow xterm's key handling (Ctrl+V would emit \x16 to the
+                // PTY); the browser still dispatches 'paste', which attachPaste
+                // handles exactly once. Never paste from the keydown path.
+                return false;
             }
 
             return true;
@@ -74,8 +84,9 @@ window.taskboardTerminal = (() => {
         term.open(el);
         fit.fit();
         attachKeys(term);
+        const onPaste = attachPaste(term, el);
 
-        const entry = { term, fit, observer: null, dotNet: dotNetRef, tabKey, el, lastCols: 0, lastRows: 0 };
+        const entry = { term, fit, observer: null, dotNet: dotNetRef, tabKey, el, onPaste, lastCols: 0, lastRows: 0 };
         term.onData(d => dotNetRef.invokeMethodAsync('OnTerminalData', tabKey, d));
         entry.observer = new ResizeObserver(() => {
             try {
@@ -184,6 +195,9 @@ window.taskboardTerminal = (() => {
         }
         if (e.observer) {
             e.observer.disconnect();
+        }
+        if (e.onPaste) {
+            e.el.removeEventListener('paste', e.onPaste, true);
         }
         e.term.dispose();
         terms.delete(elementId);

@@ -16,6 +16,7 @@ public interface IAgentSessionClient
         AgentType agentType,
         string workspacePath,
         Sandbox sandbox,
+        string? modelName = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

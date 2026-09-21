@@ -5,6 +5,7 @@ using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
+using Taskboard.Agents;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Dtos;
 using Taskboard.Harness.FinOps;
@@ -528,6 +529,45 @@ public sealed class TaskboardClient
     public async Task<IReadOnlyList<CockpitEventDto>> GetRunEventsAsync(string runId, CancellationToken cancellationToken = default) =>
         await _httpClient.GetFromJsonAsync<List<CockpitEventDto>>(
             $"/api/harness/runs/{Uri.EscapeDataString(runId)}/events", cancellationToken) ?? [];
+
+    /// <summary>
+    /// Eventos normalizados de um escopo (run/thread/issue) —
+    /// SPEC-20260921-board-cockpit-agent-observability.
+    /// </summary>
+    public async Task<AgentEventsPage> GetAgentEventsAsync(
+        string scopeKind, string scopeId, long after = 0, int take = 500, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<AgentEventsPage>(
+            $"/api/agents/events?scopeKind={Uri.EscapeDataString(scopeKind)}&scopeId={Uri.EscapeDataString(scopeId)}&after={after}&take={take}",
+            cancellationToken);
+        return response ?? new AgentEventsPage([], after, HasMore: false);
+    }
+
+    /// <summary>Ação de controle unificada (cancel/steer/retry) por escopo.</summary>
+    public async Task<bool> PostAgentControlAsync(
+        AgentControlRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/agents/control", request, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>Reply de permissão unificado por escopo.</summary>
+    public async Task<bool> PostAgentPermissionReplyAsync(
+        AgentPermissionReplyRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/agents/permissions/reply", request, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>Snapshot de estado do escopo (reconnect/mount).</summary>
+    public async Task<AgentScopeState?> GetAgentScopeStateAsync(
+        string scopeKind, string scopeId, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentScopeState>(
+            $"/api/agents/state?scopeKind={Uri.EscapeDataString(scopeKind)}&scopeId={Uri.EscapeDataString(scopeId)}",
+            cancellationToken);
+
+    /// <summary>Página de eventos normalizados — espelha o envelope do endpoint.</summary>
+    public sealed record AgentEventsPage(List<AgentExecutionEvent> Events, long NextAfter, bool HasMore);
 
     /// <summary>Envia instrução de steer — enfileirada para a próxima etapa (RF-003).</summary>
     public async Task SteerRunAsync(string runId, string instruction, CancellationToken cancellationToken = default)

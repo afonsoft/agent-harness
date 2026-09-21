@@ -87,6 +87,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
@@ -96,12 +97,18 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             throw;
         }
 
+        // RF-004: telemetry — duration and resolved model flow into the result.
         if (tcs.Task.IsCompleted)
         {
-            return await tcs.Task.ConfigureAwait(false);
+            var result = await tcs.Task.ConfigureAwait(false);
+            return result with { Duration = stopwatch.Elapsed, ModelUsed = request.ResolvedModelName };
         }
 
-        return new AgentExecutionResult(process.ExitCode, process.ExitCode == 0);
+        return new AgentExecutionResult(
+            process.ExitCode,
+            process.ExitCode == 0,
+            Duration: stopwatch.Elapsed,
+            ModelUsed: request.ResolvedModelName);
     }
 
     private static void TryHandleOutput(string line, string expectedId, TaskCompletionSource<AgentExecutionResult> tcs, IProgress<AgentLogMessage> progress)
@@ -134,23 +141,58 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
                 }
                 else
                 {
-                    var content = root.TryGetProperty("method", out var methodElement)
-                        ? $"{methodElement.GetString()}: {GetParamsText(root)}"
-                        : line;
-                    progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, expectedId, AgentLogStream.System, content));
+                    ReportNotification(line, expectedId, progress);
                 }
             }
             else
             {
-                var content = root.TryGetProperty("method", out var methodElement)
-                    ? $"{methodElement.GetString()}: {GetParamsText(root)}"
-                    : line;
-                progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, expectedId, AgentLogStream.System, content));
+                ReportNotification(line, expectedId, progress);
             }
         }
         catch (JsonException)
         {
             progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, expectedId, AgentLogStream.System, line));
+        }
+    }
+
+    /// <summary>
+    /// JSON-RPC notification outside the result id: <c>session/update</c>
+    /// notifications are normalized by the ACP parser (tool_call, plan,
+    /// thought…); everything else becomes <c>method: params</c> text as before.
+    /// SPEC-20260921-agent-execution-event-pipeline RF-002.
+    /// </summary>
+    private static void ReportNotification(string line, string issueId, IProgress<AgentLogMessage> progress)
+    {
+        var parsed = AcpProtocolParser.Parse(line);
+        if (parsed is not null
+            && parsed.Method is "session/update" or "session/request_permission")
+        {
+            progress?.Report(new AgentLogMessage(
+                DateTimeOffset.UtcNow,
+                issueId,
+                AgentLogStream.System,
+                parsed.Content ?? parsed.Method,
+                parsed.Kind,
+                parsed.PayloadJson));
+            return;
+        }
+
+        var content = parsed is { Method.Length: > 0 }
+            ? $"{parsed.Method}: {GetParamsText(line)}"
+            : line;
+        progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, issueId, AgentLogStream.System, content));
+    }
+
+    private static string GetParamsText(string line)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            return doc.RootElement.TryGetProperty("params", out var p) ? p.GetRawText() : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
         }
     }
 

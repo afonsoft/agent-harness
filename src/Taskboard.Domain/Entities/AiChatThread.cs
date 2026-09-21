@@ -63,8 +63,9 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         ModelRef model,
         string reasoningEffort,
         Sandbox sandbox,
-        DateTime? now = null)
-        => new(id, title, model, reasoningEffort, sandbox, now ?? DateTime.UtcNow);
+        DateTime? now = null,
+        AgentType? agentType = null)
+        => new(id, title, model, reasoningEffort, sandbox, now ?? DateTime.UtcNow, agentType: agentType);
 
     public static AiChatThread CreateAgentThread(
         AiChatThreadId id,
@@ -112,6 +113,23 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
 
         _events.Add(chatEvent);
         UpdatedAt = chatEvent.CreatedAt;
+        IncrementVersion();
+    }
+
+    /// <summary>
+    /// Binds an agent CLI (and optionally resets the model) — used by the
+    /// legacy-thread migration: assistant threads created before agent binding
+    /// was required get the first eligible agent on their next run
+    /// (SPEC-20260921-ai-chat-cli-backend RF-005).
+    /// </summary>
+    public void BindAgent(AgentType agentType, ModelRef? model = null, DateTime? now = null)
+    {
+        AgentType = agentType;
+        if (model is not null)
+        {
+            Model = model;
+        }
+        UpdatedAt = now ?? DateTime.UtcNow;
         IncrementVersion();
     }
 

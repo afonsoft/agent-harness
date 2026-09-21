@@ -44,11 +44,23 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr
 
 # CLI state (credentials, caches) lives under HOME — persisted via the /data volume.
 ENV HOME=/data/home
-RUN mkdir -p /data/home
+# appsettings.Production.json sets Taskboard:DataDir=/var/taskboard/data — outside
+# the volume. TASKBOARD_DATA_DIR (read directly by TaskboardEnvironment) overrides
+# it so the SQLite DB, admin.json, overrides and skills-cache are persisted.
+ENV TASKBOARD_DATA_DIR=/data
+# Bind-mounted host repos have a different owner — git refuses to operate without
+# this. Safe in a single-tenant self-hosted container.
+RUN git config --system --add safe.directory '*' \
+    && mkdir -p /data/home/repos
+
+VOLUME /data
 
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:47823
 EXPOSE 47823
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:47823/health || exit 1
 
 ENTRYPOINT ["dotnet", "Taskboard.Server.dll"]

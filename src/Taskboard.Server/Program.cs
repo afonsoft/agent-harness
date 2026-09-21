@@ -123,6 +123,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<IEventStreamService, InMemoryEventStreamService>();
 builder.Services.AddSingleton<IThreadEventStreamService, InMemoryThreadEventStreamService>();
 builder.Services.AddSingleton<AiCatalogService>();
+builder.Services.AddScoped<AiChatCatalogService>();
+builder.Services.AddSingleton<ICliChatRunner, CliChatRunner>();
 builder.Services.AddSingleton<CloudSessionService>();
 builder.Services.AddSingleton<IJiraService, JiraService>();
 builder.Services.AddSingleton<IExecutableResolver, CodexExecutableResolver>();
@@ -175,6 +177,21 @@ builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
+// SPEC-20260921-agent-execution-event-pipeline: normalized sink + durable
+// replay. Taskboard:AgentEvents:Enabled=false is the documented fast-rollback
+// path — events are dropped at the sink and replay returns empty.
+builder.Services.AddScoped<IAgentRunEventRepository, EfCoreAgentRunEventRepository>();
+builder.Services.AddScoped<AgentControlService>();
+builder.Services.AddSingleton<ISecretRedactor>(sp => sp.GetRequiredService<SecretScrubber>());
+if (builder.Configuration.GetValue("Taskboard:AgentEvents:Enabled", true))
+{
+    builder.Services.AddSingleton<IAgentExecutionEventSink, AgentExecutionEventSink>();
+    builder.Services.AddHostedService<AgentRunEventRetentionService>();
+}
+else
+{
+    builder.Services.AddSingleton<IAgentExecutionEventSink, NullAgentExecutionEventSink>();
+}
 builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
 builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -1063,11 +1080,18 @@ api.MapPost("local/jira-connection/sync", async (IJiraService jira, Cancellation
     var result = await jira.SyncAsync(ct);
     return Results.Ok(result);
 });
-api.MapGet("local/ai/catalog", (AiCatalogService catalog) => Results.Ok(new { models = catalog.List() }));
-api.MapPost("local/ai/catalog", (AiChatModelDto model, AiCatalogService catalog) =>
+api.MapGet("local/ai/catalog", async (AiChatCatalogService catalog, CancellationToken ct) =>
+    Results.Ok(new { models = await catalog.ListAsync(ct) }));
+api.MapPost("local/ai/catalog", async (AiChatModelDto model, AiChatCatalogService catalog, CancellationToken ct) =>
 {
-    var added = catalog.TryAdd(model);
-    return added ? Results.Created($"/api/local/ai/catalog/{model.Id}", new { model }) : Results.Conflict(new { error = new { code = "MODEL_EXISTS", message = $"Model '{model.Id}' already exists." } });
+    var error = await catalog.AddAsync(model, ct);
+    return error switch
+    {
+        null => Results.Created($"/api/local/ai/catalog/{model.Id}", new { model }),
+        "MODEL_EXISTS" => Results.Conflict(new { error = new { code = "MODEL_EXISTS", message = $"Model '{model.Id}' already exists." } }),
+        "INVALID_AGENT" => Results.BadRequest(new { error = new { code = "INVALID_AGENT", message = $"Invalid agent type '{model.AgentType}'." } }),
+        _ => Results.UnprocessableEntity(new { error = new { code = "agent-not-eligible", message = $"Agent '{model.AgentType}' is not installed, authenticated or enabled." } })
+    };
 });
 api.MapGet("local/ai/composer/candidates", () => Results.Ok(new { candidates = Array.Empty<object>() }));
 api.MapPost("local/ai/composer/rebind", (object? _) => Results.NoContent());
@@ -1835,11 +1859,71 @@ agents.MapDelete("logs/{issueId}", async (string issueId, IAgentOrchestrationSer
     return Results.NoContent();
 });
 
+// SPEC-20260921-agent-execution-event-pipeline RF-003: paginated replay of
+// normalized events per scope (run | thread | issue).
+agents.MapGet("events", async (
+    string scopeKind,
+    string scopeId,
+    IAgentExecutionEventSink sink,
+    long? after,
+    int? take,
+    CancellationToken ct) =>
+{
+    if (scopeKind is not ("run" or "thread" or "issue") || string.IsNullOrWhiteSpace(scopeId))
+    {
+        return Results.BadRequest(new { error = "scopeKind must be run|thread|issue and scopeId is required." });
+    }
+
+    // Fetch one extra row so hasMore is exact — a full page alone does not
+    // imply another page exists.
+    var pageSize = take ?? 500;
+    var fetched = await sink.GetEventsAsync(scopeKind, scopeId, after ?? 0, pageSize + 1, ct);
+    var hasMore = fetched.Count > pageSize;
+    var events = hasMore ? fetched.Take(pageSize).ToList() : fetched;
+    var nextAfter = events.Count > 0 ? events[^1].Sequence : after ?? 0;
+    return Results.Ok(new { events, nextAfter, hasMore });
+});
+
 agents.MapPost("executions/{issueId}/cancel", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>
 {
     await orchestration.CancelAsync(issueId, ct);
     return Results.NoContent();
 });
+
+// SPEC-20260921-board-cockpit-agent-observability RF-004: superfície de
+// controle unificada — AgentControlService roteia por escopo e audita a
+// ação como evento normalizado.
+agents.MapPost("control", async (
+    AgentControlRequest request,
+    AgentControlService control,
+    CancellationToken ct) =>
+    MapControlResult(await control.ExecuteAsync(request, ct)));
+
+// Reply unificado de permissões: thread → PermissionGate da sessão ACP;
+// run → gate de stage do pipeline (requestId "stage:<key>").
+agents.MapPost("permissions/reply", async (
+    AgentPermissionReplyRequest request,
+    AgentControlService control,
+    CancellationToken ct) =>
+    MapControlResult(await control.ReplyPermissionAsync(request, ct)));
+
+// Snapshot de estado por escopo para montagem da UI (reconnect/poll).
+agents.MapGet("state", async (
+    string scopeKind,
+    string scopeId,
+    AgentControlService control,
+    CancellationToken ct) =>
+    MapControlResult(await control.GetScopeStateAsync(scopeKind, scopeId, ct)));
+
+static IResult MapControlResult(AgentControlResult result) => result.Status switch
+{
+    AgentControlStatus.Accepted => Results.Accepted(),
+    AgentControlStatus.Ok => Results.Ok(result.Payload),
+    AgentControlStatus.Conflict => Results.Conflict(new { error = result.Error }),
+    AgentControlStatus.NotFound => Results.NotFound(new { error = result.Error }),
+    AgentControlStatus.Gone => Results.Json(new { error = result.Error }, statusCode: 410),
+    _ => Results.BadRequest(new { error = result.Error }),
+};
 
 agents.MapGet("prompt-template", (IConfiguration configuration) =>
 {

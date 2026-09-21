@@ -191,6 +191,10 @@ DELETE /api/agents/{agentType}/models
 GET    /api/agents/runs?issueId={id}&take={n}
 GET    /api/agents/runs/active
 GET    /api/agents/logs/{issueId}
+GET    /api/agents/events?scopeKind={run|thread|issue}&scopeId={id}&after={seq}&take={n}
+POST   /api/agents/control
+POST   /api/agents/permissions/reply
+GET    /api/agents/state?scopeKind={run|thread|issue}&scopeId={id}
 POST   /api/agents/executions/{issueId}/cancel
 ```
 
@@ -203,6 +207,14 @@ O body das execuções aceita `modelTier` opcional (`"lite" | "normal" | "ultra"
 `GET /api/agents/{agentType}/models/available` retorna `{ models: [...] }` — os ids de modelo que a CLI instalada reporta via comando headless (`opencode models`, `devin models list`, `agy models`; probe limitado a 10s, cache de 5min — `?refresh=true` fura o cache, usado pelo botão Sync do dialog). Array vazio quando a CLI não tem probe documentado (Claude, Codex, …), não está instalada ou o probe falha; `422 model-selection-unsupported` para CLIs gerenciadas. O dialog de modelos mescla esses ids com o `catalog` curado num autocomplete editável.
 
 `GET /api/agents/runs?issueId=` retorna os runs mais recentes da issue (`{ id, issueId, agentType, state, startedAt, finishedAt }`, mais novo primeiro; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` retorna o run mais recente por issue — usado para os badges de agente nos cards do kanban.
+
+`GET /api/agents/events` (SPEC-20260921-agent-execution-event-pipeline) faz replay do fluxo normalizado de eventos de execução persistido por escopo — `scopeKind` é `run` (pipeline do cockpit), `thread` (sessão de agente do AI Chat) ou `issue` (run one-shot do board). Eventos carregam `sequence` (monotônica por escopo), `kind` (`lifecycle|message|thought|plan|tool_call|tool_output|permission|output|diff|verification|metric|error|approval|steer|activity`), correlação opcional `stageId`/`sessionId`/`toolCallId`/`parentEventId`, `payloadJson` (redigido + truncado) e `rawJson`. `after`/`take` paginam por sequência (`400` para escopo inválido). Eventos ao vivo também fluem pelo SignalR `/agent-log-hub` no grupo `agent:{scopeKind}:{scopeId}` (`SubscribeToScope`, `ReceiveAgentEvent`). Sessões ACP agora executam o handshake real do protocolo (`initialize` → `session/new` capturando `sessionId` → `session/prompt` com content blocks) e respondem `session/request_permission` como resposta JSON-RPC; requests de capabilities não declaradas recebem `-32601`.
+
+`POST /api/agents/control` (SPEC-20260921-board-cockpit-agent-observability) é a superfície de controle unificada — body `{ scopeKind, scopeId, action, stageId?, content? }`. Pares suportados: `issue`+`cancel` (run one-shot do board), `run`+`cancel`/`steer`/`retry` (pipeline do cockpit; `retry` exige `stageId`, `steer` exige `content`), `thread`+`cancel`/`steer` (sessão do AI Chat). `400` para escopo/ação desconhecida, `409` quando a ação não é suportada ou o alvo não tem run/sessão ativa, `202`/`200` em caso de sucesso. Toda ação aceita emite um evento `lifecycle`/`steer` normalizado no fluxo do escopo.
+
+`POST /api/agents/permissions/reply` body `{ scopeKind, scopeId, requestId, outcome, comment? }` roteia respostas de permissão por escopo: `thread` → o gate de permissão da sessão ACP (`410` quando a request expirou/é desconhecida), `run` → o gate de estágio do pipeline quando `requestId` é `stage:{stageKey}` (`outcome` `deny` rejeita, qualquer outro aprova), `issue` → `409` (runs one-shot não aceitam replies).
+
+`GET /api/agents/state?scopeKind&scopeId` retorna `{ scopeKind, scopeId, state, lastEventSequence }` — `run` resolve o status do pipeline explicitamente (`running|waiting_permission|awaiting_retry|paused|completed|stopped|queued`, `404` run desconhecido), `thread` reporta `running`/`idle` pela sessão ACP ativa, `issue` mapeia o estado do `AgentRun` mais recente. Usado pela UI para reconstruir a timeline após reconnect.
 
 ### Harness — Isolamento de Workspace (E6)
 
@@ -368,7 +380,7 @@ GET /api/local/ai/threads/:id/events
 Accept: text/event-stream
 ```
 
-`GET .../events` é dual-mode: `Accept: application/json` retorna um snapshot único `200 { events: [{ id, threadId, role, content, createdAt }] }`; qualquer outro Accept abre stream SSE — o backlog persistido é reemitido como frames `ai_chat.event` seguidos de eventos ao vivo `ai_chat.event` (novas mensagens, incluindo deltas do assistente em streaming) e `ai_chat.run` (mudanças de status do run: `running`/`completed`/`failed`). `POST .../events` `{ role: "user|assistant|activity|error", content }` persiste e publica um evento; `POST .../runs` inicia um run de LLM em background sobre o histórico real de eventos (o assistente responde à última mensagem do usuário — nenhum prompt fixo é injetado); `DELETE /api/local/ai/threads/:id` remove a thread com seus eventos e runs (204 | 404).
+`GET .../events` é dual-mode: `Accept: application/json` retorna um snapshot único `200 { events: [{ id, threadId, role, content, createdAt }] }`; qualquer outro Accept abre stream SSE — o backlog persistido é reemitido como frames `ai_chat.event` seguidos de eventos ao vivo `ai_chat.event` (novas mensagens, incluindo deltas do assistente em streaming) e `ai_chat.run` (mudanças de status do run: `running`/`completed`/`failed`). `POST .../events` `{ role: "user|assistant|activity|error", content }` persiste e publica um evento; `POST .../runs` inicia um run em background executado pela CLI de agente vinculada à thread — one-shot, transcript como prompt (o assistente responde à última mensagem do usuário); `DELETE /api/local/ai/threads/:id` remove a thread com seus eventos e runs (204 | 404).
 
 ## Contrato de Erros
 
