@@ -1,0 +1,119 @@
+@* SPEC-20260920-board-cockpit-unified-runs R6: read-only xterm.js view of the
+   run's agent_output events — live stream plus replay on remount (the written
+   set replays every buffered event when the component is recreated). *@
+@using System.Text.Json
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (_initFailed)
+{
+    <pre class="small mb-0 p-2" style="max-height: 55vh; overflow: auto;">@FallbackText</pre>
+}
+else
+{
+    <div id="@_elementId" style="height: 55vh; min-height: 320px; background: #0d1117;"></div>
+}
+
+@code {
+    /// <summary>Live cockpit events — the component picks the `agent_output` ones.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CockpitEventDto> Events { get; set; } = [];
+
+    private readonly string _elementId = $"run-term-{Guid.NewGuid():N}";
+    private readonly HashSet<string> _written = new(StringComparer.Ordinal);
+    private string? _lastStageKey;
+    private bool _initialized;
+    private bool _initFailed;
+
+    private string FallbackText => string.Concat(
+        Events.Where(e => e.Kind == "agent_output")
+            .OrderBy(e => e.TimestampUtc)
+            .Select(e => ExtractContent(e.PayloadJson).Content ?? string.Empty));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _initialized = await JS.InvokeAsync<bool>("taskboardTerminal.initReadOnly", _elementId);
+                _initFailed = !_initialized;
+            }
+            catch
+            {
+                _initFailed = true;
+            }
+
+            if (_initFailed)
+            {
+                StateHasChanged();
+                return;
+            }
+        }
+
+        if (!_initialized)
+        {
+            return;
+        }
+
+        foreach (var evt in Events
+            .Where(e => e.Kind == "agent_output")
+            .OrderBy(e => e.TimestampUtc))
+        {
+            var key = $"{evt.TimestampUtc:O}|{evt.Title}|{evt.PayloadJson}";
+            if (!_written.Add(key))
+            {
+                continue;
+            }
+
+            if (!string.Equals(_lastStageKey, evt.Title, StringComparison.Ordinal))
+            {
+                _lastStageKey = evt.Title;
+                await JS.InvokeVoidAsync(
+                    "taskboardTerminal.write", _elementId,
+                    $"\r\n\x1b[36m── {evt.Title} ──\x1b[0m\r\n");
+            }
+
+            var chunk = ExtractContent(evt.PayloadJson);
+            if (chunk.Content is not null)
+            {
+                var data = chunk.IsStderr ? $"\x1b[31m{chunk.Content}\x1b[0m" : chunk.Content;
+                await JS.InvokeVoidAsync("taskboardTerminal.write", _elementId, data);
+            }
+        }
+    }
+
+    private static (string? Content, bool IsStderr) ExtractContent(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return (null, false);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var root = doc.RootElement;
+            var content = root.TryGetProperty("content", out var c) ? c.GetString() : payloadJson;
+            var isStderr = root.TryGetProperty("stream", out var s)
+                && string.Equals(s.GetString(), "StdErr", StringComparison.OrdinalIgnoreCase);
+            return (content, isStderr);
+        }
+        catch (JsonException)
+        {
+            return (payloadJson, false);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.dispose", _elementId);
+        }
+        catch
+        {
+            // Disposal is best-effort (circuit/JS runtime may be gone).
+        }
+    }
+}

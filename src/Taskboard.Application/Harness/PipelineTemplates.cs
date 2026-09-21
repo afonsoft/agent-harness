@@ -1,5 +1,6 @@
 using Taskboard.Agents;
 using Taskboard.Domain.Entities.Harness;
+using Taskboard.Dtos;
 using Taskboard.Harness;
 
 namespace Taskboard.Application.Harness;
@@ -34,6 +35,22 @@ public static class PipelineTemplates
                 null, null, AgentModelTier.Normal, ["builder"]),
         ]);
 
+    /// <summary>
+    /// Ad-hoc single-agent run — the only template that accepts
+    /// `AgentOverride`/`TierOverride`/`SkipVerification`
+    /// (SPEC-20260920-board-cockpit-unified-runs R1/R2).
+    /// </summary>
+    public const string SingleAgentId = PipelineTemplateIds.SingleAgent;
+
+    public static readonly PipelineDefinition SingleAgent = new(
+        SingleAgentId, "Single Agent",
+        [
+            new PipelineStage("builder", "Builder", PipelineStageKind.AgentWork,
+                AgentRole.Builder, AgentType.Codex, AgentModelTier.Normal, []),
+            new PipelineStage("verifier", "Verifier", PipelineStageKind.Verification,
+                null, null, AgentModelTier.Normal, ["builder"]),
+        ]);
+
     public static readonly PipelineDefinition TestDriven = new(
         "test-driven", "Test Driven",
         [
@@ -48,7 +65,7 @@ public static class PipelineTemplates
         ]);
 
     public static IReadOnlyList<PipelineDefinition> All { get; } =
-        [StandardFeature, QuickPatch, TestDriven];
+        [StandardFeature, QuickPatch, TestDriven, SingleAgent];
 
     public static PipelineDefinition? Find(string templateId) =>
         All.FirstOrDefault(t => t.TemplateId == templateId);

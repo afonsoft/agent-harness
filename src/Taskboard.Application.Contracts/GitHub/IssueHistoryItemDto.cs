@@ -20,4 +20,6 @@ public sealed record IssueHistoryItemDto(
     public const string ColumnMoved = "column-moved";
     public const string Edited = "edited";
     public const string Closed = "closed";
+    /// <summary>Pipeline execution started — `Detail` carries the run id (`/cockpit/runs/{id}`).</summary>
+    public const string PipelineRun = "pipeline-run";
 }

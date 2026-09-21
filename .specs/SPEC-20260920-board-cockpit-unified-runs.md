@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | — |
 | Ticket | [#257](https://github.com/afonsoft/agent-harness/issues/257) — user request (board↔cockpit unification) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -128,11 +128,11 @@ POST /api/harness/pipelines/start
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contrato+template**: `PipelineTemplates.SingleAgent`, novos campos em `PipelineStartRequest`, mapeamento no `PipelineExecutionAppService` + validação 400 + testes unitários.
-- [ ] **T2 — Board unificado**: `AgentSelectionModal`/`KanbanBoard` → `StartRunAsync`, toast+link `/cockpit/runs/{id}`, `IssueHistoryEvent` vínculo; testes de integração.
-- [ ] **T3 — Cockpit modal**: combo Agent CLI + tier + checkbox verification (condicionais a `single-agent`) + prefill `SelectedRepositoryService`.
-- [ ] **T4 — RunTerminal**: componente xterm.js read-only na página de run; replay de `agent_output`; wiring dos eventos live.
-- [ ] **T5 — Docs+verificação**: `docs/api.md`/`features.md` (en+pt-br), SPEC → `Done`, suíte verde.
+- [x] **T1 — Contrato+template**: `PipelineTemplates.SingleAgent`, novos campos em `PipelineStartRequest`, mapeamento no `PipelineExecutionAppService` + validação 400 + testes unitários.
+- [x] **T2 — Board unificado**: `AgentSelectionModal`/`KanbanBoard` → `StartRunAsync`, toast+link `/cockpit/runs/{id}`, `IssueHistoryEvent` vínculo; testes de integração.
+- [x] **T3 — Cockpit modal**: combo Agent CLI + tier + checkbox verification (condicionais a `single-agent`) + prefill `SelectedRepositoryService`.
+- [x] **T4 — RunTerminal**: componente xterm.js read-only na página de run; replay de `agent_output`; wiring dos eventos live.
+- [x] **T5 — Docs+verificação**: `docs/api.md`/`features.md` (en+pt-br), SPEC → `Done`, suíte verde.
 
 ## 8. Organization Guardrails
 

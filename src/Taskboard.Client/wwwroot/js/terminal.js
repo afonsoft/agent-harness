@@ -88,6 +88,45 @@ window.taskboardTerminal = (() => {
         return true;
     }
 
+    // Read-only terminal for the cockpit run page (SPEC-20260920-board-cockpit-
+    // unified-runs R6): no stdin wiring, no resize callbacks — output only.
+    function initReadOnly(elementId) {
+        const el = document.getElementById(elementId);
+        if (!el || typeof Terminal === 'undefined') {
+            return false;
+        }
+
+        const term = new Terminal({
+            cursorBlink: false,
+            disableStdin: true,
+            convertEol: true,
+            fontSize: 13,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            scrollback: 10000,
+            theme: {
+                background: '#0d1117',
+                foreground: '#e6edf3',
+                cursor: '#58a6ff'
+            }
+        });
+        const fit = new FitAddon.FitAddon();
+        term.loadAddon(fit);
+        term.open(el);
+        fit.fit();
+
+        const entry = { term, fit, observer: null, dotNet: null, tabKey: null, el, lastCols: 0, lastRows: 0 };
+        entry.observer = new ResizeObserver(() => {
+            try {
+                if (el.offsetParent !== null && el.clientHeight > 0 && el.clientWidth > 0) {
+                    entry.fit.fit();
+                }
+            } catch { /* element gone */ }
+        });
+        entry.observer.observe(el);
+        terms.set(elementId, entry);
+        return true;
+    }
+
     // Fits the addon and reports the new size — only when the element is
     // visible, non-degenerate, and the size actually changed. Hidden panes
     // (d-none) and mid-layout transitions produce garbage dims (e.g. rows 3)
@@ -104,7 +143,7 @@ window.taskboardTerminal = (() => {
         }
         entry.lastCols = cols;
         entry.lastRows = rows;
-        entry.dotNet.invokeMethodAsync('OnTerminalResize', entry.tabKey, cols, rows);
+        entry.dotNet?.invokeMethodAsync('OnTerminalResize', entry.tabKey, cols, rows);
     }
 
     function write(elementId, data) {
@@ -156,5 +195,5 @@ window.taskboardTerminal = (() => {
         }
     }
 
-    return { init, write, focus, fitNow, reset, dispose, disposeAll };
+    return { init, initReadOnly, write, focus, fitNow, reset, dispose, disposeAll };
 })();

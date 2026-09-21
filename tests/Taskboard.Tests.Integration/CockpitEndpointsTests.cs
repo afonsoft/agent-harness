@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.SignalR.Client;
 using Shouldly;
+using Taskboard.Agents;
 using Taskboard.Dtos;
 using Xunit;
 
@@ -166,6 +168,58 @@ public class CockpitEndpointsTests : IClassFixture<TaskboardWebApplicationFactor
             new CreatePrRequest("feat: jwt", null));
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Dado_OverrideEmTemplateFixo_Quando_PostRuns_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/harness/runs",
+            StartRequest() with { AgentOverride = AgentType.Claude });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_SingleAgentComOverride_Quando_PostRuns_Entao_201ComAgenteAplicado()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var created = await client.PostAsJsonAsync(
+            "/api/harness/runs",
+            new RunStartRequest(
+                PipelineTemplateIds.SingleAgent, "afonsoft/agent-harness", "main", null, null,
+                "Implementar JWT", AgentOverride: AgentType.OpenCode, SkipVerification: true));
+
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+        dto.ShouldNotBeNull();
+        var builder = dto.Stages.Where(s => s.StageKey == "builder").ShouldHaveSingleItem();
+        builder.Agent.ShouldBe(nameof(AgentType.OpenCode));
+        dto.Stages.ShouldNotContain(s => s.Kind == "Verification");
+    }
+
+    [Fact]
+    public async Task Dado_RunComIssue_Quando_PostRuns_Entao_HistoryVinculaPipelineRun()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var issueId = $"issue-uni-{Guid.NewGuid():N}";
+
+        var created = await client.PostAsJsonAsync(
+            "/api/harness/runs",
+            StartRequest() with { IssueId = issueId });
+
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+
+        var history = await client.GetFromJsonAsync<JsonObject>($"/api/github/issues/{issueId}/history");
+        history.ShouldNotBeNull();
+        var items = history["items"]!.AsArray();
+        var link = items.FirstOrDefault(i => i?["kind"]?.GetValue<string>() == "pipeline-run");
+        link.ShouldNotBeNull("a run deve registrar um evento pipeline-run no histórico da issue");
+        link!["detail"]!.GetValue<string>().ShouldBe(dto!.PipelineExecutionId);
     }
 
     [Fact]

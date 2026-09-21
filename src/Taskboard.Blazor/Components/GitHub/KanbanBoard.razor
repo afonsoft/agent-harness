@@ -1,6 +1,7 @@
 @using System.Globalization
 @inject IGitHubService GitHubService
 @inject IAgentOrchestrationService OrchestrationService
+@inject TaskboardClient Client
 @inject ToastService ToastService
 
 <Modal @ref="_agentModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnAgentModalHidden" />
@@ -17,6 +18,15 @@ else if (!string.IsNullOrWhiteSpace(_errorMessage))
 }
 else if (_columns is not null)
 {
+    @if (_lastRun is not null)
+    {
+        <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3" role="status">
+            <Icon Name="IconName.Play" />
+            <span>Run iniciado para a issue #@_lastRun.Value.IssueNumber — acompanhe pelo Cockpit.</span>
+            <a href="/cockpit/runs/@_lastRun.Value.RunId" class="alert-link">Abrir no Cockpit</a>
+            <button type="button" class="btn-close ms-auto" aria-label="Fechar" @onclick="() => _lastRun = null"></button>
+        </div>
+    }
     <div class="d-flex gap-2 mb-3">
         <Button Color="ButtonColor.Primary" @onclick="OpenNewTaskDialogAsync">
             <Icon Name="IconName.Plus" class="me-2" />Nova Tarefa
@@ -177,6 +187,7 @@ else if (_columns is not null)
     private GitHubBoardColumn? _draggedFromColumn;
     private GitHubBoardColumn? _dragOverColumn;
     private IssueDto? _moveSheetIssue;
+    private (string RunId, int IssueNumber)? _lastRun;
     private string _filterText = string.Empty;
     private string _filterPriority = string.Empty;
     private readonly string[] _priorities = ["Urgent", "High", "Medium", "Low", "None"];
@@ -410,10 +421,24 @@ else if (_columns is not null)
 
                 await GitHubService.UpdateIssueColumnAsync(RepositoryFullName, issue.Number, fromColumn, toColumn);
                 await GitHubService.AddLabelsToIssueAsync(RepositoryFullName, issue.Number, [request.AgentType.ToLabel()]);
-                var queued = await OrchestrationService.EnqueueAsync(request);
-                ToastService.Notify(queued
-                    ? new(ToastType.Success, $"Issue #{issue.Number} movida para {toColumn.ToLabel()} e agente {request.AgentType} iniciado.")
-                    : new(ToastType.Warning, $"Issue #{issue.Number} movida, mas o agente {request.AgentType} não está elegível (desabilitado ou não autenticado)."));
+                var run = await Client.StartRunAsync(new RunStartRequest(
+                    PipelineTemplateIds.SingleAgent,
+                    RepositoryFullName,
+                    string.IsNullOrWhiteSpace(request.Branch) ? "main" : request.Branch,
+                    issue.Id.ToString(CultureInfo.InvariantCulture),
+                    SpecPath: null,
+                    BuildRunPrompt(request),
+                    request.MaxBudgetUsd,
+                    request.AgentType,
+                    request.ModelTier,
+                    SkipVerification: request.VerifySolutionFile is null));
+                if (run is not null)
+                {
+                    _lastRun = (run.PipelineExecutionId, issue.Number);
+                }
+
+                ToastService.Notify(new(ToastType.Success,
+                    $"Issue #{issue.Number} movida para {toColumn.ToLabel()} e agente {request.AgentType} iniciado — abra no Cockpit."));
             }
             else
             {
@@ -429,6 +454,11 @@ else if (_columns is not null)
             ToastService.Notify(new(ToastType.Danger, _errorMessage));
         }
     }
+
+    private static string BuildRunPrompt(AgentExecutionRequest request) =>
+        string.IsNullOrWhiteSpace(request.Scope)
+            ? request.Instructions
+            : $"{request.Instructions}\n\nScope: {request.Scope}";
 
     private async Task<AgentExecutionRequest?> OpenAgentSelectionModalAsync(IssueDto issue)
     {

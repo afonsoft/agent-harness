@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @inject TaskboardClient Client
 @inject IGitHubService GitHub
+@inject IAgentOrchestrationService Orchestration
+@inject SelectedRepositoryService SelectedRepo
 @inject NavigationManager Nav
 @inject ToastService ToastService
 @implements IDisposable
@@ -78,6 +80,32 @@ else if (_runs is not null)
                                     Repositories="@_repoNames" IsLoading="@_reposLoading"
                                     @bind-Value="_start.RepositoryFullName" />
             </div>
+            @if (IsSingleAgent)
+            {
+                <div class="col-md-6">
+                    <label class="form-label" for="cockpit-agent">Agent CLI</label>
+                    <select id="cockpit-agent" class="form-select form-select-sm" @bind="_start.AgentType">
+                        @foreach (var agent in _agents ?? [])
+                        {
+                            <option value="@agent.Type">@agent.Name (@agent.Status)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="cockpit-tier">Model tier</label>
+                    <select id="cockpit-tier" class="form-select form-select-sm" @bind="_start.ModelTier">
+                        <option value="@AgentModelTier.Lite">Lite</option>
+                        <option value="@AgentModelTier.Normal">Normal</option>
+                        <option value="@AgentModelTier.Ultra">Ultra</option>
+                    </select>
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <input id="cockpit-verify" type="checkbox" class="form-check-input" @bind="_start.RunVerification" />
+                        <label class="form-check-label" for="cockpit-verify">Run verification stage (dotnet format/build/test)</label>
+                    </div>
+                </div>
+            }
             <div class="col-md-6">
                 <label class="form-label" for="cockpit-branch">Base branch</label>
                 <input id="cockpit-branch" class="form-control form-control-sm" @bind="_start.BaseBranch" placeholder="main" />
@@ -112,6 +140,7 @@ else if (_runs is not null)
 @code {
     private IReadOnlyList<PipelineExecutionDto>? _runs;
     private IReadOnlyList<PipelineTemplateDto>? _templates;
+    private IReadOnlyList<AgentInfo>? _agents;
     private IReadOnlyList<string> _repoNames = [];
     private bool _loading;
     private bool _reposLoading;
@@ -119,6 +148,8 @@ else if (_runs is not null)
     private Modal _startModal = default!;
     private readonly RunStartForm _start = new();
     private CancellationTokenSource _cts = new();
+
+    private bool IsSingleAgent => _start.TemplateId == PipelineTemplateIds.SingleAgent;
 
     private bool CanStart =>
         !string.IsNullOrWhiteSpace(_start.TemplateId)
@@ -161,11 +192,27 @@ else if (_runs is not null)
             ToastService.Notify(new ToastMessage(ToastType.Warning, $"Templates: {ex.Message}"));
         }
 
+        try
+        {
+            _agents = (await Orchestration.GetAvailableAgentsAsync(_cts.Token))
+                .Where(a => a.Status == AgentStatus.Available)
+                .ToList();
+            if (_agents.Count > 0 && !_agents.Any(a => a.Type == _start.AgentType))
+            {
+                _start.AgentType = _agents[0].Type;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Agents: {ex.Message}"));
+        }
+
         _reposLoading = true;
         try
         {
-            var repos = await GitHub.GetRepositoriesAsync(_cts.Token);
-            _repoNames = repos.Select(r => r.FullName).ToList();
+            await SelectedRepo.EnsureLoadedAsync();
+            _repoNames = SelectedRepo.Repositories;
+            _start.RepositoryFullName ??= SelectedRepo.Selected;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -181,6 +228,7 @@ else if (_runs is not null)
     private async Task OpenStartAsync()
     {
         _start.BaseBranch = string.IsNullOrWhiteSpace(_start.BaseBranch) ? "main" : _start.BaseBranch;
+        _start.RepositoryFullName ??= SelectedRepo.Selected;
         await _startModal.ShowAsync();
     }
 
@@ -193,7 +241,10 @@ else if (_runs is not null)
                 _start.TemplateId!, _start.RepositoryFullName!, _start.BaseBranch ?? "main",
                 string.IsNullOrWhiteSpace(_start.IssueId) ? null : _start.IssueId,
                 string.IsNullOrWhiteSpace(_start.SpecPath) ? null : _start.SpecPath,
-                _start.Prompt!, _start.MaxBudgetUsd), _cts.Token);
+                _start.Prompt!, _start.MaxBudgetUsd,
+                AgentOverride: IsSingleAgent ? _start.AgentType : null,
+                TierOverride: IsSingleAgent ? _start.ModelTier : null,
+                SkipVerification: IsSingleAgent && !_start.RunVerification), _cts.Token);
             await _startModal.HideAsync();
             if (run is not null)
             {
@@ -230,5 +281,8 @@ else if (_runs is not null)
         public string? SpecPath { get; set; }
         public string? Prompt { get; set; }
         public decimal? MaxBudgetUsd { get; set; }
+        public AgentType AgentType { get; set; } = AgentType.Codex;
+        public AgentModelTier ModelTier { get; set; } = AgentModelTier.Normal;
+        public bool RunVerification { get; set; } = true;
     }
 }

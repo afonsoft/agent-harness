@@ -32,7 +32,13 @@
                 <li class="d-flex align-items-start gap-2 py-2 border-bottom">
                     <Icon Name="@IconFor(item)" class="mt-1 text-body-secondary" />
                     <div class="flex-grow-1">
-                        <div class="small">@Describe(item)</div>
+                        <div class="small">
+                            @Describe(item)
+                            @if (item.Kind == IssueHistoryItemDto.PipelineRun && !string.IsNullOrWhiteSpace(item.Detail))
+                            {
+                                <a href="/cockpit/runs/@item.Detail" class="ms-1">Open in Cockpit</a>
+                            }
+                        </div>
                         <div class="small text-body-secondary">
                             @item.OccurredAt.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)
                             @if (item.FinishedAt is not null)
@@ -84,6 +90,7 @@
         IssueHistoryItemDto.ColumnMoved => IconName.ArrowLeftRight,
         IssueHistoryItemDto.Edited => IconName.PencilSquare,
         IssueHistoryItemDto.Closed => IconName.Archive,
+        IssueHistoryItemDto.PipelineRun => IconName.Play,
         _ => IconName.Dot
     };
 
@@ -93,6 +100,7 @@
         IssueHistoryItemDto.ColumnMoved => $"Moved: {item.From ?? "?"} → {item.To ?? "?"}",
         IssueHistoryItemDto.Edited => $"Edited{(item.Detail is not null ? $" ({item.Detail})" : "")}",
         IssueHistoryItemDto.Closed => $"Closed as {item.Detail ?? "done"}",
+        IssueHistoryItemDto.PipelineRun => "Pipeline run started",
         _ => item.Detail ?? item.Kind
     };
 
