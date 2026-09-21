@@ -9,7 +9,14 @@ public sealed record AiChatEventKind : StringValueObject
         "tool_call",
         "activity",
         "error",
-        "permission"
+        "permission",
+        // SPEC-20260921-agent-execution-event-pipeline: kinds normalizados ACP.
+        "thought",
+        "plan",
+        "tool_output",
+        "session",
+        "output",
+        "lifecycle"
     };
 
     public static readonly AiChatEventKind Message = new("message");

@@ -44,11 +44,13 @@ public sealed class HttpAgentOrchestrationService(HttpClient http) : IAgentOrche
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task CancelAsync(string issueId, CancellationToken cancellationToken = default)
+    public async Task<bool> CancelAsync(string issueId, CancellationToken cancellationToken = default)
     {
-        var response = await http.PostAsync(
-            $"/api/agents/executions/{Uri.EscapeDataString(issueId)}/cancel", null, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        // Unified control surface — 202 when a live run was signalled,
+        // 409 when there is no active execution for the issue.
+        var response = await http.PostAsJsonAsync("/api/agents/control",
+            new AgentControlRequest("issue", issueId, "cancel"), cancellationToken);
+        return response.IsSuccessStatusCode;
     }
 
     public async Task<IReadOnlyList<AgentRunDto>> GetRunsAsync(string issueId, int take = 5, CancellationToken cancellationToken = default)

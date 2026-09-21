@@ -1,13 +1,13 @@
 @inject IAgentOrchestrationService OrchestrationService
-@inject NavigationManager NavigationManager
+@inject TaskboardClient Client
 @inject ToastService ToastService
-@implements IAsyncDisposable
+@using Taskboard.Agents
 
 <div class="agent-log-tab">
     <div class="agent-log-header">
-        <strong>Logs do Agente</strong>
+        <strong>Execução do Agente</strong>
         <div class="d-flex gap-2">
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ClearAsync" Disabled="_messages.Count == 0">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ClearAsync">
                 Limpar
             </Button>
             <Button Color="ButtonColor.Danger" Outline="true" Size="ButtonSize.Small" @onclick="CancelAsync">
@@ -16,54 +16,21 @@
         </div>
     </div>
 
-    <div class="agent-log-console" id="log-console-@IssueId">
-        @foreach (var message in _messages)
-        {
-            <div class="agent-log-line agent-log-@GetStreamCssClass(message.Stream)">
-                <span class="agent-log-timestamp">@message.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                <span class="agent-log-content">@message.Content</span>
-            </div>
-        }
-    </div>
+    @* SPEC-20260921-board-cockpit-agent-observability RF-002: timeline
+       normalizada (tool calls, planos, permissões, métricas) — não mais
+       texto flat em memória. *@
+    <AgentRunTimeline ScopeKind="issue" ScopeId="@IssueId" OnPermissionReply="ReplyPermissionAsync" />
 </div>
 
 @code {
     [Parameter, EditorRequired]
     public string IssueId { get; set; } = string.Empty;
 
-    private readonly List<AgentLogMessage> _messages = [];
-    private HubConnection? _hubConnection;
-
-    protected override async Task OnInitializedAsync()
-    {
-        var existingLogs = await OrchestrationService.GetLogsAsync(IssueId);
-        _messages.AddRange(existingLogs);
-
-        var hubUrl = NavigationManager.ToAbsoluteUri("/agent-log-hub");
-        _hubConnection = new HubConnectionBuilder()
-            .WithUrl(hubUrl)
-            .WithAutomaticReconnect()
-            .Build();
-
-        _hubConnection.On<AgentLogMessage>("ReceiveLog", message =>
-        {
-            if (message.IssueId == IssueId)
-            {
-                _messages.Add(message);
-                InvokeAsync(StateHasChanged);
-            }
-        });
-
-        await _hubConnection.StartAsync();
-        await _hubConnection.InvokeAsync("SubscribeToIssue", IssueId);
-    }
-
     private async Task ClearAsync()
     {
         try
         {
             await OrchestrationService.ClearLogsAsync(IssueId);
-            _messages.Clear();
         }
         catch (Exception ex)
         {
@@ -75,7 +42,12 @@
     {
         try
         {
-            await OrchestrationService.CancelAsync(IssueId);
+            var accepted = await Client.PostAgentControlAsync(
+                new AgentControlRequest("issue", IssueId, "cancel"));
+            if (!accepted)
+            {
+                ToastService.Notify(new(ToastType.Warning, "Nenhuma execução ativa para cancelar."));
+            }
         }
         catch (Exception ex)
         {
@@ -83,27 +55,47 @@
         }
     }
 
-    private static string GetStreamCssClass(AgentLogStream stream) => stream switch
+    private async Task ReplyPermissionAsync(AgentExecutionEvent evt, string optionId)
     {
-        AgentLogStream.StdOut => "stdout",
-        AgentLogStream.StdErr => "stderr",
-        AgentLogStream.System => "system",
-        _ => "system"
-    };
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_hubConnection is not null)
+        try
         {
-            try
+            var requestId = ExtractRequestId(evt.PayloadJson);
+            if (requestId is null)
             {
-                await _hubConnection.InvokeAsync("UnsubscribeFromIssue", IssueId);
-                await _hubConnection.DisposeAsync();
+                return;
             }
-            catch
+
+            var outcome = optionId.Contains("reject", StringComparison.OrdinalIgnoreCase)
+                || optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
+                ? "deny" : "allow";
+            var ok = await Client.PostAgentPermissionReplyAsync(
+                new AgentPermissionReplyRequest("issue", IssueId, requestId, outcome));
+            if (!ok)
             {
-                // Ignora erros de cleanup do hub.
+                ToastService.Notify(new(ToastType.Warning, "Permissão expirada ou já respondida."));
             }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Erro ao responder permissão: {ex.Message}"));
+        }
+    }
+
+    private static string? ExtractRequestId(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(payloadJson);
+            return doc.RootElement.TryGetProperty("requestId", out var r) ? r.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
         }
     }
 }

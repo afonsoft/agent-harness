@@ -23,4 +23,19 @@ public sealed class AgentLogHub : Hub
     {
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, issueId);
     }
+
+    /// <summary>
+    /// Subscribes to the normalized events of a scope (run/thread/issue) —
+    /// SPEC-20260921-agent-execution-event-pipeline RF-003.
+    /// </summary>
+    public async Task SubscribeToScope(string scopeKind, string scopeId)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"agent:{scopeKind}:{scopeId}");
+    }
+
+    /// <summary>Unsubscribes from the scope normalized events.</summary>
+    public async Task UnsubscribeFromScope(string scopeKind, string scopeId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"agent:{scopeKind}:{scopeId}");
+    }
 }
