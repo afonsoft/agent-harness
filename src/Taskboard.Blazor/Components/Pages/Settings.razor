@@ -165,12 +165,24 @@
 
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label" for="rag-name">Server name</label>
-                            <input id="rag-name" type="text" class="form-control font-monospace" @bind="_ragName" placeholder="knowledge" />
+                            <label class="form-label" for="rag-name">
+                                Server name
+                                @if (!string.IsNullOrWhiteSpace(_ragNameSource))
+                                {
+                                    <span class="badge @GetSourceBadgeClass(_ragNameSource) ms-1 fw-normal">@_ragNameSource</span>
+                                }
+                            </label>
+                            <input id="rag-name" type="text" class="form-control font-monospace" @bind="_ragName" placeholder="e.g. knowledge" />
                         </div>
                         <div class="col-md-8">
-                            <label class="form-label" for="rag-url">MCP URL</label>
-                            <input id="rag-url" type="text" class="form-control font-monospace" @bind="_ragUrl" placeholder="https://rag.afonsoft.dev/mcp" />
+                            <label class="form-label" for="rag-url">
+                                MCP URL
+                                @if (!string.IsNullOrWhiteSpace(_ragUrlSource))
+                                {
+                                    <span class="badge @GetSourceBadgeClass(_ragUrlSource) ms-1 fw-normal">@_ragUrlSource</span>
+                                }
+                            </label>
+                            <input id="rag-url" type="text" class="form-control font-monospace" @bind="_ragUrl" placeholder="e.g. https://mcp.example.com/mcp" />
                         </div>
                     </div>
                     <div class="mt-2">
@@ -194,6 +206,20 @@
                             Unsaved changes — Sync provisions the <strong>saved</strong> URL
                             (<code>@_ragUrlSaved</code>); use Save &amp; Sync to apply the form values.
                         </div>
+                    }
+
+                    @if (_configError is not null)
+                    {
+                        <div class="alert alert-warning mt-2 mb-0">
+                            @_configError Values shown below were resolved by the MCP provisioning status.
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(_mcpStatus?.ConfiguredUrl))
+                    {
+                        <p class="small text-body-secondary mt-2 mb-0">
+                            Provisioned as <code>@_mcpStatus.ServerName</code> → <code>@_mcpStatus.ConfiguredUrl</code>
+                        </p>
                     }
 
                     @if (!string.IsNullOrWhiteSpace(_ragError))
@@ -438,14 +464,15 @@
     private bool _skillsBusy;
     private CancellationTokenSource? _pollCts;
 
-    private const string RagServerNameKey = "Taskboard:Rag:ServerName";
-    private const string RagUrlKey = "Taskboard:Rag:Url";
-    private const string RagApiKeyKey = "Taskboard:Rag:ApiKey";
     private McpProvisionStatus? _mcpStatus;
     private IReadOnlyList<OperationLogEntry> _mcpLog = [];
-    private string _ragName = "knowledge";
+    private string _ragName = RagMcpFormResolver.DefaultServerName;
+    private string? _ragNameSaved;
+    private string? _ragNameSource;
     private string _ragUrl = string.Empty;
     private string? _ragUrlSaved;
+    private string? _ragUrlSource;
+    private bool _ragStateApplied;
     private string _ragApiKey = string.Empty;
     private bool _ragKeySet;
     private bool _ragBusy;
@@ -695,6 +722,7 @@
         {
             _mcpStatus = null;
         }
+        ApplyRagState();
     }
 
     private async Task LoadMcpLogAsync()
@@ -870,16 +898,36 @@
                 _skillsRepoIsOverride = skillsEntry.Source == "db";
             }
 
-            _ragName = _configEntries.FirstOrDefault(e => e.Key == RagServerNameKey)?.EffectiveValue ?? "knowledge";
-            _ragUrlSaved = _configEntries.FirstOrDefault(e => e.Key == RagUrlKey)?.EffectiveValue;
-            _ragUrl = _ragUrlSaved ?? string.Empty;
-            _ragKeySet = _configEntries.FirstOrDefault(e => e.Key == RagApiKeyKey)?.EffectiveValue is not null;
+            ApplyRagState();
         }
         catch (Exception ex)
         {
             _configEntries = [];
             _configError = $"Could not load configuration entries: {ex.Message}";
         }
+    }
+
+    // Effective RAG form state (SPEC-20260921-settings-rag-mcp-prefill): the
+    // config catalog wins; mcp/status is the fallback. Fields are only
+    // overwritten while the form has no unsaved edits, so a reload (Verify /
+    // post-save / post-sync) never clobbers what the user is typing.
+    private void ApplyRagState()
+    {
+        var state = RagMcpFormResolver.Resolve(_configEntries, _mcpStatus);
+        var pristine = !_ragStateApplied
+            || (string.Equals(_ragUrl.Trim(), _ragUrlSaved ?? string.Empty, StringComparison.Ordinal)
+                && string.Equals(_ragName.Trim(), _ragNameSaved ?? string.Empty, StringComparison.Ordinal));
+        if (pristine)
+        {
+            _ragName = state.ServerName;
+            _ragUrl = state.Url ?? string.Empty;
+            _ragStateApplied = true;
+        }
+        _ragNameSaved = state.ServerName;
+        _ragNameSource = state.ServerNameSource;
+        _ragUrlSaved = state.Url;
+        _ragUrlSource = state.UrlSource;
+        _ragKeySet = state.ApiKeySet;
     }
 
     private async Task SaveSkillsRepoAsync()
