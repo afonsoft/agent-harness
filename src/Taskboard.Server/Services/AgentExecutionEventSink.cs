@@ -6,11 +6,11 @@ using Taskboard.Server.Hubs;
 namespace Taskboard.Server.Services;
 
 /// <summary>
-/// <see cref="IAgentExecutionEventSink"/> singleton: atribui Sequence por escopo
-/// (semeado do máximo persistido — sobrevive a restart), redige e trunca payloads,
-/// persiste via <see cref="IAgentRunEventRepository"/> e transmite
-/// <c>ReceiveAgentEvent</c> ao grupo SignalR <c>agent:{scopeKind}:{scopeId}</c>.
-/// Falhas de persistência/broadcast são logadas, nunca propagadas ao produtor
+/// <see cref="IAgentExecutionEventSink"/> singleton: assigns per-scope Sequence
+/// (seeded from the persisted max — survives restart), redacts and truncates
+/// payloads, persists via <see cref="IAgentRunEventRepository"/> and broadcasts
+/// <c>ReceiveAgentEvent</c> to the SignalR group <c>agent:{scopeKind}:{scopeId}</c>.
+/// Persist/broadcast failures are logged, never propagated to the producer
 /// (SPEC-20260921-agent-execution-event-pipeline RF-003/RF-005).
 /// </summary>
 public sealed class AgentExecutionEventSink : IAgentExecutionEventSink
@@ -56,7 +56,15 @@ public sealed class AgentExecutionEventSink : IAgentExecutionEventSink
                 Title = Truncate(_redactor.Redact(evt.Title), 512)
             };
 
-            await PersistAsync(persisted).ConfigureAwait(false);
+            if (!await PersistAsync(persisted).ConfigureAwait(false))
+            {
+                // Roll the counter back so the next event reuses this sequence —
+                // replay must never have permanent gaps. The event is also not
+                // broadcast: live subscribers see the same stream replay does.
+                _sequences[ScopeKey(evt)] = sequence - 1;
+                return persisted;
+            }
+
             await BroadcastAsync(persisted, cancellationToken).ConfigureAwait(false);
             return persisted;
         }
@@ -95,7 +103,7 @@ public sealed class AgentExecutionEventSink : IAgentExecutionEventSink
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to seed event sequence for {Scope}; starting at 1.", key);
+            _logger.LogWarning(ex, "Failed to seed event sequence for {Scope}; starting at 1.", SanitizeForLog(key));
         }
 
         var seededNext = seeded + 1;
@@ -103,18 +111,20 @@ public sealed class AgentExecutionEventSink : IAgentExecutionEventSink
         return seededNext;
     }
 
-    private async Task PersistAsync(AgentExecutionEvent evt)
+    private async Task<bool> PersistAsync(AgentExecutionEvent evt)
     {
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var repository = scope.ServiceProvider.GetRequiredService<IAgentRunEventRepository>();
             await repository.AppendAsync(evt, CancellationToken.None).ConfigureAwait(false);
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Agent event {Kind} seq {Seq} for {Scope} could not be persisted.",
-                evt.Kind, evt.Sequence, ScopeKey(evt));
+                evt.Kind, evt.Sequence, SanitizeForLog(ScopeKey(evt)));
+            return false;
         }
     }
 
@@ -128,11 +138,15 @@ public sealed class AgentExecutionEventSink : IAgentExecutionEventSink
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Agent event {Kind} for {Scope} could not be broadcast.",
-                evt.Kind, ScopeKey(evt));
+                evt.Kind, SanitizeForLog(ScopeKey(evt)));
         }
     }
 
     private static string ScopeKey(AgentExecutionEvent evt) => $"{evt.ScopeKind}:{evt.ScopeId}";
+
+    // Scope ids are user-controlled — strip CR/LF before they reach log sinks.
+    private static string SanitizeForLog(string value) =>
+        value.Replace('\r', ' ').Replace('\n', ' ');
 
     private static string? Truncate(string? value, int max)
     {

@@ -177,10 +177,20 @@ builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
 builder.Services.AddScoped<IAgentLogRepository, EfCoreAgentLogRepository>();
 builder.Services.AddScoped<IAgentRunRepository, EfCoreAgentRunRepository>();
-// SPEC-20260921-agent-execution-event-pipeline: sink normalizado + replay durável.
+// SPEC-20260921-agent-execution-event-pipeline: normalized sink + durable
+// replay. Taskboard:AgentEvents:Enabled=false is the documented fast-rollback
+// path — events are dropped at the sink and replay returns empty.
 builder.Services.AddScoped<IAgentRunEventRepository, EfCoreAgentRunEventRepository>();
 builder.Services.AddSingleton<ISecretRedactor>(sp => sp.GetRequiredService<SecretScrubber>());
-builder.Services.AddSingleton<IAgentExecutionEventSink, AgentExecutionEventSink>();
+if (builder.Configuration.GetValue("Taskboard:AgentEvents:Enabled", true))
+{
+    builder.Services.AddSingleton<IAgentExecutionEventSink, AgentExecutionEventSink>();
+    builder.Services.AddHostedService<AgentRunEventRetentionService>();
+}
+else
+{
+    builder.Services.AddSingleton<IAgentExecutionEventSink, NullAgentExecutionEventSink>();
+}
 builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
 builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -1848,8 +1858,8 @@ agents.MapDelete("logs/{issueId}", async (string issueId, IAgentOrchestrationSer
     return Results.NoContent();
 });
 
-// SPEC-20260921-agent-execution-event-pipeline RF-003: replay paginado de
-// eventos normalizados por escopo (run | thread | issue).
+// SPEC-20260921-agent-execution-event-pipeline RF-003: paginated replay of
+// normalized events per scope (run | thread | issue).
 agents.MapGet("events", async (
     string scopeKind,
     string scopeId,
@@ -1863,9 +1873,14 @@ agents.MapGet("events", async (
         return Results.BadRequest(new { error = "scopeKind must be run|thread|issue and scopeId is required." });
     }
 
-    var events = await sink.GetEventsAsync(scopeKind, scopeId, after ?? 0, take ?? 500, ct);
+    // Fetch one extra row so hasMore is exact — a full page alone does not
+    // imply another page exists.
+    var pageSize = take ?? 500;
+    var fetched = await sink.GetEventsAsync(scopeKind, scopeId, after ?? 0, pageSize + 1, ct);
+    var hasMore = fetched.Count > pageSize;
+    var events = hasMore ? fetched.Take(pageSize).ToList() : fetched;
     var nextAfter = events.Count > 0 ? events[^1].Sequence : after ?? 0;
-    return Results.Ok(new { events, nextAfter, hasMore = events.Count >= (take ?? 500) });
+    return Results.Ok(new { events, nextAfter, hasMore });
 });
 
 agents.MapPost("executions/{issueId}/cancel", async (string issueId, IAgentOrchestrationService orchestration, CancellationToken ct) =>

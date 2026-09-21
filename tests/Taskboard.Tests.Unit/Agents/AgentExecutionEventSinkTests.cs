@@ -11,8 +11,8 @@ using Xunit;
 namespace Taskboard.Tests.Unit.Agents;
 
 /// <summary>
-/// SPEC-20260921-agent-execution-event-pipeline RF-003/RF-005: sequência por
-/// escopo, seed do máximo persistido, redação e truncamento no sink.
+/// SPEC-20260921-agent-execution-event-pipeline RF-003/RF-005: per-scope
+/// sequencing, persisted-max seed, redaction, truncation and gapless replay.
 /// </summary>
 public sealed class AgentExecutionEventSinkTests
 {
@@ -140,5 +140,43 @@ public sealed class AgentExecutionEventSinkTests
 
         evt.Sequence.ShouldBe(1);
         evt.EventId.ShouldNotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_PersistenciaFalha_Quando_Emite_Entao_SequenciaReutilizadaESemBroadcast()
+    {
+        var repo = Substitute.For<IAgentRunEventRepository>();
+        repo.AppendAsync(Arg.Any<AgentExecutionEvent>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new InvalidOperationException("db down"));
+
+        var services = new ServiceCollection();
+        services.AddScoped(_ => repo);
+        var provider = services.BuildServiceProvider();
+        var hub = Substitute.For<IHubContext<AgentLogHub>>();
+        var proxy = Substitute.For<IClientProxy>();
+        proxy.SendCoreAsync(Arg.Any<string>(), Arg.Any<object?[]>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        var clients = Substitute.For<IHubClients>();
+        clients.Group(Arg.Any<string>()).Returns(proxy);
+        hub.Clients.Returns(clients);
+
+        var sink = new AgentExecutionEventSink(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            hub,
+            new Taskboard.Integrations.Harness.Security.SecretScrubber(),
+            NullLogger<AgentExecutionEventSink>.Instance);
+
+        var failed = await sink.EmitAsync(Evento("r1"));
+        failed.Sequence.ShouldBe(1);
+
+        // Next event reuses sequence 1 — replay can never have a permanent gap.
+        repo.ClearReceivedCalls();
+        repo.AppendAsync(Arg.Any<AgentExecutionEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+        var next = await sink.EmitAsync(Evento("r1"));
+
+        next.Sequence.ShouldBe(1);
+        await proxy.Received(1).SendCoreAsync(
+            "ReceiveAgentEvent", Arg.Any<object?[]>(), Arg.Any<CancellationToken>());
     }
 }

@@ -25,7 +25,7 @@ public sealed class AgentLogHub : Hub
     }
 
     /// <summary>
-    /// Inscreve nos eventos normalizados de um escopo (run/thread/issue) —
+    /// Subscribes to the normalized events of a scope (run/thread/issue) —
     /// SPEC-20260921-agent-execution-event-pipeline RF-003.
     /// </summary>
     public async Task SubscribeToScope(string scopeKind, string scopeId)
@@ -33,7 +33,7 @@ public sealed class AgentLogHub : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, $"agent:{scopeKind}:{scopeId}");
     }
 
-    /// <summary>Cancela a inscrição nos eventos normalizados do escopo.</summary>
+    /// <summary>Unsubscribes from the scope normalized events.</summary>
     public async Task UnsubscribeFromScope(string scopeKind, string scopeId)
     {
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"agent:{scopeKind}:{scopeId}");
