@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-board-cockpit-agent-observability` |
 | Ticket | [#278](https://github.com/afonsoft/agent-harness/issues/278) |
-| Status | `Approved` |
+| Status | `Done` |
 | Depends on | `SPEC-20260921-agent-execution-event-pipeline` |
 
 ## 1. User Story
