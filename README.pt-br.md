@@ -17,11 +17,15 @@ Capacidades principais:
 
 - **Quadro Kanban GitHub** — colunas baseadas em labels, drag & drop, prioridades, corpos em markdown, comentários de issue (postar pela UI direto no GitHub) e timeline unificada por issue (mutações do board + execuções de agente).
 - **Orquestração de agentes** — execute qualquer um dos 13 CLIs de agente (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) numa issue, com prompts por issue, seção `Comments:` de handoff anexada automaticamente ao prompt, streaming de logs via SignalR e histórico de execuções persistido.
+- **Pipelines ADE & Cockpit** — pipelines DAG multi-estágio e multi-agente (`POST /api/harness/runs`, templates em `/api/harness/pipelines`) dirigidos por um cockpit HITL ao vivo em `/cockpit` (`/cockpit/runs/{id}`): eventos de timeline estruturados, steer durante a execução, gates de aprovação, visualizador de diff git e criação de PR no sucesso.
 - **Isolamento de workspace** — cada execução de agente roda num Git worktree dedicado em `~/.taskboard/worktrees/{runId}` (criar/diff/commit/teardown via `POST|GET|DELETE /api/harness/worktrees`), nunca direto no seu checkout.
 - **Loop de verificação** — gate determinístico opt-in de build/test/coverage após cada run (`dotnet format → build → test` com parsing TRX + cobertura); falhas alimentam um loop de retry com `feedbackPrompt` estruturado e escalam para humano após o máximo de tentativas.
 - **Gateway de segurança** — classificação de comandos pré-dispatch (Safe/WorkspaceWrite/Dangerous, fail-closed), path jail + detecção de escape por symlink e scrubbing de segredos na saída logada.
 - **Contexto & memória** — compilação hierárquica de contexto (`AGENTS.md`/`CLAUDE.md`/`.cursorrules`, bloco env + git, compactação por orçamento de tokens) e itens de memória de projeto escopados pelo remote origin.
 - **Métricas de CLI** — ingestão incremental read-only dos SQLite dos CLIs de agente (contagem de sessões, tokens, última atividade por CLI em `/agents`, cursors watermark, detecção de drift, retenção de 90 dias para dados brutos com agregados diários permanentes), mais feed de uso pronto para FinOps.
+- **Seletor global de repositório** — um único combo de repositório na sidebar (`harness.selectedRepo`) alimenta todas as superfícies repo-scoped: Board, Gantt, Workflow, Specs, Terminal (novas abas PTY abrem em `repos/[selecionado]`) e o workdir do VS Code.
+- **Living Specs** — `/specs` renderiza o catálogo `.specs/` do repositório selecionado com tracking de status, mais um relatório de drift (`GET /api/specs/drift-report`) comparando o texto do spec contra o código.
+- **FinOps** — `/finops` agrega métricas de tokens/custo por run através de pipelines e execuções de agente.
 - **Tiers de modelo** — seletor Lite/Normal/Ultra por CLI mapeado para modelos reais (ex.: Claude `haiku`/`sonnet`/`opus`, Codex `gpt-5.6-luna`, Devin `haiku`/`swe`/`opus`); CLIs sem flag de modelo ficam gerenciados pela própria CLI.
 - **Admin de CLIs de agentes** — instale/autentique CLIs pela UI com logs de instalação estilo terminal; ative/desative por agente.
 - **Settings de Skills & MCP/RAG** — instale o catálogo `afonsoft/skills` pela UI e provisione um servidor MCP de RAG (URL + key) em todos os configs de agentes suportados.
@@ -38,7 +42,7 @@ Capacidades principais:
 | DDD Framework | ABP N-Layer | 9.x |
 | ORM | Entity Framework Core | 10.0.12 |
 | Banco de dados | SQLite | bundled |
-| CLI Parser | System.CommandLine | latest stable |
+| CLI Parser | Spectre.Console.Cli | 0.55.0 |
 | MCP SDK | ModelContextProtocol | 2.2.0 |
 | Testes | xUnit + Shouldly + NSubstitute | latest stable |
 | Frontend | Blazor WebAssembly | .NET 10 |
@@ -54,20 +58,19 @@ src/
   Taskboard.Domain/                 # Agregados, entidades, value objects, domain events
   Taskboard.Domain.Shared/          # Primitivas compartilhadas do domínio
   Taskboard.Application.Contracts/  # DTOs, interfaces
-  Taskboard.Application/            # Commands, queries, handlers (MediatR)
+  Taskboard.Application/            # Commands, queries, handlers (MediatR) + engine de pipelines Harness
   Taskboard.EntityFrameworkCore/    # EF Core + SQLite + repositórios
-  Taskboard.Server/                 # ASP.NET Core Minimal APIs + SSE
-  Taskboard.Cli/                    # CLI taskctl (System.CommandLine)
+  Taskboard.Server/                 # ASP.NET Core Minimal APIs + SSE + hubs SignalR
+  Taskboard.Cli/                    # CLI taskctl (Spectre.Console.Cli)
   Taskboard.Mcp/                    # Servidor MCP (ModelContextProtocol SDK)
   Taskboard.AiChat/                 # Threads/runs/events de IA
-  Taskboard.Workflow/               # Workspaces e automação de workflow
   Taskboard.Cloud/                  # Companion cloud e sync
-  Taskboard.Integrations/           # Jira, GitHub, orquestração de agentes, helpers de execução
+  Taskboard.Integrations/           # GitHub, Jira, CLIs de agente, worktrees, gateway de segurança, verificação, PTY, code-server
   Taskboard.Maui/                   # Desktop Blazor Hybrid (opcional)
   Taskboard.Blazor/                 # UI web Blazor WebAssembly
 tests/
-  Taskboard.Tests.Unit/             # 686 testes unitários
-  Taskboard.Tests.Integration/      # 174 testes de integração
+  Taskboard.Tests.Unit/             # 821 testes unitários
+  Taskboard.Tests.Integration/      # 214 testes de integração
 ```
 
 ## Início Rápido
@@ -110,10 +113,11 @@ Defina `GITHUB_TOKEN` antes de iniciar o servidor:
 export GITHUB_TOKEN=seu-token-do-github
 ```
 
-Abra `/github-board` para visualizar as issues do GitHub como um board Kanban. Arraste uma issue para **In Progress**, escolha o CLI do agente e o tier de modelo, e acompanhe a execução na aba **Logs**. Os logs dos agentes são transmitidos em tempo real pelo hub SignalR em `/agent-log-hub`.
+Abra o **Board** (`/`) para visualizar as issues do GitHub como um board Kanban. Arraste uma issue para **In Progress**, escolha o CLI do agente e o tier de modelo, e acompanhe a execução na aba **Logs**. Os logs dos agentes são transmitidos em tempo real pelo hub SignalR em `/agent-log-hub`.
 
 ## Destaques Recentes
 
+- Onda da plataforma ADE E12–E16 entregue: pipelines DAG multi-agente com cockpit HITL (`/cockpit`), living specs (`/specs` + relatório de drift), métricas FinOps (`/finops`), seletor global de repositório dirigindo todas as páginas repo-scoped, e repositório renomeado para `agent-harness`.
 - Épicos do harness ADE E6–E11 entregues: worktrees Git isolados por run, compilação de contexto + memória de projeto, gateway de segurança para gating de comandos pré-dispatch, loop de verificação determinístico, leitor read-only dos SQLite dos CLIs e métricas persistentes de uso por CLI com linha de dashboard em `/agents`.
 - Tiers de modelo Lite/Normal/Ultra mapeados para modelos reais por CLI.
 - Comentários de issue do GitHub como canal de handoff entre agentes (aba na UI + seção `Comments:` automática no prompt + MCP/taskctl).

@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | — |
 | Ticket | [#251](https://github.com/afonsoft/agent-harness/issues/251) — GAP-documentation-architecture-drift + readme-feature-drift + knowledge-dir (gap-analysis-20260920) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -62,10 +62,10 @@ A onda E6–E16 (worktrees, context/memory, security gateway, verification loop,
 
 ## 4. Tasks
 
-- [ ] **T1 — README sync** (en + pt-br): overview + lista de features + links.
-- [x] **T2 — architecture.md sync**: componentes ADE + diagramas mermaid atualizados; regenerar html/json se aplicável. _(PR: docs/architecture-sync-ade-platform — json+html archify regenerados, 3 diagramas mermaid validados)_
-- [ ] **T3 — knowledge dir**: criar ou corrigir tabela do CLAUDE.md.
-- [ ] **T4 — changelog + verificação**: entrada Unreleased, grep-check das ACs, SPEC → `Done`.
+- [x] **T1 — README sync** (en + pt-br): overview + lista de features + links. _(cockpit/pipelines, repo selector, living specs, FinOps; fix System.CommandLine→Spectre, Taskboard.Workflow removido, contagens 821/214, `/github-board`→`/`)_
+- [x] **T2 — architecture.md sync**: componentes ADE + diagramas mermaid atualizados; regenerar html/json se aplicável. _(PR #255 — json+html archify regenerados, 3 diagramas mermaid validados)_
+- [x] **T3 — knowledge dir**: criar ou corrigir tabela do CLAUDE.md. _(`.claude/knowledge/` criado com `.gitkeep` + README de convenção)_
+- [x] **T4 — changelog + verificação**: entrada Unreleased, grep-check das ACs, SPEC → `Done`.
 
 ---
 
