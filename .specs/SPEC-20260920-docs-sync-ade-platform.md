@@ -63,7 +63,7 @@ A onda E6–E16 (worktrees, context/memory, security gateway, verification loop,
 ## 4. Tasks
 
 - [ ] **T1 — README sync** (en + pt-br): overview + lista de features + links.
-- [ ] **T2 — architecture.md sync**: componentes ADE + diagramas mermaid atualizados; regenerar html/json se aplicável.
+- [x] **T2 — architecture.md sync**: componentes ADE + diagramas mermaid atualizados; regenerar html/json se aplicável. _(PR: docs/architecture-sync-ade-platform — json+html archify regenerados, 3 diagramas mermaid validados)_
 - [ ] **T3 — knowledge dir**: criar ou corrigir tabela do CLAUDE.md.
 - [ ] **T4 — changelog + verificação**: entrada Unreleased, grep-check das ACs, SPEC → `Done`.
 
