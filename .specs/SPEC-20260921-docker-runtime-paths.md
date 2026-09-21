@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-docker-runtime-paths` |
 | Ticket | [#275](https://github.com/afonsoft/agent-harness/issues/275) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
