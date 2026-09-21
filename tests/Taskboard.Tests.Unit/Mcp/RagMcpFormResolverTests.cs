@@ -70,6 +70,22 @@ public class RagMcpFormResolverTests
     }
 
     [Fact]
+    public void Dado_OverrideComEspacos_Quando_Resolver_Entao_ValorNormalizado()
+    {
+        // Overrides are validated after Trim() but stored verbatim; the form must
+        // see the normalized value so it doesn't flag a phantom unsaved change.
+        var state = RagMcpFormResolver.Resolve(
+            [
+                Entry(RagMcpFormResolver.UrlKey, "  https://rag.example.com/mcp  ", "db"),
+                Entry(RagMcpFormResolver.ServerNameKey, " knowledge ", "db"),
+            ],
+            status: null);
+
+        state.Url.ShouldBe("https://rag.example.com/mcp");
+        state.ServerName.ShouldBe("knowledge");
+    }
+
+    [Fact]
     public void Dado_UrlDeEnv_Quando_Resolver_Entao_FonteEnv()
     {
         var state = RagMcpFormResolver.Resolve(

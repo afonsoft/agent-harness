@@ -33,9 +33,11 @@ public static class RagMcpFormResolver
         var nameEntry = entries.FirstOrDefault(e => e.Key == ServerNameKey);
         var urlEntry = entries.FirstOrDefault(e => e.Key == UrlKey);
 
-        var name = nameEntry?.EffectiveValue;
+        // Overrides are validated after Trim() but stored verbatim; normalize here so
+        // the form doesn't flag a whitespace-only diff as an unsaved change.
+        var name = nameEntry?.EffectiveValue?.Trim();
         var nameSource = nameEntry?.Source;
-        var url = urlEntry?.EffectiveValue;
+        var url = urlEntry?.EffectiveValue?.Trim();
         var urlSource = urlEntry?.Source;
 
         if (string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(status?.ConfiguredUrl))
