@@ -220,7 +220,34 @@ chmod +x install.sh
 A página `/agents` lista os CLIs de agente suportados (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) com status de instalação/autenticação, e `/terminal` abre uma sessão bash interativa para executar os fluxos de login (`claude`, `codex login`, `devin auth login`, `agy`). O terminal é controlado por `Taskboard:Terminal:Enabled` (`TASKBOARD_TERMINAL_ENABLED`).
 
 - **Instalação no host (bare-metal):** o servidor usa o `$HOME` real, então CLIs já instalados são detectados diretamente.
-- **Imagem Docker:** o stage de runtime já traz Node.js LTS e os cinco CLIs pré-instalados, e define `HOME=/data/home` para que as credenciais caiam dentro do volume `/data` e sobrevivam à recriação do container. Monte `~/.taskboard/data` em `/data` normalmente e autentique cada CLI uma vez pelo `/terminal`.
+- **Imagem Docker:** o stage de runtime já traz Node.js LTS e os cinco CLIs pré-instalados, e define `HOME=/data/home` para que as credenciais caiam dentro do volume `/data` e sobrevivam à recriação do container. Autentique cada CLI uma vez pelo `/terminal`.
+
+### Docker / docker-compose
+
+```bash
+docker compose up -d          # build + sobe em http://localhost:47823
+```
+
+Tudo o que é persistente fica no volume nomeado `taskboard-data` montado em `/data`:
+
+| Path | Conteúdo |
+|---|---|
+| `/data/taskboard.sqlite` | banco + overrides de configuração |
+| `/data/admin.json` | credenciais de admin geradas |
+| `/data/skills-cache/` | cache do repositório de skills |
+| `/data/home/` | `$HOME` do container — credenciais dos CLIs (`.claude`, `.codex`, `.config/…`) |
+| `/data/home/repos` | workspace dos agentes — o `~/repos` do container, workdir padrão dos agent runs, pipelines e terminal |
+
+A imagem define `TASKBOARD_DATA_DIR=/data` (vencendo o `appsettings.Production.json`), declara `VOLUME /data` e um `HEALTHCHECK` em `/health`. O `git safe.directory` já vem configurado, então bind-mount de repos do host funciona:
+
+```yaml
+# docker-compose.yml — opt-in: expõe os repos reais do servidor aos agentes
+volumes:
+  - taskboard-data:/data
+  - ${HARNESS_REPOS_DIR}:/data/home/repos   # ex.: HARNESS_REPOS_DIR=~/repos
+```
+
+Arquivos criados pelos agentes dentro do bind mount ficam como root no host (o container roda como root); use `user: "$(id -u):$(id -g)"` apenas se também ajustar o ownership do conteúdo do volume.
 
 ## Próximos passos
 
