@@ -7,7 +7,7 @@
 | Feature | `gantt-github-timeline` |
 | Type | `Feature` (refactor da tela Gantt) |
 | Stack | `.NET 10 / Blazor / Octokit` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-gantt-github-timeline` |
 | Ticket | — |
 | Status | `Done` |
@@ -106,4 +106,4 @@ GET /api/github/{owner}/{repo}/metrics?days=90
 - [x] Tela mostra timeline real do repo com métricas corretas sobre dados fake/reais.
 - [x] Unit + integration verdes; `dotnet build` limpo. (462 unit + 147 integration)
 - [x] docs/features.md + api.md en/pt-br atualizados; SPEC → Done.
-- [x] Deploy + verificação em produção. (`afonsoft/taskboard-ai`: 118 issues, throughput 12/38/68 por semana, métricas calculadas — PR #118)
+- [x] Deploy + verificação em produção. (`afonsoft/agent-harness`: 118 issues, throughput 12/38/68 por semana, métricas calculadas — PR #118)

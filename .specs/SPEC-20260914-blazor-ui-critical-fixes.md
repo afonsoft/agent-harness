@@ -7,7 +7,7 @@
 | Feature | `blazor-ui-critical-fixes` |
 | Type | `Bugfix` (inclui pequeno incremento de frontend: árvore de arquivos de skill) |
 | Stack | `.NET 10 / Blazor Server` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `fix/blazor-ui-critical-fixes` (aprovado pelo usuário; `main`/`develop` proibidas) |
 | Ticket | `user-report-2026-09-14` |
 | Status | `Done` |

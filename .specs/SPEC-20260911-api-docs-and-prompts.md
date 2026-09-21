@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | API Docs & Skill Prompt Page |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Frontend / API Docs |
 | Change type | Feature |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/devin-20260911-api-docs-and-prompts` |
 | Technical owner | afonsoft |
 | Status | `Done` (status corrigido — implementado e issues fechadas; reconciliado em 2026-09-17) |
@@ -136,7 +136,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Taskboard AI API",
         Version = "v1",
-        Description = "API for taskboard-ai projects, tasks, agents and skills."
+        Description = "API for agent-harness projects, tasks, agents and skills."
     });
 });
 ```
@@ -286,7 +286,7 @@ GET /api/skills/{source}/{name}
   "name": "manage-taskboard",
   "description": "Gerencie o Dashi Taskboard...",
   "source": "taskboard",
-  "path": "/home/ubuntu/repos/taskboard-ai/skills/manage-taskboard",
+  "path": "/home/ubuntu/repos/agent-harness/skills/manage-taskboard",
   "tools": ["Bash", "Read", "Edit", "Write"],
   "references": "## Contexto\n\n...",
   "scripts": null,

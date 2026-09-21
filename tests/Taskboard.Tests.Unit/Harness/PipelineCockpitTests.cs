@@ -66,7 +66,7 @@ public class PipelineCockpitTests : IDisposable
     private PipelineExecution SalvarExecucao(PipelineDefinition def)
     {
         var exec = PipelineExecution.Create(
-            def, "afonsoft/taskboard-ai", "/repo/taskboard", "main",
+            def, "afonsoft/agent-harness", "/repo/taskboard", "main",
             "150", "Implementar JWT", DateTime.UtcNow);
         _context.PipelineExecutions.Add(exec);
         _context.SaveChanges();

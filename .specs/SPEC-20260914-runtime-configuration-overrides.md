@@ -7,7 +7,7 @@
 | Feature | `runtime-configuration-overrides` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor Server / EF Core SQLite` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/runtime-configuration-overrides` (aprovado pelo usuário) |
 | Ticket | `user-request-2026-09-14` |
 | Status | `Done` |

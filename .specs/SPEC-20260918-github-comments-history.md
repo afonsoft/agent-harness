@@ -7,7 +7,7 @@
 | Feature | `github-comments-history` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor / MCP / CLI` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-github-comments-history` |
 | Ticket | — |
 | Status | `Done` |

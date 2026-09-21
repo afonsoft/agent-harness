@@ -1,6 +1,6 @@
 # ESTADO_ORCHESTRATOR
 
-> Arquivo de estado da skill `orchestrator` para o repositório `taskboard-ai`. Ler ao iniciar a sessão; escrever ao final de cada fase.
+> Arquivo de estado da skill `orchestrator` para o repositório `agent-harness`. Ler ao iniciar a sessão; escrever ao final de cada fase.
 
 ---
 
@@ -8,7 +8,7 @@
 
 - **iniciado_em**: `2026-09-19 UTC` (sessão 2)
 - **fase_atual**: `Phase 4 — E13 Living Specs (em PR; E12 merged+deploy)`
-- **repositorio**: `afonsoft/taskboard-ai`
+- **repositorio**: `afonsoft/agent-harness`
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `226758d` em `/home/ubuntu/repos/skills`)
@@ -44,8 +44,8 @@ fila_e6:
 
 | Item | Status |
 |---|---|
-| Git inicializado | ✅ (`/home/ubuntu/repos/taskboard-ai`) |
-| Remote `origin` GitHub | ✅ `afonsoft/taskboard-ai` |
+| Git inicializado | ✅ (`/home/ubuntu/repos/agent-harness`) |
+| Remote `origin` GitHub | ✅ `afonsoft/agent-harness` |
 | Acesso ao repositório | ✅ (`gh repo view` retornou metadados) |
 
 ---
@@ -54,8 +54,8 @@ fila_e6:
 
 | Item | Status |
 |---|---|
-| Git inicializado | ✅ (`/home/ubuntu/repos/taskboard-ai`) |
-| Remote `origin` GitHub | ✅ `afonsoft/taskboard-ai` |
+| Git inicializado | ✅ (`/home/ubuntu/repos/agent-harness`) |
+| Remote `origin` GitHub | ✅ `afonsoft/agent-harness` |
 | Acesso ao repositório | ✅ (`gh repo view` retornou metadados) |
 | `CLAUDE.md` (fonte única) | ✅ |
 | `AGENTS.md` (thin reference) | ➖ N/A (`CLAUDE.md` proíbe criar `AGENTS.md`) |
@@ -95,7 +95,7 @@ fila_e6:
   desc: "Melhorar GitHub Actions (cache, concurrency, permissions, SonarCloud, CodeQL, Dependabot)"
   skill: /dotnet-github-actions
   gap_ref: GAP-001
-  issue_ref: "https://github.com/afonsoft/taskboard-ai/issues/34"
+  issue_ref: "https://github.com/afonsoft/agent-harness/issues/34"
   spec_ref: ".specs/SPEC-20260911-refine-github-actions.md"
   depends_on: []
   status: done
@@ -105,7 +105,7 @@ fila_e6:
   desc: "Persistir AgentLogMessage em SQLite (EF Core)"
   skill: /tdd-spec
   gap_ref: GAP-003
-  issue_ref: "https://github.com/afonsoft/taskboard-ai/issues/35"
+  issue_ref: "https://github.com/afonsoft/agent-harness/issues/35"
   spec_ref: ".specs/SPEC-20260911-persist-agent-logs.md"
   depends_on: []
   status: done
@@ -115,7 +115,7 @@ fila_e6:
   desc: "Adapter ACP JSON-RPC (stdin/stdout) para agentes que suportam o protocolo"
   skill: /tdd-spec
   gap_ref: GAP-004
-  issue_ref: "https://github.com/afonsoft/taskboard-ai/issues/36"
+  issue_ref: "https://github.com/afonsoft/agent-harness/issues/36"
   spec_ref: ".specs/SPEC-20260911-acp-json-rpc.md"
   depends_on: []
   status: done
@@ -182,7 +182,7 @@ As specs aprovadas nesta sessão foram registradas para execução:
   desc: "Implementar telas de login, configurações e skills (SPEC-20260910-ui-login-settings-skills)"
   skill: /tdd-spec
   gap_ref: GAP-005
-  issue_ref: "https://github.com/afonsoft/taskboard-ai/issues/24"
+  issue_ref: "https://github.com/afonsoft/agent-harness/issues/24"
   spec_ref: ".specs/SPEC-20260910-ui-login-settings-skills.md"
   depends_on: []
   status: done
@@ -192,7 +192,7 @@ As specs aprovadas nesta sessão foram registradas para execução:
   desc: "Implementar instalador CLI `install-cli.sh` em /usr/local/bin (SPEC-20260910-install-cli-sh)"
   skill: /tdd-spec
   gap_ref: GAP-006
-  issue_ref: "https://github.com/afonsoft/taskboard-ai/issues/25"
+  issue_ref: "https://github.com/afonsoft/agent-harness/issues/25"
   spec_ref: ".specs/SPEC-20260910-install-cli-sh.md"
   depends_on: []
   status: done
@@ -285,7 +285,7 @@ As specs aprovadas nesta sessão foram registradas para execução:
 ### Encerramento (2026-09-15)
 
 - SPEC-20260915-github-board-unified: merged via PR #76 (squash `7e9dc0d`), Issue #75 fechada.
-- Deploy: imagem `taskboard-ai:latest` rebuildada de `main`; container `taskboard` recriado com `--env-file .env` (TOKEN_OK, API respondendo).
+- Deploy: imagem `agent-harness:latest` rebuildada de `main`; container `taskboard` recriado com `--env-file .env` (TOKEN_OK, API respondendo).
 
 ---
 
@@ -297,7 +297,7 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 ### Phase 0 — Preconditions
 
-- Git clean ✅ | `gh auth` ✅ (afonsoft) | remote `afonsoft/taskboard-ai` ✅ | dotnet 10.0.112 + node v24.16.0 ✅
+- Git clean ✅ | `gh auth` ✅ (afonsoft) | remote `afonsoft/agent-harness` ✅ | dotnet 10.0.112 + node v24.16.0 ✅
 
 ### Phase 1 — Reconciliação de Issues
 

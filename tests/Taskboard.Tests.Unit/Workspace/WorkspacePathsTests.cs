@@ -32,7 +32,7 @@ public class WorkspacePathsTests
     [Fact]
     public void Dado_NomeValido_Quando_SanitizeRepoName_Entao_UltimoSegmento()
     {
-        WorkspacePaths.SanitizeRepoName("afonsoft/taskboard-ai").ShouldBe("taskboard-ai");
+        WorkspacePaths.SanitizeRepoName("afonsoft/agent-harness").ShouldBe("agent-harness");
         WorkspacePaths.SanitizeRepoName("taskboard_ai.v2").ShouldBe("taskboard_ai.v2");
     }
 

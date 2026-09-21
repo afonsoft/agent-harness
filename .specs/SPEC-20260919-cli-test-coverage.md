@@ -7,7 +7,7 @@
 | Feature | `cli-test-coverage` |
 | Type | `Tests` |
 | Stack | `.NET 10 / Spectre.Console.Cli 0.49.1 / xUnit` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260919-cli-test-coverage` |
 | Ticket | `GAP-tests-cli-coverage` (gap-analysis-20260919) — Issue #144, Epic #140 |
 | Status | `Done` — entregue via PR #148 (merged) |

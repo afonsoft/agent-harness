@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Integrations |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Integrations |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-integrations-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

@@ -21,7 +21,7 @@ public class PipelineEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
     }
 
     private static PipelineStartRequest StartRequest(string template = "quick-patch") =>
-        new(template, "afonsoft/taskboard-ai", "/repo/taskboard", "main", "150", "Implementar JWT");
+        new(template, "afonsoft/agent-harness", "/repo/taskboard", "main", "150", "Implementar JWT");
 
     [Fact]
     public async Task Dado_Autenticado_Quando_GetTemplates_Entao_ListaOs3Templates()

@@ -7,7 +7,7 @@
 | Feature | `env-var-precedence` |
 | Type | `Bugfix` |
 | Stack | `.NET` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/{AgentLLM}-20260914-env-var-precedence` |
 | Ticket | `GAP-implementation-env-var-precedence` |
 | Status | `Done` |

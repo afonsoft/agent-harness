@@ -7,7 +7,7 @@
 | Feature | `vscode-web-workspace` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor WASM / code-server / YARP` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260917-vscode-web-workspace` |
 | Ticket | — |
 | Status | `Done` |
@@ -96,7 +96,7 @@ docs/features.md · features.pt-br.md · api.md · api.pt-br.md
 ### RF-003: Resolução do workdir do card
 - **Description:** `WorkspaceService.GetRepoWorkdir(repositoryFullName)` → `<root>/<name>` onde `<name>` é o segmento após `/` sanitizado (apenas `[A-Za-z0-9._-]`); `TryGetCardWorkdir` retorna o dir se existir, senão `Root`.
 - **Rules:** resultado sempre confinado ao `Root` (rejeita `..`, separadores extras, nomes vazios → `Root`).
-- **Input → Output:** `"afonsoft/taskboard-ai"` → `~/repos/taskboard-ai` (ou `~/repos` se inexistente).
+- **Input → Output:** `"afonsoft/agent-harness"` → `~/repos/agent-harness` (ou `~/repos` se inexistente).
 
 ### RF-004: Instalação do code-server
 - **Description:** `POST /api/vscode/install` executa comando allowlisted fixo: `bash -c "curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone"`; `GET /api/vscode/install/status` retorna snapshot com buffer de linhas (mesmo contrato de `AgentCliInstallStatus`).

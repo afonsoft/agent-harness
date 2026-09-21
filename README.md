@@ -1,13 +1,13 @@
 # Harness
 
-[![.NET Build and Test](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/dotnet.yml)
-[![Code Quality](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/code-quality.yml)
-[![CodeQL](https://github.com/afonsoft/taskboard-ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/afonsoft/taskboard-ai/actions/workflows/codeql.yml)
+[![.NET Build and Test](https://github.com/afonsoft/agent-harness/actions/workflows/dotnet.yml/badge.svg)](https://github.com/afonsoft/agent-harness/actions/workflows/dotnet.yml)
+[![Code Quality](https://github.com/afonsoft/agent-harness/actions/workflows/code-quality.yml/badge.svg)](https://github.com/afonsoft/agent-harness/actions/workflows/code-quality.yml)
+[![CodeQL](https://github.com/afonsoft/agent-harness/actions/workflows/codeql.yml/badge.svg)](https://github.com/afonsoft/agent-harness/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > **Default language:** English (en-us). See [README.pt-br.md](README.pt-br.md) for the Portuguese version.
 
-**Harness** is a local-first, AI-native workbench for orchestrating AI coding agents — built on **C# 14 / .NET 10**. (Repository and technical identifiers keep the `taskboard-ai` name.)
+**Harness** is a local-first, AI-native workbench for orchestrating AI coding agents — built on **C# 14 / .NET 10**. The repository is `agent-harness` (formerly `taskboard-ai`); internal technical identifiers keep the `taskboard` name (namespaces, projects, `taskctl` CLI, `TASKBOARD_*` env vars).
 
 ## Overview
 
@@ -74,8 +74,8 @@ tests/
 ## Quick Start
 
 ```bash
-git clone https://github.com/afonsoft/taskboard-ai.git
-cd taskboard-ai
+git clone https://github.com/afonsoft/agent-harness.git
+cd agent-harness
 dotnet restore Taskboard.sln
 dotnet build Taskboard.sln
 dotnet test Taskboard.sln

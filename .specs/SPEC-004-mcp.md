@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | MCP Server |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | MCP |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-mcp-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

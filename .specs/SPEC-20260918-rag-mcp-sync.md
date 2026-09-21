@@ -7,7 +7,7 @@
 | Feature | `rag-mcp-sync` |
 | Type | `Bugfix` (UX + comportamento de provisionamento) |
 | Stack | `.NET 10 / Blazor / config files (JSON/TOML)` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-rag-mcp-sync` |
 | Ticket | — |
 | Status | `Done` |

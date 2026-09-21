@@ -7,7 +7,7 @@
 | Feature | `legacy-workflow-surface` |
 | Type | `Architecture` (dead-code removal) |
 | Stack | `.NET 10 / EF Core 10 / ASP.NET Core Minimal APIs` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260919-legacy-workflow-surface` |
 | Ticket | `GAP-architecture-legacy-workflow-surface` (gap-analysis-20260919) — Issue #141, Epic #140 |
 | Status | `Done` — entregue neste PR |

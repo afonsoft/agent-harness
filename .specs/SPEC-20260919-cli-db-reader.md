@@ -7,9 +7,9 @@
 | Feature | `cli-db-reader` |
 | Type | `Feature` (Infra — data access layer) |
 | Stack | `.NET 10 / Microsoft.Data.Sqlite / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-cli-db-reader` |
-| Ticket | [#165 — E10](https://github.com/afonsoft/taskboard-ai/issues/165) |
+| Ticket | [#165 — E10](https://github.com/afonsoft/agent-harness/issues/165) |
 | Status | `Done` |
 | Capability map | `.specs/CAPABILITY-MAP-cli-metrics.md` (module `cli-db-reader`) |
 

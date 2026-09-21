@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Domain Model |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Taskboard Core |
 | Change type | Migration / Design |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-domain-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

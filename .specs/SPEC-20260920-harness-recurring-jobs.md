@@ -7,7 +7,7 @@
 | Feature | `harness-recurring-jobs` |
 | Type | `Feature` (Background Jobs / FinOps freshness) |
 | Stack | `.NET 10 / BackgroundService / EF Core 10 + SQLite / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260920-recurring-jobs-terminal-resize` |
 | Ticket | — |
 | Status | `Done` |

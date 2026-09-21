@@ -7,10 +7,10 @@
 | Feature | `global-repo-selector` |
 | Type | `Frontend / Feature` |
 | Stack | `.NET 10 / Blazor WebAssembly / Blazor.Bootstrap / SignalR / code-server` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260920-global-repo-selector` |
-| Ticket | [#236 (E15)](https://github.com/afonsoft/taskboard-ai/issues/236) — slices #237–#243 |
-| Status | `Done` — entregue via [PR #244](https://github.com/afonsoft/taskboard-ai/pull/244) |
+| Ticket | [#236 (E15)](https://github.com/afonsoft/agent-harness/issues/236) — slices #237–#243 |
+| Status | `Done` — entregue via [PR #244](https://github.com/afonsoft/agent-harness/pull/244) |
 
 ## 1. User Story
 

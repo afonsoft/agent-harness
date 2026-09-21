@@ -7,9 +7,9 @@
 | Feature | `mcp-v2-http-transport` |
 | Type | `Feature` |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / ModelContextProtocol C# SDK 2.2.0` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260919-mcp-v2-http-transport` |
-| Ticket | [#136](https://github.com/afonsoft/taskboard-ai/issues/136) |
+| Ticket | [#136](https://github.com/afonsoft/agent-harness/issues/136) |
 | Status | `Done` — aprovada pelo usuário (2026-09-19); entregue no PR #137 e validada em produção |
 
 Origin: pedido do usuário — analisar o uso do MCP no repo frente à

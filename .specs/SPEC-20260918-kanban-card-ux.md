@@ -7,7 +7,7 @@
 | Feature | `kanban-card-ux` |
 | Type | `Feature` (Frontend + API) |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / Octokit / Blazor WASM / Markdig + HtmlSanitizer` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-kanban-card-ux` |
 | Ticket | N/A |
 | Status | `Done` |

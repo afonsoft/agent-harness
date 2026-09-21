@@ -7,7 +7,7 @@
 | Feature | `touch-targets` |
 | Type | `Frontend` |
 | Stack | `.NET 10 / Blazor WebAssembly / Bootstrap 5` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-touch-targets` |
 | Ticket | `GAP-implementation-touch-targets-touch-viewports` (gap-analysis-20260918) |
 | Status | `Done` — entregue e mergeada (2026-09-18) |

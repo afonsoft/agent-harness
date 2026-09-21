@@ -7,7 +7,7 @@
 | Feature | `aichat-thread-failed-state` |
 | Type | `Frontend` |
 | Stack | `.NET 10 / Blazor WebAssembly / SSE` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-aichat-thread-failed-state` |
 | Ticket | `GAP-implementation-aichat-failed-thread-state` (gap-analysis-20260918) |
 | Status | `Done` — entregue e mergeada (2026-09-18) |

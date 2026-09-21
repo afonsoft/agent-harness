@@ -7,7 +7,7 @@
 | Feature | `github-board-unified` |
 | Type | `Frontend / Feature` |
 | Stack | `.NET 10 / Blazor Server / Blazor.Bootstrap / Octokit` |
-| Repository | `taskboard-ai` |
+| Repository | `agent-harness` |
 | Branch | `feature/devin-20260915-github-board-unified` |
 | Ticket | N/A |
 | Status | Done (merged via PR #76, commit 7e9dc0d) |
@@ -167,7 +167,7 @@ No new/changed HTTP endpoints. Internal contract changes only:
 - [ ] **T3 — Service:** `GitHubService` busca `State=All`, mapeia `ClosedAt`/`Priority`, resolve coluna com precedência e alias legado, filtra closed > 90d; extrair `GitHubBoardGrouper` puro para agrupamento/filtro.
 - [ ] **T4 — Tests (red→green):** testes de unidade para `GitHubBoardGrouper` (resolução de coluna, janela de 90d, prioridade) e para `GitHubBoardColumnExtensions` (mapa de labels, aliases).
 - [ ] **T5 — UI:** `BoardView` (input+datalist, header, legenda), `KanbanBoard` (filtros + 9 colunas + cards), `NewTaskDialog` (8 colunas), `ProjectsBoard` novo, deletar `GitHubBoard`/`RepositorySelector`, atualizar `NavMenu`.
-- [ ] **T6 — Validation:** `dotnet build -c Release` (0 warnings) + `dotnet test`; smoke no container Docker (`docker build -t taskboard-ai .` + restart com `--env-file .env`).
+- [ ] **T6 — Validation:** `dotnet build -c Release` (0 warnings) + `dotnet test`; smoke no container Docker (`docker build -t agent-harness .` + restart com `--env-file .env`).
 - [ ] **T7 — Done + PR:** DoD completo → `Status = Done`, PR em `feature/devin-20260915-github-board-unified`.
 
 **7.1 Validation strategy:** .NET — unit tests for business rules (grouper, extensions), integration where applicable; build with `TreatWarningsAsErrors`; manual smoke test of `/`, `/projects` in Docker.

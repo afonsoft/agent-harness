@@ -1,9 +1,9 @@
-# System Architecture - taskboard-ai
+# System Architecture - agent-harness
 
 This document provides a textual representation of the system architecture defined in `architecture.html`.
 
 ## 🏛️ Architectural Overview
-`taskboard-ai` is built as a **Modular Monolith** using the **ABP N-Layer / Clean Architecture** pattern. It is designed to be local-first, prioritizing SQLite for data storage while allowing optional Cloud and Jira synchronization.
+`agent-harness` is built as a **Modular Monolith** using the **ABP N-Layer / Clean Architecture** pattern. It is designed to be local-first, prioritizing SQLite for data storage while allowing optional Cloud and Jira synchronization.
 
 ### 🛠️ Component Map
 

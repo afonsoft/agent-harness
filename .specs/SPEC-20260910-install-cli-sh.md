@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | CLI Installer `install-cli.sh` |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | CLI / DevEx |
 | Change type | Enhancement |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-install-cli-sh` |
 | Technical owner | afonsoft |
 | Status | `Done` (status corrigido — implementado e issues fechadas; reconciliado em 2026-09-17) |

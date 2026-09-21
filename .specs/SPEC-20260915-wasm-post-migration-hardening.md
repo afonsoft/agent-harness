@@ -7,14 +7,14 @@
 | Feature | `wasm-post-migration-hardening` |
 | Type | `Bugfix` |
 | Stack | `.NET` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-wasm-post-migration-hardening` |
 | Ticket | `GAP-operation-nonpublish-hosting`, `GAP-documentation-blazor-server-stale`, `GAP-tests-repository-combobox` (gap-analysis-20260915) |
 | Status | `Implemented` |
 
 ## 1. User Story
 
-**As a** maintainer of taskboard-ai
+**As a** maintainer of agent-harness
 **I want** the non-Docker install path to serve the WASM app, the docs to reflect the WASM architecture, and the repository combobox logic covered by tests
 **So that** the three residual gaps left by the WASM migration are closed before they bite the next install or audit.
 

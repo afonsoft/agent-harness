@@ -7,7 +7,7 @@
 | Feature | `repo-search-combobox` |
 | Type | `Frontend / Feature` |
 | Stack | `.NET 10 / Blazor Server / Blazor.Bootstrap / Octokit` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-repo-search-combobox` |
 | Ticket | N/A |
 | Status | `Done (merged via PR #78)` |

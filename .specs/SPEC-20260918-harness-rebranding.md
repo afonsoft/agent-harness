@@ -7,7 +7,7 @@
 | Feature | `harness-rebranding` |
 | Type | `Refactor` (Docs/Branding) |
 | Stack | `.NET 10 / Blazor / Docs` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-harness-rebranding` |
 | Ticket | — |
 | Status | `Done` |
@@ -26,7 +26,7 @@ O projeto evoluiu de "clone do dashi-taskboard" para uma plataforma que gerencia
 **In scope:**
 - Título do app (`<title>` → `Harness`), cabeçalho/branding na UI (NavMenu, telas de login/empty states se exibirem o nome).
 - `README.md` + `README.pt-br.md`: reescrito como **Harness** — mais completo, descrevendo todas as capacidades atuais (board GitHub, board local, agentes CLI, terminal multi-abas, VS Code Web, MCP/taskctl, skills/RAG, AI chat, histórico).
-- `docs/*.md` (en + pt-br): títulos e menções de produto "taskboard-ai" → "Harness" onde forem branding (texto técnico como `Taskboard:` config keys, `taskctl`, paths e namespaces permanece).
+- `docs/*.md` (en + pt-br): títulos e menções de produto "agent-harness" → "Harness" onde forem branding (texto técnico como `Taskboard:` config keys, `taskctl`, paths e namespaces permanece).
 - `AGENTS.md`/`CLAUDE.md`: seção "Missão" atualizada (Harness — plataforma local-first de harness engineering para agentes de IA).
 - `--app-name` do code-server (`Taskboard` → `Harness`) e textos visíveis de página (`/editor`, login).
 - `docs/README.md` e metadados de sistema (meta endpoint `name`, se exposto).
@@ -68,7 +68,7 @@ tests/... (ajustar asserts de --app-name e de título/meta se existirem)
 
 ### RF-002: README completo como Harness
 - **Description:** Reescrever `README.md` (en) e `README.pt-br.md`: nome **Harness**, tagline "local-first harness engineering platform for AI agents", visão geral atualizada cobrindo todas as capacidades entregues (GitHub board + board local, 13 CLIs de agente com install/login/execute, terminal multi-abas, VS Code Web, VS Code deep-link, histórico de issues, skills + RAG MCP, AI chat, taskctl/MCP), stack, arquitetura, quick start.
-- **Rules:** manter badges atuais (URLs do repo continuam `taskboard-ai`); tabelas de stack atualizadas; contagens de testes atualizadas; não prometer features inexistentes.
+- **Rules:** manter badges atuais (URLs do repo continuam `agent-harness`); tabelas de stack atualizadas; contagens de testes atualizadas; não prometer features inexistentes.
 - **Input → Output:** README descreve o produto como Harness e reflete o estado real do `main`.
 
 ### RF-003: Docs e AGENTS.md
@@ -92,7 +92,7 @@ Somente `GET /api/meta` campo `name` (se existir). Sem breaking changes.
 - **Dado** o app carregado, **quando** olho a aba do browser/menu/login, **então** vejo "Harness".
 - **Dado** o README, **quando** leio, **então** o produto é Harness e todas as capacidades atuais estão descritas.
 - **Dado** `grep -r "app-name"`, **quando** confiro o code-server, **então** é `Harness` e o teste passa.
-- **Dado** `git grep -l "taskboard-ai" docs/ README*`, **quando** confiro, **então** restam apenas referências corretas a repo/URL/nome técnico — nunca branding.
+- **Dado** `git grep -l "agent-harness" docs/ README*`, **quando** confiro, **então** restam apenas referências corretas a repo/URL/nome técnico — nunca branding.
 - **Edge:** nenhum arquivo de config/env/código renomeado.
 
 ## 7. Task Plan

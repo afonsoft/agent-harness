@@ -40,13 +40,13 @@ public sealed class AiChatWebCliAgentTests
             "medium",
             sandbox,
             AgentType.OpenCode,
-            workspacePath: "/home/ubuntu/repos/taskboard-ai",
-            repositoryFullName: "afonsoft/taskboard-ai");
+            workspacePath: "/home/ubuntu/repos/agent-harness",
+            repositoryFullName: "afonsoft/agent-harness");
 
         thread.Mode.ShouldBe("agent");
         thread.AgentType.ShouldBe(AgentType.OpenCode);
-        thread.WorkspacePath.ShouldBe("/home/ubuntu/repos/taskboard-ai");
-        thread.RepositoryFullName.ShouldBe("afonsoft/taskboard-ai");
+        thread.WorkspacePath.ShouldBe("/home/ubuntu/repos/agent-harness");
+        thread.RepositoryFullName.ShouldBe("afonsoft/agent-harness");
     }
 
     [Fact]

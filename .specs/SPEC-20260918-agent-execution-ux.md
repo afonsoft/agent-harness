@@ -7,7 +7,7 @@
 | Feature | `agent-execution-ux` |
 | Type | `Feature` (Frontend + API) + `Bugfix` (MCP provisioning) |
 | Stack | `.NET 10 / ASP.NET Core Minimal APIs / Blazor WASM / Blazor.Bootstrap` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-agent-execution-ux` |
 | Ticket | N/A |
 | Status | `Done` |

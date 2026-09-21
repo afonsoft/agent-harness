@@ -1,6 +1,6 @@
 ---
 name: manage-taskboard
-description: Gerencie o Harness (taskboard-ai) via CLI taskctl .NET e via servidor MCP para agentes de IA.
+description: Gerencie o Harness (agent-harness) via CLI taskctl .NET e via servidor MCP para agentes de IA.
 tools:
   - Bash
   - Read
@@ -10,7 +10,7 @@ tools:
 
 ## Contexto
 
-O `taskboard-ai` (produto: **Harness**) é um taskboard local-first em .NET 10 cuja fonte de verdade é o **GitHub**: o board, as issues, os comentários e o histórico vêm de repositórios GitHub. Esta skill permite que um agente inspecione issues do board, leia o histórico unificado e publique comentários de handoff através do CLI `taskctl` ou do servidor `Taskboard.Mcp`.
+O `agent-harness` (produto: **Harness**) é um taskboard local-first em .NET 10 cuja fonte de verdade é o **GitHub**: o board, as issues, os comentários e o histórico vêm de repositórios GitHub. Esta skill permite que um agente inspecione issues do board, leia o histórico unificado e publique comentários de handoff através do CLI `taskctl` ou do servidor `Taskboard.Mcp`.
 
 - URL padrão da API REST: `http://127.0.0.1:47823`
 - CLI: `src/Taskboard.Cli`

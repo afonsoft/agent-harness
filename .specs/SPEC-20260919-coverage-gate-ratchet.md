@@ -7,7 +7,7 @@
 | Feature | `coverage-gate-ratchet` |
 | Type | `Process` / `CI` |
 | Stack | `GitHub Actions / dotnet-coverage` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `chore/devin-20260919-coverage-gate-ratchet` |
 | Ticket | `GAP-requirements-coverage-threshold` (gap-analysis-20260919) — decisão do usuário: **subir o gate gradualmente** — Issue #145, Epic #140 |
 | Status | `Done` — entregue neste PR |
@@ -20,7 +20,7 @@ Unit + Integration, `-assemblyfilters:"-*.Tests.*"` — mesmo pipeline do CI).
 
 ## 1. User Story
 
-**As a** maintainer do taskboard-ai,
+**As a** maintainer do agent-harness,
 **I want** o gate de cobertura virando um ratchet que sobe até o alvo da
 hard rule,
 **so that** cobertura nunca regride e a documentação para de se contradizer.

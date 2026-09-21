@@ -15,14 +15,14 @@ public class WorktreeSessionTests
         var session = WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId: "run_01j7abcde",
-            repositoryPath: "/home/ubuntu/repos/taskboard-ai",
+            repositoryPath: "/home/ubuntu/repos/agent-harness",
             baseBranch: "main",
             path: "/home/ubuntu/.taskboard/worktrees/run_01j7abcde",
             branch: "feature/agent-run_01j7abcde-fix-login-error");
 
         session.Status.ShouldBe(WorktreeStatus.Active);
         session.RunId.ShouldBe("run_01j7abcde");
-        session.RepositoryPath.ShouldBe("/home/ubuntu/repos/taskboard-ai");
+        session.RepositoryPath.ShouldBe("/home/ubuntu/repos/agent-harness");
         session.BaseBranch.ShouldBe("main");
         session.Path.ShouldBe("/home/ubuntu/.taskboard/worktrees/run_01j7abcde");
         session.Branch.ShouldBe("feature/agent-run_01j7abcde-fix-login-error");

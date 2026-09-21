@@ -7,9 +7,9 @@
 | Feature | `harness-workspace-isolation` |
 | Type | `Feature` (Harness Infrastructure) |
 | Stack | `.NET 10 / Git CLI / LibGit2Sharp or System.Diagnostics.Process / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-harness-workspace-isolation` |
-| Ticket | [#161 — E6](https://github.com/afonsoft/taskboard-ai/issues/161) |
+| Ticket | [#161 — E6](https://github.com/afonsoft/agent-harness/issues/161) |
 | Status | `Done` |
 
 ---
@@ -22,7 +22,7 @@
 
 ### Problem Context
 
-Atualmente, `AgentOrchestrationService` e `KnownCliAgentAdapter` executam agentes CLI apontando o diretório de trabalho diretamente para o `RepoPath` raiz (ex: `/home/ubuntu/repos/taskboard-ai`).
+Atualmente, `AgentOrchestrationService` e `KnownCliAgentAdapter` executam agentes CLI apontando o diretório de trabalho diretamente para o `RepoPath` raiz (ex: `/home/ubuntu/repos/agent-harness`).
 Isso gera três grandes riscos críticos:
 1. **Concorrência impossível:** Se dois agentes tentam trabalhar simultaneamente no mesmo repositório (ex: um corrigindo um bug em frontend e outro adicionando um endpoint em backend), eles sobrescrevem arquivos um do outro no mesmo diretório.
 2. **Poluição do workspace humano:** Se o desenvolvedor humano estiver com o repositório aberto na máquina ou no VS Code, a execução do agente altera arquivos diretamente sob seus olhos, tornando difícil inspecionar diffs isolados antes de decidir aceitar ou descartar o trabalho.
@@ -109,7 +109,7 @@ POST /api/harness/worktrees
 Content-Type: application/json
 {
   "runId": "run_01j7abcde",
-  "repositoryPath": "/home/ubuntu/repos/taskboard-ai",
+  "repositoryPath": "/home/ubuntu/repos/agent-harness",
   "baseBranch": "main",
   "taskSlug": "fix-login-error"
 }

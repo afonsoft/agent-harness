@@ -24,7 +24,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   SOLUTION_FILE: Taskboard.sln
   SONAR_ORGANIZATION: afonsoft
-  SONAR_PROJECT_KEY: afonsoft_taskboard-ai
+  SONAR_PROJECT_KEY: afonsoft_agent-harness
 
 jobs:
   sonarcloud:

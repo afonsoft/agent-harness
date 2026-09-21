@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Instala o taskboard-ai: clona (se necessario), compila, instala o CLI taskctl,
+# Instala o agent-harness: clona (se necessario), compila, instala o CLI taskctl,
 # copia a skill manage-taskboard para os diretorios do agente e cria wrappers
 # para executar o servidor, o MCP e o frontend.
 
-DEFAULT_REPO="https://github.com/afonsoft/taskboard-ai.git"
+DEFAULT_REPO="https://github.com/afonsoft/agent-harness.git"
 REPO_URL="${TASKBOARD_REPO:-$DEFAULT_REPO}"
 TASKBOARD_HOME="${TASKBOARD_HOME:-$HOME/.taskboard}"
 [ -n "${TASKBOARD_DIR:-}" ] && TASKBOARD_HOME="$TASKBOARD_DIR"
 BIN_DIR="$TASKBOARD_HOME/bin"
-REPO_DIR="$TASKBOARD_HOME/taskboard-ai"
+REPO_DIR="$TASKBOARD_HOME/agent-harness"
 NUGET_DIR="$REPO_DIR/artifacts/nuget"
 
 DRY_RUN=false
@@ -253,7 +253,7 @@ create_env_file() {
     run mkdir -p "$data_dir"
 
     write_file "$env_file" <<EOF
-# Ambiente gerado por install.sh do taskboard-ai
+# Ambiente gerado por install.sh do agent-harness
 export PATH="$BIN_DIR:\$PATH"
 export TASKBOARD_DATA_DIR="$data_dir"
 export Taskboard__DataDir="$data_dir"
@@ -347,7 +347,7 @@ add_path_to_shell() {
     fi
 
     local path_line
-    path_line="export PATH=\"$BIN_DIR:\$PATH\" # taskboard-ai"
+    path_line="export PATH=\"$BIN_DIR:\$PATH\" # agent-harness"
 
     if grep -qF "$path_line" "$shell_file" 2>/dev/null; then
         return 0

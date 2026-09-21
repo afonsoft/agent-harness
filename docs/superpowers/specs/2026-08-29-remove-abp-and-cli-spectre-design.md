@@ -7,7 +7,7 @@
 
 ## Context
 
-O repositório `taskboard-ai` usa ABP de forma mínima: o repositório (`IRepository<T>` /
+O repositório `agent-harness` usa ABP de forma mínima: o repositório (`IRepository<T>` /
 `EfCoreRepository<T>`) é **custom**, e o ABP real aparece só no `Taskboard.Domain`, via
 `Volo.Abp.Domain.Entities` (base `AggregateRoot`/`Entity`). O objetivo do usuário é deixar o
 dashboard "cru" (sem framework) e trocar o CLI `taskctl` do `System.CommandLine` para

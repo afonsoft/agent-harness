@@ -7,7 +7,7 @@
 | Feature | `workflow-github-actions` |
 | Type | `Feature` (refactor da tela Workflow) |
 | Stack | `.NET 10 / Blazor / Octokit Actions API` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-workflow-github-actions` |
 | Ticket | — |
 | Status | `Done` |

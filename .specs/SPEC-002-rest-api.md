@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | REST API e Servidor HTTP |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Taskboard HTTP API |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-httpapi-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

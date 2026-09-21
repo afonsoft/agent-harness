@@ -7,7 +7,7 @@
 | Feature | `agent-model-config` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260918-agent-model-config` |
 | Ticket | — |
 | Status | `Done` |

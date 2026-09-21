@@ -7,7 +7,7 @@
 | Feature | `action-button-separation` |
 | Type | `Frontend` |
 | Stack | `.NET 10 / Blazor WebAssembly / Bootstrap 5` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-action-button-separation` |
 | Ticket | `GAP-spec-contradiction-action-button-gap` (gap-analysis-20260918) — decisão do usuário: **opção b) impor ≥8px** |
 | Status | `Done` — entregue via PR #135 (merged) |

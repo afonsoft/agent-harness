@@ -81,7 +81,7 @@ public class VscodeEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
-        var response = await client.GetAsync("/api/vscode/workdir?repo=afonsoft/taskboard-ai");
+        var response = await client.GetAsync("/api/vscode/workdir?repo=afonsoft/agent-harness");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonObject>();

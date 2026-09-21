@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Frontend |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Presentation |
 | Change type | Migration |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-webui-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

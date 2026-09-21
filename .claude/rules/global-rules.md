@@ -1,14 +1,14 @@
 ---
-name: taskboard-ai-global
+name: agent-harness-global
 ---
 
-# taskboard-ai — Global Rules
+# agent-harness — Global Rules
 
 > Compatível com Claude Code e Devin CLI.
 
 ## Escopo do Agent
 
-- Implementar, revisar e documentar o `taskboard-ai` em C# 14 / .NET 10 seguindo as specs em `.specs/`.
+- Implementar, revisar e documentar o `agent-harness` em C# 14 / .NET 10 seguindo as specs em `.specs/`.
 - Criar branches, commits e PRs; nunca push direto em branches protegidas.
 
 ## Hard Rules

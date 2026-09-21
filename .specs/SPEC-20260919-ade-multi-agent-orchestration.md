@@ -7,9 +7,9 @@
 | Feature | `ade-multi-agent-orchestration` |
 | Type | `Feature` (ADE Control Plane & Orchestration) |
 | Stack | `.NET 10 / ASP.NET Core / MediatR / Channel<T> / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-ade-multi-agent-orchestration` |
-| Ticket | [#167 — E12](https://github.com/afonsoft/taskboard-ai/issues/167) |
+| Ticket | [#167 — E12](https://github.com/afonsoft/agent-harness/issues/167) |
 | Status | `Done` |
 
 ---
@@ -22,7 +22,7 @@
 
 ### Problem Context
 
-O `taskboard-ai` hoje trata a orquestração de agentes (`AgentOrchestrationService.cs`) como um enfileiramento linear de um único agente executando um prompt em batch. Não há:
+O `agent-harness` hoje trata a orquestração de agentes (`AgentOrchestrationService.cs`) como um enfileiramento linear de um único agente executando um prompt em batch. Não há:
 1. **Conceito de papéis de agentes (Role Specialization):** Um único modelo/CLI recebe todo o escopo e frequentemente tenta planejar, codificar, testar e revisar ao mesmo tempo, levando a estouro de contexto, alucinações de API e perda de foco.
 2. **Pipelines / DAG de execução:** Não é possível definir um fluxo onde o Agente 1 (ex: Claude 3.7 Sonnet / Thinking) cria a especificação ou plano, o Agente 2 (ex: Codex / OpenCode) escreve o código no worktree, o Agente 3 (ex: Devin / Test-Engineer) cria testes de cobertura, e o Agente 4 (Code Reviewer) valida a conformidade com as regras antes de liberar o PR.
 3. **Context Handoff:** Cada agente começa do zero ou requer intervenção manual do usuário para copiar os resultados de um agente para outro.
@@ -117,7 +117,7 @@ POST /api/harness/pipelines/start
 Content-Type: application/json
 {
   "templateId": "standard-feature",
-  "repositoryFullName": "afonsoft/taskboard-ai",
+  "repositoryFullName": "afonsoft/agent-harness",
   "baseBranch": "main",
   "issueId": "150",
   "initialPrompt": "Implementar funcionalidade de autenticação JWT"

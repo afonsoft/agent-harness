@@ -7,7 +7,7 @@
 | Feature | `sidebar-icon-rail` |
 | Type | `Frontend` |
 | Stack | `.NET 10 / Blazor WebAssembly + Blazor.Bootstrap / Bootstrap 5 offcanvas` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260918-sidebar-icon-rail` |
 | Ticket | N/A |
 | Status | `Done` — entregue via PR #125 (merged) |

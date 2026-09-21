@@ -7,7 +7,7 @@
 | Feature | `blazor-wasm-migration` |
 | Type | `Refactor / Infra` |
 | Stack | `.NET 10 / Blazor WebAssembly / ASP.NET Core Minimal APIs / SignalR` |
-| Repository | `afonsoft/taskboard-ai` |
+| Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-blazor-wasm-migration` |
 | Ticket | N/A |
 | Status | `Done (merged via PR #78)` |

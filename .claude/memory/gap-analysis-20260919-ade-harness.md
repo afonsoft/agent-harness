@@ -1,6 +1,6 @@
 # Gap Analysis — 2026-09-19 (ADE & Agent Harness Evolution)
 
-- Repository: `/home/ubuntu/repos/taskboard-ai` | Branch: `feature/devin-20260919-web-cli-agent` | Commit: `fa06ac4`
+- Repository: `/home/ubuntu/repos/agent-harness` | Branch: `feature/devin-20260919-web-cli-agent` | Commit: `fa06ac4`
 - Phase reached: `gate`
 - Mode: `full`
 
@@ -17,7 +17,7 @@
 | `.claude/MEMORY.md`, `.claude/memory/` | `present` | 5 relatórios de gap analysis anteriores arquivados |
 | `CLAUDE.md` / `AGENTS.md` / `README.md` | `present` | Branding Harness consolidado, regras e convenções |
 | Tests / Linters / CI | `present` | 460 unit tests + 156 integration tests verdes; build 0 warnings |
-| `gh auth` + remotes | `ok` | Autenticado como afonsoft/taskboard-ai; **0 PRs abertos no GitHub** |
+| `gh auth` + remotes | `ok` | Autenticado como afonsoft/agent-harness; **0 PRs abertos no GitHub** |
 
 ---
 

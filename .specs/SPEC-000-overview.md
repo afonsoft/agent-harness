@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Visão Geral da Migração / Migration Overview |
-| Product / System | taskboard-ai (clone de `dashi-taskboard` / Codex Taskboard) |
+| Product / System | agent-harness (clone de `dashi-taskboard` / Codex Taskboard) |
 | Module / Bounded Context | Taskboard Platform |
 | Change type | Migration / Reescrita |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/specs-harness-docs` |
 | Technical owner | afonsoft |
 | Status | Implemented |
@@ -21,7 +21,7 @@
 
 ### Problem
 
-O repositório `afonsoft/taskboard-ai` é uma aplicação local-first de gestão de tarefas (issue board) implementada originalmente em Node.js 22.5+, React 19, Vite, TypeScript e SQLite nativo (`node:sqlite`). A aplicação possui servidor HTTP raw `node:http`, CLI `taskctl`, servidor MCP, Skill para agentes de IA e interface web. O objetivo é produzir um clone funcional em **C# 14 / .NET 10**, preservando comportamento, contratos HTTP e integrações com agentes via MCP e Skill.
+O repositório `afonsoft/agent-harness` é uma aplicação local-first de gestão de tarefas (issue board) implementada originalmente em Node.js 22.5+, React 19, Vite, TypeScript e SQLite nativo (`node:sqlite`). A aplicação possui servidor HTTP raw `node:http`, CLI `taskctl`, servidor MCP, Skill para agentes de IA e interface web. O objetivo é produzir um clone funcional em **C# 14 / .NET 10**, preservando comportamento, contratos HTTP e integrações com agentes via MCP e Skill.
 
 ### Objective
 
@@ -158,7 +158,7 @@ O Taskboard é um quadro de tarefas local-first, compatível com múltiplos agen
 
 ### Main task
 
-Migrar a aplicação `taskboard-ai` do stack Node.js/React/SQLite para C# .NET 10, mantendo funcionalidade equivalente, contratos HTTP, CLI, MCP server e Skill.
+Migrar a aplicação `agent-harness` do stack Node.js/React/SQLite para C# .NET 10, mantendo funcionalidade equivalente, contratos HTTP, CLI, MCP server e Skill.
 
 ### Subtasks
 

@@ -49,9 +49,9 @@ sidebar-icon-rail). Branch `main` @ `b5b62a2`, working tree limpo, `gh` autentic
 
 ## 5. Issues criadas (aprovado pelo usuário)
 
-- Epic: https://github.com/afonsoft/taskboard-ai/issues/126 (`epic`, `in_progress`)
-- S1 touch-targets: https://github.com/afonsoft/taskboard-ai/issues/127 (`slice`) → `.specs/SPEC-20260918-touch-targets.md`
-- S2 aichat-failed-state: https://github.com/afonsoft/taskboard-ai/issues/128 (`slice`) → `.specs/SPEC-20260918-aichat-thread-failed-state.md`
+- Epic: https://github.com/afonsoft/agent-harness/issues/126 (`epic`, `in_progress`)
+- S1 touch-targets: https://github.com/afonsoft/agent-harness/issues/127 (`slice`) → `.specs/SPEC-20260918-touch-targets.md`
+- S2 aichat-failed-state: https://github.com/afonsoft/agent-harness/issues/128 (`slice`) → `.specs/SPEC-20260918-aichat-thread-failed-state.md`
 
 ## 6. Resultado da execução
 

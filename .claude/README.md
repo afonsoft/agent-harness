@@ -1,4 +1,4 @@
-# Harness do taskboard-ai
+# Harness do agent-harness
 
 Estrutura de harness para agentes LLM (Claude Code, Devin CLI, Google Antigravity).
 

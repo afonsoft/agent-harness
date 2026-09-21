@@ -13,14 +13,14 @@ public class ProjectMemoryItemTests
     {
         var item = ProjectMemoryItem.Create(
             ProjectMemoryItemId.NewGuid(),
-            "afonsoft/taskboard-ai",
+            "afonsoft/agent-harness",
             "build-system",
             "Limpar _framework antes de dotnet publish",
             MemoryType.LessonLearned,
             ["build", "blazor"]);
 
         item.Id.Value.ShouldNotBeNullOrWhiteSpace();
-        item.RepositoryFullName.ShouldBe("afonsoft/taskboard-ai");
+        item.RepositoryFullName.ShouldBe("afonsoft/agent-harness");
         item.Topic.ShouldBe("build-system");
         item.Type.ShouldBe(MemoryType.LessonLearned);
         item.Tags.ShouldBe(["build", "blazor"]);
@@ -35,7 +35,7 @@ public class ProjectMemoryItemTests
     {
         Should.Throw<DomainException>(() => ProjectMemoryItem.Create(
             ProjectMemoryItemId.NewGuid(),
-            "afonsoft/taskboard-ai",
+            "afonsoft/agent-harness",
             "topic",
             content!,
             MemoryType.Fact,

@@ -7,11 +7,11 @@
 | Feature | `ade-cockpit-hitl` |
 | Type | `Feature` (Frontend & UI / Human-in-the-Loop Cockpit) |
 | Stack | `Blazor WebAssembly / Blazor.Bootstrap / SignalR / Monaco or Diff2Html / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-ade-cockpit-hitl` |
-| Ticket | [#170 — E15](https://github.com/afonsoft/taskboard-ai/issues/170) |
+| Ticket | [#170 — E15](https://github.com/afonsoft/agent-harness/issues/170) |
 | Status | `Done` |
-| PR | [#245](https://github.com/afonsoft/taskboard-ai/pull/245) |
+| PR | [#245](https://github.com/afonsoft/agent-harness/pull/245) |
 
 ---
 
@@ -23,7 +23,7 @@
 
 ### Problem Context
 
-A interface atual do `taskboard-ai` disponibiliza apenas:
+A interface atual do `agent-harness` disponibiliza apenas:
 1. Um terminal de logs de texto cru (`TaskLogTab.razor`) em console escuro.
 2. Nenhuma separação visual entre raciocínio do modelo (*reasoning/thought*), invocação de ferramentas (*tool calls* com inputs/outputs estruturados) e ações no sistema de arquivos.
 3. Não há um visualizador de Git Diff integrado no browser: para saber o que o agente modificou no código, o usuário é forçado a abrir o VS Code Web (`/vscode/`) ou rodar `git diff` no terminal manualmente.

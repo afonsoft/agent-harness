@@ -27,7 +27,7 @@ public class PipelineExecutionTests
 
     private static PipelineExecution CriarExecucao(PipelineDefinition? def = null) =>
         PipelineExecution.Create(
-            def ?? StandardFeature(), "afonsoft/taskboard-ai", "/repo/taskboard", "main",
+            def ?? StandardFeature(), "afonsoft/agent-harness", "/repo/taskboard", "main",
             issueId: "150", initialPrompt: "Implementar JWT", Now);
 
     [Fact]

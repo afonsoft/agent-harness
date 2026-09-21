@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Testing Strategy |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Quality Assurance |
 | Change type | Implementation |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-tests-net10` |
 | Technical owner | afonsoft |
 | Status | Implemented |

@@ -7,9 +7,9 @@
 | Feature | `harness-verification-loop` |
 | Type | `Feature` (Harness Engine & Quality Gates) |
 | Stack | `.NET 10 / CLI Process Runner / dotnet CLI / xUnit / Coverage Ratchet / C# 14` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260919-harness-verification-loop` |
-| Ticket | [#164 — E9](https://github.com/afonsoft/taskboard-ai/issues/164) |
+| Ticket | [#164 — E9](https://github.com/afonsoft/agent-harness/issues/164) |
 | Status | `Done` |
 
 ---
@@ -23,7 +23,7 @@
 ### Problem Context
 
 Quando um agente de IA gera código, a taxa de sucesso imediato sem pequenos erros de compilação, tipos ou testes quebrados raramente é 100%.
-No fluxo atual do `taskboard-ai`:
+No fluxo atual do `agent-harness`:
 1. **Falso positivo de conclusão:** O agente CLI encerra o processo com exit code 0 e a issue é movida para Review, mesmo que o código não compile ou testes estejam falhando.
 2. **Ciclo manual lento:** O desenvolvedor humano precisa abrir a máquina, rodar `dotnet build`/`dotnet test`, copiar as mensagens de erro do terminal, colar de volta no prompt do agente e esperar nova execução.
 3. **Regressão de cobertura:** O agente frequentemente adiciona código sem testes, derrubando a cobertura global abaixo do `COVERAGE_THRESHOLD` do repositório (ratchet de qualidade violado).

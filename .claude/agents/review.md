@@ -68,7 +68,7 @@ When tempted to flag one of the above, ask: "Would a senior engineer on this tea
 3. **Architectural Conformance:**
    - Ensure layer isolation (`Domain → Application.Contracts → Application → EntityFrameworkCore → Server`; Domain must not depend on Infrastructure; `Application`/`Integrations` must not reference each other sideways).
    - Ensure proper resource disposal (`IDisposable`/`await using`).
-4. **taskboard-ai specifics:**
+4. **agent-harness specifics:**
    - `.specs/` is the contract — changes to contracts/architecture must update the SPEC.
    - Monetary values use `decimal`, never floating point.
    - `long Version` optimistic concurrency (`VERSION_CONFLICT` 409) where applicable.

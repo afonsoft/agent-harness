@@ -1,6 +1,6 @@
-# taskboard-ai Specifications
+# agent-harness Specifications
 
-This directory contains the **Spec-Driven Development (SDD)** specifications for `taskboard-ai`, a local-first, AI-friendly taskboard cloned from `dashi-taskboard` and rewritten in **C# 14 / .NET 10**.
+This directory contains the **Spec-Driven Development (SDD)** specifications for `agent-harness`, a local-first, AI-friendly taskboard cloned from `dashi-taskboard` and rewritten in **C# 14 / .NET 10**.
 
 The merged set consolidates content from the original `.specs/` and `.specs2/` directories. The most complete version of each specification is kept here, following the **SSD Engineering Template** with maximum detail for the C# rewrite.
 

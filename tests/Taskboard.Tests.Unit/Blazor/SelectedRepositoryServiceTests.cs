@@ -16,7 +16,7 @@ public class SelectedRepositoryServiceTests
     private static readonly RepositoryDto[] Repos =
     [
         new(1, "octokit/octokit.net", "octokit.net", null, "https://x", false),
-        new(2, "afonsoft/taskboard-ai", "taskboard-ai", null, "https://x", true),
+        new(2, "afonsoft/agent-harness", "agent-harness", null, "https://x", true),
         new(3, "afonsoft/skills", "skills", null, "https://x", false),
     ];
 
@@ -41,7 +41,7 @@ public class SelectedRepositoryServiceTests
         await service.EnsureLoadedAsync();
         service.Selected.ShouldBe("afonsoft/skills");
         service.Repositories.ShouldBe(
-            ["afonsoft/skills", "afonsoft/taskboard-ai", "octokit/octokit.net"]);
+            ["afonsoft/skills", "afonsoft/agent-harness", "octokit/octokit.net"]);
     }
 
     [Fact]

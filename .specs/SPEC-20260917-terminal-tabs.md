@@ -7,7 +7,7 @@
 | Feature | `terminal-tabs` |
 | Type | `Feature` |
 | Stack | `.NET 10 / Blazor WASM / SignalR / xterm.js` |
-| Repository | `/home/ubuntu/repos/taskboard-ai` |
+| Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260917-terminal-tabs` |
 | Ticket | — |
 | Status | `Done` |

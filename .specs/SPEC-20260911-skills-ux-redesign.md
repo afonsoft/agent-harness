@@ -5,10 +5,10 @@
 | Field | Value |
 |---|---|
 | Feature name | Skills UX Redesign |
-| Product / System | taskboard-ai |
+| Product / System | agent-harness |
 | Module / Bounded Context | Frontend |
 | Change type | Design / UI |
-| Repository | afonsoft/taskboard-ai |
+| Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/devin-20260911-skills-ux-redesign` |
 | Technical owner | afonsoft |
 | Status | Completed |
@@ -298,7 +298,7 @@ GET /api/skills/{source}/{name}
   "name": "manage-taskboard",
   "description": "Gerencie o Dashi Taskboard...",
   "source": "taskboard",
-  "path": "/home/ubuntu/repos/taskboard-ai/skills/manage-taskboard",
+  "path": "/home/ubuntu/repos/agent-harness/skills/manage-taskboard",
   "tools": ["Bash", "Read", "Edit", "Write"],
   "references": "## Contexto\n\n...",
   "scripts": null,
