@@ -58,6 +58,10 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         var homeDir = Path.Combine(dataDir, "home");
         Directory.CreateDirectory(homeDir);
         builder.UseSetting("Taskboard:HomeDir", homeDir);
+        // Assistant runs keep the MockLLMProvider echo path in tests —
+        // the real CLI backend (SPEC-20260921-ai-chat-cli-backend) is covered
+        // by unit tests; integration tests must never spawn agent processes.
+        builder.UseSetting("Taskboard:AiChat:MockProvider", "true");
         builder.ConfigureServices(services =>
         {
             // GET /api/agents must not depend on which CLIs happen to be on the

@@ -56,4 +56,42 @@ public static class AgentThreadPromptBuilder
         var prompt = builder.ToString();
         return prompt.Length <= maxChars ? prompt : prompt[..maxChars];
     }
+
+    /// <summary>
+    /// Builds the one-shot prompt for an assistant-mode thread executed through
+    /// an agent CLI (SPEC-20260921-ai-chat-cli-backend RF-004): chat framing —
+    /// the CLI answers the latest user message, no repository work is implied.
+    /// </summary>
+    public static string BuildAssistantPrompt(
+        string threadTitle,
+        IReadOnlyList<AiChatEventDto> events,
+        int maxMessages = DefaultMaxMessages,
+        int maxChars = DefaultMaxChars)
+    {
+        var builder = new StringBuilder();
+        builder.Append("You are the Harness AI assistant in chat thread '")
+            .Append(threadTitle)
+            .Append("'. This is a conversational assistant exchange, not a coding task.\n\n<conversation>\n");
+
+        var recent = events.Count <= maxMessages
+            ? events
+            : events.Skip(events.Count - maxMessages).ToList();
+
+        foreach (var ev in recent)
+        {
+            var role = ev.Role switch
+            {
+                "user" => "user",
+                "assistant" => "assistant",
+                _ => "system"
+            };
+            builder.Append(role).Append(": ").Append(ev.Content.Trim()).Append('\n');
+        }
+
+        builder.Append("</conversation>\n\n")
+            .Append("Reply concisely to the latest user message. Plain text or markdown; do not modify files.");
+
+        var prompt = builder.ToString();
+        return prompt.Length <= maxChars ? prompt : prompt[..maxChars];
+    }
 }
