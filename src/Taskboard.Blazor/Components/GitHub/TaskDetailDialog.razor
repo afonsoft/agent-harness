@@ -159,6 +159,10 @@
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
+    /// <summary>Disparado quando um pipeline run é iniciado a partir da aba Agent Config — carrega runId + número da issue.</summary>
+    [Parameter]
+    public EventCallback<(string RunId, int IssueNumber)> OnAgentRunStarted { get; set; }
+
     private AgentRunDto? _latestRun;
     private bool _editing;
     private bool _saving;
@@ -268,9 +272,14 @@
         }
     }
 
-    private async Task OnAgentExecutedAsync()
+    private async Task OnAgentExecutedAsync(PipelineExecutionDto? run)
     {
         await OnChanged.InvokeAsync();
+        if (run is not null && Issue is not null)
+        {
+            await OnAgentRunStarted.InvokeAsync((run.PipelineExecutionId, Issue.Number));
+        }
+
         if (Issue is not null)
         {
             try

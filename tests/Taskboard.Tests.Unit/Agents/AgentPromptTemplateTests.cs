@@ -109,17 +109,23 @@ public class AgentPromptTemplateTests
     }
 
     [Fact]
-    public void Dado_Builtin_Quando_Renderizar_Entao_TerminaComPlaceholderDeComentarios()
+    public void Dado_Builtin_Quando_Renderizar_Entao_ContemTodosOsPlaceholders()
     {
-        AgentPromptTemplate.Builtin.TrimEnd().ShouldEndWith("{issueComments}");
+        // A seção ISSUE fecha o template com Comments + Repository — todos os
+        // placeholders devem estar presentes para o Render substituir.
         AgentPromptTemplate.HasCommentsPlaceholder(AgentPromptTemplate.Builtin).ShouldBeTrue();
+        AgentPromptTemplate.Builtin.ShouldContain("{issueTitle}");
+        AgentPromptTemplate.Builtin.ShouldContain("{issueBody}");
+        AgentPromptTemplate.Builtin.ShouldContain("{repoUrl}");
+        AgentPromptTemplate.Builtin.TrimEnd().ShouldEndWith("{repoUrl}");
+        AgentPromptTemplate.Builtin.Length.ShouldBeLessThanOrEqualTo(AgentPromptTemplate.MaxLength);
     }
 }
 
 public class AgentCliInvocationTests
 {
     [Theory]
-    [InlineData(AgentType.Devin, "devin --respect-workspace-trust false --model swe -p <prompt>")]
+    [InlineData(AgentType.Devin, "devin --respect-workspace-trust false --permission-mode dangerous --model swe -p <prompt>")]
     [InlineData(AgentType.Claude, "claude --dangerously-skip-permissions --model sonnet -p <prompt>")]
     [InlineData(AgentType.Codex, "codex exec --approve-for-me --skip-git-repo-check -m gpt-5.6-luna <prompt>")]
     [InlineData(AgentType.OpenCode, "opencode run --auto -m opencode/claude-sonnet-5 <prompt>")]

@@ -11,208 +11,600 @@ public static class AgentPromptTemplate
 {
     public const string ConfigurationKey = "Taskboard:Agents:DefaultPrompt";
 
-    public const int MaxLength = 8192;
+    public const int MaxLength = 16384;
 
     public const string Builtin = """
-        Process the issue below using the repository and workflow rules defined in this prompt.
+        Process the issue using a Knowledge-First, Spec-Driven Development (SDD), and Harness Engineering workflow.
 
-        ## 1. Repository preparation
+        The goal is to always start from the latest main branch, leverage institutional knowledge before making decisions, use specifications as the source of truth, and continuously update task execution status through the taskboard.
 
-        Work from the current working directory:
+        ======================================================================
+        0. KNOWLEDGE DISCOVERY (MANDATORY)
+        ======================================================================
+
+        Knowledge discovery is mandatory.
+
+        Before performing repository analysis, specification creation, planning, implementation, debugging, refactoring, testing, or validation, consult the Knowledge MCP.
+
+        Knowledge MCP is the primary source of truth for business rules, architectural decisions, standards, patterns, lessons learned, runbooks, ADRs, documentation, previous implementations, and project-specific knowledge.
+
+        Always execute the following workflow:
+
+        ### Step 1 - Search for Existing Knowledge
+
+        Search using:
+
+        - Repository name
+        - Project name
+        - Issue title
+        - Issue keywords
+        - Business domain terms
+        - Technical keywords
+        - Referenced features
+        - Referenced components
+        - Existing specs
+
+        Tools:
+
+        - search_knowledge
+        - ask_knowledge
+
+        ### Step 2 - Search Internal Documentation
+
+        If additional context is needed:
+
+        - query_openclaw_vault
+        - read_document
+        - ask_question
+
+        ### Step 3 - Search Wiki Content
+
+        Always attempt to discover wiki content:
+
+        - read_wiki_structure
+        - read_wiki_contents
+
+        ### Step 4 - Search External References
+
+        If the issue references documents, URLs, frameworks, libraries, standards, APIs, vendors, or external systems:
+
+        - firecrawl_search
+        - firecrawl_scrape
+        - firecrawl_parse
+
+        ### Step 5 - Perform Broader Research
+
+        When additional context or technical research is beneficial:
+
+        - tavily_search
+        - tavily_extract
+        - tavily_research
+        - tavily_crawl
+
+        ### Step 6 - Agent Collaboration
+
+        If multiple agents need coordination:
+
+        - agent_chat
+
+        ### Knowledge Rules
+
+        - Never skip knowledge discovery.
+        - Never start implementation without consulting Knowledge MCP.
+        - Never create a spec using only the issue when additional knowledge is available.
+        - Consolidate all discovered knowledge before creating or executing specs.
+        - Use discovered information to enrich planning, specifications, implementation, tests, documentation, and validation.
+
+        If no relevant knowledge exists, explicitly record:
+
+        "No relevant knowledge was found in the Knowledge MCP."
+
+        ======================================================================
+        1. REPOSITORY PREPARATION
+        ======================================================================
+
+        Working directory:
 
         ~/repos
 
-        Determine the repository directory name from {repoUrl}.
+        Determine repository name from:
 
-        ### If the repository directory does not exist
+        {repoUrl}
 
-        Clone the repository:
+        ----------------------------------------------------------------------
+        If repository does not exist
+        ----------------------------------------------------------------------
+
+        Clone repository:
 
         git clone {repoUrl}
 
-        Then enter the cloned repository directory.
+        Enter repository directory.
 
-        ### If the repository directory already exists
+        ----------------------------------------------------------------------
+        If repository already exists
+        ----------------------------------------------------------------------
 
-        Do not clone it again.
+        Do not clone again.
 
-        Enter the existing repository directory and verify that it is a valid Git repository and that its configured remote corresponds to {repoUrl}.
+        Enter repository directory.
 
-        Before analyzing the issue or modifying any files, synchronize the repository with the latest remote main branch:
+        Validate:
+
+        - Repository exists
+        - Repository is a valid git repository
+        - Remote matches {repoUrl}
+
+        Synchronize repository:
 
         git fetch --all --prune
         git checkout main
         git pull --ff-only origin main
 
-        If the local main branch does not exist, create it tracking origin/main:
+        If local main branch does not exist:
 
         git checkout -b main --track origin/main
 
-        Do not use `git reset --hard`, do not discard local changes, and do not delete untracked files automatically.
+        Never automatically:
 
-        If local changes, untracked files, merge conflicts, detached HEAD state, or branch divergence prevent a safe checkout or pull, stop the implementation and report the exact condition instead of overwriting or deleting work.
+        - git reset --hard
+        - delete user files
+        - remove untracked content
+        - discard local work
 
-        Validate that:
+        If local modifications prevent safe synchronization:
 
-        - The current branch is main.
-        - The local main branch is synchronized with origin/main.
-        - The working tree is in a safe state for analysis.
-        - The repository remote matches {repoUrl}.
+        Stop and report:
 
-        Always start the analysis from the updated main branch.
+        - modified files
+        - conflicts
+        - diverged branches
+        - detached head state
 
-        ## 2. Harness validation
+        Do not overwrite user work.
 
-        Inspect the repository before selecting the execution workflow.
+        ----------------------------------------------------------------------
+        Repository Validation
+        ----------------------------------------------------------------------
 
-        Determine whether the repository already follows the Agent Harness standard by checking its existing agent configuration, skills, instructions, commands, hooks, context files, and repository conventions.
+        Confirm:
 
-        Do not recreate, overwrite, or reinitialize an existing valid Harness.
+        - Current branch is main
+        - Local main is synchronized with origin/main
+        - Working tree is safe
+        - Remote matches repository URL
 
-        ### If the repository already follows the Harness standard
+        All subsequent analysis must begin from the updated main branch.
 
-        - Use the Harness capabilities already available in the repository.
-        - Do not invoke the `orchestrator` skill.
-        - Do not invoke the `create-agent-harness` skill.
-        - Continue directly to the SPEC resolution workflow.
+        ======================================================================
+        2. TASKBOARD MANAGEMENT (MANDATORY)
+        ======================================================================
 
-        ### If the repository does not follow the Harness standard
+        The manage-taskboard skill or CLI is mandatory.
 
-        - Prefer the `orchestrator` skill to create or complete the required Harness structure.
-        - Use the `orchestrator` skill only when orchestration is required to coordinate the Harness creation or when `create-agent-harness` is unavailable or insufficient.
-        - After creating or adjusting the Harness, validate that it is operational before continuing.
-        - Do not change application code during the Harness preparation phase unless strictly required by the Harness setup.
+        Taskboard management must occur throughout execution.
 
-        ## 3. SPEC resolution
+        Immediately:
 
-        Analyze all issue content before creating or executing a specification:
+        - Move card to In Progress
+
+        Add updates for:
+
+        1. Knowledge Discovery started
+        2. Knowledge sources discovered
+        3. Repository validation completed
+        4. Harness validation completed
+        5. Spec discovery completed
+        6. Spec creation completed
+        7. Spec execution started
+        8. Implementation progress
+        9. Validation progress
+        10. Blockers and assumptions
+        11. Final validation results
+
+        Before completion:
+
+        - Attach spec reference
+        - Attach validation summary
+        - Attach implementation summary
+
+        Do not mark task complete unless:
+
+        - Knowledge discovery executed
+        - Spec exists
+        - Validation completed
+        - Required checks succeeded
+
+        ======================================================================
+        3. HARNESS VALIDATION
+        ======================================================================
+
+        Inspect repository structure.
+
+        Determine whether repository already follows Harness Engineering standards.
+
+        Look for:
+
+        - agents
+        - skills
+        - commands
+        - context
+        - hooks
+        - harness configuration
+        - orchestration artifacts
+        - agent workflows
+
+        ----------------------------------------------------------------------
+        If repository already follows Harness standard
+        ----------------------------------------------------------------------
+
+        Use existing Harness.
+
+        Do NOT create a new Harness.
+
+        Do NOT execute create-agent-harness.
+
+        Do NOT recreate agents.
+
+        Use existing repository conventions.
+
+        Load context through Knowledge MCP before selecting agents.
+
+        Use:
+
+        - agent_chat
+
+        when agent coordination is needed.
+
+        ----------------------------------------------------------------------
+        If repository does not follow Harness standard
+        ----------------------------------------------------------------------
+
+        Execute:
+
+        create-agent-harness
+
+        Create only required structure.
+
+        Validate harness is operational.
+
+        Register Knowledge MCP as a mandatory context source.
+
+        Use orchestrator only when:
+
+        - coordination is required
+        or
+        - create-agent-harness is unavailable
+
+        ======================================================================
+        4. SPEC RESOLUTION
+        ======================================================================
+
+        Specification-first execution is mandatory.
+
+        Priority order:
+
+        1. Knowledge MCP
+        2. Existing Spec
+        3. Repository Documentation
+        4. Wiki Content
+        5. OpenClaw Vault
+        6. Issue Content
+
+        Never implement directly from the raw issue.
+
+        ----------------------------------------------------------------------
+        Look for Existing Spec
+        ----------------------------------------------------------------------
+
+        Inspect:
 
         - Issue title
         - Issue body
         - Issue comments
-        - Referenced files
+        - Referenced filenames
         - Referenced paths
         - Markdown links
-        - Code-formatted filenames
 
-        Search for an explicit SPEC reference matching this naming convention:
+        Search for:
 
         .SPEC-{YYYYMMDD}-{feature}.md
 
-        Treat a SPEC as explicitly provided only when the issue identifies a concrete filename or path matching the convention. A generic mention such as "create a spec" or "follow the spec" is not sufficient.
+        ----------------------------------------------------------------------
+        If Existing Spec Is Referenced
+        ----------------------------------------------------------------------
 
-        ### If the issue specifies an existing SPEC
+        Locate exact spec.
 
-        1. Locate the exact referenced `.SPEC-{YYYYMMDD}-{feature}.md` file in the repository.
-        2. Validate that the filename and path match the issue reference.
-        3. Read the complete SPEC and any files referenced by it.
-        4. Use the `execute-specs` skill to execute that SPEC.
-        5. Do not create a duplicate SPEC.
-        6. Do not use `write-specs` unless the referenced SPEC cannot be found or is structurally invalid.
+        Validate:
 
-        If the referenced SPEC cannot be found:
+        - filename
+        - path
+        - integrity
 
-        - Search the repository for the exact filename.
-        - Search for close matches only to diagnose the problem.
-        - Do not silently execute a different SPEC.
-        - If no valid match exists, use `write-specs` to create a new SPEC based on the complete issue context and clearly record that the referenced SPEC was unavailable.
+        Read spec completely.
 
-        ### If the issue does not specify an existing SPEC
+        Read any referenced documents.
 
-        1. Use the `write-specs` skill to create a new specification.
-        2. Name it according to:
+        Read repository context.
 
-           .SPEC-{YYYYMMDD}-{feature}.md
+        Execute:
 
-        3. Derive `{feature}` from the issue using a concise, descriptive, lowercase kebab-case name.
-        4. Use the current execution date for `{YYYYMMDD}`.
-        5. Build the SPEC from:
-           - {issueTitle}
-           - {issueBody}
-           - {issueComments}
-           - Repository architecture and conventions
-           - Existing documentation
-           - Relevant Harness context
-           - Additional context retrieved from the `knowledge` MCP when necessary
-        6. Ensure the SPEC contains:
-           - Context and problem statement
-           - Goals
-           - Scope
-           - Out-of-scope items
-           - Functional requirements
-           - Non-functional requirements
-           - Architectural constraints
-           - Security and observability requirements
-           - Implementation plan
-           - Testing strategy
-           - Acceptance criteria
-           - Validation steps
-           - Traceability to the source issue
-        7. Validate the generated SPEC before implementation.
-        8. After validation, use the `execute-specs` skill to execute the newly created SPEC.
+        execute-specs
 
-        Never start implementation directly from the raw issue when no valid SPEC exists.
+        Do NOT create another spec.
 
-        ## 4. Execution rules
+        If referenced spec cannot be located:
 
-        During SPEC execution:
+        - search repository
+        - search knowledge sources
+        - search wiki
+        - search documentation
 
-        - Treat the SPEC as the primary source of truth.
-        - Follow the repository's existing architecture, coding conventions, instructions, and Harness definitions.
-        - Use the available specialized skills whenever applicable.
-        - Consult the `knowledge` MCP only when additional context is required.
-        - Do not invent missing business rules or acceptance criteria.
-        - Record assumptions explicitly in the SPEC.
-        - Keep changes limited to the issue scope.
-        - Create or update automated tests for the implemented behavior.
-        - Run the relevant build, lint, formatting, unit test, integration test, and validation commands supported by the repository.
-        - Do not claim a validation succeeded unless the corresponding command was executed successfully.
-        - Do not commit, push, open a pull request, or modify remote resources unless explicitly requested.
+        Only after validation failure:
 
-        ## 5. Taskboard management
+        Use:
 
-        Use the `manage-taskboard` skill to manage the issue card throughout the execution.
+        write-specs
 
-        - Move the issue to the appropriate in-progress state before implementation.
-        - Add meaningful progress updates at important checkpoints.
-        - Record the SPEC filename used or created.
-        - Record validation results and any blockers.
-        - Move the issue to the appropriate final state only after implementation and validation are complete.
-        - Do not mark the issue as completed when required validations fail.
+        to recreate the spec.
 
-        ## 6. Final validation
+        ----------------------------------------------------------------------
+        If No Existing Spec Exists
+        ----------------------------------------------------------------------
 
-        Before finishing:
+        Use:
 
-        1. Confirm whether the repository already had a valid Harness or whether one was created.
-        2. Confirm which Harness-related skill was used, if any.
-        3. Confirm the repository was analyzed from the updated main branch.
-        4. Confirm the SPEC filename and path.
-        5. Confirm whether the SPEC came from the issue or was created with `write-specs`.
-        6. Confirm that `execute-specs` was used.
-        7. Review all changed files.
-        8. Run the repository's applicable validation commands.
-        9. Compare the implementation against every acceptance criterion in the SPEC.
-        10. Check for unrelated or accidental changes.
-        11. Confirm that the issue card contains the final execution status.
+        write-specs
 
-        ## 7. Final response
+        Create:
 
-        Provide a concise final report containing:
+        .SPEC-{YYYYMMDD}-{feature}.md
 
-        - Repository preparation status
-        - Harness validation result
-        - Harness-related skill used, if applicable
-        - SPEC filename and path
-        - Whether the SPEC was provided or generated
-        - Summary of implemented changes
-        - Files changed
-        - Tests and validation commands executed
-        - Validation results
-        - Taskboard update status
-        - Remaining risks, assumptions, or blockers
+        Feature name requirements:
 
-        ## Issue
+        - lowercase
+        - kebab-case
+        - descriptive
+
+        Use current date for YYYYMMDD.
+
+        Create specification from:
+
+        - Knowledge MCP
+        - OpenClaw Vault
+        - Wiki
+        - Repository Documentation
+        - Task Context
+        - Issue Content
+
+        Generated spec must contain:
+
+        # Context
+
+        # Problem Statement
+
+        # Business Requirements
+
+        # Functional Requirements
+
+        # Non Functional Requirements
+
+        # Architectural Constraints
+
+        # Security Requirements
+
+        # Observability Requirements
+
+        # Acceptance Criteria
+
+        # Testing Strategy
+
+        # Validation Steps
+
+        # Rollback Strategy
+
+        # Risks
+
+        # Assumptions
+
+        # Implementation Plan
+
+        # Traceability
+
+        # Knowledge Sources
+
+        Knowledge Sources section must list:
+
+        - search_knowledge queries
+        - ask_knowledge responses
+        - vault documents
+        - wiki content
+        - firecrawl results
+        - tavily results
+
+        Validate generated spec.
+
+        After validation:
+
+        Execute:
+
+        execute-specs
+
+        ======================================================================
+        5. SPEC EXECUTION
+        ======================================================================
+
+        Spec is the source of truth.
+
+        During execution:
+
+        - Follow repository architecture
+        - Follow existing coding standards
+        - Follow repository conventions
+        - Follow Harness conventions
+
+        Always enrich execution using:
+
+        - Knowledge MCP
+        - Repository context
+        - Existing patterns
+
+        Use specialized skills whenever available.
+
+        Do not invent requirements.
+
+        Document assumptions explicitly.
+
+        Keep changes within scope.
+
+        Create or update:
+
+        - Unit Tests
+        - Integration Tests
+        - Contract Tests
+        - Validation Tests
+
+        when applicable.
+
+        ======================================================================
+        6. VALIDATION
+        ======================================================================
+
+        Run all applicable validation procedures.
+
+        Examples:
+
+        - build
+        - lint
+        - format
+        - unit tests
+        - integration tests
+        - contract tests
+        - security validation
+        - static analysis
+
+        Do not claim validation success unless executed successfully.
+
+        Compare implementation against every acceptance criterion.
+
+        Validate:
+
+        - code changes
+        - tests
+        - documentation
+        - specs
+        - taskboard updates
+
+        Check for unrelated changes.
+
+        ======================================================================
+        7. RESTRICTIONS
+        ======================================================================
+
+        Do NOT:
+
+        - commit
+        - push
+        - create pull requests
+        - modify remote resources
+
+        unless explicitly requested.
+
+        Do NOT:
+
+        - skip Knowledge MCP
+        - skip spec generation
+        - skip spec execution
+        - skip taskboard updates
+
+        Knowledge Discovery, Specs, and Taskboard are mandatory phases.
+
+        ======================================================================
+        8. FINAL VALIDATION CHECKLIST
+        ======================================================================
+
+        Before finishing confirm:
+
+        □ Knowledge MCP consulted
+
+        □ search_knowledge executed
+
+        □ ask_knowledge executed
+
+        □ Repository synchronized with main
+
+        □ Harness validated
+
+        □ Existing spec found OR spec created
+
+        □ write-specs executed (when required)
+
+        □ execute-specs executed
+
+        □ Tests executed
+
+        □ Validation completed
+
+        □ Taskboard updated
+
+        □ Acceptance criteria satisfied
+
+        ======================================================================
+        9. FINAL REPORT
+        ======================================================================
+
+        Provide a final report containing:
+
+        # Knowledge Summary
+
+        - Knowledge sources consulted
+        - Documents reviewed
+        - Wiki pages reviewed
+        - Vault entries reviewed
+        - External research performed
+
+        # Repository Status
+
+        - Repository path
+        - Current branch
+        - Synchronization status
+
+        # Harness Status
+
+        - Existing Harness or Created Harness
+        - Skills and agents used
+
+        # Spec Information
+
+        - Spec filename
+        - Spec path
+        - Existing or Generated
+
+        # Implementation Summary
+
+        - Changes completed
+        - Files modified
+
+        # Validation Summary
+
+        - Commands executed
+        - Tests executed
+        - Results
+
+        # Taskboard Summary
+
+        - States transitioned
+        - Progress updates recorded
+
+        # Risks and Assumptions
+
+        - Remaining concerns
+        - Known limitations
+
+        ======================================================================
+        ISSUE
+        ======================================================================
 
         Title:
 
@@ -225,7 +617,12 @@ public static class AgentPromptTemplate
         Comments:
 
         {issueComments}
+
+        Repository:
+
+        {repoUrl}
         """;
+
 
     /// <summary>
     /// Returns true when the template carries the <c>{issueComments}</c>

@@ -168,16 +168,34 @@ public class GitWorktreeManagerTests : IDisposable
         _sessions.Items.Count(s => s.RunId == "run_08").ShouldBe(1);
     }
 
+    // Edge case: base inexistente no clone (ex.: "main" num repo cujo default é
+    // "master") → resolve para o default do clone em vez de falhar o attach.
+    [Fact]
+    public async Task Dado_BaseInexistente_Quando_CreateWorktree_Entao_FallbackParaDefaultDoClone()
+    {
+        var masterRepo = Path.Combine(_tempRoot, "repo-master");
+        Directory.CreateDirectory(masterRepo);
+        InitRepo(masterRepo, "master");
+
+        var dto = await _sut.CreateWorktreeAsync("run_09", masterRepo, "main", "fallback");
+
+        Directory.Exists(dto.Path).ShouldBeTrue();
+        // Sem remote no teste → origin/HEAD não existe → cai para HEAD.
+        dto.BaseBranch.ShouldBe("HEAD");
+        var head = await _git.RunAsync(dto.Path, ["rev-parse", "--abbrev-ref", "HEAD"]);
+        head.StandardOutput.Trim().ShouldBe(dto.Branch);
+    }
+
     [Fact]
     public async Task Dado_SessaoInexistente_Quando_GetDiff_Entao_DomainException()
     {
         await Should.ThrowAsync<DomainException>(() => _sut.GetDiffAsync("run_inexistente"));
     }
 
-    private void InitRepo(string path)
+    private void InitRepo(string path, string branch = "main")
     {
         var git = new GitCommandRunner();
-        git.RunAsync(path, ["init", "-b", "main"]).GetAwaiter().GetResult().ExitCode.ShouldBe(0);
+        git.RunAsync(path, ["init", "-b", branch]).GetAwaiter().GetResult().ExitCode.ShouldBe(0);
         git.RunAsync(path, ["config", "user.email", "test@local"]).GetAwaiter().GetResult();
         git.RunAsync(path, ["config", "user.name", "Test"]).GetAwaiter().GetResult();
         File.WriteAllText(Path.Combine(path, "README.md"), "# repo\n");

@@ -500,10 +500,17 @@ else if (_columns is not null)
         {
             { nameof(TaskDetailDialog.Issue), issue },
             { nameof(TaskDetailDialog.RepositoryFullName), RepositoryFullName },
-            { nameof(TaskDetailDialog.OnChanged), EventCallback.Factory.Create(this, LoadIssuesAsync) }
+            { nameof(TaskDetailDialog.OnChanged), EventCallback.Factory.Create(this, LoadIssuesAsync) },
+            { nameof(TaskDetailDialog.OnAgentRunStarted), EventCallback.Factory.Create<(string RunId, int IssueNumber)>(this, OnDialogRunStartedAsync) }
         };
 
         await _detailModal.ShowAsync<TaskDetailDialog>(title: $"Issue #{issue.Number}", parameters: parameters);
+    }
+
+    private async Task OnDialogRunStartedAsync((string RunId, int IssueNumber) run)
+    {
+        _lastRun = run;
+        await LoadIssuesAsync();
     }
 
     private async Task OpenNewTaskDialogAsync()

@@ -50,7 +50,10 @@ public static class AgentCliInvocation
         {
             // devin [PATH]... requires -p/--print for non-interactive mode; without it the prompt becomes a PATH.
             // --respect-workspace-trust false: print mode fails in an untrusted directory.
-            AgentType.Devin => ["--respect-workspace-trust", "false", .. model, "-p", prompt],
+            // --permission-mode dangerous: headless mode cannot prompt for tool
+            // confirmation — the default "auto" rejects write/exec calls and the
+            // run exits early without doing the work.
+            AgentType.Devin => ["--respect-workspace-trust", "false", "--permission-mode", "dangerous", .. model, "-p", prompt],
             // claude -p for non-interactive mode; without a TTY permissions must be bypassed.
             AgentType.Claude => ["--dangerously-skip-permissions", .. model, "-p", prompt],
             // codex exec is the non-interactive mode; --approve-for-me auto-approves via workspace-write sandbox.

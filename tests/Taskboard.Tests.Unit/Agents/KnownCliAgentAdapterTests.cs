@@ -71,14 +71,16 @@ public class KnownCliAgentAdapterTests
 
             var command = new KnownCliAgentAdapter().BuildCommand(request);
 
-            command.Arguments.Count.ShouldBe(6);
+            command.Arguments.Count.ShouldBe(8);
             command.Arguments[0].ShouldBe("--respect-workspace-trust");
             command.Arguments[1].ShouldBe("false");
-            command.Arguments[2].ShouldBe("--model");
-            command.Arguments[3].ShouldBe("swe");
-            command.Arguments[4].ShouldBe("-p");
-            command.Arguments[5].ShouldContain("</details>");
-            command.Arguments[5].ShouldContain(request.Instructions);
+            command.Arguments[2].ShouldBe("--permission-mode");
+            command.Arguments[3].ShouldBe("dangerous");
+            command.Arguments[4].ShouldBe("--model");
+            command.Arguments[5].ShouldBe("swe");
+            command.Arguments[6].ShouldBe("-p");
+            command.Arguments[7].ShouldContain("</details>");
+            command.Arguments[7].ShouldContain(request.Instructions);
         }
         finally
         {

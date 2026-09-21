@@ -3,6 +3,7 @@
 @inject IAgentOrchestrationService OrchestrationService
 @inject IAgentPromptTemplateService PromptTemplateService
 @inject IGitHubService GitHub
+@inject TaskboardClient Client
 @inject ToastService ToastService
 @inject IJSRuntime JS
 
@@ -108,8 +109,9 @@ else if (_agents is not null)
     [Parameter, EditorRequired]
     public string RepositoryFullName { get; set; } = string.Empty;
 
+    /// <summary>Disparado quando o run é criado — carrega a PipelineExecution para o board exibir o link do Cockpit.</summary>
     [Parameter]
-    public EventCallback OnExecuted { get; set; }
+    public EventCallback<PipelineExecutionDto?> OnExecuted { get; set; }
 
     private bool _isLoading;
     private bool _executing;
@@ -257,30 +259,35 @@ else if (_agents is not null)
         _executing = true;
         try
         {
-            var request = new AgentExecutionRequest(
-                Issue.Id.ToString(CultureInfo.InvariantCulture),
-                Issue.Number,
-                RepositoryFullName,
-                string.Empty,
-                Branch: null,
-                Scope: null,
-                _prompt,
-                _selectedAgentType,
-                _modelTier);
+            // SPEC-20260920-board-cockpit-unified-runs R4/R5: o dispatch desta
+            // aba segue o mesmo pipeline single-agent do drag — cria uma
+            // PipelineExecution (visível no Cockpit) e move o card para
+            // in_progress, como KanbanBoard.MoveIssueAsync.
+            if (Issue.Column != GitHubBoardColumn.InProgress)
+            {
+                Issue = await GitHub.UpdateIssueColumnAsync(
+                    RepositoryFullName, Issue.Number, Issue.Column, GitHubBoardColumn.InProgress);
+            }
 
-            var queued = await OrchestrationService.EnqueueAsync(request);
-            if (queued)
-            {
-                await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, _prompt);
-                ToastService.Notify(new(ToastType.Success,
-                    $"Agente {_selectedAgentType} enfileirado para a issue #{Issue.Number}."));
-                await OnExecuted.InvokeAsync();
-            }
-            else
-            {
-                ToastService.Notify(new(ToastType.Danger,
-                    $"Agente {_selectedAgentType} inelegível (desabilitado ou não autenticado)."));
-            }
+            await GitHub.AddLabelsToIssueAsync(
+                RepositoryFullName, Issue.Number, [_selectedAgentType.ToLabel()]);
+
+            var run = await Client.StartRunAsync(new RunStartRequest(
+                PipelineTemplateIds.SingleAgent,
+                RepositoryFullName,
+                "main",
+                Issue.Id.ToString(CultureInfo.InvariantCulture),
+                SpecPath: null,
+                _prompt,
+                MaxBudgetUsd: null,
+                _selectedAgentType,
+                _modelTier,
+                SkipVerification: true));
+
+            await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, _prompt);
+            ToastService.Notify(new(ToastType.Success,
+                $"Agente {_selectedAgentType} iniciado para a issue #{Issue.Number} — abra no Cockpit."));
+            await OnExecuted.InvokeAsync(run);
         }
         catch (Exception ex)
         {

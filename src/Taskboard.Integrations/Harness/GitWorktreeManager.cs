@@ -60,12 +60,17 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 
         Directory.CreateDirectory(_worktreeRoot);
 
-        var branch = await AddWorktreeWithUniqueBranchAsync(repositoryPath, path, baseBranch, runId, taskSlug, cancellationToken);
+        // A base pedida pode não existir no clone (ex.: "main" num repo cujo
+        // default é "master") — resolve para o default do remoto ou HEAD, senão
+        // o worktree add falha e o run fica preso em Pending sem sinal visível.
+        var resolvedBase = await ResolveBaseRefAsync(repositoryPath, baseBranch, cancellationToken);
+
+        var branch = await AddWorktreeWithUniqueBranchAsync(repositoryPath, path, resolvedBase, runId, taskSlug, cancellationToken);
 
         var session = await _sessions.CreateAsync(
             runId,
             repositoryPath,
-            baseBranch,
+            resolvedBase,
             path,
             branch,
             retainOnFailure,
@@ -177,6 +182,41 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         {
             await _sessions.SetStatusAsync(runId, WorktreeStatus.RetainedForInspection, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// Returns <paramref name="baseBranch"/> when the ref resolves in the clone;
+    /// otherwise falls back to the remote default (<c>origin/HEAD</c>) or
+    /// <c>HEAD</c>. The resolved ref is what the session records — diffs and
+    /// pushes must reference a base that actually exists.
+    /// </summary>
+    private async Task<string> ResolveBaseRefAsync(
+        string repositoryPath,
+        string baseBranch,
+        CancellationToken cancellationToken)
+    {
+        var verify = await _git.RunAsync(
+            repositoryPath,
+            ["rev-parse", "--verify", "--quiet", baseBranch],
+            GitTimeout,
+            cancellationToken);
+        if (verify.ExitCode == 0)
+        {
+            return baseBranch;
+        }
+
+        var originHead = await _git.RunAsync(
+            repositoryPath,
+            ["symbolic-ref", "refs/remotes/origin/HEAD", "--short"],
+            GitTimeout,
+            cancellationToken);
+        var resolved = originHead.ExitCode == 0 && !string.IsNullOrWhiteSpace(originHead.StandardOutput)
+            ? originHead.StandardOutput.Trim()
+            : "HEAD";
+        _logger.LogInformation(
+            "Base ref '{Base}' not found in {Repo}; worktree falls back to '{Resolved}'.",
+            baseBranch, repositoryPath, resolved);
+        return resolved;
     }
 
     private async Task<string> AddWorktreeWithUniqueBranchAsync(
