@@ -15,9 +15,9 @@ public static class AgentThreadPromptBuilder
     public const int DefaultMaxChars = 8000;
 
     /// <summary>
-    /// Builds the prompt. Keeps the header, then as many of the most recent
-    /// events as fit inside <paramref name="maxChars"/>; the returned string is
-    /// hard-truncated at <paramref name="maxChars"/>.
+    /// Builds the prompt. Keeps the header and the closing instruction, then as
+    /// many of the most recent events as fit inside <paramref name="maxChars"/>
+    /// — newest first, so the latest user message is never dropped.
     /// </summary>
     public static string Build(
         string threadTitle,
@@ -26,35 +26,18 @@ public static class AgentThreadPromptBuilder
         int maxMessages = DefaultMaxMessages,
         int maxChars = DefaultMaxChars)
     {
-        var builder = new StringBuilder();
-        builder.Append("You are an autonomous coding agent working on the repository '")
-            .Append(repositoryFullName)
-            .Append("'.\nThe following is a conversation between the user and an AI assistant ")
-            .Append("in the Harness taskboard, thread '")
-            .Append(threadTitle)
-            .Append("'.\n\n<conversation>\n");
+        var header = "You are an autonomous coding agent working on the repository '"
+            + repositoryFullName
+            + "'.\nThe following is a conversation between the user and an AI assistant "
+            + "in the Harness taskboard, thread '"
+            + threadTitle
+            + "'.\n\n<conversation>\n";
 
-        var recent = events.Count <= maxMessages
-            ? events
-            : events.Skip(events.Count - maxMessages).ToList();
+        var closing = "</conversation>\n\n"
+            + "Continue this work in the repository: act on the latest user intent, "
+            + "apply the needed changes and report what you did.";
 
-        foreach (var ev in recent)
-        {
-            var role = ev.Role switch
-            {
-                "user" => "user",
-                "assistant" => "assistant",
-                _ => "system"
-            };
-            builder.Append(role).Append(": ").Append(ev.Content.Trim()).Append('\n');
-        }
-
-        builder.Append("</conversation>\n\n")
-            .Append("Continue this work in the repository: act on the latest user intent, ")
-            .Append("apply the needed changes and report what you did.");
-
-        var prompt = builder.ToString();
-        return prompt.Length <= maxChars ? prompt : prompt[..maxChars];
+        return Assemble(header, events, closing, maxMessages, maxChars);
     }
 
     /// <summary>
@@ -68,30 +51,60 @@ public static class AgentThreadPromptBuilder
         int maxMessages = DefaultMaxMessages,
         int maxChars = DefaultMaxChars)
     {
-        var builder = new StringBuilder();
-        builder.Append("You are the Harness AI assistant in chat thread '")
-            .Append(threadTitle)
-            .Append("'. This is a conversational assistant exchange, not a coding task.\n\n<conversation>\n");
+        var header = "You are the Harness AI assistant in chat thread '"
+            + threadTitle
+            + "'. This is a conversational assistant exchange, not a coding task.\n\n<conversation>\n";
 
+        var closing = "</conversation>\n\n"
+            + "Reply concisely to the latest user message. Plain text or markdown; do not modify files.";
+
+        return Assemble(header, events, closing, maxMessages, maxChars);
+    }
+
+    // Fills the conversation budget newest-first: the closing instruction and
+    // the latest user message always survive — older events are dropped before
+    // the newest one, and an oversized newest message is trimmed at the head
+    // (keeping its tail, which carries the actual question).
+    private static string Assemble(
+        string header,
+        IReadOnlyList<AiChatEventDto> events,
+        string closing,
+        int maxMessages,
+        int maxChars)
+    {
         var recent = events.Count <= maxMessages
             ? events
             : events.Skip(events.Count - maxMessages).ToList();
 
-        foreach (var ev in recent)
+        var kept = new List<string>(recent.Count);
+        var budget = Math.Max(0, maxChars - header.Length - closing.Length);
+        for (var i = recent.Count - 1; i >= 0 && budget > 0; i--)
         {
+            var ev = recent[i];
             var role = ev.Role switch
             {
                 "user" => "user",
                 "assistant" => "assistant",
                 _ => "system"
             };
-            builder.Append(role).Append(": ").Append(ev.Content.Trim()).Append('\n');
+            var line = role + ": " + ev.Content.Trim() + '\n';
+            if (line.Length > budget)
+            {
+                if (kept.Count == 0)
+                {
+                    kept.Add(line[^budget..]);
+                }
+                break;
+            }
+            kept.Add(line);
+            budget -= line.Length;
         }
+        kept.Reverse();
 
-        builder.Append("</conversation>\n\n")
-            .Append("Reply concisely to the latest user message. Plain text or markdown; do not modify files.");
-
-        var prompt = builder.ToString();
-        return prompt.Length <= maxChars ? prompt : prompt[..maxChars];
+        return new StringBuilder(maxChars)
+            .Append(header)
+            .Append(string.Concat(kept))
+            .Append(closing)
+            .ToString();
     }
 }

@@ -41,8 +41,10 @@ public class AiChatCatalogServiceTests
     }
 
     [Fact]
-    public async Task Dado_SemAgentesElegiveis_Quando_Listar_Entao_SomenteCustom()
+    public async Task Dado_SemAgentesElegiveis_Quando_Listar_Entao_CatalogoVazio()
     {
+        // Custom entries bound to a now-ineligible agent must not be offered —
+        // with zero eligible agents the catalog is empty.
         var custom = new AiCatalogService();
         custom.TryAdd(new AiChatModelDto("custom-1", "test", "Custom", false, "OpenCode"));
 
@@ -50,7 +52,20 @@ public class AiChatCatalogServiceTests
 
         var models = await sut.ListAsync();
 
-        models.ShouldBe([custom.List().Single()]);
+        models.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_CustomDeAgenteElegivel_Quando_Listar_Entao_Inclui()
+    {
+        var custom = new AiCatalogService();
+        custom.TryAdd(new AiChatModelDto("custom-1", "test", "Custom", false, "OpenCode"));
+
+        var sut = CriarServico(eligible: [AgentType.OpenCode], custom: custom);
+
+        var models = await sut.ListAsync();
+
+        models.ShouldContain(m => m.Id == "custom-1");
     }
 
     [Fact]
@@ -100,7 +115,12 @@ public class AiChatCatalogServiceTests
                 AgentType.Codex, true, "curated", null, null, null,
                 new AgentModelTierSet(null, null, null), []));
 
-        return new AiChatCatalogService(custom ?? new AiCatalogService(), eligibility, probes, modelConfig);
+        return new AiChatCatalogService(
+            custom ?? new AiCatalogService(),
+            eligibility,
+            probes,
+            modelConfig,
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<AiChatCatalogService>>());
     }
 
     private static IAgentModelCatalogService CriarProbes(IReadOnlyList<string> models)

@@ -37,10 +37,13 @@
 
 ## AI Chat
 
-- Full chat UI at `/ai-chat`: thread sidebar (create via model catalog + sandbox picker, delete with confirm), message area with markdown rendering, composer, typing indicator and auto-scroll
+- Full chat UI at `/ai-chat`: thread sidebar (create via eligible agent CLI + model picker + sandbox picker, delete with confirm), message area with markdown rendering, composer, typing indicator and auto-scroll
+- Every thread is bound to an eligible agent CLI — there is no direct LLM provider in the server (SPEC-20260921-ai-chat-cli-backend). The model catalog lists per-agent models: CLI-reported (`opencode models`, `devin models list`…) merged with the curated table and saved tier overrides; "CLI default" lets the agent pick its own model
+- `assistant` threads run one-shot through the bound CLI (`IAgentAcpClient`) with the transcript as prompt — the run fails with a clear error if no agent is eligible; legacy threads without an agent auto-bind to the first eligible CLI on the next run; disabling an agent stops its threads at run time
+- `agent` threads keep the interactive ACP session (`AgentSessionManager`); the picked model reaches the session via the CLI's model flag
 - Assistant responses stream over SSE (`ai_chat.event` deltas + `ai_chat.run` status); JSON snapshot via `Accept: application/json`
 - **Run agent** sub-task: picker (repository + eligible agent CLI + model tier) enqueues `POST /api/agents/executions` with the thread context as instructions (last 20 messages, ~8k cap); queue and final status post back as thread events
-- Provider abstraction (OpenAI, Claude, Azure OpenAI)
+- `MockLLMProvider` is dev/test only (`Taskboard:AiChat:MockProvider=true`) — never the production default
 
 ## Cloud
 

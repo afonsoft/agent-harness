@@ -53,6 +53,23 @@ public class AgentThreadPromptBuilderTests
     }
 
     [Fact]
+    public void Dado_ConversaLonga_Quando_Truncar_Entao_MensagemRecenteEFechamentoSobrevivem()
+    {
+        var events = new List<AiChatEventDto>
+        {
+            Event("user", new string('x', 20000)),
+            Event("user", "qual o status?")
+        };
+
+        var prompt = AgentThreadPromptBuilder.Build("t", "o/r", events, maxChars: 2000);
+
+        prompt.ShouldContain("user: qual o status?");
+        prompt.ShouldContain("Continue this work");
+        prompt.ShouldEndWith("report what you did.");
+        prompt.Length.ShouldBeLessThanOrEqualTo(2000);
+    }
+
+    [Fact]
     public void Dado_RolesDesconhecidos_Quando_Build_Entao_NormalizaParaSystem()
     {
         var events = new List<AiChatEventDto> { Event("activity", "agente enfileirado") };

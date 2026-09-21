@@ -217,31 +217,47 @@ public sealed class AiChatService
             }
             else if (!mockEnabled && thread.AgentType is not null)
             {
-                var prompt = AgentThreadPromptBuilder.BuildAssistantPrompt(
-                    thread.Title,
-                    events.Select(e => e.ToDto()).ToList());
-                var modelName = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
-                    ? null
-                    : thread.Model.Value;
-                var progress = new Progress<AgentLogMessage>(log =>
-                    _ = EmitCliEventAsync(
-                        threadId,
-                        log.Content,
-                        log.Stream == AgentLogStream.StdErr ? AiChatEventKind.Error : AiChatEventKind.Message));
-
-                var result = await _cliChatRunner.RunAsync(
-                    thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct);
-
-                if (result.IsSuccess)
+                // Eligibility is dynamic (installed + authenticated + enabled) —
+                // re-check at run time so disabling an agent in Settings stops
+                // existing threads from executing.
+                var eligibleNow = await _eligibility.GetEligibleTypesAsync(ct);
+                if (!eligibleNow.Contains(thread.AgentType.GetValueOrDefault()))
                 {
-                    run.Complete((int)(result.Usage?.TotalTokens ?? 0));
-                    thread.SetStatus(AiChatThreadStatus.Idle);
+                    await EmitCliEventAsync(
+                        threadId,
+                        $"Agent '{thread.AgentType}' is no longer eligible — it was disabled or its CLI lost authentication after this thread was created.",
+                        AiChatEventKind.Error);
+                    run.Fail(-1);
+                    thread.SetStatus(AiChatThreadStatus.Failed);
                 }
                 else
                 {
-                    run.Fail(result.ExitCode);
-                    thread.SetStatus(AiChatThreadStatus.Failed);
-                    await EmitCliEventAsync(threadId, $"Agent CLI exited with code {result.ExitCode}.", AiChatEventKind.Error);
+                    var prompt = AgentThreadPromptBuilder.BuildAssistantPrompt(
+                        thread.Title,
+                        events.Select(e => e.ToDto()).ToList());
+                    var modelName = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : thread.Model.Value;
+                    var progress = new SequentialEmitProgress(this, threadId);
+
+                    var result = await _cliChatRunner.RunAsync(
+                        thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct);
+
+                    // Drain every queued write before closing the run — the run
+                    // record must not complete while response lines are pending.
+                    await progress.Completion;
+
+                    if (result.IsSuccess)
+                    {
+                        run.Complete((int)(result.Usage?.TotalTokens ?? 0));
+                        thread.SetStatus(AiChatThreadStatus.Idle);
+                    }
+                    else
+                    {
+                        run.Fail(result.ExitCode);
+                        thread.SetStatus(AiChatThreadStatus.Failed);
+                        await EmitCliEventAsync(threadId, $"Agent CLI exited with code {result.ExitCode}.", AiChatEventKind.Error);
+                    }
                 }
             }
             else
@@ -325,6 +341,35 @@ public sealed class AiChatService
                     threadId.Value,
                     new ServerSentEvent("ai_chat.run", run.ToDto()),
                     CancellationToken.None);
+            }
+        }
+    }
+
+    // IProgress<T> implementation whose Report() runs synchronously on the
+    // producer (process-output) thread and appends each emit to a sequential
+    // task chain — unlike Progress<T>, which dispatches callbacks to the thread
+    // pool and can interleave or reorder the persisted lines.
+    private sealed class SequentialEmitProgress(AiChatService service, AiChatThreadId threadId)
+        : IProgress<AgentLogMessage>
+    {
+        private readonly object _gate = new();
+        private Task _chain = Task.CompletedTask;
+
+        public Task Completion
+        {
+            get { lock (_gate) { return _chain; } }
+        }
+
+        public void Report(AgentLogMessage log)
+        {
+            var kind = log.Stream == AgentLogStream.StdErr ? AiChatEventKind.Error : AiChatEventKind.Message;
+            lock (_gate)
+            {
+                _chain = _chain.ContinueWith(
+                    _ => service.EmitCliEventAsync(threadId, log.Content, kind),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default).Unwrap();
             }
         }
     }

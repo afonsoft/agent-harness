@@ -42,9 +42,10 @@ public static class AgentCliInvocation
         AgentType agentType,
         string prompt,
         AgentModelTier tier = AgentModelTier.Normal,
-        string? modelName = null)
+        string? modelName = null,
+        bool omitModelFlag = false)
     {
-        var model = ModelArguments(agentType, tier, modelName);
+        var model = omitModelFlag ? [] : ModelArguments(agentType, tier, modelName);
         return agentType switch
         {
             // devin [PATH]... requires -p/--print for non-interactive mode; without it the prompt becomes a PATH.

@@ -43,6 +43,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         AgentType agentType,
         string workspacePath,
         Sandbox sandbox,
+        string? modelName = null,
         CancellationToken cancellationToken = default)
     {
         if (IsSessionActive(threadId))
@@ -56,7 +57,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             throw new NotSupportedException($"No adapter found for agent type '{agentType}'.");
         }
 
-        var command = adapter.BuildSessionCommand(agentType, workspacePath, sandbox);
+        var command = adapter.BuildSessionCommand(agentType, workspacePath, sandbox, modelName);
 
         var startInfo = new ProcessStartInfo
         {

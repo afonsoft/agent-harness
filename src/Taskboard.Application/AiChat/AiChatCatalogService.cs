@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Dtos;
@@ -15,7 +16,8 @@ public sealed class AiChatCatalogService(
     AiCatalogService custom,
     IAgentEligibilityService eligibility,
     IAgentModelCatalogService probes,
-    IAgentModelConfigService modelConfig)
+    IAgentModelConfigService modelConfig,
+    ILogger<AiChatCatalogService> logger)
 {
     public async Task<IReadOnlyList<AiChatModelDto>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -29,9 +31,10 @@ public sealed class AiChatCatalogService(
             {
                 names.AddRange(await probes.ListAvailableAsync(agentType, cancellationToken: cancellationToken).ConfigureAwait(false));
             }
-            catch
+            catch (Exception ex)
             {
                 // Probe failure degrades to curated + overrides.
+                logger.LogWarning(ex, "Model probe failed for agent '{AgentType}'; falling back to curated models.", agentType);
             }
 
             names.AddRange(AgentCliModels.Catalog(agentType));
@@ -43,9 +46,10 @@ public sealed class AiChatCatalogService(
                 if (config.Normal is not null) names.Add(config.Normal);
                 if (config.Ultra is not null) names.Add(config.Ultra);
             }
-            catch
+            catch (Exception ex)
             {
                 // Overrides unavailable — catalog + probe still apply.
+                logger.LogWarning(ex, "Model overrides unavailable for agent '{AgentType}'.", agentType);
             }
 
             foreach (var name in names.Distinct(StringComparer.Ordinal))
@@ -59,7 +63,16 @@ public sealed class AiChatCatalogService(
             }
         }
 
-        models.AddRange(custom.List());
+        // Custom entries are validated at POST time, but eligibility is dynamic —
+        // a model whose agent was disabled since must not be offered.
+        foreach (var entry in custom.List())
+        {
+            if (Enum.TryParse<AgentType>(entry.AgentType, true, out var customType) && eligible.Contains(customType))
+            {
+                models.Add(entry);
+            }
+        }
+
         return models;
     }
 

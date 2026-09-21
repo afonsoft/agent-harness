@@ -38,17 +38,17 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         return new AgentCommand(
             executablePath,
             AgentCliInvocation.BuildArguments(
-                request.AgentType, prompt, request.ModelTier, request.ResolvedModelName),
+                request.AgentType, prompt, request.ModelTier, request.ResolvedModelName, request.OmitModelFlag),
             workingDirectory);
     }
 
-    public AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox)
+    public AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox, string? modelName = null)
     {
         var name = AgentCliInvocation.ExecutableName(agentType)
                    ?? throw new NotSupportedException($"Agent type {agentType} is not supported.");
 
         var executablePath = PathSearch.FindExecutable(name) ?? name;
-        var arguments = BuildSessionArguments(agentType, sandbox);
+        var arguments = BuildSessionArguments(agentType, sandbox, modelName);
         var workingDirectory = !string.IsNullOrWhiteSpace(workdir)
             ? workdir
             : _workspace?.EnsureRoot() ?? Environment.CurrentDirectory;
@@ -56,14 +56,18 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         return new AgentCommand(executablePath, arguments, workingDirectory);
     }
 
-    private static IReadOnlyList<string> BuildSessionArguments(AgentType agentType, Sandbox sandbox)
+    private static IReadOnlyList<string> BuildSessionArguments(AgentType agentType, Sandbox sandbox, string? modelName)
     {
+        // Explicit model only — sessions never inject the curated Normal model.
+        var flag = AgentCliModels.ModelFlag(agentType);
+        var model = flag is not null && !string.IsNullOrWhiteSpace(modelName) ? new[] { flag, modelName } : [];
+
         return agentType switch
         {
-            AgentType.OpenCode => ["acp"],
-            AgentType.Claude => ["--acp"],
-            AgentType.Codex => ["--acp"],
-            _ => ["--acp"]
+            AgentType.OpenCode => ["acp", .. model],
+            AgentType.Claude => ["--acp", .. model],
+            AgentType.Codex => ["--acp", .. model],
+            _ => ["--acp", .. model]
         };
     }
 

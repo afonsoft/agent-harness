@@ -24,7 +24,8 @@ public interface IAgentAdapter
 
     /// <summary>
     /// Monta o comando de inicialização da sessão interativa (stdio/acp).
+    /// <paramref name="modelName"/> explicit model picked on the thread; null = CLI default (no flag).
     /// </summary>
-    AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox)
+    AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox, string? modelName = null)
         => throw new NotSupportedException($"Interactive session is not supported for agent {agentType}.");
 }

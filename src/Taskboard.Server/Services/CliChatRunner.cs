@@ -30,7 +30,10 @@ public sealed class CliChatRunner(IAgentAcpClient acpClient, WorkspaceService wo
             Scope: null,
             Instructions: prompt,
             AgentType: agentType,
-            ResolvedModelName: modelName);
+            ResolvedModelName: modelName,
+            // "default" arrives as null: the CLI decides the model — without this
+            // the invocation template would inject the curated Normal model.
+            OmitModelFlag: modelName is null);
 
         return acpClient.ExecuteAsync(request, progress, cancellationToken);
     }

@@ -99,7 +99,7 @@ docs/**                                                         [mod en + pt-br]
 ### RF-004: Execução assistant via CLI
 - **Description:** `POST .../runs` em thread `assistant` com `AgentType` → executa o CLI via `IAgentAcpClient.ExecuteAsync` (one-shot) com o transcript da thread como prompt (`AgentThreadPromptBuilder.BuildAssistantPrompt`), cwd = workspace root. Saída publicada como `ai_chat.event`/`ai_chat.run` existentes; exit code decide sucesso/falha do run.
 - **Implementado:** one-shot para todas as CLIs em modo assistant — `session/prompt` é fire-and-forget (sem sinal de conclusão correlacionável ao `AiChatRun`), então a sessão interativa permanece exclusiva do modo `agent` (`/prompt` via `AgentSessionManager`). Multi-turn = histórico embutido no prompt.
-- **Rules:** `ModelRef` da thread é passado à CLI via `ResolvedModelName` (`AgentCliInvocation.BuildArguments` → `AgentCliModels.ModelFlag`); `"default"` → sem flag de modelo; `Taskboard:WebCliAgent:Enabled` não afeta o caminho assistant (one-shot não depende de sessão).
+- **Rules:** `ModelRef` da thread é passado à CLI via `ResolvedModelName` (`AgentCliInvocation.BuildArguments` → `AgentCliModels.ModelFlag`); `"default"` → `OmitModelFlag` → sem flag de modelo (a CLI decide — o curado Normal NÃO é injetado); `Taskboard:WebCliAgent:Enabled` não afeta o caminho assistant (one-shot não depende de sessão). Elegibilidade é revalidada a cada run — agente desabilitado/desautenticado após a criação da thread → run falha com evento `error`. Linhas emitidas pela CLI são persistidas em ordem estrita (cadeia sequencial de emits) e todas completam antes do run fechar. No modo `agent`, o modelo escolhido chega à sessão interativa via `BuildSessionCommand` → flag de modelo.
 
 ### RF-005: Migração automática de threads legadas + mock só para dev/teste
 - **Description:** ao enviar mensagem numa thread `assistant` **legada sem `AgentType`**, o servidor faz bind automático ao primeiro agente elegível (ordem estável = ordem retornada por `IAgentEligibilityService`) e persiste o `AgentType` na thread antes de executar — a thread passa a rodar via CLI normalmente. Se nenhum agente for elegível, o run falha com evento `error` claro ("no eligible agent CLI — authenticate one in Agents/Settings"). `MockLLMProvider` deixa de ser o default: só é usado quando `Taskboard:AiChat:MockProvider=true` (dev/testes).
@@ -109,7 +109,7 @@ docs/**                                                         [mod en + pt-br]
 - **Description:** header da thread exibe `agent: <type>` + `model: <model>` nos dois modos; sidebar badge de modelo permanece.
 
 ### RF-007: Catálogo custom (POST) vinculado a agente
-- **Description:** `POST /api/local/ai/catalog` exige `agentType` e valida contra agentes elegíveis; entradas custom ficam em memória (como hoje) e aparecem no grupo do agente. `409` em duplicata (inalterado).
+- **Description:** `POST /api/local/ai/catalog` exige `agentType` e valida contra agentes elegíveis; entradas custom ficam em memória (como hoje) e aparecem no grupo do agente — `GET` filtra entradas cujo agente deixou de ser elegível. `409` em duplicata (inalterado).
 
 **Business rules / invariants:**
 - Nenhuma chamada de rede a provedor de LLM é feita pelo servidor — todo LLM passa pelo CLI do agente (credenciais são da CLI, não do Harness).
