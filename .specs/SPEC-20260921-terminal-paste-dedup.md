@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260921-terminal-paste-dedup` |
 | Ticket | [#271](https://github.com/afonsoft/agent-harness/issues/271) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
