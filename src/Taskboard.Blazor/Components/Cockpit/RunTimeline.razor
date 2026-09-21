@@ -1,0 +1,95 @@
+@using System.Text.Json
+@* SPEC-20260919-ade-cockpit-hitl RF-001: timeline cronológica de eventos
+   estruturados do run. *@
+
+<div class="cockpit-timeline d-flex flex-column" role="log" aria-label="Run timeline">
+    @if (Events.Count == 0)
+    {
+        <div class="text-body-secondary small p-3">Nenhum evento ainda — o run está na fila ou aguardando dispatch.</div>
+    }
+    @foreach (var evt in Events)
+    {
+        @switch (evt.Kind)
+        {
+            case "agent_output":
+                var payload = ParseOutput(evt.PayloadJson);
+                <ThoughtBlock Content="@payload.Content" Stream="@payload.Stream" />
+                break;
+            case "tool_call":
+                var tool = ParseToolCall(evt.PayloadJson);
+                <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments" Status="@tool.Status" Output="@tool.Output" />
+                break;
+            case "verification":
+                <VerificationCard Title="@evt.Title" Timestamp="@evt.TimestampUtc" />
+                break;
+            case "approval":
+                <div class="alert alert-warning py-1 px-2 my-1 small d-flex align-items-center gap-2" role="alert">
+                    <Icon Name="IconName.ExclamationTriangle" />
+                    <strong>@evt.Title</strong>
+                    <span class="ms-auto">@evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                </div>
+                break;
+            case "steer":
+                <div class="alert alert-info py-1 px-2 my-1 small d-flex align-items-center gap-2" role="note">
+                    <Icon Name="IconName.Send" />
+                    <span><strong>Steer:</strong> @evt.PayloadJson</span>
+                    <span class="ms-auto">@evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                </div>
+                break;
+            default:
+                <div class="cockpit-stage-row d-flex align-items-center gap-2 py-1 px-2 my-1 border rounded small">
+                    <Icon Name="IconName.PlayCircle" />
+                    <span>@evt.Title</span>
+                    <span class="ms-auto text-body-secondary">@evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                </div>
+                break;
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Eventos em ordem cronológica (buffer replay + stream ao vivo).</summary>
+    [Parameter] public IReadOnlyList<CockpitEventDto> Events { get; set; } = [];
+
+    private sealed record OutputPayload(string Stream, string Content);
+
+    private sealed record ToolCallPayload(string Name, string? Arguments, string? Status, string? Output);
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static ToolCallPayload ParseToolCall(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return new ToolCallPayload("tool", null, "running", null);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<ToolCallPayload>(payloadJson, JsonOptions)
+                ?? new ToolCallPayload("tool", payloadJson, "running", null);
+        }
+        catch (JsonException)
+        {
+            return new ToolCallPayload("tool", payloadJson, "running", null);
+        }
+    }
+
+    private static OutputPayload ParseOutput(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return new OutputPayload("stdout", "(sem conteúdo)");
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<OutputPayload>(payloadJson, JsonOptions)
+                ?? new OutputPayload("stdout", payloadJson);
+        }
+        catch (JsonException)
+        {
+            return new OutputPayload("stdout", payloadJson);
+        }
+    }
+}

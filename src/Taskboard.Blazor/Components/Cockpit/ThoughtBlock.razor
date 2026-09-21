@@ -1,0 +1,42 @@
+@* SPEC-20260919-ade-cockpit-hitl RF-001: bloco de raciocínio/saída do agente
+   com colapso/expansão. *@
+
+<div class="cockpit-thought card my-1 border-secondary-subtle">
+    <button type="button" class="card-header py-1 px-2 d-flex align-items-center gap-2 btn btn-link text-decoration-none text-body text-start"
+            @onclick="Toggle" aria-expanded="@(!_collapsed)">
+        <Icon Name="@(_collapsed ? IconName.ChevronRight : IconName.ChevronDown)" />
+        <span class="badge @BadgeClass">@Label</span>
+        <span class="small text-body-secondary">@Preview</span>
+    </button>
+    @if (!_collapsed)
+    {
+        <div class="card-body p-2 font-monospace small cockpit-thought-body">
+            <pre class="mb-0 text-wrap">@Content</pre>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _collapsed = true;
+
+    /// <summary>Texto do bloco (saída de agente, pensamento, log).</summary>
+    [Parameter] public string Content { get; set; } = string.Empty;
+
+    /// <summary>`stdout` (pensamento/saída) ou `stderr` (erro).</summary>
+    [Parameter] public string Stream { get; set; } = "stdout";
+
+    private string Label => Stream == "stderr" ? "stderr" : "agente";
+
+    private string BadgeClass => Stream == "stderr" ? "text-bg-danger" : "text-bg-secondary";
+
+    private string Preview
+    {
+        get
+        {
+            var first = Content.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            return first.Length > 80 ? first[..80] + "…" : first;
+        }
+    }
+
+    private void Toggle() => _collapsed = !_collapsed;
+}

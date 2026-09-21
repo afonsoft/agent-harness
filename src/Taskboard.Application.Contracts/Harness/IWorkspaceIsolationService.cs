@@ -26,6 +26,13 @@ public interface IWorkspaceIsolationService
         string author,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Pushes the worktree branch to `origin` (`git push -u origin &lt;branch&gt;`)
+    /// — used by the cockpit "Create PR" action (SPEC-20260919-ade-cockpit-hitl
+    /// RF-005). Returns the pushed branch name.
+    /// </summary>
+    Task<string> PushAsync(string runId, CancellationToken cancellationToken = default);
+
     Task RemoveWorktreeAsync(
         string runId,
         bool force = false,

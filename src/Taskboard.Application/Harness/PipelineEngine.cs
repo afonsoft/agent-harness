@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,8 @@ public sealed class PipelineEngine
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAgentAcpClient _acpClient;
     private readonly IVerificationEngine _verification;
+    private readonly ICockpitEventStream? _cockpit;
+    private readonly ISteerQueue? _steer;
     private readonly ILogger<PipelineEngine> _logger;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runningStages = new();
     private readonly ConcurrentDictionary<Task, byte> _stageTasks = new();
@@ -32,12 +35,16 @@ public sealed class PipelineEngine
         IServiceScopeFactory scopeFactory,
         IAgentAcpClient acpClient,
         IVerificationEngine verification,
-        ILogger<PipelineEngine> logger)
+        ILogger<PipelineEngine> logger,
+        ICockpitEventStream? cockpit = null,
+        ISteerQueue? steer = null)
     {
         _scopeFactory = scopeFactory;
         _acpClient = acpClient;
         _verification = verification;
         _logger = logger;
+        _cockpit = cockpit;
+        _steer = steer;
     }
 
     /// <summary>Scans active executions and dispatches every eligible stage.</summary>
@@ -126,11 +133,13 @@ public sealed class PipelineEngine
 
             var eligible = exec.EligibleStages();
             var toDispatch = new List<PipelineStageExecution>();
+            var approvals = new List<PipelineStageExecution>();
             foreach (var stage in eligible)
             {
                 if (stage.Kind is PipelineStageKind.Approval)
                 {
                     exec.MarkStageWaitingApproval(stage.StageKey);
+                    approvals.Add(stage);
                     continue;
                 }
 
@@ -151,6 +160,19 @@ public sealed class PipelineEngine
             if (eligible.Count > 0)
             {
                 await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // SPEC-20260919-ade-cockpit-hitl RF-001/RF-004: stage transitions
+            // and approval gates stream to the run's cockpit group.
+            foreach (var stage in approvals)
+            {
+                await PublishApprovalAsync(exec.Id.Value, stage).ConfigureAwait(false);
+            }
+
+            foreach (var stage in toDispatch)
+            {
+                await PublishAsync(exec.Id.Value, "stage", $"Stage '{stage.Name}' started", stage.StageKey)
+                    .ConfigureAwait(false);
             }
 
             foreach (var stage in toDispatch)
@@ -262,7 +284,39 @@ public sealed class PipelineEngine
         PipelineExecution exec, PipelineStageExecution stage, CancellationToken cancellationToken)
     {
         var chunks = new List<string>();
-        var progress = new SyncProgress(chunks);
+        var runId = exec.Id.Value;
+        var stageKey = stage.StageKey;
+        var progress = new SyncProgress(chunks, message =>
+        {
+            // SPEC-20260919-ade-cockpit-hitl RF-001: every agent output chunk is
+            // a cockpit event (fire-and-forget — a dead group never stalls a stage).
+            if (_cockpit is not null)
+            {
+                _ = _cockpit.PublishAsync(new CockpitEventDto(
+                    runId,
+                    message.Timestamp,
+                    "agent_output",
+                    stageKey,
+                    JsonSerializer.Serialize(
+                        new { stream = message.Stream.ToString(), content = message.Content },
+                        JsonOptions)));
+            }
+        });
+
+        var instructions = PipelineContextSynthesizer.BuildStagePrompt(exec, stage);
+
+        // RF-003: queued human-steer instructions are folded into the next
+        // dispatched stage prompt (one-shot agents have no live injection).
+        if (_steer is not null)
+        {
+            var steers = _steer.Drain(runId);
+            if (steers.Count > 0)
+            {
+                instructions += "\n\n# Human steer (mid-run corrections)\n"
+                    + string.Join('\n', steers.Select(s => $"- {s}"));
+            }
+        }
+
         var request = new AgentExecutionRequest(
             IssueId: exec.IssueId ?? exec.Id.Value,
             IssueNumber: 0,
@@ -270,7 +324,7 @@ public sealed class PipelineEngine
             RepoPath: exec.WorktreePath ?? exec.RepositoryPath,
             Branch: null,
             Scope: $"pipeline:{exec.TemplateId}/{stage.StageKey}",
-            Instructions: PipelineContextSynthesizer.BuildStagePrompt(exec, stage),
+            Instructions: instructions,
             AgentType: stage.Agent ?? AgentType.Codex,
             ModelTier: stage.ModelTier);
 
@@ -279,10 +333,14 @@ public sealed class PipelineEngine
         if (result.IsSuccess)
         {
             exec.CompleteStage(stage.StageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), now);
+            await PublishAsync(exec.Id.Value, "stage", $"Stage '{stage.Name}' completed", stage.StageKey)
+                .ConfigureAwait(false);
         }
         else
         {
             exec.FailStage(stage.StageKey, $"Agent exited with code {result.ExitCode}", now);
+            await PublishAsync(exec.Id.Value, "stage", $"Stage '{stage.Name}' failed (exit {result.ExitCode})", stage.StageKey)
+                .ConfigureAwait(false);
         }
 
         // RF-001: usage reportado no resultado ou varrido das linhas de stdout.
@@ -331,6 +389,16 @@ public sealed class PipelineEngine
         {
             exec.FailStage(stage.StageKey, report.FeedbackPrompt ?? $"Verification failed: {report.Status}", now);
         }
+
+        // SPEC-20260919-ade-cockpit-hitl RF-001: verification outcomes land on
+        // the cockpit timeline as `verification` cards.
+        await PublishAsync(
+            exec.Id.Value,
+            "verification",
+            report.IsSuccess
+                ? $"Verification passed — coverage {report.CoveragePercent}%"
+                : $"Verification failed: {report.Status}",
+            stage.StageKey).ConfigureAwait(false);
     }
 
     private async Task TryFailStageAsync(string executionId, string stageKey, string error)
@@ -356,7 +424,7 @@ public sealed class PipelineEngine
             .SingleAsync(e => e.Id == PipelineExecutionId.From(executionId), cancellationToken);
 
     /// <summary>Synchronous IProgress — deterministic handoff capture (Progress&lt;T&gt; defers callbacks).</summary>
-    private sealed class SyncProgress(List<string> chunks) : IProgress<AgentLogMessage>
+    private sealed class SyncProgress(List<string> chunks, Action<AgentLogMessage>? onMessage = null) : IProgress<AgentLogMessage>
     {
         public void Report(AgentLogMessage value)
         {
@@ -364,6 +432,52 @@ public sealed class PipelineEngine
             {
                 chunks.Add(value.Content);
             }
+
+            onMessage?.Invoke(value);
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private async Task PublishAsync(string runId, string kind, string title, string? stageKey)
+    {
+        if (_cockpit is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _cockpit.PublishAsync(new CockpitEventDto(runId, DateTimeOffset.UtcNow, kind, title, stageKey))
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Cockpit publish failed for run {RunId} ({Kind}).", runId, kind);
+        }
+    }
+
+    private async Task PublishApprovalAsync(string runId, PipelineStageExecution stage)
+    {
+        if (_cockpit is null)
+        {
+            return;
+        }
+
+        // The `stage:` requestId prefix is how the approvals endpoint resolves
+        // the reply back to the stage gate (SPEC-20260919-ade-cockpit-hitl §5).
+        try
+        {
+            await _cockpit.PublishApprovalAsync(new ApprovalRequestDto(
+                runId,
+                $"stage:{stage.StageKey}",
+                $"Stage '{stage.Name}' awaits approval",
+                $"Pipeline stage '{stage.Name}' ({stage.StageKey}) requires human approval to proceed.",
+                ["Allow", "Deny"])).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Cockpit approval publish failed for run {RunId} stage {Stage}.", runId, stage.StageKey);
         }
     }
 }

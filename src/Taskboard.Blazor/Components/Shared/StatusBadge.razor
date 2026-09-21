@@ -1,0 +1,16 @@
+@* Badge de status padronizado para runs/stages do cockpit. *@
+
+<span class="badge @CssClass">@Status</span>
+
+@code {
+    [Parameter] public string Status { get; set; } = string.Empty;
+
+    private string CssClass => Status switch
+    {
+        "Running" or "InProgress" => "text-bg-primary",
+        "Completed" or "Succeeded" => "text-bg-success",
+        "Failed" or "Cancelled" => "text-bg-danger",
+        "WaitingApproval" or "AwaitingRetry" or "PendingApproval" => "text-bg-warning",
+        _ => "text-bg-secondary",
+    };
+}

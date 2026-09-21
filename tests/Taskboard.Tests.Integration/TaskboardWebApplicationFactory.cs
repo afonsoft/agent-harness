@@ -213,6 +213,11 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             string repositoryFullName, long workflowId, int take = 10,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<Taskboard.GitHub.WorkflowRunDto>>([WorkflowRun]);
+
+        public Task<string> CreatePullRequestAsync(
+            string repositoryFullName, string title, string head, string baseBranch,
+            string? body, CancellationToken cancellationToken = default) =>
+            Task.FromResult($"https://github.com/{repositoryFullName}/pull/7");
     }
 
     /// <summary>Reports every known agent as Available — PATH-independent discovery.</summary>

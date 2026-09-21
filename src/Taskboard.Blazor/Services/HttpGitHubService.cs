@@ -213,6 +213,25 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         return result?.Runs ?? [];
     }
 
+    public async Task<string> CreatePullRequestAsync(
+        string repositoryFullName,
+        string title,
+        string head,
+        string baseBranch,
+        string? body,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        var response = await http.PostAsJsonAsync(
+            $"/api/github/repos/{owner}/{repo}/pulls",
+            new CreatePullRequestBody(title, head, baseBranch, body),
+            cancellationToken);
+        await ThrowOnTokenMissingAsync(response, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<PullRequestResponse>(cancellationToken);
+        return result!.PrUrl;
+    }
+
     private static (string Owner, string Repo) SplitFullName(string fullName)
     {
         var parts = fullName.Split('/', 2, StringSplitOptions.TrimEntries);
@@ -247,6 +266,8 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
     private sealed record WorkflowsResponse(List<WorkflowDto> Workflows);
     private sealed record WorkflowRunsResponse(List<WorkflowRunDto> Runs);
     private sealed record AddCommentRequest(string Body);
+    private sealed record CreatePullRequestBody(string Title, string Head, string BaseBranch, string? Body);
+    private sealed record PullRequestResponse(string PrUrl);
     private sealed record ErrorEnvelope(ErrorBody? Error);
     private sealed record ErrorBody(string Code, string Message);
 }

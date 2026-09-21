@@ -89,4 +89,16 @@ public interface IGitHubService
     /// Últimos <paramref name="take"/> runs de um workflow específico.
     /// </summary>
     Task<IReadOnlyList<WorkflowRunDto>> GetWorkflowRunsAsync(string repositoryFullName, long workflowId, int take = 10, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cria um pull request `head → baseBranch` e retorna a URL HTML —
+    /// cockpit "Create PR" action (SPEC-20260919-ade-cockpit-hitl RF-005).
+    /// </summary>
+    Task<string> CreatePullRequestAsync(
+        string repositoryFullName,
+        string title,
+        string head,
+        string baseBranch,
+        string? body,
+        CancellationToken cancellationToken = default);
 }

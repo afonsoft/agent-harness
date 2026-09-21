@@ -1,0 +1,63 @@
+@* SPEC-20260919-ade-cockpit-hitl RF-004: gate de decisão humana — a execução
+   fica pausada até Allow/Deny; Deny aceita motivo. *@
+
+<Modal @ref="_modal" Title="@(_request?.Title ?? "Approval required")" IsVerticallyCentered="true">
+    <BodyTemplate>
+        @if (_request is not null)
+        {
+            <p class="small">@_request.Description</p>
+            <div class="mb-2">
+                <label class="form-label small" for="cockpit-approval-comment">Comentário (obrigatório ao recusar)</label>
+                <input id="cockpit-approval-comment" class="form-control form-control-sm" @bind="_comment" placeholder="Motivo ou observação" />
+            </div>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="DenyAsync" disabled="@_busy">Deny</Button>
+        @foreach (var option in _request?.Options.Where(o => !string.Equals(o, "Deny", StringComparison.OrdinalIgnoreCase)) ?? [])
+        {
+            <Button Color="ButtonColor.Success" Size="ButtonSize.Small" @onclick="() => RespondAsync(option)" disabled="@_busy">@option</Button>
+        }
+    </FooterTemplate>
+</Modal>
+
+@code {
+    private Modal _modal = default!;
+    private ApprovalRequestDto? _request;
+    private string? _comment;
+    private bool _busy;
+
+    /// <summary>Invoked with the chosen action and the optional comment.</summary>
+    [Parameter] public EventCallback<(string Action, string? Comment)> OnRespond { get; set; }
+
+    public async Task ShowAsync(ApprovalRequestDto request)
+    {
+        _request = request;
+        _comment = null;
+        _busy = false;
+        await _modal.ShowAsync();
+    }
+
+    private Task RespondAsync(string action) => RespondCoreAsync(action);
+
+    private Task DenyAsync() => RespondCoreAsync("Deny");
+
+    private async Task RespondCoreAsync(string action)
+    {
+        if (_request is null || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await OnRespond.InvokeAsync((action, _comment));
+            await _modal.HideAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

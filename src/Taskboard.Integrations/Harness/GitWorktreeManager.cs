@@ -125,6 +125,20 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         return sha;
     }
 
+    /// <inheritdoc />
+    public async Task<string> PushAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        var session = await RequireSessionAsync(runId, cancellationToken);
+        var push = await _git.RunAsync(
+            session.Path,
+            ["push", "-u", "origin", session.Branch],
+            GitTimeout,
+            cancellationToken);
+        EnsureSuccess(push, "git push");
+        _logger.LogInformation("Run {RunId}: branch {Branch} pushed to origin.", runId, session.Branch);
+        return session.Branch;
+    }
+
     public async Task RemoveWorktreeAsync(string runId, bool force = false, CancellationToken cancellationToken = default)
     {
         var session = await RequireSessionAsync(runId, cancellationToken);

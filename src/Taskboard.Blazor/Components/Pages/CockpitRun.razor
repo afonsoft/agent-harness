@@ -1,0 +1,315 @@
+@page "/cockpit/runs/{RunId}"
+@attribute [Authorize]
+@inject TaskboardClient Client
+@inject NavigationManager NavigationManager
+@inject ToastService ToastService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Run @ShortId - Cockpit</PageTitle>
+
+<div class="d-flex align-items-center gap-2 mb-2">
+    <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick='() => NavigationManager.NavigateTo("/cockpit")'>
+        <Icon Name="IconName.ArrowLeft" />
+    </Button>
+    <h1 class="h5 fw-bold mb-0">Run <code>@ShortId</code></h1>
+    @if (_details is not null)
+    {
+        <StatusBadge Status="@_details.Execution.Status" />
+        <span class="small text-body-secondary">@_details.Execution.RepositoryFullName · @_details.Execution.TemplateId</span>
+    }
+    <span class="ms-auto small text-body-secondary">
+        Hub: <span class="@(_hub?.State == HubConnectionState.Connected ? "text-success" : "text-warning")">@_hub?.State</span>
+    </span>
+</div>
+
+@* SPEC-20260919-ade-cockpit-hitl RF-006: header FinOps — tokens, custo, elapsed. *@
+@if (_details is not null)
+{
+    <div class="d-flex flex-wrap gap-3 small border rounded p-2 mb-3 bg-body-tertiary">
+        <span><Icon Name="IconName.Cpu" /> <strong>@(_details.Telemetry?.TotalTokens.ToString("N0") ?? "—")</strong> tokens
+            (@(_details.Telemetry?.InputTokens.ToString("N0") ?? "0") in / @(_details.Telemetry?.OutputTokens.ToString("N0") ?? "0") out)</span>
+        <span><Icon Name="IconName.CurrencyDollar" /> <strong>$@((_details.Telemetry?.CostUsd ?? 0m).ToString("F4"))</strong></span>
+        <span><Icon Name="IconName.Clock" /> @Elapsed</span>
+        @if (_details.Worktree is not null)
+        {
+            <span class="text-truncate" style="max-width: 320px" title="@_details.Worktree.Path">
+                <Icon Name="IconName.Git" /> <code>@_details.Worktree.Branch</code>
+            </span>
+        }
+        @if (_prUrl is not null)
+        {
+            <a href="@_prUrl" target="_blank" rel="noopener" class="small">PR aberto <Icon Name="IconName.BoxArrowUpRight" /></a>
+        }
+    </div>
+
+    @* Stage progress strip *@
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        @foreach (var stage in _details.Execution.Stages)
+        {
+            <span class="d-inline-flex align-items-center gap-1 border rounded px-2 py-1 small">
+                <StatusBadge Status="@stage.Status" /> @stage.Name
+            </span>
+        }
+    </div>
+}
+
+<ul class="nav nav-tabs mb-0">
+    <li class="nav-item">
+        <button class="nav-link @(_tab == "timeline" ? "active" : "")" @onclick='() => SetTab("timeline")'>Timeline</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_tab == "diff" ? "active" : "")" @onclick="LoadDiffTabAsync">Diff</button>
+    </li>
+</ul>
+
+<div class="border border-top-0 rounded-bottom p-2 cockpit-panel" style="min-height: 320px;">
+    @if (_tab == "timeline")
+    {
+        <RunTimeline Events="_events" />
+    }
+    else
+    {
+        if (_diffLoading)
+        {
+            <Loading Message="Loading diff..." />
+        }
+        else
+        {
+            <GitDiffViewer Diff="_diff" />
+        }
+    }
+</div>
+
+@if (_details is not null)
+{
+    <RunControlBar Status="@_details.Execution.Status"
+                   SuggestedPrTitle="@PrTitle"
+                   OnSteer="SteerAsync"
+                   OnCancel="CancelAsync"
+                   OnCreatePr="CreatePrAsync" />
+}
+
+<ApprovalGateModal @ref="_approvalModal" OnRespond="RespondApprovalAsync" />
+
+@code {
+    [Parameter] public string RunId { get; set; } = string.Empty;
+
+    private readonly List<CockpitEventDto> _events = [];
+    private RunDetailsDto? _details;
+    private WorkspaceDiffDto? _diff;
+    private HubConnection? _hub;
+    private ApprovalGateModal _approvalModal = default!;
+    private string _tab = "timeline";
+    private bool _diffLoading;
+    private bool _diffLoaded;
+    private string? _prUrl;
+    private ApprovalRequestDto? _pendingApproval;
+
+    private string ShortId => RunId.Length > 8 ? RunId[..8] : RunId;
+
+    private string PrTitle =>
+        $"chore: pipeline {_details?.Execution.TemplateId} — {ShortId}";
+
+    private string Elapsed
+    {
+        get
+        {
+            if (_details is null)
+            {
+                return "—";
+            }
+
+            var end = _details.Execution.CompletedAtUtc ?? DateTime.UtcNow;
+            var elapsed = end - _details.Execution.CreatedAtUtc;
+            return elapsed.TotalHours >= 1 ? elapsed.ToString(@"h\h\ mm\m") : elapsed.ToString(@"m\m\ ss\s");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _details = await Client.GetRunAsync(RunId);
+        if (_details is null)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, "Run não encontrado."));
+            return;
+        }
+
+        _events.AddRange(await Client.GetRunEventsAsync(RunId));
+        await ConnectHubAsync();
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/harness-cockpit-hub"))
+            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
+            .Build();
+
+        _hub.On<CockpitEventDto>("ReceiveCockpitEvent", async evt =>
+        {
+            // Dedup: replayed buffered events may race with live events after reconnect.
+            if (!_events.Any(e => e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title))
+            {
+                _events.Add(evt);
+            }
+
+            // RF-002: refresh the diff automatically when a stage completes.
+            if (_diffLoaded && evt.Kind == "stage" && evt.Title.Contains("completed", StringComparison.OrdinalIgnoreCase))
+            {
+                _diff = await Client.GetWorktreeDiffAsync(RunId);
+            }
+
+            await InvokeAsync(StateHasChanged);
+        });
+
+        _hub.On<ApprovalRequestDto>("RequireApproval", async request =>
+        {
+            _pendingApproval = request;
+            await InvokeAsync(() => _approvalModal.ShowAsync(request));
+        });
+
+        _hub.Reconnected += async _ =>
+        {
+            // Replay buffered events after reconnect — dedup handles overlap.
+            try
+            {
+                var replay = await Client.GetRunEventsAsync(RunId);
+                foreach (var evt in replay)
+                {
+                    if (!_events.Any(e => e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title))
+                    {
+                        _events.Add(evt);
+                    }
+                }
+                _events.Sort((a, b) => a.TimestampUtc.CompareTo(b.TimestampUtc));
+                _details = await Client.GetRunAsync(RunId);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch
+            {
+                // Reconnect replay is best-effort; next event will refresh.
+            }
+        };
+
+        _hub.Reconnecting += _ => InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await _hub.StartAsync();
+            await _hub.InvokeAsync("JoinRunGroup", RunId);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
+        }
+    }
+
+    private void SetTab(string tab) => _tab = tab;
+
+    private async Task LoadDiffTabAsync()
+    {
+        SetTab("diff");
+        if (_diffLoaded || _diffLoading)
+        {
+            return;
+        }
+
+        _diffLoading = true;
+        try
+        {
+            _diff = await Client.GetWorktreeDiffAsync(RunId);
+            _diffLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Diff: {ex.Message}"));
+        }
+        finally
+        {
+            _diffLoading = false;
+        }
+    }
+
+    private async Task SteerAsync(string instruction)
+    {
+        try
+        {
+            await Client.SteerRunAsync(RunId, instruction);
+            ToastService.Notify(new ToastMessage(ToastType.Info, "Steer enfileirado — aplicado na próxima etapa."));
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        try
+        {
+            await Client.CancelRunAsync(RunId);
+            _details = await Client.GetRunAsync(RunId);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+    }
+
+    private async Task RespondApprovalAsync((string Action, string? Comment) reply)
+    {
+        var request = _pendingApproval;
+        if (request is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Client.RespondRunApprovalAsync(RunId, request.RequestId, reply.Action, reply.Comment);
+            _pendingApproval = null;
+            _details = await Client.GetRunAsync(RunId);
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+    }
+
+    private async Task CreatePrAsync((string Title, string? Body) request)
+    {
+        try
+        {
+            _prUrl = await Client.CreateRunPullRequestAsync(RunId, request.Title, request.Body);
+            if (_prUrl is not null)
+            {
+                ToastService.Notify(new ToastMessage(ToastType.Success, "PR criado."));
+            }
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try
+            {
+                if (_hub.State == HubConnectionState.Connected)
+                {
+                    await _hub.InvokeAsync("LeaveRunGroup", RunId);
+                }
+                await _hub.DisposeAsync();
+            }
+            catch
+            {
+                // Dispose is best-effort.
+            }
+        }
+    }
+}
