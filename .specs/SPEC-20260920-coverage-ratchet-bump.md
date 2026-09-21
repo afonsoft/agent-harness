@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | — |
 | Ticket | [#252](https://github.com/afonsoft/agent-harness/issues/252) — GAP-automation-coverage-ratchet-stale (gap-analysis-20260920) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ---
 
@@ -59,7 +59,7 @@ A política documentada (`AGENTS.md`/`CLAUDE.md` Hard Rule 6) diz que o gate é 
 
 ## 4. Tasks
 
-- [ ] **T1:** bump `COVERAGE_THRESHOLD` + baseline docs + PR com aviso de workflow-touching.
+- [x] **T1:** bump `COVERAGE_THRESHOLD` + baseline docs + PR com aviso de workflow-touching.
 
 ---
 
