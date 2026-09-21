@@ -21,7 +21,7 @@ public sealed record AgentExecutionEvent(
     string? RawJson = null,
     string Stream = "system");
 
-/// <summary>Escopo ao qual um <see cref="AgentExecutionEvent"/> pertence.</summary>
+/// <summary>Scope an <see cref="AgentExecutionEvent"/> belongs to.</summary>
 public static class AgentEventScope
 {
     public const string Run = "run";
@@ -29,7 +29,7 @@ public static class AgentEventScope
     public const string Issue = "issue";
 }
 
-/// <summary>Taxonomia de <see cref="AgentExecutionEvent.Kind"/>.</summary>
+/// <summary>Taxonomy of <see cref="AgentExecutionEvent.Kind"/>.</summary>
 public static class AgentEventKinds
 {
     public const string Lifecycle = "lifecycle";

@@ -191,6 +191,9 @@ GET    /api/agents/runs?issueId={id}&take={n}
 GET    /api/agents/runs/active
 GET    /api/agents/logs/{issueId}
 GET    /api/agents/events?scopeKind={run|thread|issue}&scopeId={id}&after={seq}&take={n}
+POST   /api/agents/control
+POST   /api/agents/permissions/reply
+GET    /api/agents/state?scopeKind={run|thread|issue}&scopeId={id}
 POST   /api/agents/executions/{issueId}/cancel
 ```
 
@@ -205,6 +208,12 @@ The executions body accepts an optional `modelTier` (`"lite" | "normal" | "ultra
 `GET /api/agents/runs?issueId=` returns the issue's latest runs (`{ id, issueId, agentType, state, startedAt, finishedAt }`, newest first; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` returns the latest run per issue — used to render agent badges on the kanban cards.
 
 `GET /api/agents/events` (SPEC-20260921-agent-execution-event-pipeline) replays the normalized agent execution event stream persisted per scope — `scopeKind` is `run` (cockpit pipeline run), `thread` (AI Chat agent session) or `issue` (board one-shot run). Events carry `sequence` (monotonic per scope), `kind` (`lifecycle|message|thought|plan|tool_call|tool_output|permission|output|diff|verification|metric|error|approval|steer|activity`), optional `stageId`/`sessionId`/`toolCallId`/`parentEventId` correlation, `payloadJson` (redacted + truncated) and `rawJson`. `after`/`take` paginate by sequence (`400` on invalid scope). Live events also stream over SignalR `/agent-log-hub` group `agent:{scopeKind}:{scopeId}` (`SubscribeToScope`, `ReceiveAgentEvent`). ACP sessions now perform the real protocol handshake (`initialize` → `session/new` with `sessionId` capture → `session/prompt` content blocks) and answer `session/request_permission` as a JSON-RPC response; agent→client requests for undeclared capabilities get `-32601`.
+
+`POST /api/agents/control` (SPEC-20260921-board-cockpit-agent-observability) is the unified control surface — body `{ scopeKind, scopeId, action, stageId?, content? }`. Supported pairs: `issue`+`cancel` (board one-shot run), `run`+`cancel`/`steer`/`retry` (cockpit pipeline; `retry` requires `stageId`, `steer` requires `content`), `thread`+`cancel`/`steer` (AI Chat session). `400` unknown scope/action, `409` when the action is unsupported or the target has no active run/session, `202`/`200` on success. Every accepted action emits a normalized `lifecycle`/`steer` event into the scope stream.
+
+`POST /api/agents/permissions/reply` body `{ scopeKind, scopeId, requestId, outcome, comment? }` routes permission replies by scope: `thread` → the ACP session permission gate (`410` when the request expired/unknown), `run` → the pipeline stage gate when `requestId` is `stage:{stageKey}` (`outcome` `deny` rejects, anything else approves), `issue` → `409` (one-shot runs cannot receive replies).
+
+`GET /api/agents/state?scopeKind&scopeId` returns `{ scopeKind, scopeId, state, lastEventSequence }` — `run` resolves the pipeline status explicitly (`running|waiting_permission|awaiting_retry|paused|completed|stopped|queued`, `404` unknown run), `thread` reports `running`/`idle` from the live ACP session, `issue` maps the latest `AgentRun` state. Used by the UI to rebuild the timeline after reconnect.
 
 ### Harness — Workspace Isolation (E6)
 

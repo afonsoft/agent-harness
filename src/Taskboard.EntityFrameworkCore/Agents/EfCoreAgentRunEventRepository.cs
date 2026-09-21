@@ -49,4 +49,12 @@ public sealed class EfCoreAgentRunEventRepository : IAgentRunEventRepository
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
+
+    public async Task<int> DeleteByScopeAsync(string scopeKind, string scopeId, CancellationToken cancellationToken = default)
+    {
+        return await _context.AgentRunEvents
+            .Where(x => x.ScopeKind == scopeKind && x.ScopeId == scopeId)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
 }

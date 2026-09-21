@@ -31,8 +31,9 @@ public interface IAgentOrchestrationService
 
     /// <summary>
     /// Solicita o cancelamento da execução de uma issue.
+    /// Retorna <c>false</c> quando não há execução ativa para a issue.
     /// </summary>
-    Task CancelAsync(string issueId, CancellationToken cancellationToken = default);
+    Task<bool> CancelAsync(string issueId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retorna os runs mais recentes de uma issue (mais recente primeiro).

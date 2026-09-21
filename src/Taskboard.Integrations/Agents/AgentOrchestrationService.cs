@@ -127,16 +127,22 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         await using var scope = _serviceScopeFactory.CreateAsyncScope();
         var repository = scope.ServiceProvider.GetRequiredService<IAgentLogRepository>();
         await repository.DeleteByIssueIdAsync(issueId, cancellationToken);
+
+        // Clear also wipes the normalized event stream — the shared timeline
+        // must not keep showing history the user asked to delete.
+        var events = scope.ServiceProvider.GetRequiredService<IAgentRunEventRepository>();
+        await events.DeleteByScopeAsync(AgentEventScope.Issue, issueId, cancellationToken);
     }
 
-    public Task CancelAsync(string issueId, CancellationToken cancellationToken = default)
+    public Task<bool> CancelAsync(string issueId, CancellationToken cancellationToken = default)
     {
-        if (_running.TryGetValue(issueId, out var job))
+        if (!_running.TryGetValue(issueId, out var job))
         {
-            job.CancellationTokenSource.Cancel();
+            return Task.FromResult(false);
         }
 
-        return Task.CompletedTask;
+        job.CancellationTokenSource.Cancel();
+        return Task.FromResult(true);
     }
 
     public async Task<IReadOnlyList<AgentRunDto>> GetRunsAsync(string issueId, int take = 5, CancellationToken cancellationToken = default)
