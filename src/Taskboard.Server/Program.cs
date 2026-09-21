@@ -191,6 +191,7 @@ builder.Services.AddSingleton(sp =>
         RequestTimeout = TimeSpan.FromSeconds(cfg.GetValue("Taskboard:Acp:RequestTimeoutSeconds", 60)),
         TurnTimeout = TimeSpan.FromMinutes(cfg.GetValue("Taskboard:Acp:TurnTimeoutMinutes", 30)),
         HandshakeTimeout = TimeSpan.FromSeconds(cfg.GetValue("Taskboard:Acp:HandshakeTimeoutSeconds", 15)),
+        PermissionTimeout = TimeSpan.FromMinutes(cfg.GetValue("Taskboard:Acp:PermissionTimeoutMinutes", 10)),
         AgentTcpPort = cfg.GetValue<int?>("Taskboard:Acp:TcpPort"),
     };
     var ragUrl = cfg["Taskboard:Rag:Url"];

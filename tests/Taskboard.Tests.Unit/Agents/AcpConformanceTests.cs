@@ -111,12 +111,12 @@ public sealed class AcpConformanceTests
     public async Task Dado_FsReadDentroDoWorkspace_Quando_HandleAsync_Entao_RetornaConteudo()
     {
         var (handler, root) = CriarHandler(out _);
-        var file = Path.Combine(root, "src", "hello.txt");
+        var file = Path.Join(root, "src", "hello.txt");
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         await File.WriteAllTextAsync(file, "linha1\nlinha2\nlinha3");
 
         var p = JsonDocument.Parse($$"""{"path":"{{file}}"}""").RootElement;
-        var result = await handler.HandleAsync("t1", "s1", "fs/read_text_file", p, CancellationToken.None);
+        var result = await handler.HandleAsync("t1", "s1", root, "fs/read_text_file", p, CancellationToken.None);
 
         result.GetProperty("content").GetString().ShouldBe("linha1\nlinha2\nlinha3");
     }
@@ -125,11 +125,11 @@ public sealed class AcpConformanceTests
     public async Task Dado_FsReadComLineELimit_Quando_HandleAsync_Entao_RetornaFatia()
     {
         var (handler, root) = CriarHandler(out _);
-        var file = Path.Combine(root, "big.txt");
+        var file = Path.Join(root, "big.txt");
         await File.WriteAllTextAsync(file, "l1\nl2\nl3\nl4\nl5");
 
         var p = JsonDocument.Parse($$"""{"path":"{{file}}","line":2,"limit":2}""").RootElement;
-        var result = await handler.HandleAsync("t1", "s1", "fs/read_text_file", p, CancellationToken.None);
+        var result = await handler.HandleAsync("t1", "s1", root, "fs/read_text_file", p, CancellationToken.None);
 
         result.GetProperty("content").GetString().ShouldBe("l2\nl3");
     }
@@ -137,22 +137,22 @@ public sealed class AcpConformanceTests
     [Fact]
     public async Task Dado_PathForaDoWorkspace_Quando_FsRead_Entao_InvalidParams()
     {
-        var (handler, _) = CriarHandler(out _);
+        var (handler, root) = CriarHandler(out _);
         var p = JsonDocument.Parse("""{"path":"/etc/hostname"}""").RootElement;
 
         var ex = await Should.ThrowAsync<AcpException>(
-            () => handler.HandleAsync("t1", "s1", "fs/read_text_file", p, CancellationToken.None));
+            () => handler.HandleAsync("t1", "s1", root, "fs/read_text_file", p, CancellationToken.None));
         ex.Code.ShouldBe(AcpErrorCode.InvalidParams);
     }
 
     [Fact]
     public async Task Dado_PathRelativo_Quando_FsRead_Entao_InvalidParams()
     {
-        var (handler, _) = CriarHandler(out _);
+        var (handler, root) = CriarHandler(out _);
         var p = JsonDocument.Parse("""{"path":"./relative.txt"}""").RootElement;
 
         var ex = await Should.ThrowAsync<AcpException>(
-            () => handler.HandleAsync("t1", "s1", "fs/read_text_file", p, CancellationToken.None));
+            () => handler.HandleAsync("t1", "s1", root, "fs/read_text_file", p, CancellationToken.None));
         ex.Code.ShouldBe(AcpErrorCode.InvalidParams);
     }
 
@@ -160,11 +160,11 @@ public sealed class AcpConformanceTests
     public async Task Dado_EscapeComDotDot_Quando_FsRead_Entao_InvalidParams()
     {
         var (handler, root) = CriarHandler(out _);
-        var escaped = Path.GetFullPath(Path.Combine(root, "..", "..", "secret.txt"));
+        var escaped = Path.GetFullPath(Path.Join(root, "..", "..", "secret.txt"));
         var p = JsonDocument.Parse($$"""{"path":"{{escaped.Replace("\\", "\\\\")}}"}""").RootElement;
 
         var ex = await Should.ThrowAsync<AcpException>(
-            () => handler.HandleAsync("t1", "s1", "fs/read_text_file", p, CancellationToken.None));
+            () => handler.HandleAsync("t1", "s1", root, "fs/read_text_file", p, CancellationToken.None));
         ex.Code.ShouldBe(AcpErrorCode.InvalidParams);
     }
 
@@ -172,11 +172,11 @@ public sealed class AcpConformanceTests
     public async Task Dado_FsWriteAprovado_Quando_HandleAsync_Entao_EscreveArquivo()
     {
         var (handler, root) = CriarHandler(out var gate, responder: "allow");
-        var file = Path.Combine(root, "novo.txt");
+        var file = Path.Join(root, "novo.txt");
         var p = JsonDocument.Parse(
             $$"""{"path":"{{file.Replace("\\", "\\\\")}}","content":"conteudo"}""").RootElement;
 
-        await handler.HandleAsync("t1", "s1", "fs/write_text_file", p, CancellationToken.None);
+        await handler.HandleAsync("t1", "s1", root, "fs/write_text_file", p, CancellationToken.None);
 
         (await File.ReadAllTextAsync(file)).ShouldBe("conteudo");
         gate.ShouldNotBeNull();
@@ -186,12 +186,12 @@ public sealed class AcpConformanceTests
     public async Task Dado_FsWriteNegado_Quando_HandleAsync_Entao_RequestCancelled()
     {
         var (handler, root) = CriarHandler(out _, responder: "deny");
-        var file = Path.Combine(root, "negado.txt");
+        var file = Path.Join(root, "negado.txt");
         var p = JsonDocument.Parse(
             $$"""{"path":"{{file.Replace("\\", "\\\\")}}","content":"x"}""").RootElement;
 
         var ex = await Should.ThrowAsync<AcpException>(
-            () => handler.HandleAsync("t1", "s1", "fs/write_text_file", p, CancellationToken.None));
+            () => handler.HandleAsync("t1", "s1", root, "fs/write_text_file", p, CancellationToken.None));
         ex.Code.ShouldBe(AcpErrorCode.RequestCancelled);
         File.Exists(file).ShouldBeFalse();
     }
@@ -199,29 +199,78 @@ public sealed class AcpConformanceTests
     [Fact]
     public async Task Dado_TerminalDesabilitado_Quando_TerminalCreate_Entao_MethodNotFound()
     {
-        var (handler, _) = CriarHandler(out _); // ClientTerminal default = false
+        var (handler, root) = CriarHandler(out _); // ClientTerminal default = false
         var p = JsonDocument.Parse("""{"command":"echo","args":["hi"]}""").RootElement;
 
         var ex = await Should.ThrowAsync<AcpException>(
-            () => handler.HandleAsync("t1", "s1", "terminal/create", p, CancellationToken.None));
+            () => handler.HandleAsync("t1", "s1", root, "terminal/create", p, CancellationToken.None));
         ex.Code.ShouldBe(AcpErrorCode.MethodNotFound);
     }
 
     [Fact]
     public async Task Dado_MetodoDesconhecido_Quando_HandleAsync_Entao_MethodNotFound()
     {
-        var (handler, _) = CriarHandler(out _);
+        var (handler, root) = CriarHandler(out _);
         var p = JsonDocument.Parse("""{}""").RootElement;
 
         var ex = await Should.ThrowAsync<AcpException>(
-            () => handler.HandleAsync("t1", "s1", "elicitation/select", p, CancellationToken.None));
+            () => handler.HandleAsync("t1", "s1", root, "elicitation/select", p, CancellationToken.None));
         ex.Code.ShouldBe(AcpErrorCode.MethodNotFound);
     }
 
-    private static (AcpClientToolHandler Handler, string Root) CriarHandler(
-        out PermissionGate gate, string responder = "deny")
+    [Fact]
+    public async Task Dado_ScopeRunHeadless_Quando_FsWrite_Entao_AutoAllowIgnoraGate()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"acp_test_{Guid.NewGuid():N}");
+        // run:* scopes are headless — the gate would deny, but the session-run
+        // path auto-allows (same as args-mode bypass flags).
+        var (handler, root) = CriarHandler(out _, responder: "deny");
+        var file = Path.Join(root, "auto.txt");
+        var p = JsonDocument.Parse(
+            $$"""{"path":"{{file.Replace("\\", "\\\\")}}","content":"x"}""").RootElement;
+
+        await handler.HandleAsync("run:i1:abc", "s1", root, "fs/write_text_file", p, CancellationToken.None);
+
+        (await File.ReadAllTextAsync(file)).ShouldBe("x");
+    }
+
+    [Fact]
+    public async Task Dado_TerminalHabilitado_Quando_ProcessoRapido_Entao_WaitForExitNaoTrava()
+    {
+        var (handler, root) = CriarHandler(out _, terminal: true);
+        var create = JsonDocument.Parse(
+            """{"command":"/bin/sh","args":["-c","exit 3"]}""").RootElement;
+
+        var created = await handler.HandleAsync("run:r1", "s1", root, "terminal/create", create, CancellationToken.None);
+        var terminalId = created.GetProperty("terminalId").GetString()!;
+
+        var wait = JsonDocument.Parse($$"""{"terminalId":"{{terminalId}}"}""").RootElement;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var exited = await handler.HandleAsync("run:r1", "s1", root, "terminal/wait_for_exit", wait, cts.Token);
+
+        exited.GetProperty("exitCode").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Dado_TerminalJaEncerrado_Quando_Output_Entao_ExitStatusPresente()
+    {
+        var (handler, root) = CriarHandler(out _, terminal: true);
+        var create = JsonDocument.Parse(
+            """{"command":"/bin/sh","args":["-c","exit 0"]}""").RootElement;
+        var created = await handler.HandleAsync("run:r1", "s1", root, "terminal/create", create, CancellationToken.None);
+        var terminalId = created.GetProperty("terminalId").GetString()!;
+
+        var wait = JsonDocument.Parse($$"""{"terminalId":"{{terminalId}}"}""").RootElement;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await handler.HandleAsync("run:r1", "s1", root, "terminal/wait_for_exit", wait, cts.Token);
+
+        var output = await handler.HandleAsync("run:r1", "s1", root, "terminal/output", wait, cts.Token);
+        output.GetProperty("exitStatus").GetProperty("exitCode").GetInt32().ShouldBe(0);
+    }
+
+    private static (AcpClientToolHandler Handler, string Root) CriarHandler(
+        out PermissionGate gate, string responder = "deny", bool terminal = false)
+    {
+        var root = Path.Join(Path.GetTempPath(), $"acp_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
 
         // Auto-responder: the gate publishes the pending request via SSE; the
@@ -244,7 +293,7 @@ public sealed class AcpConformanceTests
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         var handler = new AcpClientToolHandler(
-            scopeFactory, workspace, gate, new AcpSessionOptions(),
+            scopeFactory, workspace, gate, new AcpSessionOptions { ClientTerminal = terminal },
             NullLogger<AcpClientToolHandler>.Instance);
         return (handler, root);
     }

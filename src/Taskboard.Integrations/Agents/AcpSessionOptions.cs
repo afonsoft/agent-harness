@@ -30,6 +30,12 @@ public sealed class AcpSessionOptions
     /// <summary>Timeout for the initialize/session-new handshake phase.</summary>
     public TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>Grace period for session/close before killing the process.</summary>
+    public TimeSpan CloseTimeout { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Unanswered permission requests are auto-replied "cancelled" after this.</summary>
+    public TimeSpan PermissionTimeout { get; set; } = TimeSpan.FromMinutes(10);
+
     /// <summary>When set, connect to an already-running agent ACP server on
     /// 127.0.0.1:port (e.g. <c>copilot --acp --port N</c>) instead of spawning
     /// a subprocess (RF-012). An adapter-level <c>AgentCommand.TcpPort</c>
@@ -53,9 +59,13 @@ public sealed record AcpMcpServerSpec(string Name, string? Url, string? Command,
 /// </summary>
 public interface IAcpClientToolHandler
 {
+    /// <param name="workspacePath">Session workspace root — fs paths are
+    /// sandboxed to it and terminals start there by default. When empty, the
+    /// handler resolves the thread's workspace itself.</param>
     Task<JsonElement> HandleAsync(
         string threadId,
         string sessionId,
+        string workspacePath,
         string method,
         JsonElement @params,
         CancellationToken cancellationToken);

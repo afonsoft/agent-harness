@@ -3,6 +3,7 @@ using System.Text.Json;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Harness;
 using Taskboard.ValueObjects;
 
 namespace Taskboard.Integrations.Agents;
@@ -33,6 +34,7 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
         var key = $"run:{request.IssueId}:{Guid.NewGuid():N}";
         var stopwatch = Stopwatch.StartNew();
         var turnDone = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        TokenUsage? latestUsage = null;
 
         void OnEvent(AgentSessionEvent e)
         {
@@ -53,6 +55,15 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
                     if (requestId is not null)
                     {
                         _ = _sessions.ReplyPermissionAsync(key, requestId, "allow");
+                    }
+                    break;
+                case AgentEventKinds.Metric:
+                    // ACP usage_update carries { used, size, cost? } — context
+                    // window consumption. Best-effort map onto TokenUsage so
+                    // AgentExecutionResult.Usage is populated like args-mode.
+                    if (ExtractUsage(e.PayloadJson) is { } usage)
+                    {
+                        latestUsage = usage;
                     }
                     break;
                 case "session" when e.Content == "Prompt turn completed":
@@ -100,6 +111,9 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
             using var cancelReg = cancellationToken.Register(() =>
             {
                 _ = _sessions.CancelAsync(key);
+                // The run is over from our side whether or not the agent still
+                // answers the pending prompt — complete so the caller unwinds.
+                turnDone.TrySetResult("cancelled");
             });
 
             var stopReason = await turnDone.Task.ConfigureAwait(false);
@@ -108,6 +122,7 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
             return new AgentExecutionResult(
                 stopReason is "cancelled" ? 130 : 0,
                 stopReason is not "cancelled",
+                Usage: latestUsage,
                 Duration: stopwatch.Elapsed,
                 ModelUsed: request.ResolvedModelName);
         }
@@ -138,6 +153,30 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
         {
             using var doc = JsonDocument.Parse(payloadJson);
             return doc.RootElement.TryGetProperty("requestId", out var r) ? r.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static TokenUsage? ExtractUsage(string? payloadJson)
+    {
+        if (payloadJson is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var update = doc.RootElement.TryGetProperty("update", out var u) ? u : doc.RootElement;
+            if (!update.TryGetProperty("used", out var used) || !used.TryGetInt64(out var tokens))
+            {
+                return null;
+            }
+
+            return new TokenUsage(tokens, 0, 0, 0);
         }
         catch (JsonException)
         {

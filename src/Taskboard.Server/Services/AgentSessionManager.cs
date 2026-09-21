@@ -337,7 +337,18 @@ public sealed class AgentSessionManager : IAsyncDisposable
         var ready = await EnsureSessionAsync(threadId).ConfigureAwait(false);
         if (ready)
         {
-            _reconnects.TryRemove(threadId, out _);
+            // Only forgive the counter after the respawn proves stable — a
+            // session that dies again inside the window keeps counting, so a
+            // crash-looping agent is eventually left dead instead of
+            // reconnecting forever.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+                if (_sessionClient.IsSessionActive(threadId))
+                {
+                    _reconnects.TryRemove(threadId, out _);
+                }
+            });
         }
     }
 

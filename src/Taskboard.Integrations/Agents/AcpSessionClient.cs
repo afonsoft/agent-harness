@@ -20,7 +20,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 {
     internal sealed record AcpPermissionOption(string OptionId, string? Name, string? Kind);
 
-    private sealed record PendingPermission(string JsonRpcId, IReadOnlyList<AcpPermissionOption> Options);
+    private sealed record PendingPermission(
+        string JsonRpcId,
+        IReadOnlyList<AcpPermissionOption> Options,
+        CancellationTokenSource TimeoutCts,
+        string RawLine);
 
     /// <summary>State a session needs to respawn (reconnect after process death).</summary>
     private sealed record SpawnContext(AgentType AgentType, string WorkspacePath, Sandbox Sandbox, string? ModelName);
@@ -40,6 +44,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         public AcpPeerInfo Peer { get; set; } = new();
         public ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> PendingResponses { get; } = new();
         public ConcurrentDictionary<string, PendingPermission> PendingPermissions { get; } = new();
+        /// <summary>Agent→client requests being handled (fs/*, terminal/*, elicitation) — cancelled via $/cancel_request.</summary>
+        public ConcurrentDictionary<string, CancellationTokenSource> InFlightRequests { get; } = new();
+        /// <summary>Tool calls without a terminal tool_call_update yet — closed as cancelled on session/cancel.</summary>
+        public ConcurrentDictionary<string, byte> OpenToolCalls { get; } = new();
+        /// <summary>Consent cache: (tool kind|title) → chosen optionId for *_always outcomes.</summary>
+        public ConcurrentDictionary<string, string> AlwaysAnswers { get; } = new();
         /// <summary>Registration that enforces TurnTimeout on the in-flight prompt.</summary>
         public CancellationTokenRegistration TurnTimeoutReg { get; set; }
         /// <summary>True while the session is expected to stay alive (drives auto-reconnect).</summary>
@@ -379,6 +389,13 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
+        // Auto-detect boolean options from the negotiated configOptions —
+        // callers only carry the value as text.
+        if (!isBoolean)
+        {
+            isBoolean = IsBooleanConfigOption(holder.Peer.ConfigOptions, configId);
+        }
+
         object p = isBoolean
             ? new { sessionId = holder.SessionId, configId, type = "boolean", value = bool.Parse(value) }
             : new { sessionId = holder.SessionId, configId, value };
@@ -393,6 +410,89 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         holder.Peer.ApplySessionResult(result.Value);
         EmitSessionInfo(holder);
         return true;
+    }
+
+    /// <summary>True when the advertised config option is a boolean toggle.</summary>
+    private static bool IsBooleanConfigOption(JsonElement? configOptions, string configId)
+    {
+        if (configOptions is not { } opts || opts.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var opt in opts.EnumerateArray())
+            {
+                // v1 uses "id"; v2-readiness accepts "configId" too.
+                var id = opt.TryGetProperty("id", out var i) ? i.GetString()
+                    : opt.TryGetProperty("configId", out var ci) ? ci.GetString()
+                    : null;
+                if (id == configId)
+                {
+                    return opt.TryGetProperty("type", out var t)
+                        && string.Equals(t.GetString(), "boolean", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return false;
+    }
+
+    /// <summary>RF-002: diagnostic — sessions the agent still knows about (capability-gated).</summary>
+    public async Task<IReadOnlyList<JsonElement>> ListSessionsAsync(
+        string threadId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(threadId, out var holder) || !IsAlive(holder) || !holder.Peer.SessionList)
+        {
+            return [];
+        }
+
+        var result = await SendRequestAsync(holder, "session/list", new { },
+            _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+        if (result is null)
+        {
+            return [];
+        }
+
+        return result.Value.TryGetProperty("sessions", out var s) && s.ValueKind == JsonValueKind.Array
+            ? s.EnumerateArray().Select(e => e.Clone()).ToArray()
+            : [];
+    }
+
+    /// <summary>RF-002: delete an agent-side session (capability-gated).</summary>
+    public async Task<bool> DeleteSessionAsync(
+        string threadId, string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(threadId, out var holder) || !IsAlive(holder) || !holder.Peer.SessionDelete)
+        {
+            return false;
+        }
+
+        var result = await SendRequestAsync(holder, "session/delete", new { sessionId },
+            _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+        if (result is not null && holder.SessionId == sessionId)
+        {
+            _lastSessionIds.TryRemove(threadId, out _);
+        }
+
+        return result is not null;
+    }
+
+    /// <summary>RF-004: agent logout via the control plane (capability-gated).</summary>
+    public async Task<bool> LogoutAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessions.TryGetValue(threadId, out var holder) || !IsAlive(holder) || !holder.Peer.AuthLogout)
+        {
+            return false;
+        }
+
+        var result = await SendRequestAsync(holder, "auth/logout", new { },
+            _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
+        return result is not null;
     }
 
     /// <summary>RF-003: legacy mode switching for agents that only expose modes.</summary>
@@ -437,14 +537,28 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             // the cancelled outcome so the agent can unwind its turn.
             foreach (var (requestId, pending) in holder.PendingPermissions.ToArray())
             {
-                if (holder.PendingPermissions.TryRemove(requestId, out _))
+                if (holder.PendingPermissions.TryRemove(requestId, out var removed))
                 {
+                    removed.TimeoutCts.Cancel();
+                    removed.TimeoutCts.Dispose();
                     await WriteLineAsync(holder, new
                     {
                         jsonrpc = "2.0",
-                        id = pending.JsonRpcId,
+                        id = removed.JsonRpcId,
                         result = new { outcome = new { outcome = "cancelled" } }
                     }, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            // RF-005: tool calls that never received a terminal update are
+            // marked cancelled locally so the timeline doesn't show them stuck.
+            foreach (var toolCallId in holder.OpenToolCalls.Keys)
+            {
+                if (holder.OpenToolCalls.TryRemove(toolCallId, out _))
+                {
+                    EmitEvent(threadId, AgentEventKinds.ToolOutput, "assistant", null,
+                        JsonSerializer.Serialize(new { toolCallId, status = "cancelled" }),
+                        toolCallId: toolCallId);
                 }
             }
         }
@@ -473,7 +587,26 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         // chosen optionId.
         if (holder.PendingPermissions.TryRemove(requestId, out var pending))
         {
+            pending.TimeoutCts.Cancel();
+            pending.TimeoutCts.Dispose();
+
             var optionId = MapOutcomeToOption(outcome, pending.Options);
+
+            // RF-006: a *_always choice is remembered per tool kind so future
+            // requests are auto-answered (audited with auto:true on emit).
+            var chosen = optionId is null
+                ? null
+                : pending.Options.FirstOrDefault(o => o.OptionId == optionId);
+            if (optionId is not null
+                && chosen?.Kind?.EndsWith("_always", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var toolKey = ExtractToolKey(null, pending.RawLine);
+                if (toolKey is not null)
+                {
+                    holder.AlwaysAnswers[toolKey] = optionId;
+                }
+            }
+
             object result = optionId is null
                 ? new { outcome = new { outcome = "cancelled" } }
                 : new { outcome = new { outcome = "selected", optionId } };
@@ -555,20 +688,17 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         if (_sessions.TryRemove(threadId, out var holder))
         {
             holder.WantsReconnect = false;
-            holder.Cts.Cancel();
 
-            // RF-002: graceful session/close before killing when the agent supports it.
+            // RF-002: graceful session/close awaited briefly when the agent
+            // supports it — must run BEFORE Cts.Cancel() so the response can
+            // arrive; kill is the fallback after the grace period.
             if (holder.SessionId is not null && holder.Peer.SessionClose && IsAlive(holder))
             {
                 try
                 {
-                    await WriteLineAsync(holder, new
-                    {
-                        jsonrpc = "2.0",
-                        id = Guid.NewGuid().ToString("N"),
-                        method = "session/close",
-                        @params = new { sessionId = holder.SessionId }
-                    }, CancellationToken.None).ConfigureAwait(false);
+                    await SendRequestAsync(holder, "session/close",
+                        new { sessionId = holder.SessionId },
+                        _options.CloseTimeout, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch
                 {
@@ -576,11 +706,14 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                 }
             }
 
+            holder.Cts.Cancel();
+
             foreach (var pending in holder.PendingResponses.Values)
             {
                 pending.TrySetCanceled();
             }
 
+            CleanupPendingState(holder);
             TryKill(holder);
             holder.Process?.Dispose();
             holder.Socket?.Dispose();
@@ -638,9 +771,47 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                 "agent process exited"));
         }
 
-        holder.PendingPermissions.Clear();
+        CleanupPendingState(holder);
         EmitEvent(holder.ThreadId, "lifecycle", "system", "Agent process exited",
             JsonSerializer.Serialize(new { state = "dead", exitCode, sessionId = holder.SessionId }));
+    }
+
+    /// <summary>Releases permission timeout registrations and in-flight tool request tokens.</summary>
+    private static void CleanupPendingState(SessionHolder holder)
+    {
+        foreach (var (key, _) in holder.PendingPermissions)
+        {
+            if (holder.PendingPermissions.TryRemove(key, out var pending))
+            {
+                try
+                {
+                    pending.TimeoutCts.Cancel();
+                    pending.TimeoutCts.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // $/cancel_request already disposed it.
+                }
+            }
+        }
+
+        foreach (var (key, _) in holder.InFlightRequests)
+        {
+            if (holder.InFlightRequests.TryRemove(key, out var cts))
+            {
+                try
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // $/cancel_request already disposed it.
+                }
+            }
+        }
+
+        holder.OpenToolCalls.Clear();
     }
 
     private void HandleStdout(string threadId, string line)
@@ -691,6 +862,19 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                         UpdatePeerFromUpdate(holder, parsed);
                     }
 
+                    // Track open tool calls so session/cancel can close them.
+                    if (parsed.ToolCallId is { } tcId)
+                    {
+                        if (parsed.Kind == AgentEventKinds.ToolCall)
+                        {
+                            holder.OpenToolCalls[tcId] = 1;
+                        }
+                        else if (parsed.Kind == AgentEventKinds.ToolOutput && IsTerminalToolUpdate(parsed.PayloadJson))
+                        {
+                            holder.OpenToolCalls.TryRemove(tcId, out _);
+                        }
+                    }
+
                     EmitEvent(threadId, parsed.Kind, "assistant", parsed.Content, parsed.PayloadJson,
                         parsed.SessionId, parsed.ToolCallId);
                     return;
@@ -699,6 +883,25 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         catch
         {
             EmitEvent(threadId, "message", "assistant", line, null);
+        }
+    }
+
+    private static bool IsTerminalToolUpdate(string? payloadJson)
+    {
+        if (payloadJson is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            return doc.RootElement.TryGetProperty("status", out var s)
+                && s.GetString() is "completed" or "failed" or "cancelled";
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -743,14 +946,53 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             var options = ExtractPermissionOptions(parsed.PayloadJson, rawLine);
             var effectiveId = ExtractPermissionRequestId(parsed.PayloadJson) ?? rpcId;
-            holder.PendingPermissions[effectiveId] = new PendingPermission(rpcId, options);
+
+            // RF-006: allow_always/reject_always consent cache — identical tool
+            // kinds are auto-answered and audited with auto:true.
+            var toolKey = ExtractToolKey(parsed.PayloadJson, rawLine);
+            if (toolKey is not null
+                && holder.AlwaysAnswers.TryGetValue(toolKey, out var cachedOptionId))
+            {
+                EmitEvent(holder.ThreadId, "permission", "assistant", parsed.Content,
+                    InjectAutoFlag(parsed.PayloadJson));
+                _ = WriteLineAsync(holder, new
+                {
+                    jsonrpc = "2.0",
+                    id = rpcId,
+                    result = new { outcome = new { outcome = "selected", optionId = cachedOptionId } }
+                }, CancellationToken.None);
+                return;
+            }
+
+            var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(holder.Cts.Token);
+            holder.PendingPermissions[effectiveId] = new PendingPermission(rpcId, options, timeoutCts, rawLine);
             EmitEvent(holder.ThreadId, "permission", "assistant", parsed.Content, parsed.PayloadJson);
+
+            // RF-006: unanswered permissions auto-cancel after PermissionTimeout.
+            timeoutCts.CancelAfter(_options.PermissionTimeout);
+            _ = timeoutCts.Token.Register(() =>
+            {
+                if (holder.PendingPermissions.TryRemove(effectiveId, out var expired))
+                {
+                    _ = WriteLineAsync(holder, new
+                    {
+                        jsonrpc = "2.0",
+                        id = expired.JsonRpcId,
+                        result = new { outcome = new { outcome = "cancelled" } }
+                    }, CancellationToken.None);
+                }
+            });
             return;
         }
 
         // RF-008/009: fs/*, terminal/*, elicitation/* and extension methods go to
         // the client tool handler when one is registered; otherwise -32601 so
         // the agent does not hang on an undeclared capability.
+        var requestCts = parsed.RequestId is { } reqId
+            ? holder.InFlightRequests.GetOrAdd(reqId,
+                _ => CancellationTokenSource.CreateLinkedTokenSource(holder.Cts.Token))
+            : null;
+
         _ = Task.Run(async () =>
         {
             try
@@ -762,12 +1004,23 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     {
                         var result = await _toolHandler.HandleAsync(
                             holder.ThreadId, holder.SessionId ?? string.Empty,
-                            parsed.Method, parsed.Params, holder.Cts.Token).ConfigureAwait(false);
+                            holder.Spawn.WorkspacePath,
+                            parsed.Method, parsed.Params, requestCts?.Token ?? holder.Cts.Token).ConfigureAwait(false);
                         response = new { jsonrpc = "2.0", id = parsed.RequestId, result };
                     }
                     catch (AcpException aex)
                     {
                         response = new { jsonrpc = "2.0", id = parsed.RequestId, error = new { code = ToJsonRpcCode(aex.Code), message = aex.Message } };
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        response = new { jsonrpc = "2.0", id = parsed.RequestId, error = new { code = -32800, message = "request cancelled" } };
+                    }
+                    catch (Exception ex)
+                    {
+                        // IO/process failures still owe the agent a response —
+                        // otherwise it waits on a request that never resolves.
+                        response = new { jsonrpc = "2.0", id = parsed.RequestId, error = new { code = -32603, message = ex.Message } };
                     }
                 }
                 else
@@ -780,11 +1033,20 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     };
                 }
 
-                await WriteLineAsync(holder, response, CancellationToken.None).ConfigureAwait(false);
+                // If the agent cancelled meanwhile, the cancel path already
+                // answered -32800 — skip the double response.
+                if (parsed.RequestId is null || holder.InFlightRequests.TryRemove(parsed.RequestId, out _))
+                {
+                    await WriteLineAsync(holder, response, CancellationToken.None).ConfigureAwait(false);
+                }
             }
             catch
             {
                 // Channel failed — the session will die via the read loop.
+            }
+            finally
+            {
+                requestCts?.Dispose();
             }
         });
         EmitEvent(holder.ThreadId, "activity", "system",
@@ -793,11 +1055,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     /// <summary>
     /// RF-005: <c>$/cancel_request</c> — the agent cancelled a request it sent
-    /// us (permission, fs/*, terminal/*). Drop the pending permission keyed by
-    /// that JSON-RPC id so it can no longer be answered; no response is sent
-    /// (the message is a notification).
+    /// us (permission, fs/*, terminal/*). The request is answered with JSON-RPC
+    /// -32800, in-flight tool work is cancelled and pending permissions keyed by
+    /// that id are dropped so they can no longer be answered.
     /// </summary>
-    private static void HandleAgentCancelRequest(SessionHolder holder, AcpProtocolParser.Parsed parsed)
+    private void HandleAgentCancelRequest(SessionHolder holder, AcpProtocolParser.Parsed parsed)
     {
         if (parsed.Params.ValueKind != JsonValueKind.Object
             || !parsed.Params.TryGetProperty("id", out var idEl))
@@ -806,13 +1068,82 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
 
         var id = idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : idEl.GetRawText();
+        if (id is null)
+        {
+            return;
+        }
+
+        if (holder.InFlightRequests.TryRemove(id, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+            _ = WriteLineAsync(holder, new
+            {
+                jsonrpc = "2.0",
+                id,
+                error = new { code = -32800, message = "request cancelled" }
+            }, CancellationToken.None);
+        }
+
         foreach (var (key, pending) in holder.PendingPermissions)
         {
-            if (pending.JsonRpcId == id)
+            if (pending.JsonRpcId == id
+                && holder.PendingPermissions.TryRemove(key, out var dropped))
             {
-                holder.PendingPermissions.TryRemove(key, out _);
+                dropped.TimeoutCts.Cancel();
+                dropped.TimeoutCts.Dispose();
             }
         }
+    }
+
+    /// <summary>Consent-cache key: toolCall.kind preferred, else title (RF-006).</summary>
+    private static string? ExtractToolKey(string? payloadJson, string rawLine)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(rawLine);
+            if (doc.RootElement.TryGetProperty("params", out var p)
+                && p.TryGetProperty("toolCall", out var tc) && tc.ValueKind == JsonValueKind.Object)
+            {
+                if (tc.TryGetProperty("kind", out var k) && k.GetString() is { } kind)
+                {
+                    return $"kind:{kind}";
+                }
+
+                if (tc.TryGetProperty("title", out var t) && t.GetString() is { } title)
+                {
+                    return $"title:{title}";
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return null;
+    }
+
+    private static string InjectAutoFlag(string? payloadJson)
+    {
+        if (payloadJson is null)
+        {
+            return """{"auto":true}""";
+        }
+
+        try
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(payloadJson);
+            if (dict is not null)
+            {
+                dict["auto"] = JsonSerializer.SerializeToElement(true);
+                return JsonSerializer.Serialize(dict);
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return payloadJson;
     }
 
     private static int ToJsonRpcCode(AcpErrorCode code) => code switch

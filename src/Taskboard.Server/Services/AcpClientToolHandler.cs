@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Domain.Entities;
@@ -33,6 +34,10 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         public TaskCompletionSource Exit { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
+    private sealed record TerminalExitStatus(
+        [property: JsonPropertyName("exitCode")] int? ExitCode,
+        [property: JsonPropertyName("signal")] string? Signal);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly WorkspaceService _workspace;
     private readonly PermissionGate _permissionGate;
@@ -55,9 +60,15 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
     }
 
     public async Task<JsonElement> HandleAsync(
-        string threadId, string sessionId, string method, JsonElement p, CancellationToken cancellationToken)
+        string threadId, string sessionId, string workspacePath,
+        string method, JsonElement p, CancellationToken cancellationToken)
     {
-        var root = await ResolveWorkspaceRootAsync(threadId, cancellationToken).ConfigureAwait(false);
+        // The spawn workspace is authoritative — run-scoped sessions have no
+        // AiChatThread row, so resolving by threadId would silently fall back
+        // to the global workspace root.
+        var root = !string.IsNullOrWhiteSpace(workspacePath)
+            ? workspacePath
+            : await ResolveWorkspaceRootAsync(threadId, cancellationToken).ConfigureAwait(false);
 
         return method switch
         {
@@ -72,6 +83,12 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
                 $"Method '{method}' not supported by this client."),
         };
     }
+
+    /// <summary>Run-scoped sessions (key "run:*") have no interactive
+    /// permission surface — the session-run client auto-allows, matching the
+    /// bypass flags the args-mode path already applies.</summary>
+    private static bool IsHeadlessScope(string threadId) =>
+        threadId.StartsWith("run:", StringComparison.Ordinal);
 
     private async Task<string> ResolveWorkspaceRootAsync(string threadId, CancellationToken ct)
     {
@@ -144,11 +161,13 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         var path = SandboxPath(root, Required(p, "path"));
         var content = Required(p, "content");
 
-        var outcome = await _permissionGate.RequestPermissionAsync(
-            threadId,
-            "fs/write_text_file",
-            $"{path} ({content.Length} chars)",
-            ["allow", "deny"]).ConfigureAwait(false);
+        var outcome = IsHeadlessScope(threadId)
+            ? "allow"
+            : await _permissionGate.RequestPermissionAsync(
+                threadId,
+                "fs/write_text_file",
+                $"{path} ({content.Length} chars)",
+                ["allow", "deny"]).ConfigureAwait(false);
 
         if (!string.Equals(outcome, "allow", StringComparison.OrdinalIgnoreCase))
         {
@@ -173,11 +192,13 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
             : Path.GetFullPath(root);
         var byteLimit = OptInt(p, "outputByteLimit") ?? DefaultOutputByteLimit;
 
-        var outcome = await _permissionGate.RequestPermissionAsync(
-            threadId,
-            "terminal/create",
-            $"{command} {string.Join(' ', args)} (cwd: {cwd})",
-            ["allow", "deny"]).ConfigureAwait(false);
+        var outcome = IsHeadlessScope(threadId)
+            ? "allow"
+            : await _permissionGate.RequestPermissionAsync(
+                threadId,
+                "terminal/create",
+                $"{command} {string.Join(' ', args)} (cwd: {cwd})",
+                ["allow", "deny"]).ConfigureAwait(false);
 
         if (!string.Equals(outcome, "allow", StringComparison.OrdinalIgnoreCase))
         {
@@ -246,8 +267,15 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         process.ErrorDataReceived += (_, e) => Append(e.Data);
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
+        // EnableRaisingEvents must precede the HasExited check — a fast process
+        // can exit between Start and handler registration, and without the
+        // check terminal/wait_for_exit would hang forever.
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) => entry.Exit.TrySetResult();
+        if (process.HasExited)
+        {
+            entry.Exit.TrySetResult();
+        }
 
         _logger.LogInformation("ACP terminal/create: '{Command}' approved for thread {ThreadId} → {TerminalId}.",
             command, threadId, entry.TerminalId);
@@ -263,8 +291,8 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
             output = entry.Output.ToString();
         }
 
-        object? exitStatus = entry.Process.HasExited
-            ? new { exitCode = (int?)entry.Process.ExitCode, signal = (string?)null }
+        var exitStatus = entry.Process.HasExited
+            ? new TerminalExitStatus(entry.Process.ExitCode, null)
             : null;
         return JsonSerializer.SerializeToElement(new { output, truncated = entry.Truncated, exitStatus });
     }
@@ -272,8 +300,15 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
     private async Task<JsonElement> TerminalWaitForExit(JsonElement p)
     {
         var entry = GetTerminal(p);
+        // Belt-and-suspenders: also complete when the process already exited
+        // before the Exited handler was attached.
+        if (entry.Process.HasExited)
+        {
+            entry.Exit.TrySetResult();
+        }
+
         await entry.Exit.Task.ConfigureAwait(false);
-        return JsonSerializer.SerializeToElement(new { exitCode = (int?)entry.Process.ExitCode, signal = (string?)null });
+        return JsonSerializer.SerializeToElement(new TerminalExitStatus(entry.Process.ExitCode, null));
     }
 
     private JsonElement TerminalKill(JsonElement p)

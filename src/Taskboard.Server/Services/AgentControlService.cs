@@ -176,6 +176,21 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Accepted);
                 }
 
+            // SPEC-20260921-acp-v1-conformance RF-004: auth/logout, gated by the
+            // agent-advertised auth.logout capability.
+            case (AgentEventScope.Thread, "logout"):
+                {
+                    var done = await _sessionClient.LogoutAsync(request.ScopeId, cancellationToken);
+                    if (!done)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict,
+                            Error: "no-active-session-or-logout-unsupported");
+                    }
+
+                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Agent logout", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
+
             case (AgentEventScope.Issue, "steer") or (AgentEventScope.Issue, "retry")
                 or (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, "steer"):
                 return new AgentControlResult(AgentControlStatus.Conflict,

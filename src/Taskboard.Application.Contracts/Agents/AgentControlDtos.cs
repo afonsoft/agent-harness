@@ -8,7 +8,7 @@ public sealed record AgentControlRequest(
     /// <summary>Escopo: <c>run</c> (pipeline/cockpit), <c>thread</c> (AI Chat) ou <c>issue</c> (board one-shot).</summary>
     string ScopeKind,
     string ScopeId,
-    /// <summary><c>cancel</c> | <c>steer</c> | <c>retry</c> | <c>set_config</c> | <c>set_mode</c>.</summary>
+    /// <summary><c>cancel</c> | <c>steer</c> | <c>retry</c> | <c>set_config</c> | <c>set_mode</c> | <c>logout</c>.</summary>
     string Action,
     /// <summary>Instrução para <c>steer</c>; prompt ajustado para <c>retry</c>;
     /// value para <c>set_config</c>; modeId para <c>set_mode</c>.</summary>
