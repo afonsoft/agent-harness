@@ -43,4 +43,11 @@ public interface IAgentOrchestrationService
     /// Retorna o run mais recente de cada issue — usado para badges do board.
     /// </summary>
     Task<IReadOnlyList<AgentRunDto>> GetLatestRunsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Snapshot dos runIds vivos (enfileirados + em execução) neste processo —
+    /// o reaper de runs stale nunca toca nesses ids
+    /// (SPEC-20260920-harness-maintenance-jobs RF-002).
+    /// </summary>
+    IReadOnlyCollection<Guid> GetLiveRunIds();
 }

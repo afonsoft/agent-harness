@@ -75,6 +75,21 @@ public sealed class EfCoreAgentRunRepository : IAgentRunRepository
         return runs.Select(ToDto).ToList();
     }
 
+    public async Task<IReadOnlyList<AgentRunDto>> GetStaleActiveRunsAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default)
+    {
+        // DateTimeOffset não traduz em WHERE no SQLite — filtra o estado no
+        // banco (conjunto pequeno) e o cutoff em memória (convenção do repo).
+        var runs = await _context.AgentRuns
+            .Where(x => x.State == AgentRunState.Queued || x.State == AgentRunState.Running)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return runs
+            .Where(x => x.StartedAt < cutoffUtc)
+            .Select(ToDto)
+            .ToList();
+    }
+
     private static AgentRunDto ToDto(AgentRun run) =>
         new(run.Id, run.IssueId, run.AgentType, run.State, run.StartedAt, run.FinishedAt, run.ModelTier, run.ModelName);
 }

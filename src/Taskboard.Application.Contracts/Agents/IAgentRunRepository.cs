@@ -21,4 +21,11 @@ public interface IAgentRunRepository
 
     /// <summary>Run mais recente por issue (para badges do board — cobre ativos e finalizados).</summary>
     Task<IReadOnlyList<AgentRunDto>> GetLatestPerIssueAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs em <c>Queued</c>/<c>Running</c> com <c>StartedAt</c> mais velho que o cutoff —
+    /// candidatos a stale reconciliados contra os runIds vivos do orchestrator
+    /// (SPEC-20260920-harness-maintenance-jobs RF-001).
+    /// </summary>
+    Task<IReadOnlyList<AgentRunDto>> GetStaleActiveRunsAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default);
 }

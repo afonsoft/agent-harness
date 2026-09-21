@@ -265,6 +265,11 @@ builder.Services.AddScoped<IFinOpsService, FinOpsService>();
 // SPEC-20260920-harness-recurring-jobs: projeção de custo sobre uso CLI a cada 30s.
 builder.Services.AddScoped<FinOpsAggregator>();
 builder.Services.AddHostedService<FinOpsAggregationService>();
+// SPEC-20260920-harness-maintenance-jobs: reaper de runs stale + drift scan horário.
+builder.Services.AddScoped<StaleRunReaper>();
+builder.Services.AddHostedService<StaleAgentRunReaperService>();
+builder.Services.AddSingleton<SpecDriftReportCache>();
+builder.Services.AddHostedService<SpecDriftScanService>();
 
 // SPEC-20260919-ade-living-specs: catálogo vivo das specs .specs/SPEC-*.md.
 builder.Services.AddSingleton<ISpecDocumentParser, MarkdigSpecParser>();
@@ -738,10 +743,16 @@ specs.MapGet("", async Task<IResult> (
 specs.MapGet("drift-report", async Task<IResult> (
         string? repo,
         ISpecDriftDetector detector,
+        SpecDriftReportCache driftCache,
         CancellationToken ct) =>
+    // Sem ?repo= serve o cache do scan horário (SPEC-20260920-harness-maintenance-jobs
+    // RF-003) com fallback ao scan ao vivo antes do primeiro tick; com ?repo= faz o
+    // scan live no clone selecionado (SPEC-20260920-global-repo-selector RF-005).
     !IsRepoShapeValid(repo)
         ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
-        : Results.Ok(await detector.BuildReportAsync(repo, ct)));
+        : Results.Ok(repo is null
+            ? driftCache.Last ?? await detector.BuildReportAsync(null, ct)
+            : await detector.BuildReportAsync(repo, ct)));
 specs.MapGet("{id}", async Task<IResult> (
         string id,
         string? repo,
