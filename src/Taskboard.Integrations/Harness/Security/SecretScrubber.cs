@@ -7,9 +7,12 @@ namespace Taskboard.Integrations.Harness.Security;
 /// SignalR or the agent context (SPEC-20260919-harness-security-permission-gateway
 /// RF-003). The original secret value is never returned, logged or persisted.
 /// </summary>
-public sealed partial class SecretScrubber
+public sealed partial class SecretScrubber : Taskboard.Agents.ISecretRedactor
 {
     public const string Redacted = "[REDACTED_SECRET]";
+
+    /// <inheritdoc />
+    public string? Redact(string? text) => text is null ? null : Scrub(text);
 
     public string Scrub(string output)
     {

@@ -190,6 +190,7 @@ DELETE /api/agents/{agentType}/models
 GET    /api/agents/runs?issueId={id}&take={n}
 GET    /api/agents/runs/active
 GET    /api/agents/logs/{issueId}
+GET    /api/agents/events?scopeKind={run|thread|issue}&scopeId={id}&after={seq}&take={n}
 POST   /api/agents/executions/{issueId}/cancel
 ```
 
@@ -202,6 +203,8 @@ The executions body accepts an optional `modelTier` (`"lite" | "normal" | "ultra
 `GET /api/agents/{agentType}/models/available` returns `{ models: [...] }` — the model ids the installed CLI reports itself via its headless list command (`opencode models`, `devin models list`, `agy models`; bounded 10s probe, cached 5min — `?refresh=true` bypasses the cache, used by the dialog's Sync button). Empty array when the CLI has no documented probe (Claude, Codex, …), is not installed, or the probe fails; `422 model-selection-unsupported` for CLI-managed agents. The Models dialog merges these ids with the curated `catalog` in an editable autocomplete.
 
 `GET /api/agents/runs?issueId=` returns the issue's latest runs (`{ id, issueId, agentType, state, startedAt, finishedAt }`, newest first; `state`: `0` Queued / `1` Running / `2` Succeeded / `3` Failed / `4` Canceled). `GET /api/agents/runs/active` returns the latest run per issue — used to render agent badges on the kanban cards.
+
+`GET /api/agents/events` (SPEC-20260921-agent-execution-event-pipeline) replays the normalized agent execution event stream persisted per scope — `scopeKind` is `run` (cockpit pipeline run), `thread` (AI Chat agent session) or `issue` (board one-shot run). Events carry `sequence` (monotonic per scope), `kind` (`lifecycle|message|thought|plan|tool_call|tool_output|permission|output|diff|verification|metric|error|approval|steer|activity`), optional `stageId`/`sessionId`/`toolCallId`/`parentEventId` correlation, `payloadJson` (redacted + truncated) and `rawJson`. `after`/`take` paginate by sequence (`400` on invalid scope). Live events also stream over SignalR `/agent-log-hub` group `agent:{scopeKind}:{scopeId}` (`SubscribeToScope`, `ReceiveAgentEvent`). ACP sessions now perform the real protocol handshake (`initialize` → `session/new` with `sessionId` capture → `session/prompt` content blocks) and answer `session/request_permission` as a JSON-RPC response; agent→client requests for undeclared capabilities get `-32601`.
 
 ### Harness — Workspace Isolation (E6)
 

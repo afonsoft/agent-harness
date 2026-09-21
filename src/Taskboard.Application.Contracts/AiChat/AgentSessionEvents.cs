@@ -21,15 +21,19 @@ public sealed record PermissionRequestInfo(
     IReadOnlyList<string> Options);
 
 /// <summary>
-/// Evento estruturado de sessão de agente emitido para a thread.
+/// Structured agent session event emitted to the thread.
 /// </summary>
+/// <param name="SessionId">ACP session id when the event carries one (session/update notifications).</param>
+/// <param name="ToolCallId">Tool call correlation id for tool_call/tool_call_update events.</param>
 public sealed record AgentSessionEvent(
     string ThreadId,
     DateTimeOffset Timestamp,
     string Kind,
     string? Role = null,
     string? Content = null,
-    string? PayloadJson = null);
+    string? PayloadJson = null,
+    string? SessionId = null,
+    string? ToolCallId = null);
 
 /// <summary>
 /// Estado do ciclo de vida da sessão interativa do agente.

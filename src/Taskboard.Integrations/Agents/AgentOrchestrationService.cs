@@ -22,6 +22,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     private readonly IAgentLogBroadcaster _logBroadcaster;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IGitHubService _gitHubService;
+    private readonly IAgentExecutionEventSink? _eventSink;
     private readonly Channel<QueuedJob> _channel = Channel.CreateUnbounded<QueuedJob>();
     private readonly ConcurrentDictionary<string, RunningJob> _running = new();
     private readonly ConcurrentDictionary<Guid, byte> _liveRunIds = new();
@@ -32,13 +33,15 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         IAgentDiscoveryService discoveryService,
         IAgentLogBroadcaster logBroadcaster,
         IServiceScopeFactory serviceScopeFactory,
-        IGitHubService gitHubService)
+        IGitHubService gitHubService,
+        IAgentExecutionEventSink? eventSink = null)
     {
         _acpClient = acpClient;
         _discoveryService = discoveryService;
         _logBroadcaster = logBroadcaster;
         _serviceScopeFactory = serviceScopeFactory;
         _gitHubService = gitHubService;
+        _eventSink = eventSink;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -566,6 +569,15 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             var repository = scope.ServiceProvider.GetRequiredService<IAgentLogRepository>();
             await repository.AppendAsync(message);
         });
+
+        // SPEC-20260921-agent-execution-event-pipeline RF-003: every line also
+        // enters the normalized persisted/sequenced stream.
+        if (_eventSink is not null)
+        {
+            _ = _eventSink.EmitAsync(
+                AgentEventNormalizer.FromLogMessage(message, AgentEventScope.Issue, issueId),
+                CancellationToken.None);
+        }
     }
 
     private sealed record QueuedJob(AgentExecutionRequest Request, Guid? RunId);

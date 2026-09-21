@@ -71,6 +71,7 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             await process.WaitForExitAsync(cancellationToken);
@@ -89,6 +90,12 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
             throw;
         }
 
-        return new AgentExecutionResult(process.ExitCode, process.ExitCode == 0);
+        // SPEC-20260921-agent-execution-event-pipeline RF-004: telemetry —
+        // wall-clock duration and the resolved model flow into run metrics.
+        return new AgentExecutionResult(
+            process.ExitCode,
+            process.ExitCode == 0,
+            Duration: stopwatch.Elapsed,
+            ModelUsed: request.ResolvedModelName);
     }
 }
