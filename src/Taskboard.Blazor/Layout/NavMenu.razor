@@ -27,6 +27,7 @@
             aria-label="Select repository"
             @onclick="ExpandSidebarAsync">
         <Icon Name="IconName.Folder2" />
+        <span class="rail-label">@RepoShortName</span>
     </button>
     <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" data-label="Board" @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Kanban" />
@@ -92,6 +93,12 @@
 
     private string _repoInput = string.Empty;
     private string? _repoWarning;
+
+    /// <summary>Repo name without the owner prefix, shown under the rail icon.</summary>
+    private string RepoShortName =>
+        RepoService.Selected?.Split('/') is { Length: > 0 } parts
+            ? parts[^1]
+            : "Repo";
 
     protected override async Task OnInitializedAsync()
     {
