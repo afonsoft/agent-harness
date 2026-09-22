@@ -14,6 +14,7 @@ PUT    /api/client-storage
 ```http
 GET    /api/local/ai/threads
 POST   /api/local/ai/threads
+GET    /api/local/ai/threads/:id
 DELETE /api/local/ai/threads/:id
 GET    /api/local/ai/threads/:id/events
 POST   /api/local/ai/threads/:id/events
@@ -390,7 +391,7 @@ GET /api/local/ai/threads/:id/events
 Accept: text/event-stream
 ```
 
-`GET .../events` é dual-mode: `Accept: application/json` retorna um snapshot único `200 { events: [{ id, threadId, role, content, createdAt }] }`; qualquer outro Accept abre stream SSE — o backlog persistido é reemitido como frames `ai_chat.event` seguidos de eventos ao vivo `ai_chat.event` (novas mensagens, incluindo deltas do assistente em streaming) e `ai_chat.run` (mudanças de status do run: `running`/`completed`/`failed`). `POST .../events` `{ role: "user|assistant|activity|error", content }` persiste e publica um evento; `POST .../runs` inicia um run em background executado pela CLI de agente vinculada à thread — one-shot, transcript como prompt (o assistente responde à última mensagem do usuário); `DELETE /api/local/ai/threads/:id` remove a thread com seus eventos e runs (204 | 404).
+`GET .../events` é dual-mode: `Accept: application/json` retorna um snapshot único `200 { events: [{ id, threadId, role, content, createdAt }] }`; qualquer outro Accept abre stream SSE — o backlog persistido é reemitido como frames `ai_chat.event` seguidos de eventos ao vivo `ai_chat.event` (novas mensagens, incluindo deltas do assistente em streaming), `ai_chat.run` (mudanças de status do run: `running`/`completed`/`failed`), `ai_chat.session` e `ai_chat.permission`. Streams ociosos sobrevivem a timeouts de leitura de reverse proxies: o servidor emite um comentário heartbeat `: hb` a cada `Taskboard:AiChat:SseHeartbeatSeconds` (default 15s, mínimo 1) e fecha a resposta normalmente quando o cliente desconecta (sem abort mid-response → sem 502 no upstream). Ids de thread desconhecidos retornam `404 { error: { code: "THREAD_NOT_FOUND" } }` nos dois modos em vez de abrir um stream que nunca produz. `GET /api/local/ai/threads/:id` retorna `200 { thread }` ou o mesmo 404. `POST .../events` `{ role: "user|assistant|activity|error", content }` persiste e publica um evento; `POST .../runs` inicia um run em background executado pela CLI de agente vinculada à thread — one-shot, transcript como prompt (o assistente responde à última mensagem do usuário); `DELETE /api/local/ai/threads/:id` remove a thread com seus eventos e runs — idempotente, sempre 204.
 
 ## Contrato de Erros
 

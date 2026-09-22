@@ -15,6 +15,22 @@ window.taskboard = {
         }
     },
 
+    // SPEC-20260922-ai-chat-command-bar RF-004: a modal must not gain
+    // aria-hidden while a descendant still holds focus — blur first so
+    // assistive tech never sees focus hidden inside the closing element.
+    blurActiveElement: function () {
+        var active = document.activeElement;
+        if (active && typeof active.blur === 'function') {
+            active.blur();
+        }
+    },
+
+    focusElement: function (el) {
+        if (el && typeof el.focus === 'function') {
+            el.focus();
+        }
+    },
+
     // SPEC-20260918-sidebar-icon-rail RF-002: desktop icon-rail collapse.
     // The html[data-sidebar-collapsed] attribute drives all rail CSS; it is
     // updated even when localStorage is unavailable (private mode) so the

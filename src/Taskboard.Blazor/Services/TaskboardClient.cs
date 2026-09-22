@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
@@ -52,16 +53,31 @@ public sealed class TaskboardClient
         return response?.Models ?? [];
     }
 
-    /// <summary>Cria uma thread de chat (201) e retorna o DTO.</summary>
-    public async Task<AiChatThreadDto?> CreateAiChatThreadAsync(
+    /// <summary>Cria uma thread de chat (201) — retorna (thread, erro) com o detail do problem+json.</summary>
+    public async Task<(AiChatThreadDto? Thread, string? Error)> CreateAiChatThreadAsync(
         CreateAiChatThreadRequest request, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync("/api/local/ai/threads", request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            return (null, await ReadErrorAsync(response, cancellationToken));
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AiChatThreadResponse>(cancellationToken);
+        return (result?.Thread, null);
+    }
+
+    /// <summary>Thread única por id (200) — SPEC-20260922 RF-002.</summary>
+    public async Task<AiChatThreadDto?> GetAiChatThreadAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
             return null;
         }
 
+        response.EnsureSuccessStatusCode();
         var result = await response.Content.ReadFromJsonAsync<AiChatThreadResponse>(cancellationToken);
         return result?.Thread;
     }
@@ -83,33 +99,33 @@ public sealed class TaskboardClient
         return response?.Events ?? [];
     }
 
-    /// <summary>Posta um evento na thread (role: user/assistant/activity/error).</summary>
-    public async Task<AiChatEventDto?> PostAiChatEventAsync(
+    /// <summary>Posta um evento na thread (role: user/assistant/activity/error) — retorna (evento, erro).</summary>
+    public async Task<(AiChatEventDto? Event, string? Error)> PostAiChatEventAsync(
         string threadId, AddAiChatEventRequest request, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/events", request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            return (null, await ReadErrorAsync(response, cancellationToken));
         }
 
         var result = await response.Content.ReadFromJsonAsync<AiChatEventResponse>(cancellationToken);
-        return result?.AiChatEvent;
+        return (result?.AiChatEvent, null);
     }
 
-    /// <summary>Inicia um run de LLM sobre o histórico da thread (201).</summary>
-    public async Task<AiChatRunDto?> StartAiChatRunAsync(string threadId, CancellationToken cancellationToken = default)
+    /// <summary>Inicia um run de LLM sobre o histórico da thread (201) — retorna (run, erro).</summary>
+    public async Task<(AiChatRunDto? Run, string? Error)> StartAiChatRunAsync(string threadId, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsync(
             $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/runs", content: null, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            return (null, await ReadErrorAsync(response, cancellationToken));
         }
 
         var result = await response.Content.ReadFromJsonAsync<AiChatRunResponse>(cancellationToken);
-        return result?.Run;
+        return (result?.Run, null);
     }
 
     /// <summary>Envia prompt para uma thread em modo agent (steer/queue) (202).</summary>
@@ -122,8 +138,8 @@ public sealed class TaskboardClient
         return response.IsSuccessStatusCode;
     }
 
-    /// <summary>SPEC-20260921-ai-code-chat-ux RF-002: enfileira prompt FIFO (201) — retorna o evento "queued" persistido.</summary>
-    public async Task<AiChatEventDto?> QueueAgentThreadPromptAsync(string threadId, string text, CancellationToken cancellationToken = default)
+    /// <summary>SPEC-20260921-ai-code-chat-ux RF-002: enfileira prompt FIFO (201) — retorna (evento "queued" persistido, erro).</summary>
+    public async Task<(AiChatEventDto? Event, string? Error)> QueueAgentThreadPromptAsync(string threadId, string text, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/queue",
@@ -131,11 +147,11 @@ public sealed class TaskboardClient
             cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            return (null, await ReadErrorAsync(response, cancellationToken));
         }
 
         var result = await response.Content.ReadFromJsonAsync<AiChatEventResponse>(cancellationToken);
-        return result?.AiChatEvent;
+        return (result?.AiChatEvent, null);
     }
 
     /// <summary>RF-002: cancela um prompt enfileirado antes do dispatch (204).</summary>
@@ -147,8 +163,8 @@ public sealed class TaskboardClient
         return response.IsSuccessStatusCode;
     }
 
-    /// <summary>RF-004: cria uma thread-fork copiando eventos até o evento selecionado (201).</summary>
-    public async Task<AiChatThreadDto?> ForkAiChatThreadAsync(string threadId, string eventId, CancellationToken cancellationToken = default)
+    /// <summary>RF-004: cria uma thread-fork copiando eventos até o evento selecionado (201) — retorna (thread, erro).</summary>
+    public async Task<(AiChatThreadDto? Thread, string? Error)> ForkAiChatThreadAsync(string threadId, string eventId, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/fork",
@@ -156,11 +172,11 @@ public sealed class TaskboardClient
             cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            return null;
+            return (null, await ReadErrorAsync(response, cancellationToken));
         }
 
         var result = await response.Content.ReadFromJsonAsync<AiChatThreadResponse>(cancellationToken);
-        return result?.Thread;
+        return (result?.Thread, null);
     }
 
     /// <summary>RF-004: reenvia o último prompt do usuário (202); cancela o turno ativo antes.</summary>
@@ -715,28 +731,27 @@ public sealed class TaskboardClient
 
     private sealed record CreatePrResponse(string PrUrl);
 
-    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken) =>
+        await ReadErrorAsync(response, cancellationToken);
+
+    /// <summary>
+    /// Extrai o motivo real de uma resposta de erro — `detail`/`code` do
+    /// problem+json ou `error.message` do envelope inline
+    /// (SPEC-20260922-ai-chat-command-bar RF-003).
+    /// </summary>
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
+        string? body = null;
         try
         {
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-            var message = document.RootElement
-                .GetProperty("error")
-                .GetProperty("message")
-                .GetString();
-            if (!string.IsNullOrWhiteSpace(message))
-            {
-                return message;
-            }
+            body = await response.Content.ReadAsStringAsync(cancellationToken);
         }
-        catch (JsonException)
-        {
-        }
-        catch (KeyNotFoundException)
+        catch (Exception)
         {
         }
 
-        return $"Request failed with status {(int)response.StatusCode}.";
+        return ProblemDetailReader.TryRead(body)
+            ?? $"Request failed with status {(int)response.StatusCode}.";
     }
 
     private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);

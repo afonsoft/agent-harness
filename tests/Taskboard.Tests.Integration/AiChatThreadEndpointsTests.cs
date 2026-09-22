@@ -80,11 +80,83 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
     }
 
     [Fact]
-    public async Task Dado_ThreadInexistente_Quando_Delete_Entao_Retorna404()
+    public async Task Dado_ThreadInexistente_Quando_Delete_Entao_Retorna204()
     {
+        // RF-002: delete é idempotente — uma linha stale (removida em outra
+        // aba/sessão ou num double-click) retorna 204, não 404.
         var client = await ApiClientAsync();
 
         var response = await client.DeleteAsync("/api/local/ai/threads/does-not-exist");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Dado_ThreadDeletada_Quando_DeleteNovamente_Entao_Retorna204()
+    {
+        var client = await ApiClientAsync();
+        var threadId = await CreateThreadAsync(client, "delete twice");
+
+        (await client.DeleteAsync($"/api/local/ai/threads/{threadId}"))
+            .StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await client.DeleteAsync($"/api/local/ai/threads/{threadId}"))
+            .StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Dado_ThreadCriada_Quando_GetThread_Entao_Retorna200ComThread()
+    {
+        // RF-002: single-thread read backsa o reload e o popup de histórico.
+        var client = await ApiClientAsync();
+        var threadId = await CreateThreadAsync(client, "single get");
+
+        var response = await client.GetAsync($"/api/local/ai/threads/{threadId}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        var thread = body?["thread"] as JsonObject;
+        thread.ShouldNotBeNull();
+        thread!["id"]!.GetValue<string>().ShouldBe(threadId);
+        thread["title"]!.GetValue<string>().ShouldBe("single get");
+    }
+
+    [Fact]
+    public async Task Dado_ThreadInexistente_Quando_GetThread_Entao_Retorna404ComCodigo()
+    {
+        var client = await ApiClientAsync();
+
+        var response = await client.GetAsync("/api/local/ai/threads/does-not-exist");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("THREAD_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task Dado_ThreadInexistente_Quando_GetEventsSse_Entao_Retorna404EmVezDeStreamPreso()
+    {
+        // RF-001/RF-002: SSE em thread desconhecida falha rápido — sem o check
+        // o handler abria um stream que nunca produzia eventos (timeout de
+        // proxy → 502 no EventSource).
+        var client = await ApiClientAsync();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/local/ai/threads/ghost-sse/events");
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("THREAD_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task Dado_ThreadInexistente_Quando_GetEventsJson_Entao_Retorna404()
+    {
+        var client = await ApiClientAsync();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/local/ai/threads/ghost-json/events");
+        request.Headers.Accept.ParseAdd("application/json");
+        var response = await client.SendAsync(request);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -320,6 +392,120 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         });
 
         create.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    private static async Task<string> CreateThreadAsync(HttpClient client, string title)
+    {
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title,
+            model = "opencode/claude-sonnet-5",
+            reasoningEffort = "medium",
+            sandbox = "read-only",
+            agentType = "OpenCode"
+        });
+        create.EnsureSuccessStatusCode();
+        var body = await create.Content.ReadFromJsonAsync<JsonObject>();
+        return body!["thread"]!["id"]!.GetValue<string>();
+    }
+}
+
+/// <summary>
+/// SPEC-20260922-ai-chat-command-bar RF-001 — o stream SSE faz replay do
+/// backlog e mantém a conexão viva com comentários <c>: hb</c> a cada
+/// <c>Taskboard:AiChat:SseHeartbeatSeconds</c> (1s aqui para o teste não
+/// esperar o default de 15s de produção).
+/// </summary>
+public class AiChatSseEndpointsTests : IClassFixture<AiChatSseEndpointsTests.FastHeartbeatFactory>
+{
+    public sealed class FastHeartbeatFactory : TaskboardWebApplicationFactory
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.UseSetting("Taskboard:AiChat:SseHeartbeatSeconds", "1");
+        }
+    }
+
+    private readonly FastHeartbeatFactory _factory;
+
+    public AiChatSseEndpointsTests(FastHeartbeatFactory factory) => _factory = factory;
+
+    [Fact]
+    public async Task Dado_EventoPersistido_Quando_SseStreamAbre_Entao_ReplaysBacklog()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var threadId = await CreateThreadAsync(client, "sse replay");
+        (await client.PostAsJsonAsync($"/api/local/ai/threads/{threadId}/events", new
+        {
+            role = "user",
+            content = "backlog-marker-xyz"
+        })).EnsureSuccessStatusCode();
+
+        var collected = await ReadSseAsync(client, threadId, ": hb", TimeSpan.FromSeconds(10));
+
+        collected.ShouldContain("event: ai_chat.event");
+        collected.ShouldContain("backlog-marker-xyz");
+    }
+
+    [Fact]
+    public async Task Dado_ThreadIdle_Quando_SseStreamAberto_Entao_HeartbeatChegaAntesDoTimeoutDeProxy()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var threadId = await CreateThreadAsync(client, "sse heartbeat");
+
+        var collected = await ReadSseAsync(client, threadId, ": hb", TimeSpan.FromSeconds(10));
+
+        collected.ShouldContain(": hb");
+    }
+
+    [Fact]
+    public async Task Dado_ClienteDesconecta_Quando_SseStreamFecha_Entao_HandlerEncerraLimpo()
+    {
+        // RF-001: cancelar o request não pode propagar como erro de upstream —
+        // o handler engole OperationCanceledException/IOException e fecha a
+        // resposta normalmente. O sinal observável: a leitura termina sem
+        // exceção de protocolo quando o client aborta.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var threadId = await CreateThreadAsync(client, "sse disconnect");
+
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var readTask = stream.ReadAsync(new byte[64], cts.Token).AsTask();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => readTask);
+    }
+
+    private static async Task<string> ReadSseAsync(HttpClient client, string threadId, string until, TimeSpan timeout)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.ShouldBe("text/event-stream");
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+        using var cts = new CancellationTokenSource(timeout);
+        var collected = new System.Text.StringBuilder();
+        while (!collected.ToString().Contains(until))
+        {
+            var line = await reader.ReadLineAsync(cts.Token);
+            if (line is null)
+            {
+                break;
+            }
+
+            collected.AppendLine(line);
+        }
+
+        return collected.ToString();
     }
 
     private static async Task<string> CreateThreadAsync(HttpClient client, string title)
