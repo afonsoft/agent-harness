@@ -18,4 +18,6 @@ public sealed record WorkflowRunDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     DateTimeOffset RunStartedAt,
-    string HtmlUrl);
+    string HtmlUrl,
+    /// <summary>Workflow that owns the run — groups repo-level run lists (SPEC-20260922-workflow-actions-resilience).</summary>
+    long WorkflowId = 0);

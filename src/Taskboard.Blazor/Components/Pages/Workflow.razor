@@ -29,18 +29,57 @@ else
     }
     @if (_errorMessage is not null)
     {
-        <div class="alert alert-danger">@_errorMessage</div>
+        <div class="alert alert-danger d-flex align-items-center">
+            <span class="me-auto">@_errorMessage</span>
+            <button class="btn btn-sm btn-outline-danger" @onclick="RefreshAsync" disabled="@_isLoadingWorkflows">
+                <Icon Name="IconName.ArrowClockwise" /> Retry
+            </button>
+        </div>
     }
 
-    @if (_isLoadingWorkflows)
+    @if (_isLoadingWorkflows && _workflows is null)
     {
         <Loading Message="Loading workflows..." />
     }
     else if (_workflows is not null)
     {
+        @if (_degraded)
+        {
+            <div class="alert alert-warning py-2">
+                <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />
+                GitHub is taking too long — showing partial data (run badges may be missing).
+            </div>
+        }
+        @if (_recentRuns is { Count: > 0 })
+        {
+            <div class="card mb-3">
+                <div class="card-header py-2 fw-semibold small">Latest runs</div>
+                <div class="list-group list-group-flush">
+                    @foreach (var run in _recentRuns)
+                    {
+                        <div class="list-group-item d-flex align-items-center gap-2 py-2" @key="run.Id">
+                            <span class="@WorkflowRunBadge.CssClass(run.Status, run.Conclusion)">
+                                @WorkflowRunBadge.Label(run.Status, run.Conclusion)
+                            </span>
+                            <span class="fw-semibold small">@run.Name</span>
+                            @if (!string.IsNullOrWhiteSpace(run.DisplayTitle))
+                            {
+                                <span class="small text-body-secondary text-truncate">@Truncate(run.DisplayTitle, 60)</span>
+                            }
+                            <span class="small text-body-secondary ms-auto text-nowrap">@run.HeadBranch</span>
+                            <span class="small text-body-secondary text-nowrap">@RelativeTime(run.CreatedAt)</span>
+                            <a href="@run.HtmlUrl" target="_blank" rel="noopener" class="small">↗</a>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
         @if (_workflows.Count == 0)
         {
-            <EmptyState Message="No GitHub Actions workflows in this repository." />
+            @if (!_degraded)
+            {
+                <EmptyState Message="No GitHub Actions workflows in this repository." />
+            }
         }
         else
         {
@@ -142,8 +181,10 @@ else
 
     private bool _isLoading = true;
     private bool _isLoadingWorkflows;
+    private bool _degraded;
     private string? _errorMessage;
     private IReadOnlyList<WorkflowDto>? _workflows;
+    private IReadOnlyList<WorkflowRunDto>? _recentRuns;
     private readonly HashSet<long> _expanded = [];
     private readonly HashSet<long> _runsLoading = [];
     private readonly Dictionary<long, IReadOnlyList<WorkflowRunDto>> _runs = new();
@@ -178,16 +219,19 @@ else
 
         _isLoadingWorkflows = true;
         _errorMessage = null;
+        _degraded = false;
         try
         {
-            var workflows = await GitHubService.GetWorkflowsAsync(repo);
+            var monitor = await GitHubService.GetWorkflowsAsync(repo);
             // Discard stale responses on rapid repo switches.
             if (!string.Equals(repo, RepoService.Selected, StringComparison.Ordinal))
             {
                 return;
             }
 
-            _workflows = workflows;
+            _workflows = monitor.Workflows;
+            _recentRuns = monitor.RecentRuns;
+            _degraded = monitor.Degraded;
             foreach (var id in _expanded.ToList())
             {
                 await LoadRunsAsync(id);
@@ -197,8 +241,8 @@ else
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Could not load workflows: {ex.Message}";
-            _workflows = null;
+            // Keep the last good render — stale data + alert beats a blank page.
+            _errorMessage = $"GitHub is taking too long or is unreachable — try again. ({ex.Message})";
         }
         finally
         {

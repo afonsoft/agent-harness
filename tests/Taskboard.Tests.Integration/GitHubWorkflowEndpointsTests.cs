@@ -55,6 +55,12 @@ public class GitHubWorkflowEndpointsTests : IClassFixture<TaskboardWebApplicatio
         lastRun.ShouldNotBeNull();
         lastRun!["conclusion"]!.GetValue<string>().ShouldBe("success");
         lastRun["headBranch"]!.GetValue<string>().ShouldBe("main");
+        lastRun["workflowId"]!.GetValue<long>().ShouldBe(11);
+        body!["degraded"]!.GetValue<bool>().ShouldBeFalse();
+        var recentRuns = body["recentRuns"] as JsonArray;
+        recentRuns.ShouldNotBeNull();
+        recentRuns!.Count.ShouldBe(1);
+        (recentRuns[0]!["id"])!.GetValue<long>().ShouldBe(9001);
     }
 
     [Fact]

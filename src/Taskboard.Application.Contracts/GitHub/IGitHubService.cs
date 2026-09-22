@@ -86,11 +86,14 @@ public interface IGitHubService
     Task<IReadOnlyList<IssueLabelEventDto>> GetIssueTimelineEventsAsync(string repositoryFullName, int issueNumber, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Lista os workflows do GitHub Actions do repositório com o run mais
-    /// recente embutido em cada um (SPEC-20260918-workflow-github-actions).
-    /// Best-effort por workflow: falha no fetch do last-run não derruba a lista.
+    /// Monitor de GitHub Actions do repositório: workflows com o run mais
+    /// recente embutido + os últimos runs repo-wide
+    /// (SPEC-20260922-workflow-actions-resilience). Best-effort: falha ou
+    /// deadline no fetch de runs degrada para <c>Degraded = true</c> com
+    /// <c>LastRun</c>/<c>RecentRuns</c> vazios — nunca derruba a lista de
+    /// workflows já obtida.
     /// </summary>
-    Task<IReadOnlyList<WorkflowDto>> GetWorkflowsAsync(string repositoryFullName, CancellationToken cancellationToken = default);
+    Task<WorkflowMonitorDto> GetWorkflowsAsync(string repositoryFullName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Últimos <paramref name="take"/> runs de um workflow específico.
