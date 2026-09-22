@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-finops-cli-usage-breakdown` |
 | Ticket | [#323 — E18](https://github.com/afonsoft/agent-harness/issues/323) |
-| Status | `Approved` |
+| Status | `Done` — delivered in PR #328 |
 | Referência | SPEC-20260919-cli-metrics, SPEC-20260919-cli-db-reader, SPEC-20260920-harness-recurring-jobs (RF-004), SPEC-20260922-finops-dashboard-detail |
 
 ## 1. User Story
