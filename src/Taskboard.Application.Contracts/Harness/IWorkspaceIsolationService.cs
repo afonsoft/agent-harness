@@ -20,6 +20,29 @@ public interface IWorkspaceIsolationService
 
     Task<WorkspaceDiffDto> GetDiffAsync(string runId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Lists the children of <paramref name="subdir"/> (or the worktree root)
+    /// — directories first, `.git` never returned, capped per directory
+    /// (SPEC-20260921-cockpit-live-logs-explorer-diff RF-003). Returns
+    /// <see langword="null"/> when the directory does not exist; throws
+    /// <see cref="DomainException"/> when the path escapes the worktree.
+    /// </summary>
+    Task<WorktreeListDto?> ListFilesAsync(
+        string runId,
+        string? subdir,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads a worktree file as text — capped in size, binary files return
+    /// <see cref="WorktreeFileContentDto.Binary"/> with null content
+    /// (RF-003). Returns <see langword="null"/> when the file does not exist;
+    /// throws <see cref="DomainException"/> when the path escapes the worktree.
+    /// </summary>
+    Task<WorktreeFileContentDto?> ReadFileAsync(
+        string runId,
+        string path,
+        CancellationToken cancellationToken = default);
+
     Task<string> CommitAsync(
         string runId,
         string message,

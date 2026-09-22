@@ -657,6 +657,40 @@ harness.MapGet("worktrees/{runId}/diff", async (
     CancellationToken ct) =>
     Results.Ok(await isolation.GetDiffAsync(runId, ct)));
 
+// SPEC-20260921-cockpit-live-logs-explorer-diff RF-003: read-only explorer —
+// lazy directory listing + capped file content, paths confined to the worktree.
+harness.MapGet("worktrees/{runId}/files", async (
+    string runId,
+    string? path,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+{
+    if (await isolation.GetAsync(runId, ct) is null)
+    {
+        return Results.NotFound();
+    }
+
+    return await isolation.ListFilesAsync(runId, path, ct) is { } list
+        ? Results.Ok(list)
+        : Results.NotFound();
+});
+
+harness.MapGet("worktrees/{runId}/files/content", async (
+    string runId,
+    string path,
+    IWorkspaceIsolationService isolation,
+    CancellationToken ct) =>
+{
+    if (await isolation.GetAsync(runId, ct) is null)
+    {
+        return Results.NotFound();
+    }
+
+    return await isolation.ReadFileAsync(runId, path, ct) is { } file
+        ? Results.Ok(file)
+        : Results.NotFound();
+});
+
 harness.MapDelete("worktrees/{runId}", async (
     string runId,
     bool force,

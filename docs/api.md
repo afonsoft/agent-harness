@@ -326,7 +326,14 @@ Cockpit "runs" are pipeline executions. `GET runs` → `200` with recent executi
 
 `POST {id}/create-pr` body `{ title, body? }` → `201 { prUrl }` — requires a `Completed` run; commits pending worktree changes, pushes the worktree branch and opens the PR via Octokit. When the run is bound to a board issue, the issue card moves to `in_review` and the PR link is commented on the issue (best-effort — board failures don't fail the request). Non-completed run → `409`; unknown run → `404`.
 
-SignalR hub `/harness-cockpit-hub` (authenticated): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` and `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). The Blazor pages are `/cockpit` (list + start) and `/cockpit/runs/{id}` (live timeline, diff tab, steer bar, approval modal, FinOps header).
+```http
+GET /api/harness/worktrees/{runId}/files?path=
+GET /api/harness/worktrees/{runId}/files/content?path=
+```
+
+Worktree explorer (SPEC-20260921 RF-003): `files?path=` lists one directory's children — `{ path, entries: [{ name, path, directory, sizeBytes? }], truncated }`, directories first, `.git` hidden, capped at 500 entries. `files/content?path=` → `{ path, content?, sizeBytes, truncated, binary }` — text capped at 512 KB (`truncated`), NUL-sniffed binaries return `binary: true` without content. All paths are confined to the run's worktree (`..`/absolute/escaping symlinks → `400`); run without worktree or missing path → `404`. `WorkspaceDiffFileDto` also carries per-file `insertions`/`deletions` (from `--numstat`), which the cockpit Diff tab renders as per-file collapse cards (RF-004).
+
+SignalR hub `/harness-cockpit-hub` (authenticated): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` and `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). The Blazor pages are `/cockpit` (list + start) and `/cockpit/runs/{id}` (live timeline, Logs terminal with follow-scroll + stage/stream filters + copy/download, Arquivos explorer tab, per-file collapsible Diff tab, steer bar, approval modal, FinOps header).
 
 ### Living Specs (E13)
 

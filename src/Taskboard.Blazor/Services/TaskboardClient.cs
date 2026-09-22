@@ -632,6 +632,28 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<WorkspaceDiffDto>(
             $"/api/harness/worktrees/{Uri.EscapeDataString(runId)}/diff", cancellationToken);
 
+    /// <summary>Lista filhos de um diretório do worktree (explorer RF-003).</summary>
+    public async Task<WorktreeListDto?> GetWorktreeFilesAsync(string runId, string? path, CancellationToken cancellationToken = default)
+    {
+        var query = string.IsNullOrEmpty(path) ? string.Empty : $"?path={Uri.EscapeDataString(path)}";
+        var response = await _httpClient.GetAsync(
+            $"/api/harness/worktrees/{Uri.EscapeDataString(runId)}/files{query}", cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<WorktreeListDto>(cancellationToken)
+            : null;
+    }
+
+    /// <summary>Conteúdo de um arquivo do worktree (explorer RF-003).</summary>
+    public async Task<WorktreeFileContentDto?> GetWorktreeFileContentAsync(string runId, string path, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/harness/worktrees/{Uri.EscapeDataString(runId)}/files/content?path={Uri.EscapeDataString(path)}",
+            cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<WorktreeFileContentDto>(cancellationToken)
+            : null;
+    }
+
     private sealed record CreatePrResponse(string PrUrl);
 
     private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)

@@ -62,7 +62,10 @@
         <button class="nav-link @(_tab == "events" ? "active" : "")" @onclick='() => SetTab("events")'>Eventos</button>
     </li>
     <li class="nav-item">
-        <button class="nav-link @(_tab == "terminal" ? "active" : "")" @onclick='() => SetTab("terminal")'>Terminal</button>
+        <button class="nav-link @(_tab == "terminal" ? "active" : "")" @onclick='() => SetTab("terminal")'>Logs</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_tab == "files" ? "active" : "")" @onclick='() => SetTab("files")'>Arquivos</button>
     </li>
     <li class="nav-item">
         <button class="nav-link @(_tab == "diff" ? "active" : "")" @onclick="LoadDiffTabAsync">Diff</button>
@@ -82,7 +85,11 @@
     }
     else if (_tab == "terminal")
     {
-        <RunTerminal Events="_events" />
+        <RunTerminal Events="_events" IsLive="IsRunLive" />
+    }
+    else if (_tab == "files")
+    {
+        <WorktreeExplorer RunId="@RunId" />
     }
     else
     {
@@ -125,6 +132,9 @@
     private ApprovalRequestDto? _pendingApproval;
 
     private string ShortId => RunId.Length > 8 ? RunId[..8] : RunId;
+
+    /// <summary>RF-001: badge "ao vivo" do terminal — execução ainda produz output.</summary>
+    private bool IsRunLive => _details?.Execution.Status is "Running" or "WaitingApproval" or "AwaitingRetry" or "Paused";
 
     private string PrTitle =>
         $"chore: pipeline {_details?.Execution.TemplateId} — {ShortId}";

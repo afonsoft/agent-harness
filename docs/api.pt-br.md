@@ -327,7 +327,14 @@ POST /api/harness/runs/{id}/create-pr
 
 `POST {id}/create-pr` body `{ title, body? }` → `201 { prUrl }` — exige run `Completed`; commita as mudanças pendentes do worktree, dá push na branch e abre o PR via Octokit. Quando o run está vinculado a uma issue do board, o card move para `in_review` e o link do PR é comentado na issue (best-effort — falhas no board não derrubam a request). Run não completado → `409`; desconhecido → `404`.
 
-Hub SignalR `/harness-cockpit-hub` (autenticado): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` e `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). As páginas Blazor são `/cockpit` (lista + start) e `/cockpit/runs/{id}` (timeline ao vivo, aba de diff, barra de steer, modal de aprovação, header FinOps).
+```http
+GET /api/harness/worktrees/{runId}/files?path=
+GET /api/harness/worktrees/{runId}/files/content?path=
+```
+
+Explorer do worktree (SPEC-20260921 RF-003): `files?path=` lista os filhos de um diretório — `{ path, entries: [{ name, path, directory, sizeBytes? }], truncated }`, diretórios primeiro, `.git` oculto, cap de 500 entradas. `files/content?path=` → `{ path, content?, sizeBytes, truncated, binary }` — texto limitado a 512 KB (`truncated`), binários detectados por NUL retornam `binary: true` sem conteúdo. Todos os paths ficam confinados ao worktree do run (`..`/absoluto/symlink que escapa → `400`); run sem worktree ou path inexistente → `404`. `WorkspaceDiffFileDto` também carrega `insertions`/`deletions` por arquivo (de `--numstat`), que a aba Diff do cockpit renderiza como cards colapsáveis por arquivo (RF-004).
+
+Hub SignalR `/harness-cockpit-hub` (autenticado): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` e `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). As páginas Blazor são `/cockpit` (lista + start) e `/cockpit/runs/{id}` (timeline ao vivo, aba Logs com follow-scroll + filtros de stage/stream + copiar/baixar, aba Arquivos explorer, aba Diff colapsável por arquivo, barra de steer, modal de aprovação, header FinOps).
 
 ### Living Specs (E13)
 

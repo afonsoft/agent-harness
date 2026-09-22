@@ -1712,3 +1712,30 @@ body {
     display: block;
     color: var(--bs-body-color);
 }
+
+/* SPEC-20260921-cockpit-live-logs-explorer-diff: terminal toolbar + explorer */
+
+.run-term-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.run-term-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: run-term-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes run-term-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.worktree-explorer .explorer-node:hover {
+    background: var(--bs-tertiary-bg);
+    border-radius: 4px;
+}
