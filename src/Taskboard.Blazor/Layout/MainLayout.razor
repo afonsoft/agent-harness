@@ -98,6 +98,9 @@
         }
     }
 
+    /// <summary>True while the desktop icon rail is active (SPEC-20260918-sidebar-icon-rail).</summary>
+    public bool IsSidebarCollapsed => _sidebarCollapsed;
+
     /// <summary>
     /// SPEC-20260920-global-repo-selector RF-003: shared entry point so the
     /// rail repo icon (NavMenu) and the brand toggle stay in sync.
