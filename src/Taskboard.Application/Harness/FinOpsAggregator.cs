@@ -64,7 +64,15 @@ public sealed class FinOpsAggregator
                 session.TokensOutput ?? 0,
                 0,
                 session.TokensCached ?? 0);
-            session.SetCost(usage.TotalTokens == 0 ? 0m : TokenCostCalculator.Calculate(rates, model, usage));
+            // SPEC-20260922 RF-007: CLI sessions whose model only matches the
+            // "*" wildcard have no real price coverage — fall back to the flat
+            // $9.5/1M rate; the cost is flagged as estimated downstream.
+            var cost = usage.TotalTokens == 0
+                ? 0m
+                : TokenCostCalculator.ResolveSpecific(rates, model) is not null
+                    ? TokenCostCalculator.Calculate(rates, model, usage)
+                    : usage.TotalTokens * FinOpsPricing.FallbackUsdPerMTok / 1_000_000m;
+            session.SetCost(cost);
         }
 
         // Persist session costs first — the bucket recompute reads them from
@@ -84,11 +92,14 @@ public sealed class FinOpsAggregator
                 DateTime.ParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture),
                 DateTimeKind.Utc);
             var dayEnd = dayStart.AddDays(1);
-            var total = await _sessions.Query
-                .Where(s => s.Kind == kind && s.CostUsd != null
+            var dayRows = await _sessions.Query
+                .Where(s => s.Kind == kind
                     && s.StartedAtUtc >= dayStart && s.StartedAtUtc < dayEnd)
-                .SumAsync(s => s.CostUsd!.Value, cancellationToken)
+                .Select(s => new { s.CostUsd, s.TokensEstimated })
+                .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
+            var total = dayRows.Where(r => r.CostUsd != null).Sum(r => r.CostUsd!.Value);
+            var allEstimated = dayRows.Count > 0 && dayRows.All(r => r.TokensEstimated);
 
             var aggregate = await _aggregates.Query
                 .FirstOrDefaultAsync(a => a.Kind == kind && a.Day == day, cancellationToken)
@@ -97,11 +108,13 @@ public sealed class FinOpsAggregator
             {
                 aggregate = CliDailyUsageAggregate.Register(kind, day, now);
                 aggregate.SetCost(total, now);
+                aggregate.SetTokensEstimated(allEstimated, now);
                 await _aggregates.AddAsync(aggregate, cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 aggregate.SetCost(total, now);
+                aggregate.SetTokensEstimated(allEstimated, now);
             }
         }
 

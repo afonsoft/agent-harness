@@ -56,7 +56,9 @@ public sealed class OpenCodeCliDbExtractor : CliDbExtractorBase
                     r.GetString("model"),
                     r.GetInt64("tokens_input"),
                     r.GetInt64("tokens_output"),
-                    (r.GetInt64("tokens_cache_read") ?? 0) + (r.GetInt64("tokens_cache_write") ?? 0)),
+                    (r.GetInt64("tokens_cache_read") ?? 0) + (r.GetInt64("tokens_cache_write") ?? 0),
+                    // Vendor schema exposes real token counters — not estimated.
+                    TokensEstimated: false),
                 Usage: new CliUsageRecord(
                     source.Name,
                     r.GetString("id") ?? string.Empty,

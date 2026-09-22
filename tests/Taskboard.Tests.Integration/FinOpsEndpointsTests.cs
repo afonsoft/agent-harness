@@ -87,4 +87,33 @@ public class FinOpsEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
+
+    [Fact]
+    public async Task Dado_PeriodoInvalido_Quando_GetSummary_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/harness/finops/summary?period=last-year");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_Periodo24h_Quando_GetSummary_Entao_BlocosDetalhe()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/harness/finops/summary?period=24h");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var summary = await response.Content.ReadFromJsonAsync<FinOpsSummaryDto>();
+        summary.ShouldNotBeNull();
+        // SPEC-20260922: blocos novos sempre presentes (vazios quando sem dados).
+        summary.TokenWindows.ShouldNotBeNull();
+        summary.ActivityBins.ShouldNotBeNull();
+        summary.ActivityBins.Count.ShouldBe(24);
+        summary.ModelUsage.ShouldNotBeNull();
+        summary.RecentSessions.ShouldNotBeNull();
+        summary.Alerts.ShouldNotBeNull();
+    }
 }

@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-finops-dashboard-detail` |
 | Ticket | [#316 — E17](https://github.com/afonsoft/agent-harness/issues/316) |
-| Status | `Approved` |
+| Status | `Done` — delivered in PR #322 |
 | Referência | Especificação externa "Session Monitor" (ingestão multi-fonte de agentes: devin/cognition SQLite, claude-code JSONL, copilot workspaceStorage, devin-desktop ACP, Devin API, DEVA-AI) — adaptada ao modelo já persistido pelo módulo `cli-metrics` |
 
 ## 1. User Story
@@ -278,31 +278,31 @@ GET /api/local/cli-metrics/sources     (existing — reused by the page)
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** CLI aggregates and run metrics in the period, **when**
+- [x] **Given** CLI aggregates and run metrics in the period, **when**
   `GET /finops/summary` is called, **then** `tokenWindows` returns correct
   24h/7d/30d sums relative to `now`.
-- [ ] **Given** a summary response, **when** the page renders, **then** the
+- [x] **Given** a summary response, **when** the page renders, **then** the
   `CliUsage` card shows sessions, in/out/cached tokens, cost and
   `CostByCli` — data that exists today but is not displayed.
-- [ ] **Given** sessions with mixed models, **when** `modelUsage` is
+- [x] **Given** sessions with mixed models, **when** `modelUsage` is
   computed, **then** keys are `"Source · Model"` and percentages sum to
   100 (± rounding).
-- [ ] **Given** period `24h`, **when** bins are built, **then** exactly 24
+- [x] **Given** period `24h`, **when** bins are built, **then** exactly 24
   hourly zero-filled bins are returned; **given** `last-30-days`, **then**
   day bins are returned (≤ 40).
-- [ ] **Given** a session with `lastActivity` 10 min ago, **when** the
+- [x] **Given** a session with `lastActivity` 10 min ago, **when** the
   recent-sessions list renders, **then** its status is `running`; at 40 min
   it is `finished`.
-- [ ] **Given** a source in `SchemaDrifted`, **when** the checklist renders,
+- [x] **Given** a source in `SchemaDrifted`, **when** the checklist renders,
   **then** it shows the drift badge + reason and an alert is present in
   `alerts`.
-- [ ] **Given** an extractor without real usage columns, **when** its
+- [x] **Given** an extractor without real usage columns, **when** its
   sessions are ingested, **then** rows persist `TokensEstimated = true` and
   the UI shows the `~` badge.
-- [ ] **Given** a CLI session whose model has no `ModelPriceRate`, **when**
+- [x] **Given** a CLI session whose model has no `ModelPriceRate`, **when**
   the costing pass runs, **then** cost = tokens × 9.5/1M and the row is
   flagged estimated.
-- [ ] **Given** `/cli-metrics/sources` failing, **when** the page loads,
+- [x] **Given** `/cli-metrics/sources` failing, **when** the page loads,
   **then** the summary still renders and a toast reports the checklist
   failure.
 
@@ -318,20 +318,20 @@ GET /api/local/cli-metrics/sources     (existing — reused by the page)
 
 ## 7. Task Plan
 
-- [ ] **T1 — Contracts + flag:** `TokensEstimated` on `CliSessionMetric` +
+- [x] **T1 — Contracts + flag:** `TokensEstimated` on `CliSessionMetric` +
   migration; DTO extensions (`TokenWindows`, `ModelUsage`, `ActivityBins`,
   `RecentSessions`, `Alerts`, `EstimatedShare`). Tests: mapping + defaults.
-- [ ] **T2 — Ingestion provenance:** extractors report whether tokens are
+- [x] **T2 — Ingestion provenance:** extractors report whether tokens are
   real; `CliMetricsService` persists the flag. Unit tests per extractor
   capability (`Dado_Quando_Entao`).
-- [ ] **T3 — Aggregation:** `FinOpsService` computes windows, distribution,
+- [x] **T3 — Aggregation:** `FinOpsService` computes windows, distribution,
   bins, recent sessions, alerts; `FinOpsAggregationService` flat-rate
   fallback. Unit tests on the math (window sums, bucket rule, alert
   thresholds, fallback pricing).
-- [ ] **T4 — UI rebuild:** `FinOps.razor` sections (KPIs + windows strip,
+- [x] **T4 — UI rebuild:** `FinOps.razor` sections (KPIs + windows strip,
   CLI usage card, distribution, sparkline, sessions table, checklist,
   alerts) + `TaskboardClient` methods. Breadcrumb/labels en-us.
-- [ ] **T5 — Validation:** `dotnet build` (warnings=errors), `dotnet test`
+- [x] **T5 — Validation:** `dotnet build` (warnings=errors), `dotnet test`
   green, coverage ≥ gate (ratchet — never below current 77%), docs
   en/pt-br, `Status = Done` + PR.
 
@@ -354,14 +354,14 @@ GET /api/local/cli-metrics/sources     (existing — reused by the page)
 
 ## 9. Definition of Done
 
-- [ ] RF-001…RF-009 implemented; ACs covered by tests.
-- [ ] `dotnet build` clean (`TreatWarningsAsErrors`); `dotnet test` green;
+- [x] RF-001…RF-009 implemented; ACs covered by tests.
+- [x] `dotnet build` clean (`TreatWarningsAsErrors`); `dotnet test` green;
   coverage ≥ gate.
-- [ ] Migration additive and reversible; existing rows keep
+- [x] Migration additive and reversible; existing rows keep
   `TokensEstimated = false`.
-- [ ] `/finops` renders all new sections and degrades gracefully when
+- [x] `/finops` renders all new sections and degrades gracefully when
   `cli-metrics` endpoints fail.
-- [ ] Docs updated (en + pt-br); `Status = Done` + PR open.
+- [x] Docs updated (en + pt-br); `Status = Done` + PR open.
 
 ## Open Questions / Pending Ambiguity
 

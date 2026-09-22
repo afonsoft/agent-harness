@@ -24,6 +24,12 @@ public sealed class CliSessionMetric : AggregateRoot<CliSessionMetricId>
     public long? TokensCached { get; private set; }
     /// <summary>Projected USD cost — set by the FinOps aggregation job (null until costed).</summary>
     public decimal? CostUsd { get; private set; }
+    /// <summary>
+    /// True when the extractor produced token counts via estimation (chars/4)
+    /// or the vendor schema lacks real usage columns.
+    /// SPEC-20260922-finops-dashboard-detail RF-006.
+    /// </summary>
+    public bool TokensEstimated { get; private set; }
     public DateTime IngestedAtUtc { get; private set; }
 
     private CliSessionMetric()
@@ -34,7 +40,7 @@ public sealed class CliSessionMetric : AggregateRoot<CliSessionMetricId>
         CliSessionMetricId id, CliMetricSourceId sourceId, AgentCliKind kind, string externalId,
         string? title, DateTime startedAtUtc, DateTime? endedAtUtc, int? messageCount,
         string? modelName, long? tokensInput, long? tokensOutput, long? tokensCached,
-        DateTime ingestedAtUtc)
+        bool tokensEstimated, DateTime ingestedAtUtc)
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(externalId))
@@ -54,20 +60,24 @@ public sealed class CliSessionMetric : AggregateRoot<CliSessionMetricId>
         TokensInput = tokensInput;
         TokensOutput = tokensOutput;
         TokensCached = tokensCached;
+        TokensEstimated = tokensEstimated;
         IngestedAtUtc = ingestedAtUtc;
     }
 
     public static CliSessionMetric Create(
         CliMetricSourceId sourceId, AgentCliKind kind, string externalId, string? title,
         DateTime startedAtUtc, DateTime? endedAtUtc, int? messageCount, string? modelName,
-        long? tokensInput, long? tokensOutput, long? tokensCached, DateTime now) =>
+        long? tokensInput, long? tokensOutput, long? tokensCached, DateTime now,
+        bool tokensEstimated = false) =>
         new(CliSessionMetricId.NewGuid(), sourceId, kind, externalId, title, startedAtUtc,
-            endedAtUtc, messageCount, modelName, tokensInput, tokensOutput, tokensCached, now);
+            endedAtUtc, messageCount, modelName, tokensInput, tokensOutput, tokensCached,
+            tokensEstimated, now);
 
     /// <summary>Re-ingest path — mutable fields only; identity never changes.</summary>
     public void Update(
         string? title, DateTime? endedAtUtc, int? messageCount, string? modelName,
-        long? tokensInput, long? tokensOutput, long? tokensCached, DateTime now)
+        long? tokensInput, long? tokensOutput, long? tokensCached, DateTime now,
+        bool tokensEstimated = false)
     {
         Title = title;
         EndedAtUtc = endedAtUtc;
@@ -76,6 +86,7 @@ public sealed class CliSessionMetric : AggregateRoot<CliSessionMetricId>
         TokensInput = tokensInput;
         TokensOutput = tokensOutput;
         TokensCached = tokensCached;
+        TokensEstimated = tokensEstimated;
         CostUsd = null; // fresh token data — FinOps aggregation re-costs on next tick
         IngestedAtUtc = now;
         IncrementVersion();

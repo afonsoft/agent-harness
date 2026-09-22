@@ -30,7 +30,10 @@ using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Application.Contracts.Specs;
 using Taskboard.Application.Specs;
+using Taskboard.Domain.Agents;
 using Taskboard.Domain.Entities;
+using Taskboard.Domain.Entities.CliMetrics;
+using Taskboard.Domain.Entities.Harness;
 using Taskboard.Domain.Issues;
 using Taskboard.Issues;
 using Taskboard.Dtos;
@@ -366,7 +369,18 @@ builder.Services.AddHostedService<PipelineEngineService>();
 builder.Services.AddSingleton<ISteerQueue, SteerQueue>();
 builder.Services.AddSingleton<ICockpitEventStream, CockpitEventStream>();
 // SPEC-20260919-ade-observability-finops: métricas de custo + budget caps.
-builder.Services.AddScoped<IFinOpsService, FinOpsService>();
+// SPEC-20260922-finops-dashboard-detail: Taskboard:FinOps (active window).
+builder.Services.AddSingleton(builder.Configuration
+    .GetSection("Taskboard:FinOps").Get<FinOpsOptions>() ?? new FinOpsOptions());
+builder.Services.AddScoped<IFinOpsService>(sp => new FinOpsService(
+    sp.GetRequiredService<IRepository<RunCostMetric>>(),
+    sp.GetRequiredService<IRepository<ModelPriceRate>>(),
+    sp.GetRequiredService<IRepository<CliDailyUsageAggregate>>(),
+    sp.GetRequiredService<IRepository<CliSessionMetric>>(),
+    sp.GetRequiredService<IRepository<CliMetricSource>>(),
+    sp.GetRequiredService<IRepository<AgentRun>>(),
+    sp.GetRequiredService<FinOpsOptions>(),
+    TimeProvider.System));
 // SPEC-20260920-harness-recurring-jobs: projeção de custo sobre uso CLI a cada 30s.
 builder.Services.AddScoped<FinOpsAggregator>();
 builder.Services.AddHostedService<FinOpsAggregationService>();
@@ -976,11 +990,15 @@ runs.MapPost("{id}/create-pr", async (
 
 // SPEC-20260919-ade-observability-finops §5: summary agregado + telemetria por run.
 var finops = api.MapGroup("harness/finops");
+// SPEC-20260922-finops-dashboard-detail §5: invalid period → 400.
+var finOpsPeriods = new HashSet<string>(StringComparer.Ordinal) { "24h", "last-7-days", "last-30-days", "all" };
 finops.MapGet("summary", async (
         string? period,
         IFinOpsService finOps,
         CancellationToken ct) =>
-    Results.Ok(await finOps.GetSummaryAsync(period ?? "last-30-days", ct)));
+    period is not null && !finOpsPeriods.Contains(period)
+        ? Results.BadRequest(new { error = $"invalid period '{period}'" })
+        : Results.Ok(await finOps.GetSummaryAsync(period ?? "last-30-days", ct)));
 harness.MapGet("runs/{id}/telemetry", async (
         string id,
         IFinOpsService finOps,

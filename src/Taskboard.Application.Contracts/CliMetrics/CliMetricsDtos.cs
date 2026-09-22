@@ -33,7 +33,9 @@ public sealed record CliSessionMetricDto(
     string? Model,
     long? InputTokens,
     long? OutputTokens,
-    long? CachedTokens);
+    long? CachedTokens,
+    /// <summary>True when token counts are estimated, not vendor-reported (SPEC-20260922 RF-006).</summary>
+    bool Estimated = false);
 
 /// <summary>Aggregate bucket for summaries — LastActivityUtc drives the /agents badge.</summary>
 public sealed record CliMetricsTotalsDto(

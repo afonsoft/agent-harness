@@ -78,7 +78,7 @@ public sealed class ClineCliDbExtractor : CliDbExtractorBase
                 source.Name, sessionId, Title: null,
                 CliDbTimestamps.EpochMs(agg.Min), EndedAtUtc: null,
                 agg.Count, ModelName: null,
-                TokensInput: null, TokensOutput: null, TokensCached: null));
+                TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true));
         }
 
         return maxRowid;

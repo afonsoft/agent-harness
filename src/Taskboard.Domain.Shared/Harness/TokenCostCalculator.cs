@@ -54,4 +54,15 @@ public static class TokenCostCalculator
 
         return best ?? wildcard;
     }
+
+    /// <summary>
+    /// Like <see cref="Resolve"/> but treats the `"*"` wildcard as no match —
+    /// used to detect CLI sessions whose model has no real price coverage so
+    /// the flat fallback applies (SPEC-20260922-finops-dashboard-detail RF-007).
+    /// </summary>
+    public static ModelPriceRateInfo? ResolveSpecific(IReadOnlyList<ModelPriceRateInfo> rates, string? modelName)
+    {
+        var rate = Resolve(rates, modelName);
+        return rate is { ModelPattern: "*" } ? null : rate;
+    }
 }

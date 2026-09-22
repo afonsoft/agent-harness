@@ -364,11 +364,11 @@ All four endpoints accept `?repo=owner/name` (SPEC-20260920 RF-005): the specs d
 ### Observability & FinOps (E14)
 
 ```http
-GET /api/harness/finops/summary?period={last-7-days|last-30-days|all}
+GET /api/harness/finops/summary?period={24h|last-7-days|last-30-days|all}
 GET /api/harness/runs/{id}/telemetry
 ```
 
-`GET summary` → `200 { totalCostUsd, totalTokens, runsCount, costByAgent{}, costByModel{}, dailyCosts: [{ date, costUsd, totalTokens }] }` aggregated from `RunCostMetrics` (SQLite). `period` defaults to `last-30-days`.
+`GET summary` → `200 { totalCostUsd, totalTokens, runsCount, costByAgent{}, costByModel{}, dailyCosts[], cliUsage?, tokenWindows?, modelUsage{}, activityBins[], recentSessions[], alerts[] }` aggregated from `RunCostMetrics` + `CliSessionMetrics`/`CliDailyUsageAggregates` (SQLite). `period` defaults to `last-30-days`; values outside the allowed set return `400`. The detail blocks (SPEC-20260922-finops-dashboard-detail) carry token windows anchored at `now`, `Source · Model` distribution, hour/day activity bins (24 hourly bins for ≤2d spans, ≤40 day bins otherwise), a merged top-10 sessions list with `running`/`finished` status derived from the `Taskboard:FinOps:ActiveWindowSeconds` window (default 1800), and `warn`/`crit` alerts. `cliUsage.estimatedShare` and per-row `estimated` flags mark token counts/costs that are estimated rather than vendor-reported; CLI models without a specific `ModelPriceRate` are costed at a flat `FinOpsPricing.FallbackUsdPerMTok` ($9.5/1M tok).
 
 `GET telemetry` → `200 { runId, totalTokens, inputTokens, outputTokens, cacheTokens, costUsd, durationSeconds?, budgetCapUsd?, metrics[] }` or `404` when the run has no recorded metrics. Accepts the `Guid` id with or without dashes.
 
