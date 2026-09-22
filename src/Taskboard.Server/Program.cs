@@ -891,42 +891,17 @@ runs.MapPost("{id}/approvals/{requestId}", async (
         : await orchestrator.RejectStageAsync(id, stageKey, request.Comment, ct);
     return Results.Ok(execution);
 });
+// RF-005: commit pending changes, push the worktree branch, open the PR; when
+// the run is bound to a board issue the card moves to in_review and the PR
+// link is commented on the issue (PipelineExecutionAppService).
 runs.MapPost("{id}/create-pr", async (
         string id,
         CreatePrRequest request,
         IPipelineOrchestrator orchestrator,
-        IWorkspaceIsolationService isolation,
-        IGitHubService gitHub,
         CancellationToken ct) =>
 {
-    var execution = await orchestrator.GetAsync(id, ct);
-    if (execution is null)
-    {
-        return Results.NotFound();
-    }
-
-    if (!string.Equals(execution.Status, PipelineStatus.Completed.ToString(), StringComparison.Ordinal))
-    {
-        return Results.Conflict(new { error = $"Run is {execution.Status} — a PR can only be created once the pipeline completes." });
-    }
-
-    var session = await isolation.GetAsync(id, ct);
-    if (session is null)
-    {
-        return Results.Conflict(new { error = "Run has no worktree — nothing to push." });
-    }
-
-    // RF-005: commit pending changes, push the worktree branch, open the PR.
-    var diff = await isolation.GetDiffAsync(id, ct);
-    if (diff.FilesChanged > 0)
-    {
-        await isolation.CommitAsync(id, request.Title, "Harness <harness@taskboard.local>", ct);
-    }
-
-    var branch = await isolation.PushAsync(id, ct);
-    var prUrl = await gitHub.CreatePullRequestAsync(
-        execution.RepositoryFullName, request.Title, branch, execution.BaseBranch, request.Body, ct);
-    return Results.Created(prUrl, (object?)new { prUrl });
+    var prUrl = await orchestrator.CreatePullRequestAsync(id, request.Title, request.Body, ct);
+    return prUrl is null ? Results.NotFound() : Results.Created(prUrl, (object?)new { prUrl });
 });
 
 // SPEC-20260919-ade-observability-finops §5: summary agregado + telemetria por run.

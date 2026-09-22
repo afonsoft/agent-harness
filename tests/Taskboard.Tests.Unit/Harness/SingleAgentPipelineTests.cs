@@ -60,7 +60,10 @@ public class SingleAgentPipelineTests : IDisposable
     private PipelineExecutionAppService CriarServico() =>
         new(
             new EfCoreRepository<PipelineExecution>(_context),
-            new PipelineEngine(_scopeFactory, _acp, _verification, NullLogger<PipelineEngine>.Instance));
+            new PipelineEngine(_scopeFactory, _acp, _verification, NullLogger<PipelineEngine>.Instance),
+            Substitute.For<IWorkspaceIsolationService>(),
+            Substitute.For<Taskboard.GitHub.IGitHubService>(),
+            NullLogger<PipelineExecutionAppService>.Instance);
 
     private static PipelineStartRequest CriarRequest(
         string templateId = PipelineTemplates.SingleAgentId,

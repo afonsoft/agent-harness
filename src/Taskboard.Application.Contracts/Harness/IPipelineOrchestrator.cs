@@ -46,6 +46,17 @@ public interface IPipelineOrchestrator
     Task<PipelineExecutionDto> CancelAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Commits pending worktree changes, pushes the run branch and opens the
+    /// PR (SPEC-20260919-ade-cockpit-hitl RF-005). When the run is bound to a
+    /// board issue the card moves to <c>in_review</c> and the PR link is
+    /// commented on the issue. Returns the PR URL; `null` when the run does
+    /// not exist; throws `InvalidPipelineState` (409) when the run is not
+    /// Completed or has no worktree.
+    /// </summary>
+    Task<string?> CreatePullRequestAsync(
+        string pipelineExecutionId, string title, string? body, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Pauses the execution between stages — in-flight stages finish, nothing
     /// new is dispatched (SPEC-20260920-cockpit-pause-resume). `null` when the
     /// run does not exist; invalid transitions throw `InvalidPipelineState` (409).

@@ -324,7 +324,7 @@ Cockpit "runs" are pipeline executions. `GET runs` → `200` with recent executi
 
 `POST {id}/approvals/{requestId}` body `{ action, comment? }` — `requestId` uses the `stage:<stageKey>` convention published by `RequireApproval`; `Allow` approves the `WaitingApproval` stage, `Deny` rejects it with the comment as the reason → `200`. Unknown run/request → `404`.
 
-`POST {id}/create-pr` body `{ title, body? }` → `201 { prUrl }` — requires a `Completed` run; commits pending worktree changes, pushes the worktree branch and opens the PR via Octokit. Non-completed run → `409`; unknown run → `404`.
+`POST {id}/create-pr` body `{ title, body? }` → `201 { prUrl }` — requires a `Completed` run; commits pending worktree changes, pushes the worktree branch and opens the PR via Octokit. When the run is bound to a board issue, the issue card moves to `in_review` and the PR link is commented on the issue (best-effort — board failures don't fail the request). Non-completed run → `409`; unknown run → `404`.
 
 SignalR hub `/harness-cockpit-hub` (authenticated): client → server `JoinRunGroup(runId)` / `LeaveRunGroup(runId)`; server → client `ReceiveCockpitEvent(CockpitEventDto)` and `RequireApproval(ApprovalRequestDto)` (`{ runId, requestId, title, description, options }`). The Blazor pages are `/cockpit` (list + start) and `/cockpit/runs/{id}` (live timeline, diff tab, steer bar, approval modal, FinOps header).
 
