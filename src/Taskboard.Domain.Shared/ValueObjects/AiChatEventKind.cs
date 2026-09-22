@@ -19,7 +19,10 @@ public sealed record AiChatEventKind : StringValueObject
         "lifecycle",
         // SPEC-20260921-acp-v1-conformance RF-007: ACP metadata kinds.
         "commands",
-        "session_info"
+        "session_info",
+        // SPEC-20260921-ai-code-chat-ux RF-003: usage_update do ACP alimenta o
+        // medidor de contexto — precisa persistir com kind próprio.
+        "metric"
     };
 
     public static readonly AiChatEventKind Message = new("message");

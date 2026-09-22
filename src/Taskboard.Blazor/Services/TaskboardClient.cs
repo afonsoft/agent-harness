@@ -122,6 +122,57 @@ public sealed class TaskboardClient
         return response.IsSuccessStatusCode;
     }
 
+    /// <summary>SPEC-20260921-ai-code-chat-ux RF-002: enfileira prompt FIFO (201) — retorna o evento "queued" persistido.</summary>
+    public async Task<AiChatEventDto?> QueueAgentThreadPromptAsync(string threadId, string text, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/queue",
+            new PromptAgentThreadRequest(text, "queue"),
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AiChatEventResponse>(cancellationToken);
+        return result?.AiChatEvent;
+    }
+
+    /// <summary>RF-002: cancela um prompt enfileirado antes do dispatch (204).</summary>
+    public async Task<bool> CancelQueuedPromptAsync(string threadId, string eventId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/queue/{Uri.EscapeDataString(eventId)}",
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-004: cria uma thread-fork copiando eventos até o evento selecionado (201).</summary>
+    public async Task<AiChatThreadDto?> ForkAiChatThreadAsync(string threadId, string eventId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/fork",
+            new ForkAiChatThreadRequest(eventId),
+            cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<AiChatThreadResponse>(cancellationToken);
+        return result?.Thread;
+    }
+
+    /// <summary>RF-004: reenvia o último prompt do usuário (202); cancela o turno ativo antes.</summary>
+    public async Task<bool> RetryAgentThreadAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/local/ai/threads/{Uri.EscapeDataString(threadId)}/retry",
+            content: null,
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     /// <summary>Envia cancelamento para uma thread em modo agent (204).</summary>
     public async Task<bool> CancelAgentThreadAsync(string threadId, CancellationToken cancellationToken = default)
     {

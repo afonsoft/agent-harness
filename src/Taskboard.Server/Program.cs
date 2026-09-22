@@ -1233,6 +1233,69 @@ api.MapPost("local/ai/threads/{id}/prompt", async (
         : Results.Conflict(new { error = new { code = "THREAD_NOT_AGENT", message = "Thread is not configured for agent mode or session failed to start." } });
 });
 
+api.MapPost("local/ai/threads/{id}/queue", async (
+    string id,
+    PromptAgentThreadRequest request,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var queued = await sessionManager.EnqueuePromptAsync(id, request.Text, ct);
+    return queued is not null
+        ? Results.Created($"/api/local/ai/threads/{id}/queue/{queued.Id}", new { aiChatEvent = queued })
+        : Results.Conflict(new { error = new { code = "THREAD_NOT_AGENT", message = "Thread is not configured for agent mode." } });
+});
+
+api.MapDelete("local/ai/threads/{id}/queue/{eventId}", async (
+    string id,
+    string eventId,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var removed = await sessionManager.CancelQueuedPromptAsync(id, eventId, ct);
+    return removed
+        ? Results.NoContent()
+        : Results.NotFound(new { error = new { code = "QUEUED_PROMPT_NOT_FOUND", message = $"Queued prompt '{eventId}' not found." } });
+});
+
+api.MapPost("local/ai/threads/{id}/fork", async (
+    string id,
+    ForkAiChatThreadRequest request,
+    AiChatService aiChatService,
+    CancellationToken ct) =>
+{
+    var thread = await aiChatService.ForkThreadAsync(AiChatThreadId.From(id), request.EventId, Actor.LocalUser(), ct);
+    return Results.Created($"/api/local/ai/threads/{thread.Id}", new { thread });
+});
+
+api.MapPost("local/ai/threads/{id}/retry", async (
+    string id,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var admitted = await sessionManager.RetryLastPromptAsync(id, ct);
+    return admitted
+        ? Results.Accepted($"/api/local/ai/threads/{id}/retry", new { admitted = true })
+        : Results.Conflict(new { error = new { code = "NO_USER_PROMPT", message = "No user prompt to retry or thread is not in agent mode." } });
+});
+
 api.MapPost("local/ai/threads/{id}/cancel", async (
     string id,
     AgentSessionManager sessionManager,

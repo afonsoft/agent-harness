@@ -1645,6 +1645,85 @@ body {
     resize: none;
 }
 
+/* SPEC-20260921-ai-code-chat-ux — tool-call renderers, queue, meter. */
+.toolcall-card {
+    max-width: 92%;
+    align-self: flex-start;
+    width: 100%;
+}
+
+.toolcall-body {
+    max-height: 320px;
+}
+
+.toolcall-path {
+    max-width: 40ch;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.toolcall-diff-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+}
+
+.toolcall-diff-add {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis, var(--bs-emphasis-color));
+}
+
+.toolcall-diff-del {
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis, var(--bs-emphasis-color));
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+}
+
+.toolcall-badge-add {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis, var(--bs-success));
+}
+
+.toolcall-badge-del {
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis, var(--bs-danger));
+}
+
+.toolcall-output {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--bs-tertiary-bg);
+    border-radius: 0.25rem;
+}
+
+.ai-chat-queued {
+    opacity: 0.85;
+    border: 1px dashed var(--bs-secondary);
+}
+
+.ai-chat-meter {
+    width: 120px;
+    height: 0.55rem;
+}
+
+.ai-chat-quickselect {
+    width: auto;
+    min-width: 9rem;
+}
+
+.ai-chat-fork-btn {
+    color: inherit;
+    opacity: 0.55;
+    padding: 0 0.2rem;
+    font-size: 0.75rem;
+    vertical-align: baseline;
+}
+
+.ai-chat-fork-btn:hover {
+    opacity: 1;
+}
+
 /* SPEC-20260919-ade-cockpit-hitl — cockpit timeline + unified diff viewer. */
 .cockpit-timeline {
     max-height: 60vh;

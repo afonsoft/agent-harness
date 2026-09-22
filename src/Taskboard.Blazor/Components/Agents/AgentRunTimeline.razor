@@ -261,8 +261,8 @@
         var outputEvt = evt.ToolCallId is null ? null
             : _events.LastOrDefault(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
         var output = outputEvt is not null ? ParseTool(outputEvt.PayloadJson) : null;
-        <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments"
-                      Status="@(output?.Status ?? tool.Status)" Output="@(output?.Output ?? tool.Output)" />
+        <ToolCallCard Model="ToolCallRenderModel.Generic(tool.Name, tool.Arguments,
+            output?.Status ?? tool.Status, output?.Output ?? tool.Output)" />
     };
 
     private RenderFragment RenderPermission(AgentExecutionEvent evt) => __builder =>

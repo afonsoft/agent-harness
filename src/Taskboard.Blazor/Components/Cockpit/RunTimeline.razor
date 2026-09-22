@@ -17,7 +17,7 @@
                 break;
             case "tool_call":
                 var tool = ParseToolCall(evt.PayloadJson);
-                <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments" Status="@tool.Status" Output="@tool.Output" />
+                <ToolCallCard Model="ToolCallRenderModel.Generic(tool.Name, tool.Arguments, tool.Status, tool.Output)" />
                 break;
             case "verification":
                 <VerificationCard Title="@evt.Title" Timestamp="@evt.TimestampUtc" />

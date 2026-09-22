@@ -19,6 +19,13 @@ GET    /api/local/ai/threads/:id/events
 POST   /api/local/ai/threads/:id/events
 POST   /api/local/ai/threads/:id/runs
 PATCH  /api/local/ai/threads/:threadId/runs/:runId
+POST   /api/local/ai/threads/:id/prompt
+POST   /api/local/ai/threads/:id/cancel
+POST   /api/local/ai/threads/:id/queue
+DELETE /api/local/ai/threads/:id/queue/:eventId
+POST   /api/local/ai/threads/:id/fork
+POST   /api/local/ai/threads/:id/retry
+POST   /api/local/ai/threads/:id/permissions/:requestId/reply
 GET    /api/local/ai/catalog
 GET    /api/local/ai/composer/candidates
 POST   /api/local/ai/composer/rebind
