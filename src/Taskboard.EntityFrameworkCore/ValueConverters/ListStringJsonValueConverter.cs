@@ -13,7 +13,27 @@ public sealed class ListStringJsonValueConverter : ValueConverter<List<string>, 
     public ListStringJsonValueConverter()
         : base(
             v => JsonSerializer.Serialize(v, Options),
-            v => JsonSerializer.Deserialize<List<string>>(v, Options) ?? new List<string>())
+            v => DeserializeOrEmpty(v))
     {
+    }
+
+    // Rows written before a column existed (e.g. NOT NULL DEFAULT '') reach the
+    // converter as empty strings; treat empty/invalid payloads as an empty list
+    // instead of throwing a JsonException during query materialization.
+    internal static List<string> DeserializeOrEmpty(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(value, Options) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 }

@@ -419,8 +419,10 @@ public sealed class AiChatService
                 new ServerSentEvent("ai_chat.run", run.ToDto()),
                 CancellationToken.None);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "AI chat run '{RunId}' on thread '{ThreadId}' failed.", runId.Value, threadId.Value);
+
             var run = await _runRepo.GetAsync(runId, ct);
             var thread = await _threadRepo.GetAsync(threadId, ct);
 

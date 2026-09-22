@@ -14,7 +14,24 @@ public sealed class JsonValueConverter<T> : ValueConverter<T, string>
     public JsonValueConverter()
         : base(
             v => JsonSerializer.Serialize(v, Options),
-            v => JsonSerializer.Deserialize<T>(v, Options)!)
+            v => DeserializeOrDefault(v)!)
     {
+    }
+
+    private static T? DeserializeOrDefault(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(value, Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }
