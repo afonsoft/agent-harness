@@ -31,3 +31,16 @@
 **Delivered**: PR #298 (merged `6960cfe`), re-deploy `taskboard-server` (health 200), docs/SPECs atualizados.
 **Remaining**: Worktree antigo `~/.taskboard/worktrees/pipe_c6bc…` segue válido via path persistido — remover manualmente quando inspeção não for mais necessária.
 **Lessons**: Em root compartilhado, nunca apagar dir existente sem provar que é worktree (gitfile) — risco de destruir clone real; `gh pr checks --watch` pode ficar stale — checar `state`/`mergeStateStatus` do PR diretamente.
+
+
+---
+
+## Sessão 2026-09-22 (tarde) — Sidebar fix + gap-analysis + rename Harness
+
+- **Sidebar nav** (pedido direto): `.nav` Bootstrap `flex-wrap: wrap` quebrava itens p/ coluna à direita → `nowrap` + espaçamento compacto. PR #305 merged (`11404db`), redeploy feito.
+- **gap-analysis** run: 11 candidatos → 2 CONFIRMADOS + spec a pedido (harness-home-rename). Epic #306 → slices #307/#308/#309.
+- **Entregas**: PR #311 (deflake PostMcpRemove — wait `/api/mcp/status` em vez de file-poll; SyncManual retry on InFlight), #312 (ratchet 73→77, baseline 77.85%), #313 (rename: `HARNESS_*` envs c/ fallback `TASKBOARD_*`, `~/.agent-harness`, `harness.sqlite` c/ migração no boot, `harness-server.service`, `install.sh --migrate`, `WithoutHarnessEnv`, `.harness-skills.json` fallback).
+- **Host migrado**: `~/.taskboard` → `~/.agent-harness`; `harness-server.service` active; `/health` 200; `harness.sqlite` migrado.
+- **Lição**: `sed -i` em symlink (`AGENTS.md→CLAUDE.md`) substitui o link por arquivo — usar `sed` só no alvo real.
+- **Lição**: `WithoutTaskboardEnv` renomeado p/ `WithoutHarnessEnv` — scrub cobre os dois prefixos.
+- Estado final: main @`2bd50ad`, 0 issues, 0 PRs, branches só `main`. Unit 1023 · Integration 263.

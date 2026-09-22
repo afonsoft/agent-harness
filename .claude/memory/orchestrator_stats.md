@@ -613,3 +613,20 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - Decisão do usuário: redeploy do `taskboard-server` de `main` @`659de3e` (padrão das sessões anteriores).
 - Worktree `~/.taskboard/worktrees/pipe_c6bc…` (sessão antiga, remoção manual pendente).
+
+
+### Sessão 2026-09-22 (tarde) — gap-analysis + harness rename
+
+| Métrica | Valor |
+|---|---|
+| Issues fechadas | #306 (epic), #307, #308, #309 |
+| PRs merged | #305 (sidebar), #310 (specs), #311 (flaky), #312 (ratchet 77), #313 (rename) |
+| Cobertura | 77.85% medido → threshold 77 |
+| Testes | unit 1023/1023, integration 263/263 |
+| Deploy | `~/.agent-harness` + `harness-server.service` active, /health 200 |
+| Flakes | **resolvidos** (PostMcpRemove status-poll, SyncManual InFlight retry) — removidos da lista de known flakes |
+
+Notas:
+- Env canonical agora `HARNESS_*` (fallback `TASKBOARD_*` deprecated 1 ciclo).
+- Home: `~/.agent-harness` · DB: `harness.sqlite` · Unit: `harness-server.service` · Wrappers: `harness-server`/`harness-mcp`.
+- `install.sh --migrate` faz o runbook de migração para outros hosts.
