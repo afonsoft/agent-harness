@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-cockpit-agent-selection-fallback` |
 | Ticket | [#330](https://github.com/afonsoft/agent-harness/issues/330) |
-| Status | `Approved` |
+| Status | `Done — delivered in PR #331` |
 | Referência | SPEC-20260919-ade-multi-agent-orchestration, SPEC-20260919-ade-cockpit-hitl, SPEC-20260920-board-cockpit-unified-runs, SPEC-20260918-agent-model-config, SPEC-20260918-agent-model-tiers, SPEC-20260917-agent-eligibility-task-badge |
 
 ## 1. User Story
