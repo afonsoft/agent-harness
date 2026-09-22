@@ -1,5 +1,13 @@
 # Orchestrator Sessions
 
+## Session — 2026-09-22 (orchestrator run, sessão 4)
+
+**Scope**: Reconciliação de issues abertas, diagnóstico do CI vermelho no PR #292, sync de SPECs, cleanup de branches.
+**Decisions**: #282/#289 já entregues (PRs #294/#293) → fechadas; CI do #292 falhava por teste `9000` chars defasado vs `MaxLength` 16384 — fix já estava em main (PR #295), resolvido com merge `origin/main` → branch (sem rebase, evita force-push); em conflito `site.css` prevaleceu a decisão mais recente (PR #300).
+**Delivered**: PR #292 merged (`0267c2d`, issue #288 fechada), PR #303 merged (`659de3e`, 3 SPECs → Done), 10 branches limpas (4 locais + 6 remotas), zero issues abertas.
+**Remaining**: Redeploy do `taskboard-server` de `main` @`659de3e` pendente de confirmação; worktree antigo `~/.taskboard/worktrees/pipe_c6bc…` aguarda remoção manual.
+**Lessons**: Teste com limite hard-coded quebra quando a constante sobe — derivar do `MaxLength` (já feito no #295); branch de PR aberto ficando velha acumula falhas que já foram corrigidas em main — mergear main cedo; `gh pr checks` mostra runs antigos da branch — confirmar por `mergeStateStatus`.
+
 ## Session — 2026-09-20 23:25
 
 **Scope**: Reconciliação pós-rename (`taskboard-ai` → `agent-harness`), fechamento de Epics E13–E16, verificação final de main.

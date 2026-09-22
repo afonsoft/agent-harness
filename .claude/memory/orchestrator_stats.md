@@ -7,7 +7,7 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-22 UTC` (sessão 4 — reconciliação + desbloqueio PR #292)
-- **fase_atual**: `Phase 7 — verificação; aguardando CI dos PRs #292 e #303`
+- **fase_atual**: `Phase 8 — fluxo encerrado, zero issues abertas, main verde @659de3e`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
@@ -602,7 +602,14 @@ As specs aprovadas nesta sessão foram registradas para execução:
 | SPEC status sync | PR #303 (acp-v2-readiness + ai-code-chat-ux → Done) |
 | Cleanup branches | 3 locais + 4 remotas deletadas (PRs merged); mantidas `feature/20260921-ai-code-thread-config` (PR #292) e `feature/agent-pipe_*` (worktree ativo) |
 
+### Phase 7 — Verificação final
+
+- `dotnet test Taskboard.sln -c Release` em main @`659de3e`: unit ✅ 1017/1017 · integration ✅ 260/262 — 2 falhas são os flakes conhecidos documentados (`McpEndpointsTests.PostMcpRemove` — `~/.claude.json` real; `CliMetricsEndpointsTests.SyncManual` — race do startup sync). Ambos passam isolados (3/3).
+- Issues abertas: **0** (#288 fechada após merge do PR #292).
+- SPECs pendentes de aprovação: **0** (acp-v2-readiness, ai-code-chat-ux, ai-code-thread-config → Done via PR #303).
+- Branches: `main` + `feature/agent-pipe_*` (worktree ativo) apenas.
+
 ### Pendente
 
-- CI do PR #292 (re-run após merge) e PR #303 — merge quando verdes.
-- Worktree `/tmp/ah-292` (descartável) e `~/.taskboard/worktrees/pipe_c6bc…` (sessão antiga, remoção manual pendente).
+- Decisão do usuário: redeploy do `taskboard-server` de `main` @`659de3e` (padrão das sessões anteriores).
+- Worktree `~/.taskboard/worktrees/pipe_c6bc…` (sessão antiga, remoção manual pendente).
