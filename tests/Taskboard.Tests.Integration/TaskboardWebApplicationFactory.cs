@@ -26,6 +26,19 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
 
     private HttpClient? _authedClient;
 
+    /// <summary>
+    /// Deterministic workspace root under the per-factory temp dir — tests
+    /// create fake repo dirs here to exercise workspace resolution
+    /// (SPEC-20260921-ai-code-thread-config RF-003).
+    /// </summary>
+    public string WorkspaceRoot { get; protected set; } = string.Empty;
+
+    /// <summary>
+    /// Enables the Web CLI Agent feature flag for subclass factories (queue/
+    /// retry endpoints return 404 otherwise). Off by default — matches prod.
+    /// </summary>
+    public bool WebCliAgentEnabled { get; protected set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Fresh data dir per factory: admin.json persists the password hash, so a
@@ -51,7 +64,14 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         builder.UseSetting("Taskboard:ApiKey", TestApiKey);
         // Deterministic workspace root — the real resolver would create ~/repos
         // on whatever machine runs the tests.
-        builder.UseSetting("Taskboard:WorkspaceRoot", Path.Combine(dataDir, "repos"));
+        if (WorkspaceRoot.Length == 0)
+        {
+            // Subclasses (e.g. SpecsFactory) may pre-seed a workspace with
+            // fixtures before the host builds.
+            WorkspaceRoot = Path.Combine(dataDir, "repos");
+        }
+
+        builder.UseSetting("Taskboard:WorkspaceRoot", WorkspaceRoot);
         // Empty home → cli-metrics locator resolves nothing (Missing), so the
         // startup sync never reads real agent databases on the test host.
         // The dir must exist — TerminalSessionManager uses it as the PTY cwd.
@@ -62,6 +82,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         // the real CLI backend (SPEC-20260921-ai-chat-cli-backend) is covered
         // by unit tests; integration tests must never spawn agent processes.
         builder.UseSetting("Taskboard:AiChat:MockProvider", "true");
+        builder.UseSetting("Taskboard:WebCliAgent:Enabled", WebCliAgentEnabled ? "true" : "false");
         builder.ConfigureServices(services =>
         {
             // GET /api/agents must not depend on which CLIs happen to be on the

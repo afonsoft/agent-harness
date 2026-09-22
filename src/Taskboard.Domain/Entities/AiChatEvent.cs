@@ -56,4 +56,18 @@ public sealed class AiChatEvent : Entity<AiChatEventId>
         string? payloadJson = null,
         DateTime? now = null)
         => new(id, threadId, role, content, now ?? DateTime.UtcNow, kind, payloadJson);
+
+    /// <summary>
+    /// Queued prompt dispatched as <c>session/prompt</c> — the event becomes a
+    /// regular user message (SPEC-20260921-ai-code-chat-ux RF-002).
+    /// </summary>
+    public void MarkDispatched()
+    {
+        if (Role != AiChatEventRole.Queued)
+        {
+            return;
+        }
+
+        Role = AiChatEventRole.User;
+    }
 }

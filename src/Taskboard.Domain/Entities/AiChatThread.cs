@@ -18,6 +18,10 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     public AgentType? AgentType { get; private set; }
     public string? WorkspacePath { get; private set; }
     public string? RepositoryFullName { get; private set; }
+    /// <summary>SPEC-20260921-ai-code-thread-config RF-006: tier escolhido na criação (Lite|Normal|Ultra), quando aplicável.</summary>
+    public string? ModelTier { get; private set; }
+    /// <summary>SPEC-20260921-ai-code-thread-config RF-006: catálogo que serviu o modelo efetivo (acp|probe|curated|custom).</summary>
+    public string? ModelSource { get; private set; }
     public IReadOnlyCollection<AiChatRun> Runs => _runs.AsReadOnly();
     public IReadOnlyCollection<AiChatEvent> Events => _events.AsReadOnly();
     public DateTime CreatedAt { get; private set; }
@@ -64,8 +68,17 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         string reasoningEffort,
         Sandbox sandbox,
         DateTime? now = null,
-        AgentType? agentType = null)
-        => new(id, title, model, reasoningEffort, sandbox, now ?? DateTime.UtcNow, agentType: agentType);
+        AgentType? agentType = null,
+        string? repositoryFullName = null)
+        => new(
+            id,
+            title,
+            model,
+            reasoningEffort,
+            sandbox,
+            now ?? DateTime.UtcNow,
+            agentType: agentType,
+            repositoryFullName: repositoryFullName);
 
     public static AiChatThread CreateAgentThread(
         AiChatThreadId id,
@@ -131,6 +144,17 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         }
         UpdatedAt = now ?? DateTime.UtcNow;
         IncrementVersion();
+    }
+
+    /// <summary>
+    /// Records which catalog served the effective model choice
+    /// (SPEC-20260921-ai-code-thread-config RF-006) — pure audit metadata,
+    /// set once at creation.
+    /// </summary>
+    public void SetModelChoice(string? modelTier, string? modelSource)
+    {
+        ModelTier = modelTier;
+        ModelSource = modelSource;
     }
 
     public void SetStatus(AiChatThreadStatus status, DateTime? now = null)

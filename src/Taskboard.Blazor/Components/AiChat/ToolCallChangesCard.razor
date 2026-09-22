@@ -1,0 +1,47 @@
+@using Taskboard.Application.Contracts.AiChat
+
+@*
+    SPEC-20260921-ai-code-chat-ux RF-001: edições consecutivas agregam num
+    card "changes" com path e contagem +/- por arquivo.
+*@
+
+<div class="card my-2 border-secondary-subtle toolcall-card">
+    <div class="card-header py-1 px-2 d-flex align-items-center gap-2 bg-body-tertiary">
+        <span class="badge text-bg-warning">changes</span>
+        <strong class="small">@Items.Count files changed</strong>
+        <span class="ms-auto d-flex align-items-center gap-2">
+            <span class="badge toolcall-badge-add">+@Items.Sum(i => i.AddedLines)</span>
+            <span class="badge toolcall-badge-del">-@Items.Sum(i => i.RemovedLines)</span>
+            <button type="button" class="btn btn-sm btn-link py-0" @onclick="() => _expanded = !_expanded">
+                @(_expanded ? "hide diffs" : "show diffs")
+            </button>
+        </span>
+    </div>
+    <ul class="list-group list-group-flush small font-monospace">
+        @foreach (var item in Items)
+        {
+            <li class="list-group-item py-1 px-2 d-flex align-items-center gap-2">
+                <code class="text-truncate toolcall-path" title="@item.Path">@(item.Path ?? item.Title)</code>
+                <span class="ms-auto">
+                    <span class="badge toolcall-badge-add">+@item.AddedLines</span>
+                    <span class="badge toolcall-badge-del">-@item.RemovedLines</span>
+                </span>
+            </li>
+        }
+    </ul>
+    @if (_expanded)
+    {
+        <div class="card-body p-2">
+            @foreach (var item in Items)
+            {
+                <ToolCallCard Model="item" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ToolCallRenderModel> Items { get; set; } = default!;
+
+    private bool _expanded;
+}

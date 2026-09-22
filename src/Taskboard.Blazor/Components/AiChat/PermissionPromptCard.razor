@@ -1,27 +1,54 @@
+@using Taskboard.Application.Contracts.AiChat
+
+@*
+    SPEC-20260921-ai-code-chat-ux RF-001: cartão de permissão dirigido pelas
+    options anunciadas pelo agente (allow_once/allow_always/reject_*) — cada
+    botão mapeia para o outcome canônico do gate.
+*@
+
 <div class="alert alert-warning my-2 p-3 border-warning">
     <div class="d-flex align-items-center gap-2 mb-2">
         <span class="badge text-bg-warning">permission request</span>
-        <strong>Tool: @Tool</strong>
+        <strong>Tool: @Request.Tool</strong>
     </div>
-    <p class="mb-2 small font-monospace">@Detail</p>
-    <div class="d-flex gap-2">
-        <Button Color="ButtonColor.Success" Size="ButtonSize.Small" @onclick='() => ReplyAsync("allow")'>
-            Allow Once
-        </Button>
-        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick='() => ReplyAsync("always")'>
-            Always in Session
-        </Button>
-        <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick='() => ReplyAsync("deny")'>
-            Deny
-        </Button>
+    @if (!string.IsNullOrWhiteSpace(Request.Detail))
+    {
+        <pre class="mb-2 small font-monospace toolcall-output p-2">@Request.Detail</pre>
+    }
+    <div class="d-flex gap-2 flex-wrap">
+        @foreach (var option in VisibleOptions)
+        {
+            var mapped = MapOption(option);
+            <Button Color="mapped.Color" Size="ButtonSize.Small" @onclick='() => ReplyAsync(mapped.Outcome)'>
+                @mapped.Label
+            </Button>
+        }
     </div>
 </div>
 
 @code {
-    [Parameter] public string RequestId { get; set; } = string.Empty;
-    [Parameter] public string Tool { get; set; } = string.Empty;
-    [Parameter] public string Detail { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public PermissionRequestInfo Request { get; set; } = default!;
     [Parameter] public EventCallback<(string RequestId, string Outcome)> OnReply { get; set; }
 
-    private Task ReplyAsync(string outcome) => OnReply.InvokeAsync((RequestId, outcome));
+    private IReadOnlyList<string> VisibleOptions =>
+        Request.Options.Count > 0 ? Request.Options : ["allow", "always", "deny"];
+
+    private Task ReplyAsync(string outcome) => OnReply.InvokeAsync((Request.RequestId, outcome));
+
+    private static (string Outcome, string Label, ButtonColor Color) MapOption(string option)
+    {
+        var o = option.Replace('-', '_').ToLowerInvariant();
+        var label = string.Join(' ', o.Split('_', StringSplitOptions.RemoveEmptyEntries));
+        if (o.Contains("always"))
+        {
+            return ("always", label, ButtonColor.Primary);
+        }
+
+        if (o.StartsWith("reject") || o.StartsWith("deny"))
+        {
+            return ("deny", label, ButtonColor.Danger);
+        }
+
+        return ("allow", label, ButtonColor.Success);
+    }
 }

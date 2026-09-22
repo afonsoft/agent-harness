@@ -92,6 +92,9 @@ public class AiChatServiceAgentBindingTests
             eligibility,
             Substitute.For<ICliChatRunner>(),
             new ConfigurationBuilder().Build(),
-            Substitute.For<Microsoft.Extensions.Logging.ILogger<AiChatService>>());
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<AiChatService>>(),
+            Substitute.For<Taskboard.Application.Contracts.Workspace.IWorkspacePathResolver>(),
+            Substitute.For<IAgentModelConfigService>(),
+            Substitute.For<IAgentModelCatalogService>());
     }
 }

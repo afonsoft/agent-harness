@@ -19,7 +19,9 @@ public static class DomainMappingExtensions
             thread.Mode,
             thread.AgentType?.ToString(),
             thread.WorkspacePath,
-            thread.RepositoryFullName);
+            thread.RepositoryFullName,
+            thread.ModelTier,
+            thread.ModelSource);
 
     public static AiChatRunDto ToDto(this AiChatRun run)
         => new(

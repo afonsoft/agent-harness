@@ -221,6 +221,8 @@ builder.Services.AddSingleton<AcpSessionClient>(sp =>
         sp.GetRequiredService<AcpSessionOptions>(),
         sp.GetService<IAcpClientToolHandler>()));
 builder.Services.AddSingleton<IAgentSessionClient>(sp => sp.GetRequiredService<AcpSessionClient>());
+// SPEC-20260921-ai-code-thread-config RF-005: modelos reportados pela sessão ACP.
+builder.Services.AddSingleton<IAgentSessionModelCatalog, AcpSessionModelCatalog>();
 builder.Services.AddSingleton<PermissionGate>();
 builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
@@ -1104,8 +1106,8 @@ api.MapPost("local/jira-connection/sync", async (IJiraService jira, Cancellation
     var result = await jira.SyncAsync(ct);
     return Results.Ok(result);
 });
-api.MapGet("local/ai/catalog", async (AiChatCatalogService catalog, CancellationToken ct) =>
-    Results.Ok(new { models = await catalog.ListAsync(ct) }));
+api.MapGet("local/ai/catalog", async (string? threadId, AiChatCatalogService catalog, CancellationToken ct) =>
+    Results.Ok(new { models = await catalog.ListAsync(threadId, ct) }));
 api.MapPost("local/ai/catalog", async (AiChatModelDto model, AiChatCatalogService catalog, CancellationToken ct) =>
 {
     var error = await catalog.AddAsync(model, ct);
@@ -1206,6 +1208,69 @@ api.MapPost("local/ai/threads/{id}/prompt", async (
     return admitted
         ? Results.Accepted($"/api/local/ai/threads/{id}/prompt", new { admitted = true })
         : Results.Conflict(new { error = new { code = "THREAD_NOT_AGENT", message = "Thread is not configured for agent mode or session failed to start." } });
+});
+
+api.MapPost("local/ai/threads/{id}/queue", async (
+    string id,
+    PromptAgentThreadRequest request,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var queued = await sessionManager.EnqueuePromptAsync(id, request.Text, ct);
+    return queued is not null
+        ? Results.Created($"/api/local/ai/threads/{id}/queue/{queued.Id}", new { aiChatEvent = queued })
+        : Results.Conflict(new { error = new { code = "THREAD_NOT_AGENT", message = "Thread is not configured for agent mode." } });
+});
+
+api.MapDelete("local/ai/threads/{id}/queue/{eventId}", async (
+    string id,
+    string eventId,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var removed = await sessionManager.CancelQueuedPromptAsync(id, eventId, ct);
+    return removed
+        ? Results.NoContent()
+        : Results.NotFound(new { error = new { code = "QUEUED_PROMPT_NOT_FOUND", message = $"Queued prompt '{eventId}' not found." } });
+});
+
+api.MapPost("local/ai/threads/{id}/fork", async (
+    string id,
+    ForkAiChatThreadRequest request,
+    AiChatService aiChatService,
+    CancellationToken ct) =>
+{
+    var thread = await aiChatService.ForkThreadAsync(AiChatThreadId.From(id), request.EventId, Actor.LocalUser(), ct);
+    return Results.Created($"/api/local/ai/threads/{thread.Id}", new { thread });
+});
+
+api.MapPost("local/ai/threads/{id}/retry", async (
+    string id,
+    AgentSessionManager sessionManager,
+    IConfiguration config,
+    CancellationToken ct) =>
+{
+    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    {
+        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+    }
+
+    var admitted = await sessionManager.RetryLastPromptAsync(id, ct);
+    return admitted
+        ? Results.Accepted($"/api/local/ai/threads/{id}/retry", new { admitted = true })
+        : Results.Conflict(new { error = new { code = "NO_USER_PROMPT", message = "No user prompt to retry or thread is not in agent mode." } });
 });
 
 api.MapPost("local/ai/threads/{id}/cancel", async (

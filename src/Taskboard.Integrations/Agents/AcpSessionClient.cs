@@ -108,6 +108,10 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     public AcpPeerInfo? GetPeerInfo(string threadId) =>
         _sessions.TryGetValue(threadId, out var holder) ? holder.Peer : null;
 
+    /// <summary>Agent CLI bound to the thread's live session, if any.</summary>
+    public AgentType? GetSessionAgentType(string threadId) =>
+        _sessions.TryGetValue(threadId, out var holder) ? holder.Spawn.AgentType : null;
+
     public async Task<bool> StartSessionAsync(
         string threadId,
         AgentType agentType,
@@ -1494,7 +1498,19 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
         WithoutTaskboardEnv.RemoveFrom(startInfo.Environment);
 
-        var process = Process.Start(startInfo);
+        Process? process;
+        try
+        {
+            process = Process.Start(startInfo);
+        }
+        catch (Exception ex)
+        {
+            // Missing binary/bad workdir must degrade like the TCP path —
+            // an error event + null, never an exception through the endpoint.
+            EmitEvent(threadId, "error", "system", $"Could not start agent process: {ex.Message}", null);
+            return null;
+        }
+
         if (process is null)
         {
             return null;
