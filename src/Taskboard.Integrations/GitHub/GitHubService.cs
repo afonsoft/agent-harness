@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Octokit;
 using Taskboard.GitHub;
 
@@ -10,13 +11,17 @@ public sealed class GitHubService : IGitHubService
 {
     private const string ProductName = "TaskBoardAI";
     private readonly GitHubClient _client;
+    private readonly ILogger<GitHubService>? _logger;
 
     /// <summary>
     /// Cria uma nova instância do serviço de integração com GitHub.
     /// </summary>
-    public GitHubService()
+    public GitHubService(IConnection? connection = null, ILogger<GitHubService>? logger = null)
     {
-        _client = new GitHubClient(new ProductHeaderValue(ProductName));
+        _logger = logger;
+        _client = connection is not null
+            ? new GitHubClient(connection)
+            : new GitHubClient(new ProductHeaderValue(ProductName));
 
         var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
         if (!string.IsNullOrWhiteSpace(token))
@@ -335,7 +340,7 @@ public sealed class GitHubService : IGitHubService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<WorkflowDto>> GetWorkflowsAsync(
+    public async Task<WorkflowMonitorDto> GetWorkflowsAsync(
         string repositoryFullName,
         CancellationToken cancellationToken = default)
     {
@@ -345,37 +350,56 @@ public sealed class GitHubService : IGitHubService
         var response = await _client.Actions.Workflows.List(owner, name);
         var workflows = response.Workflows;
 
-        // Last-run fetch per workflow: capped at 20, at most 8 concurrent —
-        // repos with many workflows stay responsive (SPEC guardrail).
-        const int maxLastRunFetches = 20;
-        using var semaphore = new SemaphoreSlim(8);
-        var enriched = await Task.WhenAll(workflows.Take(maxLastRunFetches).Select(async w =>
+        // SPEC-20260922-workflow-actions-resilience: a single repo-level runs
+        // call replaces the per-workflow N+1. Octokit does not observe the
+        // CancellationToken, so the deadline races via Task.WhenAny — a slow
+        // or failed call degrades to badge-less workflows instead of timing
+        // the whole page out.
+        IReadOnlyList<WorkflowRun> runs = [];
+        var degraded = false;
+        try
         {
-            WorkflowRunDto? lastRun = null;
-            try
+            var pageSize = Math.Clamp(workflows.Count * 5, 20, 100);
+            var runsTask = _client.Actions.Workflows.Runs.List(
+                owner, name, new WorkflowRunsRequest(), new ApiOptions { PageSize = pageSize });
+            var timeoutTask = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            if (await Task.WhenAny(runsTask, timeoutTask) == runsTask)
             {
-                await semaphore.WaitAsync(cancellationToken);
-                var runs = await _client.Actions.Workflows.Runs.ListByWorkflow(
-                    owner, name, w.Id, new WorkflowRunsRequest(), new ApiOptions { PageSize = 1 });
-                lastRun = runs.WorkflowRuns.FirstOrDefault() is { } r ? MapRun(r) : null;
+                runs = (await runsTask).WorkflowRuns;
             }
-            catch (ApiException)
+            else
             {
-                // Best-effort: a workflow whose runs are not listable keeps no badge.
+                ObserveFault(runsTask);
+                degraded = true;
             }
-            finally
-            {
-                semaphore.Release();
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "Workflow runs enrichment failed for {Repository}", repositoryFullName);
+            degraded = true;
+        }
 
-            return MapWorkflow(w, lastRun);
-        }));
+        var lastRunByWorkflow = runs
+            .GroupBy(r => r.WorkflowId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CreatedAt).First());
 
-        var rest = workflows.Skip(maxLastRunFetches).Select(w => MapWorkflow(w, null));
-        return enriched.Concat(rest)
+        var enriched = workflows
+            .Select(w => MapWorkflow(
+                w,
+                lastRunByWorkflow.TryGetValue(w.Id, out var run) ? MapRun(run) : null))
             .OrderByDescending(w => w.LastRun?.CreatedAt ?? DateTimeOffset.MinValue)
             .ToList()
             .AsReadOnly();
+
+        var recentRuns = runs
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(5)
+            .Select(MapRun)
+            .ToList()
+            .AsReadOnly();
+
+        return new WorkflowMonitorDto(enriched, recentRuns, degraded);
     }
 
     /// <inheritdoc />
@@ -419,7 +443,8 @@ public sealed class GitHubService : IGitHubService
         run.CreatedAt,
         run.UpdatedAt,
         run.RunStartedAt,
-        run.HtmlUrl);
+        run.HtmlUrl,
+        run.WorkflowId);
 
     private static IssueCommentDto MapToDto(IssueComment comment) => new(
         comment.Id,
@@ -502,6 +527,13 @@ public sealed class GitHubService : IGitHubService
 
         return (parts[0], parts[1]);
     }
+
+    private static void ObserveFault(Task task) =>
+        _ = task.ContinueWith(
+            t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
 
     private void EnsureAuthenticated()
     {

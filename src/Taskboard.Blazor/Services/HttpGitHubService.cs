@@ -202,7 +202,7 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         throw new NotSupportedException(
             "Raw label events are server-side only — the client reads the aggregated timeline via ITimelineMetricsService.");
 
-    public async Task<IReadOnlyList<WorkflowDto>> GetWorkflowsAsync(
+    public async Task<WorkflowMonitorDto> GetWorkflowsAsync(
         string repositoryFullName,
         CancellationToken cancellationToken = default)
     {
@@ -210,8 +210,8 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         var response = await http.GetAsync($"/api/github/repos/{owner}/{repo}/workflows", cancellationToken);
         await ThrowOnTokenMissingAsync(response, cancellationToken);
         response.EnsureSuccessStatusCode();
-        var result = await response.Content.ReadFromJsonAsync<WorkflowsResponse>(cancellationToken);
-        return result?.Workflows ?? [];
+        var result = await response.Content.ReadFromJsonAsync<WorkflowMonitorDto>(cancellationToken);
+        return result ?? new WorkflowMonitorDto([], [], false);
     }
 
     public async Task<IReadOnlyList<WorkflowRunDto>> GetWorkflowRunsAsync(
@@ -280,7 +280,6 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
     private sealed record CloseIssueRequest(string Resolution);
     private sealed record CommentsResponse(List<IssueCommentDto> Comments);
     private sealed record CommentResponse(IssueCommentDto Comment);
-    private sealed record WorkflowsResponse(List<WorkflowDto> Workflows);
     private sealed record WorkflowRunsResponse(List<WorkflowRunDto> Runs);
     private sealed record AddCommentRequest(string Body);
     private sealed record CreatePullRequestBody(string Title, string Head, string BaseBranch, string? Body);

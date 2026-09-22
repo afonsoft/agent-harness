@@ -1908,12 +1908,34 @@ github.MapGet("repos/{owner}/{repo}/workflows", async (
     string owner,
     string repo,
     IGitHubService gitHub,
+    IConfiguration config,
+    ILoggerFactory loggerFactory,
     CancellationToken ct) =>
 {
+    // SPEC-20260922-workflow-actions-resilience RF-002 — explicit deadline:
+    // the page must degrade, not hang until the client's ~100s HTTP timeout.
+    var deadlineSeconds = Math.Max(1, config.GetValue("Taskboard:GitHub:WorkflowsDeadlineSeconds", 25));
+    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    deadline.CancelAfter(TimeSpan.FromSeconds(deadlineSeconds));
+
     try
     {
-        var workflows = await gitHub.GetWorkflowsAsync($"{owner}/{repo}", ct);
-        return Results.Ok(new { workflows });
+        var monitorTask = gitHub.GetWorkflowsAsync($"{owner}/{repo}", deadline.Token);
+        var timeoutTask = Task.Delay(Timeout.InfiniteTimeSpan, deadline.Token);
+        if (await Task.WhenAny(monitorTask, timeoutTask) != monitorTask)
+        {
+            _ = monitorTask.ContinueWith(
+                t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+            loggerFactory.CreateLogger("GitHub.Workflows").LogWarning(
+                "Workflows deadline of {Seconds}s exceeded for {Owner}/{Repo}",
+                deadlineSeconds, owner, repo);
+            return Results.Ok(new WorkflowMonitorDto([], [], true));
+        }
+
+        return Results.Ok(await monitorTask);
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {

@@ -229,16 +229,19 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             CreatedAt: DateTimeOffset.UtcNow.AddMinutes(-30),
             UpdatedAt: DateTimeOffset.UtcNow.AddMinutes(-20),
             RunStartedAt: DateTimeOffset.UtcNow.AddMinutes(-30),
-            HtmlUrl: "https://github.com/x/y/actions/runs/9001");
+            HtmlUrl: "https://github.com/x/y/actions/runs/9001",
+            WorkflowId: 11);
 
-        public Task<IReadOnlyList<Taskboard.GitHub.WorkflowDto>> GetWorkflowsAsync(
+        public Task<Taskboard.GitHub.WorkflowMonitorDto> GetWorkflowsAsync(
             string repositoryFullName, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<Taskboard.GitHub.WorkflowDto>>(
+            Task.FromResult(new Taskboard.GitHub.WorkflowMonitorDto(
             [
                 new Taskboard.GitHub.WorkflowDto(
                     11, "CI", ".github/workflows/dotnet.yml", "active",
                     "https://github.com/x/y/actions/workflows/dotnet.yml", WorkflowRun)
-            ]);
+            ],
+            [WorkflowRun],
+            Degraded: false));
 
         public Task<IReadOnlyList<Taskboard.GitHub.WorkflowRunDto>> GetWorkflowRunsAsync(
             string repositoryFullName, long workflowId, int take = 10,
