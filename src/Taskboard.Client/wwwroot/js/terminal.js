@@ -164,6 +164,64 @@ window.taskboardTerminal = (() => {
         }
     }
 
+    // SPEC-20260921-cockpit-live-logs-explorer-diff RF-001: follow-scroll —
+    // o pill "novos logs" aparece quando o usuário sobe do fim; voltar ao fim
+    // (clique ou scroll manual) esconde e reativa o auto-scroll do xterm.
+    function watchScroll(elementId, pillId) {
+        const e = terms.get(elementId);
+        const pill = document.getElementById(pillId);
+        if (!e || !pill) {
+            return;
+        }
+        e.scrollDispose = e.term.onScroll(() => {
+            const buf = e.term.buffer.active;
+            pill.style.display = buf.viewportY < buf.baseY ? '' : 'none';
+        });
+    }
+
+    function isAtBottom(elementId) {
+        const e = terms.get(elementId);
+        if (!e) {
+            return true;
+        }
+        const buf = e.term.buffer.active;
+        return buf.viewportY >= buf.baseY;
+    }
+
+    function scrollToBottom(elementId) {
+        const e = terms.get(elementId);
+        if (e) {
+            e.term.scrollToBottom();
+        }
+    }
+
+    // Todo o conteúdo do buffer (scrollback + tela) como texto — copiar/baixar.
+    function getText(elementId) {
+        const e = terms.get(elementId);
+        if (!e) {
+            return '';
+        }
+        const buf = e.term.buffer.active;
+        const lines = [];
+        for (let i = 0; i < buf.length; i++) {
+            const line = buf.getLine(i);
+            if (line) {
+                lines.push(line.translateToString(true));
+            }
+        }
+        return lines.join('\n');
+    }
+
+    function downloadText(filename, text) {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
     function focus(elementId) {
         const e = terms.get(elementId);
         if (e) {
@@ -199,6 +257,9 @@ window.taskboardTerminal = (() => {
         if (e.onPaste) {
             e.el.removeEventListener('paste', e.onPaste, true);
         }
+        if (e.scrollDispose) {
+            e.scrollDispose.dispose();
+        }
         e.term.dispose();
         terms.delete(elementId);
     }
@@ -209,5 +270,8 @@ window.taskboardTerminal = (() => {
         }
     }
 
-    return { init, initReadOnly, write, focus, fitNow, reset, dispose, disposeAll };
+    return {
+        init, initReadOnly, write, focus, fitNow, reset, dispose, disposeAll,
+        watchScroll, isAtBottom, scrollToBottom, getText, downloadText
+    };
 })();

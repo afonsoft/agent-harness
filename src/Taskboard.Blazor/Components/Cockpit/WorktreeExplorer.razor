@@ -1,0 +1,166 @@
+@* SPEC-20260921-cockpit-live-logs-explorer-diff RF-003: explorer read-only do
+   worktree — árvore lazy (diretórios carregam sob demanda) + viewer do arquivo
+   selecionado. `.git` nunca aparece; binários/truncados vêm sinalizados. *@
+@inject TaskboardClient Client
+
+@if (_loadFailed)
+{
+    <div class="text-body-secondary small p-3">Sem worktree disponível para este run.</div>
+}
+else
+{
+    <div class="row g-0 worktree-explorer" style="min-height: 55vh;">
+        <div class="col-md-4 border-end explorer-tree" style="max-height: 60vh; overflow: auto;">
+            @if (_rootLoading)
+            {
+                <Loading Message="Listando arquivos..." />
+            }
+            else
+            {
+                <ul class="list-unstyled mb-0 small py-1">
+                    @foreach (var item in VisibleEntries())
+                    {
+                        var entry = item.Entry;
+                        <li>
+                            @if (entry.Directory)
+                            {
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none text-body w-100 text-start py-0 px-1 explorer-node"
+                                        style="padding-left: @(item.Depth * 14 + 4)px !important;"
+                                        @onclick="() => ToggleDirectoryAsync(entry)">
+                                    <Icon Name="@(_expanded.Contains(entry.Path) ? IconName.Folder2Open : IconName.Folder)" />
+                                    <span class="ms-1">@entry.Name</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none w-100 text-start py-0 px-1 explorer-node @(entry.Path == _selectedPath ? "fw-bold text-primary" : "text-body")"
+                                        style="padding-left: @(item.Depth * 14 + 4)px !important;"
+                                        @onclick="() => SelectFileAsync(entry)">
+                                    <Icon Name="IconName.FileEarmark" />
+                                    <span class="ms-1">@entry.Name</span>
+                                </button>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+        <div class="col-md-8 explorer-viewer" style="max-height: 60vh; overflow: auto;">
+            @if (_viewerLoading)
+            {
+                <Loading Message="Abrindo arquivo..." />
+            }
+            else if (_viewer is not null)
+            {
+                <div class="d-flex align-items-center gap-2 px-2 py-1 small border-bottom bg-body-tertiary sticky-top">
+                    <code>@_viewer.Path</code>
+                    <span class="text-body-secondary">@FormatSize(_viewer.SizeBytes)</span>
+                    @if (_viewer.Truncated)
+                    {
+                        <span class="badge text-bg-warning">truncado (&gt;512 KB)</span>
+                    }
+                    @if (_viewer.Binary)
+                    {
+                        <span class="badge text-bg-secondary">binário</span>
+                    }
+                </div>
+                @if (_viewer.Binary)
+                {
+                    <div class="text-body-secondary small p-3">Arquivo binário — visualização não disponível.</div>
+                }
+                else
+                {
+                    <pre class="small mb-0 p-2 font-monospace">@_viewer.Content</pre>
+                }
+            }
+            else
+            {
+                <div class="text-body-secondary small p-3">Selecione um arquivo na árvore.</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Run cujo worktree será explorado.</summary>
+    [Parameter, EditorRequired]
+    public string RunId { get; set; } = string.Empty;
+
+    private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, WorktreeListDto> _children = new(StringComparer.Ordinal);
+    private WorktreeFileContentDto? _viewer;
+    private string? _selectedPath;
+    private bool _rootLoading = true;
+    private bool _viewerLoading;
+    private bool _loadFailed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var root = await Client.GetWorktreeFilesAsync(RunId, null);
+        if (root is null)
+        {
+            _loadFailed = true;
+        }
+        else
+        {
+            _children[string.Empty] = root;
+        }
+
+        _rootLoading = false;
+    }
+
+    private IEnumerable<(WorktreeEntryDto Entry, int Depth)> VisibleEntries() => Walk(string.Empty, 0);
+
+    private IEnumerable<(WorktreeEntryDto Entry, int Depth)> Walk(string dir, int depth)
+    {
+        if (!_children.TryGetValue(dir, out var list))
+        {
+            yield break;
+        }
+
+        foreach (var entry in list.Entries)
+        {
+            yield return (entry, depth);
+            if (entry.Directory && _expanded.Contains(entry.Path))
+            {
+                foreach (var child in Walk(entry.Path, depth + 1))
+                {
+                    yield return child;
+                }
+            }
+        }
+    }
+
+    private async Task ToggleDirectoryAsync(WorktreeEntryDto entry)
+    {
+        if (!_expanded.Add(entry.Path))
+        {
+            _expanded.Remove(entry.Path);
+            return;
+        }
+
+        if (!_children.ContainsKey(entry.Path))
+        {
+            var list = await Client.GetWorktreeFilesAsync(RunId, entry.Path);
+            if (list is not null)
+            {
+                _children[entry.Path] = list;
+            }
+        }
+    }
+
+    private async Task SelectFileAsync(WorktreeEntryDto entry)
+    {
+        _selectedPath = entry.Path;
+        _viewerLoading = true;
+        _viewer = await Client.GetWorktreeFileContentAsync(RunId, entry.Path);
+        _viewerLoading = false;
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):F1} MB",
+        >= 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes} B",
+    };
+}
