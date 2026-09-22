@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -601,9 +602,9 @@ public sealed class McpProvisioningService : IMcpProvisioningService
 
     private RagConfig ResolveConfig()
     {
-        var name = ResolveValue(ServerNameKey, "TASKBOARD_RAG_NAME");
-        var url = ResolveValue(UrlKey, "TASKBOARD_RAG_URL");
-        var key = ResolveValue(ApiKeyKey, "TASKBOARD_RAG_API_KEY");
+        var name = ResolveValue(ServerNameKey, "HARNESS_RAG_NAME");
+        var url = ResolveValue(UrlKey, "HARNESS_RAG_URL");
+        var key = ResolveValue(ApiKeyKey, "HARNESS_RAG_API_KEY");
 
         return new RagConfig(
             string.IsNullOrWhiteSpace(name) ? DefaultServerName : name.Trim(),
@@ -626,10 +627,10 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             }
         }
 
-        var env = Environment.GetEnvironmentVariable(envAlias);
+        var env = HarnessEnv.Get(envAlias);
         if (!string.IsNullOrWhiteSpace(env))
         {
-            return env.Trim();
+            return env;
         }
 
         return _configuration[key];

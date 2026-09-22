@@ -23,7 +23,7 @@ public sealed class ExecutableCommand
             CreateNoWindow = true,
         };
 
-        WithoutTaskboardEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
 
         using var process = Process.Start(startInfo);
         if (process is null)

@@ -44,10 +44,10 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr
 
 # CLI state (credentials, caches) lives under HOME — persisted via the /data volume.
 ENV HOME=/data/home
-# appsettings.Production.json sets Taskboard:DataDir=/var/taskboard/data — outside
-# the volume. TASKBOARD_DATA_DIR (read directly by TaskboardEnvironment) overrides
-# it so the SQLite DB, admin.json, overrides and skills-cache are persisted.
-ENV TASKBOARD_DATA_DIR=/data
+# appsettings.Production.json sets Taskboard:DataDir=/var/agent-harness/data —
+# outside the volume. HARNESS_DATA_DIR (read directly by TaskboardEnvironment)
+# overrides it so the SQLite DB, admin.json, overrides and skills-cache persist.
+ENV HARNESS_DATA_DIR=/data
 # Bind-mounted host repos have a different owner — git refuses to operate without
 # this. Safe in a single-tenant self-hosted container.
 RUN git config --system --add safe.directory '*' \

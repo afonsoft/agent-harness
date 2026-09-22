@@ -16,7 +16,7 @@ taskctl context:current [--json]
 
 Returns the current workspace context (repository, branch, path) resolved for the running agent.
 
-Set `TASKBOARD_URL` to override the default local API origin, `http://127.0.0.1:47823`.
+Set `HARNESS_URL` to override the default local API origin, `http://127.0.0.1:47823`.
 
 ## GitHub board issues
 

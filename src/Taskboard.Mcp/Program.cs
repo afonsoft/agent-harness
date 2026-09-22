@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -16,7 +17,7 @@ class Program
             consoleLogOptions.LogToStandardErrorThreshold = LogLevel.Trace;
         });
 
-        var baseUrl = Environment.GetEnvironmentVariable("TASKBOARD_URL")
+        var baseUrl = HarnessEnv.Get("HARNESS_URL")
             ?? builder.Configuration["Taskboard:BaseUrl"]
             ?? "http://127.0.0.1:47823";
 

@@ -4,7 +4,7 @@ This document describes the delivered architecture of **Harness**, the local-fir
 
 ## 🏛️ Architectural Overview
 
-`agent-harness` is a **Modular Monolith** built on **ABP N-Layer / Clean Architecture** (C# 14 / .NET 10). It is local-first: all state lives in `~/.taskboard/data` (SQLite), and the only required outbound dependency is the GitHub API. On top of the taskboard core sits the **Harness (ADE) subsystem** — a multi-agent pipeline engine with HITL cockpit, security gateway, verification loop, project memory and FinOps metrics.
+`agent-harness` is a **Modular Monolith** built on **ABP N-Layer / Clean Architecture** (C# 14 / .NET 10). It is local-first: all state lives in `~/.agent-harness/data` (SQLite), and the only required outbound dependency is the GitHub API. On top of the taskboard core sits the **Harness (ADE) subsystem** — a multi-agent pipeline engine with HITL cockpit, security gateway, verification loop, project memory and FinOps metrics.
 
 ```mermaid
 flowchart LR
@@ -23,7 +23,7 @@ flowchart LR
     end
 
     DOM["Domain<br/>entities + invariants"]
-    DB[("SQLite<br/>EF Core — ~/.taskboard/data")]
+    DB[("SQLite<br/>EF Core — ~/.agent-harness/data")]
     INT["Integrations<br/>Worktrees · PTY · VS Code · Specs · GitHub · Jira"]
     GH["GitHub API<br/>Octokit"]
     AGT["Agent CLIs<br/>Codex · Claude · Gemini"]
@@ -132,11 +132,11 @@ flowchart LR
 
 ## 🔒 Trust Boundary
 
-Local-first: the server binds localhost and every request requires the instance token. All durable state stays in `~/.taskboard/data`. Outbound calls are limited to GitHub (required), optional Jira/Cloud companion, and the agent CLIs spawned locally inside jailed worktrees. Commands executed on behalf of agents pass through `PermissionGateway` risk classification, `PathJailValidator` write restrictions and `SecretScrubber` on outputs.
+Local-first: the server binds localhost and every request requires the instance token. All durable state stays in `~/.agent-harness/data`. Outbound calls are limited to GitHub (required), optional Jira/Cloud companion, and the agent CLIs spawned locally inside jailed worktrees. Commands executed on behalf of agents pass through `PermissionGateway` risk classification, `PathJailValidator` write restrictions and `SecretScrubber` on outputs.
 
 ## 🚢 Deployment Topology
 
-systemd **user** service `taskboard-server.service` → `~/.taskboard/bin/taskboard-server` → `Taskboard.Server.dll` (published to `~/.taskboard/publish`), env in `~/.taskboard/env`, workspace root `~/repos`, listening on `http://127.0.0.1:47823`. code-server and PTY shells are child processes of the service.
+systemd **user** service `harness-server.service` → `~/.agent-harness/bin/harness-server` → `Taskboard.Server.dll` (published to `~/.agent-harness/publish`), env in `~/.agent-harness/env`, workspace root `~/repos`, listening on `http://127.0.0.1:47823`. code-server and PTY shells are child processes of the service.
 
 ---
 *Generated from `docs/architecture/architecture.json` — interactive version: `architecture.html`*

@@ -42,8 +42,9 @@ public class McpHttpEndpointTests : IClassFixture<McpHttpEndpointTests.McpFactor
         {
             foreach (var name in new[]
             {
+                "HARNESS_ADMIN_USERNAME", "HARNESS_ADMIN_PASSWORD",
                 "TASKBOARD_ADMIN_USERNAME", "TASKBOARD_ADMIN_PASSWORD",
-                "TASKBOARD_DATA_DIR", "Taskboard__DataDir", "TASKBOARD_API_KEY",
+                "HARNESS_DATA_DIR", "TASKBOARD_DATA_DIR", "Harness__DataDir", "Taskboard__DataDir", "HARNESS_API_KEY", "TASKBOARD_API_KEY",
             })
             {
                 Environment.SetEnvironmentVariable(name, null);

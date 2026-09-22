@@ -44,13 +44,14 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         // Fresh data dir per factory: admin.json persists the password hash, so a
         // stale file would make Admin:Password a no-op.
         // The developer shell may carry the deployed server's env file
-        // (~/.taskboard/env): TASKBOARD_ADMIN_*, Taskboard__* and GITHUB_TOKEN
+        // (~/.agent-harness/env): HARNESS_ADMIN_* + legacy TASKBOARD_*, Taskboard__* and GITHUB_TOKEN
         // take precedence over UseSetting and would break test hermeticity.
         foreach (var name in new[]
         {
+            "HARNESS_ADMIN_USERNAME", "HARNESS_ADMIN_PASSWORD",
             "TASKBOARD_ADMIN_USERNAME", "TASKBOARD_ADMIN_PASSWORD",
-            "TASKBOARD_DATA_DIR", "Taskboard__DataDir",
-            "Taskboard__ApiKey", "TASKBOARD_API_KEY",
+            "HARNESS_DATA_DIR", "TASKBOARD_DATA_DIR", "Harness__DataDir", "Taskboard__DataDir",
+            "Taskboard__ApiKey", "Harness__ApiKey", "HARNESS_API_KEY", "TASKBOARD_API_KEY",
             "GITHUB_TOKEN", "GH_TOKEN"
         })
         {

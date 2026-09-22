@@ -7,7 +7,7 @@
 
 > **Default language:** English (en-us). See [README.pt-br.md](README.pt-br.md) for the Portuguese version.
 
-**Harness** is a local-first, AI-native workbench for orchestrating AI coding agents — built on **C# 14 / .NET 10**. The repository is `agent-harness` (formerly `taskboard-ai`); internal technical identifiers keep the `taskboard` name (namespaces, projects, `taskctl` CLI, `TASKBOARD_*` env vars).
+**Harness** is a local-first, AI-native workbench for orchestrating AI coding agents — built on **C# 14 / .NET 10**. The repository is `agent-harness` (formerly `taskboard-ai`); internal technical identifiers keep the `taskboard` name (namespaces, projects, `taskctl` CLI, `Taskboard:*` config section); operational env vars use `HARNESS_*` and the install home is `~/.agent-harness` (legacy `TASKBOARD_*` envs read as deprecated fallback).
 
 ## Overview
 

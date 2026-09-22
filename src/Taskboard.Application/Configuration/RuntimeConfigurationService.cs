@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Domain.Entities;
+using Taskboard.Domain.Shared.Configuration;
 using Taskboard.Repositories;
 
 namespace Taskboard.Application.Configuration;
@@ -23,12 +24,12 @@ public sealed class RuntimeConfigurationService
     private static readonly CatalogEntry[] Catalog =
     [
         new("Taskboard:Port", "47823", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_PORT",
+            EnvAlias: "HARNESS_PORT",
             Validate: v => int.TryParse(v, out var p) && p is >= 1 and <= 65535
                 ? null
                 : "Port must be an integer between 1 and 65535."),
         new("Taskboard:BaseUrl", "http://127.0.0.1:47823", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_URL",
+            EnvAlias: "HARNESS_URL",
             Validate: v => Uri.TryCreate(v, UriKind.Absolute, out var u) && u.Scheme is "http" or "https"
                 ? null
                 : "BaseUrl must be an absolute http(s) URL."),
@@ -41,7 +42,7 @@ public sealed class RuntimeConfigurationService
             EnvAlias: null, Validate: ValidateLogLevel),
         new("Taskboard:DataDir", ".data", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Cannot be stored in the database it configures.",
-            EnvAlias: "TASKBOARD_DATA_DIR", Validate: null),
+            EnvAlias: "HARNESS_DATA_DIR", Validate: null),
         new("Taskboard:Database:ConnectionStringName", "Taskboard", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Cannot be stored in the database it configures.",
             EnvAlias: null, Validate: null),
@@ -50,28 +51,28 @@ public sealed class RuntimeConfigurationService
             EnvAlias: null, Validate: null),
         new("Admin:Username", "admin", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Managed by the admin account (admin.json).",
-            EnvAlias: "TASKBOARD_ADMIN_USERNAME", Validate: null),
+            EnvAlias: "HARNESS_ADMIN_USERNAME", Validate: null),
         new("Taskboard:Skills:Repository", "afonsoft/skills", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_SKILLS_REPO", Validate: ValidateSkillsRepository),
+            EnvAlias: "HARNESS_SKILLS_REPO", Validate: ValidateSkillsRepository),
         new("Taskboard:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_API_KEY", Validate: ValidateApiKey),
+            EnvAlias: "HARNESS_API_KEY", Validate: ValidateApiKey),
         new("Taskboard:Rag:ServerName", "knowledge", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_RAG_NAME", Validate: ValidateRagServerName),
+            EnvAlias: "HARNESS_RAG_NAME", Validate: ValidateRagServerName),
         new("Taskboard:Rag:Url", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_RAG_URL", Validate: ValidateRagUrl),
+            EnvAlias: "HARNESS_RAG_URL", Validate: ValidateRagUrl),
         new("Taskboard:Rag:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_RAG_API_KEY", Validate: ValidateRagApiKey),
+            EnvAlias: "HARNESS_RAG_API_KEY", Validate: ValidateRagApiKey),
         new("Taskboard:Terminal:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_TERMINAL_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_TERMINAL_ENABLED", Validate: ValidateBoolean),
         new("Taskboard:Agents:DefaultPrompt", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "TASKBOARD_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),
+            EnvAlias: "HARNESS_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),
     ];
 
     private readonly IConfiguration _configuration;
@@ -182,13 +183,13 @@ public sealed class RuntimeConfigurationService
     private string? ResolveValue(CatalogEntry entry)
     {
         // A DB override is already visible through configuration (the provider is
-        // registered last). Otherwise a dedicated env alias (e.g. TASKBOARD_PORT)
-        // beats Taskboard__* env vars and appsettings.
+        // registered last). Otherwise a dedicated env alias (e.g. HARNESS_PORT,
+        // legacy TASKBOARD_PORT) beats Taskboard__* env vars and appsettings.
         if (!HasDatabaseOverride(entry.Key)
             && entry.EnvAlias is not null
-            && Environment.GetEnvironmentVariable(entry.EnvAlias) is { Length: > 0 } envValue)
+            && HarnessEnv.Get(entry.EnvAlias) is { Length: > 0 } envValue)
         {
-            return envValue.Trim();
+            return envValue;
         }
 
         return _configuration[entry.Key] ?? entry.DefaultValue;
@@ -202,8 +203,7 @@ public sealed class RuntimeConfigurationService
             return "db";
         }
 
-        if (entry.EnvAlias is not null
-            && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(entry.EnvAlias)))
+        if (entry.EnvAlias is not null && HarnessEnv.IsSet(entry.EnvAlias))
         {
             return "env";
         }

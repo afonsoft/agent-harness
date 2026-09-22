@@ -69,7 +69,7 @@ public class SqliteConfigurationProviderTests
     [Fact]
     public void Dado_OverrideDePortaNoDbEEnvSetado_Quando_GetPort_Entao_BancoVence()
     {
-        // Covers AC-01: TASKBOARD_PORT env + DB row -> GetPort resolves the DB value
+        // Covers AC-01: HARNESS_PORT env + DB row -> GetPort resolves the DB value
         var dbPath = CreateDatabase(("Taskboard:Port", "5000"));
         var provider = new SqliteConfigurationProvider(dbPath);
         var configuration = new ConfigurationBuilder()
@@ -78,8 +78,8 @@ public class SqliteConfigurationProviderTests
         var hostEnvironment = Substitute.For<Microsoft.Extensions.Hosting.IHostEnvironment>();
         hostEnvironment.ContentRootPath.Returns("/app");
 
-        var original = Environment.GetEnvironmentVariable("TASKBOARD_PORT");
-        Environment.SetEnvironmentVariable("TASKBOARD_PORT", "6000");
+        var original = Environment.GetEnvironmentVariable("HARNESS_PORT");
+        Environment.SetEnvironmentVariable("HARNESS_PORT", "6000");
         try
         {
             var environment = new TaskboardEnvironment(configuration, hostEnvironment);
@@ -88,7 +88,7 @@ public class SqliteConfigurationProviderTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("TASKBOARD_PORT", original);
+            Environment.SetEnvironmentVariable("HARNESS_PORT", original);
         }
     }
 

@@ -1,6 +1,6 @@
 # Agent Harness — self-hosted single-container deployment.
 # All persistent state lives in the `taskboard-data` volume mounted at /data:
-#   /data/taskboard.sqlite   — database + configuration overrides
+#   /data/harness.sqlite    — database + configuration overrides
 #   /data/admin.json         — generated admin credentials
 #   /data/skills-cache/      — skills repository cache
 #   /data/home/              — $HOME of the container: CLI credentials
@@ -25,7 +25,7 @@ services:
       # ACP session-per-run for board/cockpit agent executions (SPEC-20260921-acp-v1-conformance
       # RF-010): when "true", one-shot runs go through a real ACP session
       # (initialize → session/new → session/prompt) instead of args-mode.
-      # TASKBOARD__ACP__SESSIONRUNS: ${ACP_SESSION_RUNS:-false}
+      # HARNESS__ACP__SESSIONRUNS: ${ACP_SESSION_RUNS:-false}
       TZ: ${TZ:-UTC}
     volumes:
       - taskboard-data:/data
@@ -41,4 +41,6 @@ services:
       retries: 3
 
 volumes:
+  # Legacy name kept intentionally — renaming orphans existing volumes
+  # (SPEC-20260922-harness-home-rename RF-008).
   taskboard-data:

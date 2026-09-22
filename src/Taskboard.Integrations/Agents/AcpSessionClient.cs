@@ -1496,7 +1496,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             startInfo.ArgumentList.Add(arg);
         }
 
-        WithoutTaskboardEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
 
         Process? process;
         try

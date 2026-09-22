@@ -26,8 +26,8 @@ public class TaskboardEnvironmentTests
     [Fact]
     public void GetPort_WhenTaskboardPortIsSet_ShouldReturnConfiguredValue()
     {
-        // Covers FR-003: port resolved from TASKBOARD_PORT env
-        using var _ = SetEnv("TASKBOARD_PORT", "8080");
+        // Covers FR-003: port resolved from HARNESS_PORT env
+        using var _ = SetEnv("HARNESS_PORT", "8080");
 
         var port = CreateSut().GetPort();
 
@@ -38,7 +38,7 @@ public class TaskboardEnvironmentTests
     public void GetPort_WhenTaskboardPortIsNotSet_ShouldReturnDefault()
     {
         // Covers FR-003: default port
-        using var _ = ClearEnv("TASKBOARD_PORT");
+        using var _ = ClearEnv("HARNESS_PORT");
 
         var port = CreateSut().GetPort();
 
@@ -49,8 +49,8 @@ public class TaskboardEnvironmentTests
     public void GetPort_WhenOnlyLegacyCodexPortIsSet_ShouldIgnoreAndReturnDefault()
     {
         // Covers breaking change: no fallback to CODEX_* variables
-        using var _1 = ClearEnv("TASKBOARD_PORT");
-        using var _2 = SetEnv("CODEX_TASKBOARD_PORT", "9000");
+        using var _1 = ClearEnv("HARNESS_PORT");
+        using var _2 = SetEnv("CODEX_HARNESS_PORT", "9000");
 
         var port = CreateSut().GetPort();
 
@@ -60,19 +60,19 @@ public class TaskboardEnvironmentTests
     [Fact]
     public void GetDataDir_WhenTaskboardDataDirIsSet_ShouldReturnConfiguredValue()
     {
-        // Covers FR-003: data dir resolved from TASKBOARD_DATA_DIR env
-        using var _ = SetEnv("TASKBOARD_DATA_DIR", "/var/taskboard");
+        // Covers FR-003: data dir resolved from HARNESS_DATA_DIR env
+        using var _ = SetEnv("HARNESS_DATA_DIR", "/var/agent-harness");
 
         var dataDir = CreateSut().GetDataDir();
 
-        dataDir.ShouldBe("/var/taskboard");
+        dataDir.ShouldBe("/var/agent-harness");
     }
 
     [Fact]
     public void GetDataDir_WhenTaskboardDataDirIsNotSet_ShouldReturnDefaultUnderBasePath()
     {
         // Covers FR-003: default data dir under content root
-        using var _ = ClearEnv("TASKBOARD_DATA_DIR");
+        using var _ = ClearEnv("HARNESS_DATA_DIR");
 
         var dataDir = CreateSut().GetDataDir();
 
@@ -83,7 +83,7 @@ public class TaskboardEnvironmentTests
     public void GetDataDir_WhenOnlyLegacyCodexDataDirIsSet_ShouldIgnoreAndReturnDefault()
     {
         // Covers breaking change: no fallback to CODEX_* variables
-        using var _1 = ClearEnv("TASKBOARD_DATA_DIR");
+        using var _1 = ClearEnv("HARNESS_DATA_DIR");
         using var _2 = SetEnv("CODEX_TASKBOARD_DATA_DIR", "/old");
 
         var dataDir = CreateSut().GetDataDir();
@@ -94,10 +94,10 @@ public class TaskboardEnvironmentTests
     [Fact]
     public void GetServerUrls_WhenTaskboardPortIsSet_ShouldReturnLocalhostUrl()
     {
-        // Covers FR-003: server URLs derive from TASKBOARD_PORT
+        // Covers FR-003: server URLs derive from HARNESS_PORT
         // (ASPNETCORE_URLS may leak from the developer shell's deployed-server env)
         using var _0 = ClearEnv("ASPNETCORE_URLS");
-        using var _ = SetEnv("TASKBOARD_PORT", "8080");
+        using var _ = SetEnv("HARNESS_PORT", "8080");
 
         var urls = CreateSut().GetServerUrls();
 
@@ -119,7 +119,7 @@ public class TaskboardEnvironmentTests
     public void GetPort_WhenConfiguredInAppSettings_ShouldReturnConfiguredValue()
     {
         // Covers FR-002: strongly-typed options override env
-        using var _ = ClearEnv("TASKBOARD_PORT");
+        using var _ = ClearEnv("HARNESS_PORT");
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>("Taskboard:Port", "9090")])
             .Build();
@@ -132,8 +132,8 @@ public class TaskboardEnvironmentTests
     [Fact]
     public void GetPort_WhenBothEnvAndConfigSet_ShouldPreferEnvVar()
     {
-        // SPEC-20260914-env-var-precedence RF-001: TASKBOARD_* env wins over appsettings
-        using var _ = SetEnv("TASKBOARD_PORT", "8080");
+        // SPEC-20260914-env-var-precedence RF-001: HARNESS_* env wins over appsettings
+        using var _ = SetEnv("HARNESS_PORT", "8080");
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>("Taskboard:Port", "9090")])
             .Build();
@@ -146,15 +146,15 @@ public class TaskboardEnvironmentTests
     [Fact]
     public void GetDataDir_WhenBothEnvAndConfigSet_ShouldPreferEnvVar()
     {
-        // SPEC-20260914-env-var-precedence RF-001: TASKBOARD_* env wins over appsettings
-        using var _ = SetEnv("TASKBOARD_DATA_DIR", "/srv/taskboard");
+        // SPEC-20260914-env-var-precedence RF-001: HARNESS_* env wins over appsettings
+        using var _ = SetEnv("HARNESS_DATA_DIR", "/srv/agent-harness");
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>("Taskboard:DataDir", "/ignored")])
             .Build();
 
         var dataDir = CreateSut(configuration).GetDataDir();
 
-        dataDir.ShouldBe("/srv/taskboard");
+        dataDir.ShouldBe("/srv/agent-harness");
     }
 
     private static IDisposable SetEnv(string name, string value)

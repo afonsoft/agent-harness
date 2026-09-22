@@ -16,8 +16,8 @@ public class AdminUserTests : IDisposable
         _dataDir = Path.Combine(Path.GetTempPath(), $"taskboard-admin-test-{Guid.NewGuid():n}");
         Directory.CreateDirectory(_dataDir);
 
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME", "admin");
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD", "Test123!");
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_USERNAME", "admin");
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_PASSWORD", "Test123!");
     }
 
     public void Dispose()
@@ -27,8 +27,8 @@ public class AdminUserTests : IDisposable
             Directory.Delete(_dataDir, recursive: true);
         }
 
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME", null);
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD", null);
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_USERNAME", null);
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_PASSWORD", null);
     }
 
     [Fact]
@@ -74,8 +74,8 @@ public class AdminUserTests : IDisposable
     [Fact]
     public void Given_EnvAndConfigSet_When_CreateFromConfiguration_Then_EnvWins()
     {
-        // SPEC-20260914-env-var-precedence RF-002: TASKBOARD_ADMIN_* env wins over Admin:* config
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME", "ops");
+        // SPEC-20260914-env-var-precedence RF-002: HARNESS_ADMIN_* env wins over Admin:* config
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_USERNAME", "ops");
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>("Admin:Username", "ignored"), new KeyValuePair<string, string?>("Admin:Password", "Ignored123!")])
             .Build();
@@ -90,8 +90,8 @@ public class AdminUserTests : IDisposable
     [Fact]
     public void Given_OnlyConfigSet_When_CreateFromConfiguration_Then_ConfigUsed()
     {
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME", null);
-        Environment.SetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD", null);
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_USERNAME", null);
+        Environment.SetEnvironmentVariable("HARNESS_ADMIN_PASSWORD", null);
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>("Admin:Username", "cfgadmin"), new KeyValuePair<string, string?>("Admin:Password", "Cfg123!")])
             .Build();

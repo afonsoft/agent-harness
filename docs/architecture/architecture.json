@@ -137,7 +137,7 @@
       "id": "db",
       "type": "database",
       "label": "SQLite",
-      "sublabel": "EF Core + ~/.taskboard",
+      "sublabel": "EF Core + ~/.agent-harness",
       "pos": [
         570,
         420
@@ -324,7 +324,7 @@
       "dot": "rose",
       "title": "Local-first boundary",
       "items": [
-        "All state in ~/.taskboard SQLite \u2014 no required cloud",
+        "All state in ~/.agent-harness SQLite \u2014 no required cloud",
         "Outbound only: GitHub API, optional Jira/Cloud companion",
         "code-server + PTY terminal hosted on the server"
       ]

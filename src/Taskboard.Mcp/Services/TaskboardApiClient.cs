@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -31,7 +32,7 @@ public sealed class TaskboardApiClient : ITaskboardApiClient
         // authenticate via X-Api-Key when the key is configured. An explicit
         // key (e.g. resolved from IConfiguration by the in-process host) wins
         // over the TASKBOARD_API_KEY environment variable.
-        apiKey ??= Environment.GetEnvironmentVariable("TASKBOARD_API_KEY");
+        apiKey ??= HarnessEnv.Get("HARNESS_API_KEY");
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             _client.DefaultRequestHeaders.Add("X-Api-Key", apiKey.Trim());
