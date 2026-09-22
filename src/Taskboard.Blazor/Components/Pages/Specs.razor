@@ -68,7 +68,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var spec in _specs)
+                        @foreach (var spec in VisibleSpecs)
                         {
                             <tr>
                                 <td>
@@ -108,6 +108,19 @@
                                 </td>
                             </tr>
                         }
+                        @if (IsDefaultView && DoneTotal > LivingSpecView.DoneCap)
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center py-2">
+                                    <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                                            @onclick="ToggleShowAllDone">
+                                        @(_showAllDone
+                                            ? "Show fewer Done"
+                                            : $"Show all {DoneTotal} Done specs")
+                                    </Button>
+                                </td>
+                            </tr>
+                        }
                     </tbody>
                 </table>
             </div>
@@ -129,6 +142,24 @@
     private string _statusFilter = "";
     private string _query = "";
     private bool _loading = true;
+    private bool _showAllDone;
+
+    // SPEC-20260922-living-specs-default-view — cap applies only on the
+    // default view (All filter, no query); filters/search show every match.
+    private bool IsDefaultView =>
+        _statusFilter == "" && string.IsNullOrWhiteSpace(_query);
+
+    private SpecPartition DefaultPartition =>
+        _specs is null
+            ? new SpecPartition([], 0, 0)
+            : LivingSpecView.Partition(_specs, LivingSpecView.DoneCap);
+
+    private IReadOnlyList<LivingSpecDto> VisibleSpecs =>
+        IsDefaultView && !_showAllDone ? DefaultPartition.Visible : _specs ?? [];
+
+    private int DoneTotal => DefaultPartition.DoneCount;
+
+    private void ToggleShowAllDone() => _showAllDone = !_showAllDone;
 
     protected override async Task OnInitializedAsync()
     {
@@ -142,6 +173,7 @@
     private async Task RefreshAsync()
     {
         _loading = true;
+        _showAllDone = false;
         // Snapshot the selection — a newer fetch may land after this one on a
         // rapid repo switch; discard the stale response instead of assigning it.
         var repo = RepoService.Selected;
