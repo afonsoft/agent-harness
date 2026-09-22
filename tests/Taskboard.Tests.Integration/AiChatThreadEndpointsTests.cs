@@ -215,6 +215,113 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         create.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task Dado_ModoAgentComRepoClonado_Quando_CreateThread_Entao_ResolveWorkspace()
+    {
+        // SPEC-20260921-ai-code-thread-config RF-003: o repositório resolve
+        // {WorkspaceRoot}/<repo-name> quando WorkspacePath não é informado.
+        var client = await ApiClientAsync();
+        var repoDir = Path.Combine(_factory.WorkspaceRoot, "meu-repo");
+        Directory.CreateDirectory(repoDir);
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "repo thread",
+            mode = "agent",
+            agentType = "OpenCode",
+            repositoryFullName = "owner/meu-repo",
+            sandbox = "workspace-write"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var thread = (await create.Content.ReadFromJsonAsync<JsonObject>())?["thread"] as JsonObject;
+        thread.ShouldNotBeNull();
+        thread!["workspacePath"]!.GetValue<string>().ShouldBe(repoDir);
+        thread["repositoryFullName"]!.GetValue<string>().ShouldBe("owner/meu-repo");
+    }
+
+    [Fact]
+    public async Task Dado_ModoAgentComRepoInexistente_Quando_CreateThread_Entao_Retorna400()
+    {
+        // SPEC-20260921-ai-code-thread-config RF-003: falha de resolução é
+        // 400 com mensagem clara — nunca fallback silencioso.
+        var client = await ApiClientAsync();
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "ghost repo thread",
+            mode = "agent",
+            agentType = "OpenCode",
+            repositoryFullName = "owner/fantasma-inexistente",
+            sandbox = "workspace-write"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await create.Content.ReadAsStringAsync();
+        body.ShouldContain("owner/fantasma-inexistente");
+    }
+
+    [Fact]
+    public async Task Dado_ModoAgentComWorkspaceExplicito_Quando_CreateThread_Entao_ManualVence()
+    {
+        // SPEC-20260921-ai-code-thread-config RF-003: path manual vence.
+        var client = await ApiClientAsync();
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "manual workspace",
+            mode = "agent",
+            agentType = "OpenCode",
+            repositoryFullName = "owner/meu-repo",
+            workspacePath = "/tmp/manual-ws",
+            sandbox = "workspace-write"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var thread = (await create.Content.ReadFromJsonAsync<JsonObject>())?["thread"] as JsonObject;
+        thread!["workspacePath"]!.GetValue<string>().ShouldBe("/tmp/manual-ws");
+    }
+
+    [Fact]
+    public async Task Dado_TierUltra_Quando_CreateThread_Entao_PersisteTierEModeloResolvido()
+    {
+        // SPEC-20260921-ai-code-thread-config RF-004/RF-006: sem modelo
+        // explícito o tier resolve pela tabela curada e audita a origem.
+        var client = await ApiClientAsync();
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "tier thread",
+            agentType = "OpenCode",
+            modelTier = "Ultra",
+            sandbox = "read-only"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var thread = (await create.Content.ReadFromJsonAsync<JsonObject>())?["thread"] as JsonObject;
+        thread.ShouldNotBeNull();
+        thread!["modelTier"]!.GetValue<string>().ShouldBe("Ultra");
+        thread["model"]!.GetValue<string>().ShouldBe("opencode/claude-opus-5");
+        thread["modelSource"]!.GetValue<string>().ShouldBe("curated");
+    }
+
+    [Fact]
+    public async Task Dado_TierInvalido_Quando_CreateThread_Entao_Retorna400()
+    {
+        // SPEC-20260921-ai-code-thread-config RF-004: tier inválido → 400.
+        var client = await ApiClientAsync();
+
+        var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
+        {
+            title = "bad tier",
+            agentType = "OpenCode",
+            modelTier = "mega",
+            sandbox = "read-only"
+        });
+
+        create.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
     private static async Task<string> CreateThreadAsync(HttpClient client, string title)
     {
         var create = await client.PostAsJsonAsync("/api/local/ai/threads", new

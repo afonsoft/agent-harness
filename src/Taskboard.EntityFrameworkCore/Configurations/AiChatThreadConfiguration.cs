@@ -56,6 +56,12 @@ public sealed class AiChatThreadConfiguration : IEntityTypeConfiguration<AiChatT
         builder.Property(t => t.RepositoryFullName)
             .HasMaxLength(256);
 
+        builder.Property(t => t.ModelTier)
+            .HasMaxLength(32);
+
+        builder.Property(t => t.ModelSource)
+            .HasMaxLength(32);
+
         builder.Property(t => t.CreatedAt);
         builder.Property(t => t.UpdatedAt);
 

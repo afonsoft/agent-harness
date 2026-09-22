@@ -37,10 +37,18 @@ public sealed class TaskboardClient
         return response?.Threads ?? [];
     }
 
-    /// <summary>Catálogo de modelos disponíveis para novas threads.</summary>
-    public async Task<IReadOnlyList<AiChatModelDto>> GetAiChatCatalogAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Catálogo de modelos disponíveis para novas threads. Com
+    /// <paramref name="threadId"/>, modelos reportados pela sessão ACP ativa
+    /// têm prioridade (SPEC-20260921-ai-code-thread-config RF-005).
+    /// </summary>
+    public async Task<IReadOnlyList<AiChatModelDto>> GetAiChatCatalogAsync(
+        string? threadId = null, CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.GetFromJsonAsync<AiChatCatalogResponse>("/api/local/ai/catalog", cancellationToken);
+        var url = string.IsNullOrWhiteSpace(threadId)
+            ? "/api/local/ai/catalog"
+            : $"/api/local/ai/catalog?threadId={Uri.EscapeDataString(threadId)}";
+        var response = await _httpClient.GetFromJsonAsync<AiChatCatalogResponse>(url, cancellationToken);
         return response?.Models ?? [];
     }
 

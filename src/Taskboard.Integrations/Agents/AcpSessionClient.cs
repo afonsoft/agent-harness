@@ -89,6 +89,10 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     public AcpPeerInfo? GetPeerInfo(string threadId) =>
         _sessions.TryGetValue(threadId, out var holder) ? holder.Peer : null;
 
+    /// <summary>Agent CLI bound to the thread's live session, if any.</summary>
+    public AgentType? GetSessionAgentType(string threadId) =>
+        _sessions.TryGetValue(threadId, out var holder) ? holder.Spawn.AgentType : null;
+
     public async Task<bool> StartSessionAsync(
         string threadId,
         AgentType agentType,

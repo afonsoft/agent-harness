@@ -3,6 +3,7 @@ using Shouldly;
 using Taskboard.Agents;
 using Taskboard.Application.AiChat;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Dtos;
 using Xunit;
 
@@ -98,28 +99,115 @@ public class AiChatCatalogServiceTests
         (await sut.AddAsync(model)).ShouldBe("MODEL_EXISTS");
     }
 
+    [Fact]
+    public async Task Dado_SessaoAcpComModelos_Quando_ListarPorThread_Entao_RetornaReportadosPeloAgente()
+    {
+        // Covers RF-005(a): configOptions da sessão ativa têm prioridade máxima.
+        var reported = new List<AiChatModelDto>
+        {
+            new("OpenCode:opencode/acp-1", "OpenCode", "opencode/acp-1", false, "OpenCode", "acp"),
+            new("OpenCode:opencode/acp-2", "OpenCode", "opencode/acp-2", false, "OpenCode", "acp"),
+        };
+        var session = Substitute.For<IAgentSessionModelCatalog>();
+        session.GetModels("t1").Returns(reported);
+
+        var sut = CriarServico(eligible: [AgentType.OpenCode], session: session);
+
+        var models = await sut.ListAsync("t1");
+
+        models.Count.ShouldBe(2);
+        models.ShouldAllBe(m => m.Source == "acp");
+        models.ShouldContain(m => m.Name == "opencode/acp-1");
+    }
+
+    [Fact]
+    public async Task Dado_ThreadSemSessao_Quando_ListarPorThread_Entao_FallbackCatalogoGlobal()
+    {
+        // Covers RF-005: sem sessão/modelos ACP o catálogo global segue valendo.
+        var session = Substitute.For<IAgentSessionModelCatalog>();
+        session.GetModels("sem-sessao").Returns([]);
+
+        var sut = CriarServico(eligible: [AgentType.OpenCode], session: session);
+
+        var models = await sut.ListAsync("sem-sessao");
+
+        models.ShouldNotBeEmpty();
+        models.ShouldAllBe(m => m.Source != "acp");
+    }
+
+    [Fact]
+    public async Task Dado_ProbeCuradoOverrideECustom_Quando_Listar_Entao_TagsDeOrigem()
+    {
+        // Covers RF-005(b-d): prioridade probe > curated > custom na tag.
+        var custom = new AiCatalogService();
+        custom.TryAdd(new AiChatModelDto("OpenCode:m-custom", "x", "m-custom", false, "OpenCode"));
+
+        var modelConfig = Substitute.For<IAgentModelConfigService>();
+        modelConfig.GetConfigAsync(Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentModelConfigDto(
+                AgentType.OpenCode, true, "override",
+                Lite: "m-override", Normal: null, Ultra: null,
+                new AgentModelTierSet(null, null, null), []));
+
+        var sut = CriarServico(
+            eligible: [AgentType.OpenCode],
+            probeModels: ["m-probe"],
+            custom: custom,
+            modelConfig: modelConfig);
+
+        var models = await sut.ListAsync();
+
+        models.Single(m => m.Name == "m-probe").Source.ShouldBe("probe");
+        models.Single(m => m.Name == "opencode/claude-sonnet-5").Source.ShouldBe("curated");
+        models.Single(m => m.Name == "m-override").Source.ShouldBe("custom");
+        models.Single(m => m.Name == "m-custom").Source.ShouldBe("custom");
+    }
+
+    [Fact]
+    public async Task Dado_NomeNoProbeENaCurada_Quando_Listar_Entao_TagProbe()
+    {
+        // Covers RF-005: o mesmo nome em várias fontes fica com a de maior prioridade.
+        var sut = CriarServico(
+            eligible: [AgentType.OpenCode],
+            probeModels: ["opencode/claude-sonnet-5"]);
+
+        var models = await sut.ListAsync();
+
+        var entries = models.Where(m => m.Name == "opencode/claude-sonnet-5").ToList();
+        entries.Count.ShouldBe(1);
+        entries[0].Source.ShouldBe("probe");
+    }
+
     private static AiChatCatalogService CriarServico(
         AgentType[] eligible,
         IReadOnlyList<string>? probeModels = null,
         AiCatalogService? custom = null,
-        IAgentModelCatalogService? probes = null)
+        IAgentModelCatalogService? probes = null,
+        IAgentModelConfigService? modelConfig = null,
+        IAgentSessionModelCatalog? session = null)
     {
         var eligibility = Substitute.For<IAgentEligibilityService>();
         eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
             .Returns(new HashSet<AgentType>(eligible));
 
         probes ??= CriarProbes(probeModels ?? []);
-        var modelConfig = Substitute.For<IAgentModelConfigService>();
-        modelConfig.GetConfigAsync(Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
-            .Returns(new AgentModelConfigDto(
-                AgentType.Codex, true, "curated", null, null, null,
-                new AgentModelTierSet(null, null, null), []));
+        if (modelConfig is null)
+        {
+            modelConfig = Substitute.For<IAgentModelConfigService>();
+            modelConfig.GetConfigAsync(Arg.Any<AgentType>(), Arg.Any<CancellationToken>())
+                .Returns(new AgentModelConfigDto(
+                    AgentType.Codex, true, "curated", null, null, null,
+                    new AgentModelTierSet(null, null, null), []));
+        }
+
+        session ??= Substitute.For<IAgentSessionModelCatalog>();
 
         return new AiChatCatalogService(
             custom ?? new AiCatalogService(),
             eligibility,
             probes,
             modelConfig,
+            session,
             Substitute.For<Microsoft.Extensions.Logging.ILogger<AiChatCatalogService>>());
     }
 

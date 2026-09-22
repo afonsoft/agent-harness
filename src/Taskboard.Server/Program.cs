@@ -219,6 +219,8 @@ builder.Services.AddSingleton<AcpSessionClient>(sp =>
         sp.GetRequiredService<AcpSessionOptions>(),
         sp.GetService<IAcpClientToolHandler>()));
 builder.Services.AddSingleton<IAgentSessionClient>(sp => sp.GetRequiredService<AcpSessionClient>());
+// SPEC-20260921-ai-code-thread-config RF-005: modelos reportados pela sessão ACP.
+builder.Services.AddSingleton<IAgentSessionModelCatalog, AcpSessionModelCatalog>();
 builder.Services.AddSingleton<PermissionGate>();
 builder.Services.AddSingleton<AgentSessionManager>();
 builder.Services.AddSingleton<IAgentLogBroadcaster, SignalRAgentLogBroadcaster>();
@@ -1127,8 +1129,8 @@ api.MapPost("local/jira-connection/sync", async (IJiraService jira, Cancellation
     var result = await jira.SyncAsync(ct);
     return Results.Ok(result);
 });
-api.MapGet("local/ai/catalog", async (AiChatCatalogService catalog, CancellationToken ct) =>
-    Results.Ok(new { models = await catalog.ListAsync(ct) }));
+api.MapGet("local/ai/catalog", async (string? threadId, AiChatCatalogService catalog, CancellationToken ct) =>
+    Results.Ok(new { models = await catalog.ListAsync(threadId, ct) }));
 api.MapPost("local/ai/catalog", async (AiChatModelDto model, AiChatCatalogService catalog, CancellationToken ct) =>
 {
     var error = await catalog.AddAsync(model, ct);

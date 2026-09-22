@@ -1,5 +1,6 @@
 @inject TaskboardClient Client
 @inject IAgentOrchestrationService OrchestrationService
+@inject IGitHubService GitHubService
 
 @if (_loading)
 {
@@ -42,26 +43,53 @@ else
         <p class="form-text mb-0">The chat runs through this CLI — its own credentials are used.</p>
     </div>
 
+    <div class="mb-3">
+        <label class="form-label">Repository @(_mode == "agent" ? "" : "(optional)")</label>
+        <RepositoryCombobox Id="thread-repo"
+                            AriaLabel="Repository"
+                            Placeholder="owner/repo (optional)"
+                            Repositories="@_repoNames"
+                            @bind-Value="_repository" />
+        @if (_mode == "agent" && !string.IsNullOrWhiteSpace(_repository) && string.IsNullOrWhiteSpace(_workspacePath))
+        {
+            <p class="form-text mb-0">Workspace resolves automatically to the local clone of this repository.</p>
+        }
+    </div>
+
     @if (_mode == "agent")
     {
         <div class="mb-3">
             <label for="thread-workdir" class="form-label">Workspace Path</label>
-            <input id="thread-workdir" type="text" class="form-control" @bind="_workspacePath" placeholder="/path/to/project (optional)" />
+            <input id="thread-workdir" type="text" class="form-control" @bind="_workspacePath" placeholder="/path/to/project (overrides the repository workspace)" />
         </div>
     }
 
     <div class="mb-3">
+        <label for="thread-tier" class="form-label">Model tier</label>
+        <select id="thread-tier" class="form-select" @bind="_modelTier">
+            <option value="">Auto</option>
+            <option value="@AgentModelTier.Lite">Lite</option>
+            <option value="@AgentModelTier.Normal">Normal</option>
+            <option value="@AgentModelTier.Ultra">Ultra</option>
+        </select>
+    </div>
+
+    <div class="mb-3">
         <label for="thread-model" class="form-label">Model</label>
         <select id="thread-model" class="form-select" @bind="_modelId">
-            <option value="">CLI default</option>
+            <option value="">@(_modelTier.Length == 0 ? "CLI default" : "Tier default")</option>
             @foreach (var model in AgentModels)
             {
-                <option value="@model.Name">@model.Name</option>
+                <option value="@model.Name">@ModelOptionLabel(model)</option>
             }
         </select>
         @if (AgentModels.Count == 0)
         {
             <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
+        }
+        else
+        {
+            <p class="form-text mb-0">An explicit model overrides the tier.</p>
         }
     </div>
 
@@ -92,10 +120,13 @@ else
     private bool _loading = true;
     private IReadOnlyList<AgentInfo>? _agents;
     private IReadOnlyList<AiChatModelDto> _models = [];
+    private IReadOnlyList<string> _repoNames = [];
     private string _title = string.Empty;
     private string _mode = "assistant";
     private string _agentType = string.Empty;
     private string _workspacePath = string.Empty;
+    private string _repository = string.Empty;
+    private string _modelTier = string.Empty;
     private string _modelId = string.Empty;
     private string _sandbox = "read-only";
 
@@ -112,6 +143,18 @@ else
             if (first is not null)
             {
                 _agentType = first.Type.ToString();
+            }
+
+            // Repositories are optional — a missing GitHub token must not
+            // break thread creation; the combobox still accepts free text.
+            try
+            {
+                var repos = await GitHubService.GetRepositoriesAsync();
+                _repoNames = repos.Select(r => r.FullName).ToList();
+            }
+            catch
+            {
+                _repoNames = [];
             }
         }
         catch
@@ -137,16 +180,23 @@ else
 
     private async Task CancelAsync() => await OnCancel.InvokeAsync();
 
+    private static string ModelOptionLabel(AiChatModelDto model) =>
+        model.Source == "acp"
+            ? $"{model.Name} (reported by agent)"
+            : model.Name;
+
     private async Task ConfirmAsync()
     {
         var request = new CreateAiChatThreadRequest(
             _title.Trim(),
-            _modelId, // empty → CLI default
+            _modelId, // empty → tier/CLI default
             "none",
             _mode == "agent" ? _sandbox : "read-only",
             Mode: _mode,
             AgentType: _agentType,
-            WorkspacePath: _mode == "agent" && !string.IsNullOrWhiteSpace(_workspacePath) ? _workspacePath.Trim() : null);
+            WorkspacePath: _mode == "agent" && !string.IsNullOrWhiteSpace(_workspacePath) ? _workspacePath.Trim() : null,
+            RepositoryFullName: string.IsNullOrWhiteSpace(_repository) ? null : _repository.Trim(),
+            ModelTier: _modelTier.Length == 0 ? null : _modelTier);
 
         await OnSubmit.InvokeAsync(request);
     }

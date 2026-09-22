@@ -7,6 +7,7 @@ using Taskboard;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Application.Mapping;
 using Taskboard.Domain.Entities;
 using Taskboard.Dtos;
@@ -28,6 +29,9 @@ public sealed class AiChatService
     private readonly ICliChatRunner _cliChatRunner;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AiChatService> _logger;
+    private readonly IWorkspacePathResolver _workspace;
+    private readonly IAgentModelConfigService _modelConfig;
+    private readonly IAgentModelCatalogService _modelCatalog;
 
     public AiChatService(
         IRepository<AiChatThread> threadRepo,
@@ -39,7 +43,10 @@ public sealed class AiChatService
         IAgentEligibilityService eligibility,
         ICliChatRunner cliChatRunner,
         IConfiguration configuration,
-        ILogger<AiChatService> logger)
+        ILogger<AiChatService> logger,
+        IWorkspacePathResolver workspace,
+        IAgentModelConfigService modelConfig,
+        IAgentModelCatalogService modelCatalog)
     {
         _threadRepo = threadRepo;
         _runRepo = runRepo;
@@ -51,6 +58,9 @@ public sealed class AiChatService
         _cliChatRunner = cliChatRunner;
         _configuration = configuration;
         _logger = logger;
+        _workspace = workspace;
+        _modelConfig = modelConfig;
+        _modelCatalog = modelCatalog;
     }
 
     public async Task<AiChatThreadDto> CreateThreadAsync(
@@ -74,13 +84,73 @@ public sealed class AiChatService
                 $"Agent '{agentType}' is not eligible — the CLI must be installed, authenticated and enabled.");
         }
 
-        var model = string.IsNullOrWhiteSpace(request.Model) ? ModelRef.From("default") : ModelRef.From(request.Model);
+        // SPEC-20260921-ai-code-thread-config RF-004: modelo explícito vence;
+        // vazio + tier → resolução via config service (override ?? curated);
+        // ambos vazios → CLI default. RF-006: a origem do modelo efetivo é
+        // auditada em ModelSource.
+        AgentModelTier? tier = null;
+        if (!string.IsNullOrWhiteSpace(request.ModelTier))
+        {
+            if (!Enum.TryParse<AgentModelTier>(request.ModelTier, true, out var parsed))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Invalid model tier '{request.ModelTier}' — expected Lite, Normal or Ultra.");
+            }
+
+            tier = parsed;
+        }
+
+        string? modelSource = null;
+        string modelName;
+        if (!string.IsNullOrWhiteSpace(request.Model))
+        {
+            modelName = request.Model.Trim();
+            modelSource = await ResolveModelSourceAsync(agentType, modelName, ct);
+        }
+        else if (tier is not null)
+        {
+            var config = await _modelConfig.GetConfigAsync(agentType, ct);
+            var resolved = tier switch
+            {
+                AgentModelTier.Lite => config.Lite,
+                AgentModelTier.Ultra => config.Ultra,
+                _ => config.Normal,
+            };
+            modelName = string.IsNullOrWhiteSpace(resolved) ? "default" : resolved;
+            modelSource = string.IsNullOrWhiteSpace(resolved)
+                ? null
+                : string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase) ? "custom" : "curated";
+        }
+        else
+        {
+            modelName = "default";
+        }
+
+        var model = ModelRef.From(modelName);
         var reasoningEffort = string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort;
         var sandbox = string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox);
 
         AiChatThread thread;
         if (string.Equals(request.Mode, "agent", StringComparison.OrdinalIgnoreCase))
         {
+            // SPEC-20260921-ai-code-thread-config RF-003: o repositório resolve
+            // ~/repos/<name> quando WorkspacePath não é informado; o path manual
+            // sempre vence; falha de resolução é 400, nunca fallback silencioso.
+            var workspacePath = request.WorkspacePath;
+            if (string.IsNullOrWhiteSpace(workspacePath) && !string.IsNullOrWhiteSpace(request.RepositoryFullName))
+            {
+                var resolved = _workspace.ResolveCardWorkdir(request.RepositoryFullName, out var exists);
+                if (!exists)
+                {
+                    throw new DomainException(
+                        TaskboardDomainErrorCodes.InvalidValue,
+                        $"Repository '{request.RepositoryFullName}' has no local workspace — clone it under the workspace root or provide an explicit WorkspacePath.");
+                }
+
+                workspacePath = resolved;
+            }
+
             thread = AiChatThread.CreateAgentThread(
                 AiChatThreadId.NewGuid(),
                 request.Title,
@@ -88,7 +158,7 @@ public sealed class AiChatService
                 reasoningEffort,
                 sandbox,
                 agentType,
-                request.WorkspacePath,
+                workspacePath,
                 request.RepositoryFullName);
         }
         else
@@ -99,13 +169,46 @@ public sealed class AiChatService
                 model,
                 reasoningEffort,
                 sandbox,
-                agentType: agentType);
+                agentType: agentType,
+                repositoryFullName: request.RepositoryFullName);
         }
+
+        thread.SetModelChoice(tier?.ToString(), modelSource);
 
         await _threadRepo.AddAsync(thread, ct);
         await _threadRepo.SaveChangesAsync(ct);
 
         return thread.ToDto();
+    }
+
+    /// <summary>
+    /// Tags which catalog served an explicitly chosen model — probe (reported
+    /// by the CLI), the curated table, or a custom catalog entry. Unknown
+    /// names are tagged "custom": the user typed it, so it is by definition
+    /// not served by a known catalog.
+    /// </summary>
+    private async Task<string> ResolveModelSourceAsync(AgentType agentType, string modelName, CancellationToken ct)
+    {
+        try
+        {
+            var reported = await _modelCatalog.ListAvailableAsync(agentType, cancellationToken: ct);
+            if (reported.Contains(modelName, StringComparer.Ordinal))
+            {
+                return "probe";
+            }
+        }
+        catch (Exception ex)
+        {
+            // Probe failure degrades the audit tag, never the creation itself.
+            _logger.LogWarning(ex, "Model probe failed for agent '{AgentType}' while tagging model source.", agentType);
+        }
+
+        if (AgentCliModels.Catalog(agentType).Contains(modelName, StringComparer.Ordinal))
+        {
+            return "curated";
+        }
+
+        return "custom";
     }
 
     public async Task<AiChatThreadDto?> GetThreadAsync(AiChatThreadId id, CancellationToken ct = default)
