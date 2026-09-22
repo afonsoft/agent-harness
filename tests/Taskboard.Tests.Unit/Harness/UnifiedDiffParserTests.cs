@@ -67,6 +67,27 @@ public class UnifiedDiffParserTests
     }
 
     [Fact]
+    public void Dado_SecaoSemHunks_Quando_Split_Entao_PathDoHeaderGit()
+    {
+        // Binary/mode-only sections não têm ---/+++ — o path resolve pelo
+        // header "diff --git a/<old> b/<new>".
+        var patch = """
+            diff --git a/assets/logo.png b/assets/logo.png
+            index 111..222 100644
+            Binary files a/assets/logo.png and b/assets/logo.png differ
+            diff --git a/run.sh b/run.sh
+            old mode 100644
+            new mode 100755
+            """;
+
+        var sections = UnifiedDiffParser.SplitByFile(patch);
+
+        sections.Count.ShouldBe(2);
+        sections[0].Path.ShouldBe("assets/logo.png");
+        sections[1].Path.ShouldBe("run.sh");
+    }
+
+    [Fact]
     public void Dado_PatchVazio_Quando_Split_Entao_ListaVazia()
     {
         UnifiedDiffParser.SplitByFile(null).ShouldBeEmpty();

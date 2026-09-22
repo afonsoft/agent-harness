@@ -60,8 +60,15 @@ public static class UnifiedDiffParser
     private static string? ResolvePath(IReadOnlyList<string> lines)
     {
         string? oldPath = null;
+        string? gitHeaderPath = null;
         foreach (var line in lines)
         {
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+            {
+                gitHeaderPath ??= ParseGitHeader(line);
+                continue;
+            }
+
             if (line.StartsWith("--- ", StringComparison.Ordinal))
             {
                 oldPath = StripPrefix(line[4..].Trim(), "a/");
@@ -77,7 +84,24 @@ public static class UnifiedDiffParser
             return newPath == "/dev/null" ? oldPath : StripPrefix(newPath, "b/");
         }
 
-        return null;
+        // Seções sem ---/+++ (binary, mode-only) resolvem pelo header diff --git.
+        return gitHeaderPath;
+    }
+
+    private static string? ParseGitHeader(string line)
+    {
+        // "diff --git a/<old> b/<new>" — o lado b vence; git pode quotar paths
+        // com caracteres especiais.
+        var marker = line.IndexOf(" b/", StringComparison.Ordinal);
+        if (marker < 0)
+        {
+            return null;
+        }
+
+        var path = line[(marker + 3)..].Trim();
+        return path.Length >= 2 && path.StartsWith('"') && path.EndsWith('"')
+            ? path[1..^1]
+            : path;
     }
 
     private static string StripPrefix(string path, string prefix) =>
