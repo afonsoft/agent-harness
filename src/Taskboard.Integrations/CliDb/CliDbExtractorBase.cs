@@ -25,11 +25,29 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
         _logger = logger;
     }
 
+    protected ILogger Logger => _logger;
+
     public abstract AgentCliKind Kind { get; }
     public abstract CliDbSchemaFingerprint ExpectedFingerprint { get; }
 
+    /// <summary>
+    /// Extractor data schema version — extractors that start emitting new
+    /// fields (e.g. token estimates) bump this so the sync loop resets the
+    /// watermark and re-extracts once (SPEC-20260922 RF-003).
+    /// </summary>
+    public virtual int DataVersion => 1;
+
     /// <summary>Sources this extractor reads — normally <see cref="CliDatabaseMap.SourcesFor"/>.</summary>
     public abstract IReadOnlyList<CliDbSource> Sources { get; }
+
+    /// <summary>
+    /// Whitelisted tables covered by drift detection — defaults to the whole
+    /// whitelist. Estimation-only tables (e.g. Devin <c>message_nodes</c>)
+    /// may be excluded so their drift degrades the extractor instead of
+    /// blanking the source (SPEC-20260922 edge case).
+    /// </summary>
+    public virtual IReadOnlyList<string> DriftCheckedTables(CliDbSource source) =>
+        source.WhitelistTables;
 
     /// <summary>
     /// Extractor-specific whitelisted queries for one opened database file.
@@ -66,6 +84,74 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
     }
 
     protected static string FormatCursor(string file, long rowid) => $"{file}|{rowid}";
+
+    // IN-clause chunking stays well under SQLite's variable limit.
+    private const int RollupChunkSize = 500;
+
+    /// <summary>
+    /// Scalar-only rollup shared by estimation extractors:
+    /// <c>SUM(length(column))</c> + <c>COUNT(*)</c> per
+    /// <paramref name="groupColumn"/> value, restricted to the given values
+    /// via chunked <c>IN</c> clauses. Returns <see langword="null"/> when the
+    /// optional table is missing/drifted — callers degrade to null-token
+    /// sessions instead of failing the pass (SPEC-20260922 RF-002).
+    /// </summary>
+    protected async Task<Dictionary<string, (long Chars, long Count)>?> TryRollupByGroupAsync(
+        ICliDbConnection conn,
+        string table,
+        string groupColumn,
+        string lengthColumn,
+        IEnumerable<string> groupValues,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var totals = new Dictionary<string, (long Chars, long Count)>(StringComparer.Ordinal);
+            foreach (var chunk in groupValues.Distinct(StringComparer.Ordinal).Chunk(RollupChunkSize))
+            {
+                var parameters = new Dictionary<string, object?>(StringComparer.Ordinal);
+                var placeholders = new List<string>(chunk.Length);
+                for (var i = 0; i < chunk.Length; i++)
+                {
+                    var name = $"@g{i}";
+                    placeholders.Add(name);
+                    parameters[name] = chunk[i];
+                }
+
+                var rows = await conn.QueryScalarRollupAsync(
+                    table,
+                    groupByColumn: groupColumn,
+                    lengthColumns: [lengthColumn],
+                    r => (Group: r.GetString(groupColumn) ?? string.Empty,
+                        Chars: r.GetInt64($"len_{lengthColumn}") ?? 0,
+                        Count: r.GetInt64("count_all") ?? 0),
+                    whereClause: $"{groupColumn} IN ({string.Join(',', placeholders)})",
+                    parameters: parameters,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                foreach (var row in rows)
+                {
+                    if (row.Group.Length == 0)
+                    {
+                        continue;
+                    }
+                    totals.TryGetValue(row.Group, out var agg);
+                    totals[row.Group] = (agg.Chars + row.Chars, agg.Count + row.Count);
+                }
+            }
+            return totals;
+        }
+        catch (Exception ex) when (ex is CliDbAccessDeniedException or CliDbReadException
+            or Microsoft.Data.Sqlite.SqliteException)
+        {
+            // Optional estimation surface — a missing/drifted table must not
+            // blank the sessions extraction.
+            _logger.LogWarning(
+                "{Kind} rollup on {Table} skipped ({Message}); sessions keep null tokens.",
+                Kind, table, ex.Message);
+            return null;
+        }
+    }
 
     public async Task<CliExtractionResult> ExtractSinceAsync(string? cursor, CancellationToken cancellationToken = default)
     {
@@ -107,7 +193,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
                     copied |= conn.CopiedToTemp;
 
                     var fingerprint = await conn.GetSchemaFingerprintAsync(
-                        source.WhitelistTables, cancellationToken).ConfigureAwait(false);
+                        DriftCheckedTables(source), cancellationToken).ConfigureAwait(false);
                     if (!CliDbSchemaFingerprinter.Matches(ExpectedFingerprint, fingerprint, out var diff))
                     {
                         // Schema metadata only — row content is never logged.

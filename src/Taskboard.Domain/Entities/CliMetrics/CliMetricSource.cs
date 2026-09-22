@@ -22,6 +22,11 @@ public sealed class CliMetricSource : AggregateRoot<CliMetricSourceId>
     public DateTime? LastSyncUtc { get; private set; }
     public string? LastError { get; private set; }
     public long RowCount { get; private set; }
+    /// <summary>
+    /// Extractor data version last applied — a declared-version bump clears
+    /// the watermark so old rows re-extract once (SPEC-20260922 RF-003).
+    /// </summary>
+    public int ExtractorDataVersion { get; private set; } = 1;
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
@@ -79,6 +84,30 @@ public sealed class CliMetricSource : AggregateRoot<CliMetricSourceId>
         LastSyncUtc = now;
         UpdatedAt = now;
         IncrementVersion();
+    }
+
+    /// <summary>Clears the watermark cursor — the next sync re-reads the source from scratch.</summary>
+    public void ResetWatermark(DateTime now)
+    {
+        WatermarkCursor = null;
+        UpdatedAt = now;
+        IncrementVersion();
+    }
+
+    /// <summary>
+    /// Records the extractor data version applied by a successful sync; a bump
+    /// clears the stored watermark cursor.
+    /// </summary>
+    public void RecordExtractorDataVersion(int version, DateTime now)
+    {
+        if (version == ExtractorDataVersion)
+        {
+            return;
+        }
+        ExtractorDataVersion = version;
+        // Any version change invalidates the incremental cursor — the next
+        // MarkSync call writes the fresh cursor over it anyway.
+        ResetWatermark(now);
     }
 
     public void MarkError(string reason, DateTime now)

@@ -239,6 +239,90 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             return rows;
         }
 
+        public async Task<IReadOnlyList<T>> QueryScalarRollupAsync<T>(
+            string table,
+            string? groupByColumn,
+            IReadOnlyList<string> lengthColumns,
+            Func<ICliDbRow, T> map,
+            string? whereClause = null,
+            IReadOnlyDictionary<string, object?>? parameters = null,
+            int? rowLimit = null,
+            CancellationToken cancellationToken = default)
+        {
+            ValidateTable(table);
+            var selects = new List<string>();
+            var outputNames = new List<string>();
+
+            if (groupByColumn is not null)
+            {
+                ValidateRollupColumn(groupByColumn);
+                selects.Add($"\"{groupByColumn}\" AS \"{groupByColumn}\"");
+                outputNames.Add(groupByColumn);
+            }
+
+            foreach (var col in lengthColumns)
+            {
+                ValidateRollupColumn(col);
+                var alias = $"len_{col}";
+                selects.Add($"COALESCE(SUM(length(\"{col}\")), 0) AS \"{alias}\"");
+                outputNames.Add(alias);
+            }
+            selects.Add("COUNT(*) AS \"count_all\"");
+            outputNames.Add("count_all");
+
+            if (whereClause is not null && UnsafeWherePattern.IsMatch(whereClause))
+            {
+                throw new CliDbAccessDeniedException($"Unsafe where clause rejected: {whereClause}");
+            }
+
+            var limit = rowLimit ?? _options.RowLimit;
+            var sql = $"SELECT {string.Join(", ", selects)} FROM \"{table}\"";
+            if (whereClause is not null)
+            {
+                sql += $" WHERE {whereClause}";
+            }
+            if (groupByColumn is not null)
+            {
+                sql += $" GROUP BY \"{groupByColumn}\" ORDER BY \"{groupByColumn}\"";
+            }
+            sql += " LIMIT @__limit";
+
+            await using var cmd = _conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.CommandTimeout = (int)_options.EffectiveCommandTimeout.TotalSeconds;
+            cmd.Parameters.AddWithValue("@__limit", limit);
+            if (parameters is not null)
+            {
+                foreach (var (name, value) in parameters)
+                {
+                    cmd.Parameters.AddWithValue(name, value ?? DBNull.Value);
+                }
+            }
+
+            var rows = new List<T>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                rows.Add(map(new CliDbRow(reader, outputNames)));
+            }
+
+            return rows;
+        }
+
+        private void ValidateRollupColumn(string column)
+        {
+            if (!IdentifierPattern.IsMatch(column))
+            {
+                throw new CliDbAccessDeniedException($"Invalid column identifier: {column}");
+            }
+            // Secret-named columns are rejected — even their length must not
+            // leak (SPEC-20260919 RF-004 carries over to scalar rollups).
+            if (SecretColumnPattern.IsMatch(column))
+            {
+                throw new CliDbAccessDeniedException($"Secret-named column rejected: {column}");
+            }
+        }
+
         public async Task<CliDbSchemaFingerprint> GetSchemaFingerprintAsync(
             IReadOnlyList<string> whitelistedTables, CancellationToken cancellationToken = default)
         {

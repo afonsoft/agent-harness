@@ -69,6 +69,7 @@ public class CliMetricsServiceTests : IDisposable
         public AgentCliKind Kind { get; init; } = AgentCliKind.Codex;
         public IReadOnlyList<CliDbSource> Sources { get; init; } = [Source];
         public CliDbSchemaFingerprint ExpectedFingerprint => new(0, 0, "test");
+        public int DataVersion { get; set; } = 1;
         public List<string?> CursorsSeen { get; } = [];
         public Func<string?, CliExtractionResult> OnExtract { get; set; } =
             _ => new CliExtractionResult([], [], "cursor-1", CliDbSourceStatus.Available, null);
@@ -251,6 +252,72 @@ public class CliMetricsServiceTests : IDisposable
         extractor.CursorsSeen.ShouldBeEmpty();
         var source = await _context.CliMetricSources.SingleAsync();
         source.Status.ShouldBe(CliDbSourceStatus.Missing);
+    }
+
+    [Fact]
+    public async Task Dado_DataVersionBump_Quando_Sync_Entao_ReextraiDoZeroIdempotente()
+    {
+        // SPEC-20260922 RF-003: bump do DataVersion zera o cursor e re-extrai
+        // tudo uma vez — upserts atualizam as linhas existentes.
+        WriteDbFile();
+        var started = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
+        var extractor = new FakeExtractor
+        {
+            OnExtract = _ => new CliExtractionResult(
+                [Session("s1", started)], [], "c1", CliDbSourceStatus.Available, null),
+        };
+        var service = CriarService(extractor);
+        await service.SyncAsync();
+
+        extractor.DataVersion = 2;
+        extractor.OnExtract = _ => new CliExtractionResult(
+            [Session("s1", started) with { TokensInput = 38190 }],
+            [], "c2", CliDbSourceStatus.Available, null);
+        await service.SyncAsync(); // arquivo inalterado — rescan forçado pela versão
+
+        extractor.CursorsSeen.ShouldBe([null, null],
+            customMessage: "bump de DataVersion reextrai a partir de cursor nulo");
+        var sessions = await _context.CliSessionMetrics.ToListAsync();
+        sessions.Count.ShouldBe(1, customMessage: "upsert idempotente — sem duplicar sessão");
+        sessions[0].TokensInput.ShouldBe(38190, customMessage: "linha atualizada in-place");
+
+        var source = await _context.CliMetricSources.SingleAsync();
+        source.ExtractorDataVersion.ShouldBe(2);
+        source.WatermarkCursor.ShouldBe("c2");
+
+        await service.SyncAsync(); // versão já aplicada + arquivo igual → skip
+        extractor.CursorsSeen.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Dado_ReextracaoFalha_Quando_Sync_Entao_VersaoAntigaPersistidaERetenta()
+    {
+        WriteDbFile();
+        var started = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
+        var extractor = new FakeExtractor
+        {
+            OnExtract = _ => new CliExtractionResult(
+                [Session("s1", started)], [], "c1", CliDbSourceStatus.Available, null),
+        };
+        var service = CriarService(extractor);
+        await service.SyncAsync();
+
+        extractor.DataVersion = 2;
+        extractor.OnExtract = _ => throw new CliDbReadException("rescan exploded");
+        await service.SyncAsync();
+
+        var source = await _context.CliMetricSources.SingleAsync();
+        source.ExtractorDataVersion.ShouldBe(1,
+            customMessage: "falha no meio do rescan preserva a versão antiga");
+        source.Status.ShouldBe(CliDbSourceStatus.Error);
+
+        extractor.OnExtract = _ => new CliExtractionResult(
+            [Session("s1", started) with { TokensInput = 42 }],
+            [], "c2", CliDbSourceStatus.Available, null);
+        await service.SyncAsync();
+
+        (await _context.CliMetricSources.SingleAsync()).ExtractorDataVersion.ShouldBe(2);
+        (await _context.CliSessionMetrics.SingleAsync()).TokensInput.ShouldBe(42);
     }
 
     [Fact]

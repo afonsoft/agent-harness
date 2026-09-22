@@ -36,10 +36,13 @@ public static class CliDatabaseMap
             ],
             [AgentCliKind.Devin] =
             [
+                // message_nodes is estimation-only: SUM(length(chat_message))
+                // + COUNT(*) scalars — message content is never selected
+                // (SPEC-20260922-finops-cli-usage-breakdown RF-002).
                 new CliDbSource(
                     "devin-sessions",
                     ".local/share/devin/cli/sessions.db",
-                    ["sessions"],
+                    ["sessions", "message_nodes"],
                     GenericDenied),
             ],
             [AgentCliKind.Antigravity] =

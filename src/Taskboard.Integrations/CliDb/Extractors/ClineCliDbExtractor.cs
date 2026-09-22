@@ -17,15 +17,22 @@ public sealed class ClineCliDbExtractor : CliDbExtractorBase
     private static readonly CliDbSchemaFingerprint Baseline = new(
         0, 0, "hub_events(created_at,envelope_json,event,sequence,session_id)");
 
+    private readonly CliTokenEstimator _estimator;
+
     public ClineCliDbExtractor(
-        ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger<ClineCliDbExtractor> logger)
+        ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger<ClineCliDbExtractor> logger,
+        CliTokenEstimator? estimator = null)
         : base(locator, reader, logger)
     {
+        _estimator = estimator ?? new CliTokenEstimator();
     }
 
     public override AgentCliKind Kind => AgentCliKind.Cline;
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
     public override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
+
+    // v2: SUM(length(envelope_json)) per session feeds TokensInput (RF-002).
+    public override int DataVersion => 2;
 
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,
@@ -72,13 +79,22 @@ public sealed class ClineCliDbExtractor : CliDbExtractorBase
             }
         }
 
+        // Scalar-only rollup over the touched sessions — envelope contents
+        // never leave the vendor database (RF-002).
+        var rollup = await TryRollupByGroupAsync(
+            conn, "hub_events", "session_id", "envelope_json",
+            grouped.Keys, cancellationToken).ConfigureAwait(false);
+
         foreach (var (sessionId, agg) in grouped.OrderBy(kv => kv.Value.Min))
         {
             sessions.Add(new CliSessionRecord(
                 source.Name, sessionId, Title: null,
                 CliDbTimestamps.EpochMs(agg.Min), EndedAtUtc: null,
                 agg.Count, ModelName: null,
-                TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true));
+                TokensInput: rollup is not null && rollup.TryGetValue(sessionId, out var chars)
+                    ? _estimator.FromChars(chars.Chars)
+                    : null,
+                TokensOutput: null, TokensCached: null, TokensEstimated: true));
         }
 
         return maxRowid;

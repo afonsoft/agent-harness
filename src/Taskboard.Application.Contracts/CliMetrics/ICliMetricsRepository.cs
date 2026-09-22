@@ -18,6 +18,9 @@ public interface ICliMetricsRepository
     /// the resulting status/watermark. <paramref name="resolvedPaths"/> is the
     /// `;`-joined file list (glob sources), <paramref name="maxMtimeTicks"/>/
     /// <paramref name="totalSizeBytes"/> the aggregate file signature.
+    /// <paramref name="extractorDataVersion"/> persists the applied extractor
+    /// data version — a bump clears the stored watermark (SPEC-20260922 RF-003);
+    /// <see langword="null"/> keeps the stored version (error paths).
     /// </summary>
     Task SaveSourceStateAsync(
         AgentCliKind kind,
@@ -31,7 +34,8 @@ public interface ICliMetricsRepository
         long rowCount,
         string? lastError,
         DateTime now,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int? extractorDataVersion = null);
 
     /// <summary>
     /// Dedupe-upserts extracted session rows under the (kind, source) row —

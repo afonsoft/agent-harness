@@ -43,6 +43,25 @@ public interface ICliDbConnection : IAsyncDisposable
         int? rowLimit = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Scalar-only rollup over a whitelisted table: per group,
+    /// <c>COALESCE(SUM(length(col)),0)</c> for each requested length column
+    /// plus <c>COUNT(*)</c>. Only numeric scalars leave the database — column
+    /// content is never selected (SPEC-20260922 RF-002 privacy invariant).
+    /// Result rows expose the group column under its own name, each length
+    /// total under <c>len_&lt;column&gt;</c> and the row count under
+    /// <c>count_all</c>.
+    /// </summary>
+    Task<IReadOnlyList<T>> QueryScalarRollupAsync<T>(
+        string table,
+        string? groupByColumn,
+        IReadOnlyList<string> lengthColumns,
+        Func<ICliDbRow, T> map,
+        string? whereClause = null,
+        IReadOnlyDictionary<string, object?>? parameters = null,
+        int? rowLimit = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Fingerprint of the whitelisted schema surface for drift detection (RF-003).</summary>
     Task<CliDbSchemaFingerprint> GetSchemaFingerprintAsync(
         IReadOnlyList<string> whitelistedTables,

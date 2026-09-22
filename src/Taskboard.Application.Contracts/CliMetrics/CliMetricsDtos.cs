@@ -19,7 +19,9 @@ public sealed record CliMetricSourceStateDto(
     string? ResolvedPath,
     DateTime? FileModifiedUtc,
     long? FileSizeBytes,
-    CliDbSourceStatus Status);
+    CliDbSourceStatus Status,
+    /// <summary>Extractor data version last applied to this source (SPEC-20260922 RF-003).</summary>
+    int ExtractorDataVersion = 1);
 
 /// <summary>Session row for `GET /api/local/cli-metrics/sessions`.</summary>
 public sealed record CliSessionMetricDto(

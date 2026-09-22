@@ -8,8 +8,9 @@ namespace Taskboard.Integrations.CliDb.Extractors;
 /// <summary>
 /// Codex: session metadata from <c>~/.codex/state_*.sqlite → threads</c>.
 /// Timestamps are epoch seconds. Codex exposes only a token total
-/// (<c>tokens_used</c>) which does not map cleanly onto input/output — v1
-/// leaves token fields null.
+/// (<c>tokens_used</c>) which does not map cleanly onto input/output — it is
+/// carried as <c>TokensInput</c> with <c>TokensEstimated = true</c>
+/// (SPEC-20260922-finops-cli-usage-breakdown RF-002).
 /// </summary>
 public sealed class CodexCliDbExtractor : CliDbExtractorBase
 {
@@ -32,6 +33,9 @@ public sealed class CodexCliDbExtractor : CliDbExtractorBase
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
     public override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
 
+    // v2: tokens_used flows into TokensInput (RF-002).
+    public override int DataVersion => 2;
+
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,
         string resolvedPath,
@@ -44,7 +48,7 @@ public sealed class CodexCliDbExtractor : CliDbExtractorBase
         long? maxRowid = rowCursor;
         var rows = await conn.QueryAsync(
             "threads",
-            ["rowid", "id", "title", "created_at", "updated_at", "model"],
+            ["rowid", "id", "title", "created_at", "updated_at", "model", "tokens_used"],
             r => (Rowid: r.GetInt64("rowid") ?? 0,
                 Record: new CliSessionRecord(
                     source.Name,
@@ -54,7 +58,9 @@ public sealed class CodexCliDbExtractor : CliDbExtractorBase
                     CliDbTimestamps.OptEpochSeconds(r.GetInt64("updated_at")),
                     MessageCount: null,
                     r.GetString("model"),
-                    TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
+                    // Vendor total without in/out split — still flagged estimated.
+                    TokensInput: r.GetInt64("tokens_used"),
+                    TokensOutput: null, TokensCached: null, TokensEstimated: true)),
             whereClause: rowCursor is null ? null : "rowid > @cursor",
             parameters: rowCursor is null ? null : new Dictionary<string, object?> { ["@cursor"] = rowCursor },
             orderBy: "rowid",

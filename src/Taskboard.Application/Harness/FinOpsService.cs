@@ -142,6 +142,28 @@ public sealed class FinOpsService : IFinOpsService
             .Where(a => sinceDay == null || string.Compare(a.Day, sinceDay) >= 0)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        // SPEC-20260922 RF-001 — one row per kind with in-period aggregates,
+        // zero values included; contractual ordering Sessions/CostUsd desc.
+        var byCli = cliRows
+            .GroupBy(r => r.Kind)
+            .Select(g =>
+            {
+                var sessions = g.Sum(r => r.SessionsCount);
+                var estimatedSessions = g.Where(r => r.TokensEstimated).Sum(r => r.SessionsCount);
+                return new CliUsageByCliDto(
+                    Cli: AgentCliMap.GetSpec(g.Key)?.DisplayName ?? g.Key.ToString(),
+                    Sessions: sessions,
+                    TokensInput: g.Sum(r => r.TokensInput),
+                    TokensOutput: g.Sum(r => r.TokensOutput),
+                    TokensCached: g.Sum(r => r.TokensCached),
+                    CostUsd: g.Sum(r => r.CostUsd),
+                    EstimatedShare: sessions == 0 ? 0.0 : (double)estimatedSessions / sessions);
+            })
+            .OrderByDescending(r => r.Sessions)
+            .ThenByDescending(r => r.CostUsd)
+            .ThenBy(r => r.Cli, StringComparer.Ordinal)
+            .ToList();
+
         var cliUsage = cliRows.Count == 0
             ? null
             : new CliUsageSummaryDto(
@@ -156,7 +178,8 @@ public sealed class FinOpsService : IFinOpsService
                 EstimatedShare: cliRows.Sum(r => r.SessionsCount) == 0
                     ? 0.0
                     : (double)cliRows.Where(r => r.TokensEstimated).Sum(r => r.SessionsCount)
-                        / cliRows.Sum(r => r.SessionsCount));
+                        / cliRows.Sum(r => r.SessionsCount),
+                ByCli: byCli);
 
         return new FinOpsSummaryDto(
             TotalCostUsd: periodMetrics.Sum(r => r.CostUsd),

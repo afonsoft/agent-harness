@@ -22,14 +22,21 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
         "parent_conversation_id,preview,project_id,raw_summary,source,status,step_count,title," +
         "winning_conversation_id,workspace_uris)");
 
+    private readonly CliTokenEstimator _estimator;
+
     public AntigravityCliDbExtractor(
-        ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger<AntigravityCliDbExtractor> logger)
+        ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger<AntigravityCliDbExtractor> logger,
+        CliTokenEstimator? estimator = null)
         : base(locator, reader, logger)
     {
+        _estimator = estimator ?? new CliTokenEstimator();
     }
 
     public override AgentCliKind Kind => AgentCliKind.Antigravity;
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
+
+    // v2: text-length rollup feeds TokensInput (RF-002).
+    public override int DataVersion => 2;
 
     // v1 reads only the summaries DB — per-conversation files stay status-only.
     public override IReadOnlyList<CliDbSource> Sources =>
@@ -64,13 +71,34 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
             orderBy: "rowid",
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
+        // Per-row text-length totals over the same window — scalar-only, the
+        // summary/preview content never leaves the vendor database (RF-002).
+        var lengths = new Dictionary<long, long>();
+        var rollup = await conn.QueryScalarRollupAsync(
+            "conversation_summaries",
+            groupByColumn: "rowid",
+            lengthColumns: ["title", "preview", "raw_summary"],
+            r => (Rowid: r.GetInt64("rowid") ?? 0,
+                Chars: (r.GetInt64("len_title") ?? 0)
+                    + (r.GetInt64("len_preview") ?? 0)
+                    + (r.GetInt64("len_raw_summary") ?? 0)),
+            whereClause: rowCursor is null ? null : "rowid > @cursor",
+            parameters: rowCursor is null ? null : new Dictionary<string, object?> { ["@cursor"] = rowCursor },
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        foreach (var row in rollup)
+        {
+            lengths[row.Rowid] = row.Chars;
+        }
+
         foreach (var (rowid, record) in rows)
         {
             if (record.ExternalId.Length == 0)
             {
                 continue;
             }
-            sessions.Add(record);
+            sessions.Add(lengths.TryGetValue(rowid, out var chars)
+                ? record with { TokensInput = _estimator.FromChars(chars) }
+                : record);
             if (rowid > (maxRowid ?? 0))
             {
                 maxRowid = rowid;
