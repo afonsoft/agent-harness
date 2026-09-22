@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -87,13 +88,43 @@ using Taskboard.ValueObjects;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// SPEC-20260922-harness-home-rename: HARNESS__* env vars bind to the internal
+// Taskboard:* config section (HARNESS__ACP__SESSIONRUNS → Taskboard:Acp:SessionRuns).
+// Added after the default env provider so HARNESS__* beats Taskboard__*; the
+// SQLite overrides provider (added below) still wins over both.
+var harnessEnvOverrides = Environment.GetEnvironmentVariables()
+    .Cast<System.Collections.DictionaryEntry>()
+    .Where(e => e.Key is string k && k.StartsWith("HARNESS__", StringComparison.Ordinal))
+    .ToDictionary(
+        e => "Taskboard:" + ((string)e.Key)["HARNESS__".Length..].Replace("__", ":", StringComparison.Ordinal),
+        e => (string?)e.Value?.ToString());
+if (harnessEnvOverrides.Count > 0)
+{
+    builder.Configuration.AddInMemoryCollection(harnessEnvOverrides);
+}
+
 var environment = new TaskboardEnvironment(builder.Configuration, builder.Environment);
 var dataDir = environment.GetDataDir();
 Directory.CreateDirectory(dataDir);
 
+// SPEC-20260922-harness-home-rename RF-004: migrate the legacy database file
+// in place — idempotent, only when the new name does not exist yet.
+var legacyDbPath = Path.Combine(dataDir, "taskboard.sqlite");
+var harnessDbPath = Path.Combine(dataDir, "harness.sqlite");
+if (!File.Exists(harnessDbPath) && File.Exists(legacyDbPath))
+{
+    foreach (var suffix in new[] { "", "-wal", "-shm" })
+    {
+        if (File.Exists(legacyDbPath + suffix))
+        {
+            File.Move(legacyDbPath + suffix, harnessDbPath + suffix);
+        }
+    }
+}
+
 // Database-stored overrides are registered last so they win over env vars and
 // appsettings. Loaded now so a Taskboard:Port override applies to this boot.
-var sqliteConfigProvider = new SqliteConfigurationProvider(Path.Combine(dataDir, "taskboard.sqlite"));
+var sqliteConfigProvider = new SqliteConfigurationProvider(harnessDbPath);
 builder.Configuration.Sources.Add(new SqliteConfigurationSource(sqliteConfigProvider));
 builder.Services.AddSingleton(sqliteConfigProvider);
 
@@ -572,7 +603,7 @@ builder.Services.AddRequestLocalization(options =>
 
 builder.Services.AddSingleton(AdminUser.CreateFromConfiguration(builder.Configuration, dataDir));
 
-var connectionString = $"Data Source={Path.Combine(dataDir, "taskboard.sqlite")}";
+var connectionString = $"Data Source={harnessDbPath}";
 
 builder.Services.AddTaskboardEntityFrameworkCore(connectionString);
 
@@ -591,7 +622,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 // API unchanged (it authenticates itself via TASKBOARD_API_KEY).
 builder.Services.AddSingleton<ITaskboardApiClient>(sp =>
     new TaskboardApiClient(
-        Environment.GetEnvironmentVariable("TASKBOARD_URL")
+        HarnessEnv.Get("HARNESS_URL")
         ?? builder.Configuration["Taskboard:BaseUrl"]
         ?? "http://127.0.0.1:47823",
         sp.GetRequiredService<IConfiguration>()["Taskboard:ApiKey"]));

@@ -4,7 +4,7 @@
 
 `agent-harness` é um clone local-first do `dashi-taskboard` (Codex Taskboard), reescrito em **C# 14 / .NET 10** com ABP N-Layer, Domain-Driven Design, SQLite/EF Core, ASP.NET Core Minimal APIs, SSE, MCP server, CLI `taskctl` e Skill para agentes.
 
-> **Branding:** o nome do produto é **Harness** (título, menus, login, README) e o repositório é `agent-harness` (renomeado de `taskboard-ai`). Identificadores técnicos internos permanecem `taskboard` — namespaces `Taskboard.*`, projetos, CLI `taskctl`, chaves de config e env vars `TASKBOARD_*` NÃO são renomeados.
+> **Branding:** o nome do produto é **Harness** (título, menus, login, README) e o repositório é `agent-harness` (renomeado de `taskboard-ai`). Identificadores técnicos internos permanecem `taskboard` — namespaces `Taskboard.*`, projetos, CLI `taskctl` e a seção de config `Taskboard:*` NÃO são renomeados. Superfície operacional usa o nome do produto (SPEC-20260922-harness-home-rename): env vars `HARNESS_*` (legadas `TASKBOARD_*` com fallback depreciado), home `~/.agent-harness`, banco `harness.sqlite`, unit `harness-server.service`.
 
 Você é um engenheiro sênior de .NET/AI que implementa, revisa e documenta seguindo as specs em `.specs/`, as convenções `afonsoft` e este harness.
 

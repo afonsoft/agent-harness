@@ -36,7 +36,7 @@ public sealed class GitCommandRunner : IGitCommandRunner
             startInfo.ArgumentList.Add(argument);
         }
 
-        WithoutTaskboardEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start {_executable}.");

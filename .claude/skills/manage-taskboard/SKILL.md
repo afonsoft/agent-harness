@@ -39,8 +39,8 @@ No macOS ou quando o caminho contiver espaços, coloque o binário entre aspas.
 
 | Variável | Propósito | Padrão |
 |---|---|---|
-| `TASKBOARD_URL` | URL base da API REST do Taskboard | `http://127.0.0.1:47823` |
-| `TASKBOARD_THREAD_ID` | Vínculo de thread para contexto do agente | - |
+| `HARNESS_URL` | URL base da API REST do Taskboard | `http://127.0.0.1:47823` |
+| `HARNESS_THREAD_ID` | Vínculo de thread para contexto do agente | - |
 
 Nunca exponha tokens ou chaves de API na saída ou logs da skill.
 
@@ -75,7 +75,7 @@ taskctl cloud:logout
 
 ```bash
 cd src/Taskboard.Mcp
-TASKBOARD_URL=http://127.0.0.1:47823 dotnet run
+HARNESS_URL=http://127.0.0.1:47823 dotnet run
 ```
 
 O servidor usa transporte STDIO e expõe 4 tools:
@@ -98,7 +98,7 @@ Adicione em `claude_desktop_config.json`:
       "command": "dotnet",
       "args": ["run", "--project", "/caminho/completo/para/src/Taskboard.Mcp"],
       "env": {
-        "TASKBOARD_URL": "http://127.0.0.1:47823"
+        "HARNESS_URL": "http://127.0.0.1:47823"
       }
     }
   }
@@ -107,14 +107,14 @@ Adicione em `claude_desktop_config.json`:
 
 ### Registrar no OpenCode / Cursor / Gemini / Devin
 
-Use o mesmo par command/args. Configure `TASKBOARD_URL` no ambiente do IDE/agente.
+Use o mesmo par command/args. Configure `HARNESS_URL` no ambiente do IDE/agente.
 
 ## Fluxo de trabalho principal
 
 1. **Descobrir**: execute `taskctl context:current --json` para verificar o workspace/branch vinculado.
 2. **Ler primeiro**: antes de assumir uma issue, execute `taskctl ghissue:history <issueId> --json` e `taskctl ghissue:comments owner/repo <n> --json`.
 3. **Pegar apenas `todo`/`backlog`**: mova a coluna pelo board/UI (o GitHub é a fonte de verdade das colunas via labels).
-4. **Respeitar vínculo de thread**: se `TASKBOARD_THREAD_ID` estiver definido, vincule comentários e contexto a essa thread.
+4. **Respeitar vínculo de thread**: se `HARNESS_THREAD_ID` estiver definido, vincule comentários e contexto a essa thread.
 5. **Reportar**: ao concluir uma etapa, publique um comentário (`ghissue:comment`) resumindo o que foi feito e o resultado.
 6. **Concluir apenas com aprovação**: feche a issue/mova para `done` apenas após o usuário aceitar explicitamente o resultado.
 

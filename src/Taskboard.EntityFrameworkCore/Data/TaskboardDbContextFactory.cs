@@ -16,7 +16,7 @@ public sealed class TaskboardDbContextFactory : IDesignTimeDbContextFactory<Task
         var environment = new TaskboardEnvironment(configuration, hostEnvironment);
         var dataDir = environment.GetDataDir();
         Directory.CreateDirectory(dataDir);
-        var connectionString = $"Data Source={Path.Combine(dataDir, "taskboard.sqlite")}";
+        var connectionString = $"Data Source={Path.Combine(dataDir, "harness.sqlite")}";
 
         var optionsBuilder = new DbContextOptionsBuilder<TaskboardDbContext>();
         optionsBuilder.UseSqlite(connectionString, b => b.MigrationsAssembly(typeof(TaskboardDbContext).Assembly.FullName));

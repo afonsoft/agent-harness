@@ -17,14 +17,14 @@ public class WorktreeSessionTests
             runId: "run_01j7abcde",
             repositoryPath: "/home/ubuntu/repos/agent-harness",
             baseBranch: "main",
-            path: "/home/ubuntu/.taskboard/worktrees/run_01j7abcde",
+            path: "/home/ubuntu/.agent-harness/worktrees/run_01j7abcde",
             branch: "feature/agent-run_01j7abcde-fix-login-error");
 
         session.Status.ShouldBe(WorktreeStatus.Active);
         session.RunId.ShouldBe("run_01j7abcde");
         session.RepositoryPath.ShouldBe("/home/ubuntu/repos/agent-harness");
         session.BaseBranch.ShouldBe("main");
-        session.Path.ShouldBe("/home/ubuntu/.taskboard/worktrees/run_01j7abcde");
+        session.Path.ShouldBe("/home/ubuntu/.agent-harness/worktrees/run_01j7abcde");
         session.Branch.ShouldBe("feature/agent-run_01j7abcde-fix-login-error");
         session.CommitSha.ShouldBeNull();
         session.Version.ShouldBe(1);

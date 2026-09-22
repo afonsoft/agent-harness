@@ -46,7 +46,28 @@ public class SkillsSyncServiceTests : IDisposable
         File.Exists(Path.Join(skillsDir, "alpha-skill", "SKILL.md")).ShouldBeTrue();
         File.Exists(Path.Join(skillsDir, "beta-skill", "SKILL.md")).ShouldBeTrue();
         Directory.Exists(customSkill).ShouldBeTrue();
-        File.Exists(Path.Join(skillsDir, ".taskboard-skills.json")).ShouldBeTrue();
+        File.Exists(Path.Join(skillsDir, ".harness-skills.json")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_ManifestLegado_Quando_Sync_Entao_LeManifestAntigo()
+    {
+        // SPEC-20260922-harness-home-rename RF-007: pre-rename destinations hold
+        // .taskboard-skills.json — the sync must still read it as fallback.
+        var repo = await CreateSourceRepositoryAsync();
+        var home = Path.Join(_root, "home");
+        var service = CreateService(repo, home);
+        var skillsDir = Path.Join(home, ".claude", "skills");
+        Directory.CreateDirectory(skillsDir);
+        File.WriteAllText(Path.Join(skillsDir, ".taskboard-skills.json"),
+            """{"skills":{"ghost-skill":{"hash":"abc","syncedAtUtc":"2026-01-01T00:00:00Z","repository":"afonsoft/skills","removedFromSource":false}}}""");
+
+        var status = await service.SyncAsync([AgentType.Claude]);
+
+        status.State.ShouldBe(SkillsSyncState.Succeeded);
+        var manifest = File.ReadAllText(Path.Join(skillsDir, ".harness-skills.json"));
+        manifest.ShouldContain("ghost-skill");
+        manifest.ShouldContain("\"removedFromSource\": true");
     }
 
     [Fact]
@@ -108,7 +129,7 @@ public class SkillsSyncServiceTests : IDisposable
         status.State.ShouldBe(SkillsSyncState.Succeeded);
         Directory.Exists(Path.Join(home, ".claude", "skills", "beta-skill")).ShouldBeTrue();
 
-        var manifest = File.ReadAllText(Path.Join(home, ".claude", "skills", ".taskboard-skills.json"));
+        var manifest = File.ReadAllText(Path.Join(home, ".claude", "skills", ".harness-skills.json"));
         manifest.ShouldContain("\"beta-skill\"");
         manifest.ShouldContain("\"removedFromSource\": true");
     }

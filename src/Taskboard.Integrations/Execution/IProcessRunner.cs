@@ -10,7 +10,7 @@ public sealed record ProcessRunResult(
 /// <summary>
 /// Generic process spawner — <see cref="ProcessStartInfo.ArgumentList"/> only
 /// (never shell-interpolated), environment scrubbed via
-/// <see cref="WithoutTaskboardEnv"/>, timeout with process-tree kill.
+/// <see cref="WithoutHarnessEnv"/>, timeout with process-tree kill.
 /// Same mechanics as <c>GitCommandRunner</c> but binary-agnostic so the
 /// verification engine can run <c>dotnet</c> and tests can fake outputs.
 /// </summary>

@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Net.Http.Headers;
 using System.Text.Json.Nodes;
 using Spectre.Console.Cli;
@@ -40,7 +41,7 @@ internal static class Program
 
     internal static string ResolveBaseUrl(string? urlArg)
     {
-        var env = Environment.GetEnvironmentVariable("TASKBOARD_URL");
+        var env = HarnessEnv.Get("HARNESS_URL");
         if (!string.IsNullOrWhiteSpace(env))
         {
             return env;

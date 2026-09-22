@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,7 @@ internal enum CachePrepareResult
 internal static class SkillsRepository
 {
     internal const string ConfigKey = "Taskboard:Skills:Repository";
-    internal const string EnvAlias = "TASKBOARD_SKILLS_REPO";
+    internal const string EnvAlias = "HARNESS_SKILLS_REPO";
     internal const string DefaultRepository = "afonsoft/skills";
 
     private static readonly Regex OwnerRepoPattern =
@@ -54,7 +55,7 @@ internal static class SkillsRepository
             }
         }
 
-        var env = Environment.GetEnvironmentVariable(EnvAlias);
+        var env = HarnessEnv.Get(EnvAlias);
         if (!string.IsNullOrWhiteSpace(env))
         {
             return env.Trim();

@@ -36,8 +36,9 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
             // UseSetting and would break login/DataDir hermeticity.
             foreach (var name in new[]
             {
+                "HARNESS_ADMIN_USERNAME", "HARNESS_ADMIN_PASSWORD",
                 "TASKBOARD_ADMIN_USERNAME", "TASKBOARD_ADMIN_PASSWORD",
-                "TASKBOARD_DATA_DIR", "Taskboard__DataDir"
+                "HARNESS_DATA_DIR", "TASKBOARD_DATA_DIR", "Harness__DataDir", "Taskboard__DataDir"
             })
             {
                 Environment.SetEnvironmentVariable(name, null);

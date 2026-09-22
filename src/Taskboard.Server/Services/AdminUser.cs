@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -89,7 +90,7 @@ public sealed class AdminUser
             }
         }
 
-        var username = Environment.GetEnvironmentVariable("TASKBOARD_ADMIN_USERNAME");
+        var username = HarnessEnv.Get("HARNESS_ADMIN_USERNAME");
         if (string.IsNullOrWhiteSpace(username))
         {
             username = configuration["Admin:Username"];
@@ -99,7 +100,7 @@ public sealed class AdminUser
             username = "admin";
         }
 
-        var password = Environment.GetEnvironmentVariable("TASKBOARD_ADMIN_PASSWORD");
+        var password = HarnessEnv.Get("HARNESS_ADMIN_PASSWORD");
         if (string.IsNullOrWhiteSpace(password))
         {
             password = configuration["Admin:Password"];

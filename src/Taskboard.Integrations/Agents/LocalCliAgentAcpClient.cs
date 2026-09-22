@@ -44,7 +44,7 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
             startInfo.ArgumentList.Add(argument);
         }
 
-        WithoutTaskboardEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
 
         using var process = Process.Start(startInfo);
         if (process is null)

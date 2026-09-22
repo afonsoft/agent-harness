@@ -6,14 +6,16 @@ set -euo pipefail
 # para executar o servidor, o MCP e o frontend.
 
 DEFAULT_REPO="https://github.com/afonsoft/agent-harness.git"
-REPO_URL="${TASKBOARD_REPO:-$DEFAULT_REPO}"
-TASKBOARD_HOME="${TASKBOARD_HOME:-$HOME/.taskboard}"
-[ -n "${TASKBOARD_DIR:-}" ] && TASKBOARD_HOME="$TASKBOARD_DIR"
-BIN_DIR="$TASKBOARD_HOME/bin"
-REPO_DIR="$TASKBOARD_HOME/agent-harness"
+# SPEC-20260922-harness-home-rename: HARNESS_* canonical; TASKBOARD_* legacy fallback.
+REPO_URL="${HARNESS_REPO:-${TASKBOARD_REPO:-$DEFAULT_REPO}}"
+HARNESS_HOME="${HARNESS_HOME:-${TASKBOARD_HOME:-$HOME/.agent-harness}}"
+[ -n "${HARNESS_DIR:-${TASKBOARD_DIR:-}}" ] && HARNESS_HOME="${HARNESS_DIR:-$TASKBOARD_DIR}"
+BIN_DIR="$HARNESS_HOME/bin"
+REPO_DIR="$HARNESS_HOME/agent-harness"
 NUGET_DIR="$REPO_DIR/artifacts/nuget"
 
 DRY_RUN=false
+MIGRATE=false
 INSTALL_ALL=false
 INSTALL_DEVIN=false
 INSTALL_CLAUDE=false
@@ -34,12 +36,13 @@ Opcoes:
   --opencode   Instalar a skill para OpenCode
   --gemini     Instalar a skill para Gemini CLI
   --vscode     Instalar a skill para VS Code / Copilot
+  --migrate    Migrar instalacao legada ~/.taskboard → ~/.agent-harness
   --dry-run    Simular sem alterar arquivos
   --help       Exibir esta ajuda
 
-Variaveis de ambiente:
-  TASKBOARD_REPO    URL do repositorio (padrao: DEFAULT_REPO)
-  TASKBOARD_HOME    Diretorio base da instalacao (padrao: $HOME/.taskboard)
+Variaveis de ambiente (legadas TASKBOARD_* ainda aceitas):
+  HARNESS_REPO    URL do repositorio (padrao: DEFAULT_REPO)
+  HARNESS_HOME    Diretorio base da instalacao (padrao: $HOME/.agent-harness)
 EOF
 }
 
@@ -56,6 +59,7 @@ while [ $# -gt 0 ]; do
         --opencode) INSTALL_OPENCODE=true ;;
         --gemini) INSTALL_GEMINI=true ;;
         --vscode) INSTALL_VSCODE=true ;;
+        --migrate) MIGRATE=true ;;
         --dry-run) DRY_RUN=true ;;
         --help) usage; exit 0 ;;
         *) echo "Opcao desconhecida: $1" >&2; usage >&2; exit 1 ;;
@@ -128,7 +132,7 @@ detect_repo_dir() {
 
     if [ ! -d "$REPO_DIR/.git" ]; then
         echo "Clonando $REPO_URL em $REPO_DIR..."
-        run mkdir -p "$TASKBOARD_HOME"
+        run mkdir -p "$HARNESS_HOME"
         run git clone "$REPO_URL" "$REPO_DIR"
     else
         echo "Repositorio ja existe em $REPO_DIR."
@@ -143,7 +147,7 @@ build_solution() {
     # launcher serves the WASM SPA + static web assets in Production — the
     # plain bin/Release output does not include them.
     echo "Publicando o servidor (SPA + static web assets)..."
-    run dotnet publish "$REPO_DIR/src/Taskboard.Server/Taskboard.Server.csproj" -c Release -o "$TASKBOARD_HOME/server"
+    run dotnet publish "$REPO_DIR/src/Taskboard.Server/Taskboard.Server.csproj" -c Release -o "$HARNESS_HOME/server"
 }
 
 install_cli() {
@@ -225,7 +229,7 @@ EOF
 }
 
 generate_admin_password() {
-    local password_file="$TASKBOARD_HOME/admin-password"
+    local password_file="$HARNESS_HOME/admin-password"
     local password
 
     if [ -f "$password_file" ]; then
@@ -235,7 +239,7 @@ generate_admin_password() {
         if [ -z "$password" ]; then
             password="$(date +%s%N | sha256sum | head -c 32)"
         fi
-        run mkdir -p "$TASKBOARD_HOME"
+        run mkdir -p "$HARNESS_HOME"
         run sh -c "printf '%s' \"$password\" > '$password_file'"
         run chmod 600 "$password_file"
     fi
@@ -245,8 +249,8 @@ generate_admin_password() {
 
 create_env_file() {
     echo "Gerando arquivo de ambiente..."
-    local env_file="$TASKBOARD_HOME/env"
-    local data_dir="$TASKBOARD_HOME/data"
+    local env_file="$HARNESS_HOME/env"
+    local data_dir="$HARNESS_HOME/data"
     local password
     password=$(generate_admin_password)
 
@@ -255,11 +259,11 @@ create_env_file() {
     write_file "$env_file" <<EOF
 # Ambiente gerado por install.sh do agent-harness
 export PATH="$BIN_DIR:\$PATH"
-export TASKBOARD_DATA_DIR="$data_dir"
+export HARNESS_DATA_DIR="$data_dir"
 export Taskboard__DataDir="$data_dir"
-export TASKBOARD_ADMIN_USERNAME="admin"
-export TASKBOARD_ADMIN_PASSWORD="$password"
-export TASKBOARD_URL="http://127.0.0.1:47823"
+export HARNESS_ADMIN_USERNAME="admin"
+export HARNESS_ADMIN_PASSWORD="$password"
+export HARNESS_URL="http://127.0.0.1:47823"
 EOF
 
     run chmod 600 "$env_file"
@@ -270,16 +274,20 @@ create_wrappers() {
     run mkdir -p "$BIN_DIR"
 
     local server_dll
-    server_dll="$TASKBOARD_HOME/server/Taskboard.Server.dll"
+    server_dll="$HARNESS_HOME/server/Taskboard.Server.dll"
     local mcp_dll
     mcp_dll="$REPO_DIR/src/Taskboard.Mcp/bin/Release/net10.0/Taskboard.Mcp.dll"
     local server_content_root
-    server_content_root="$TASKBOARD_HOME/server"
+    server_content_root="$HARNESS_HOME/server"
 
-    write_file "$BIN_DIR/taskboard-server" <<EOF
+    write_file "$BIN_DIR/harness-server" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-ENV_FILE="\${TASKBOARD_HOME:-\$HOME/.taskboard}/env"
+HARNESS_DIR_RESOLVED="\${HARNESS_HOME:-\${TASKBOARD_HOME:-\$HOME/.agent-harness}}"
+ENV_FILE="\$HARNESS_DIR_RESOLVED/env"
+if [ ! -f "\$ENV_FILE" ] && [ -f "\$HOME/.taskboard/env" ]; then
+    ENV_FILE="\$HOME/.taskboard/env"
+fi
 if [ -f "\$ENV_FILE" ]; then
     # shellcheck source=/dev/null
     source "\$ENV_FILE"
@@ -289,12 +297,16 @@ export ASPNETCORE_CONTENTROOT="\${ASPNETCORE_CONTENTROOT:-$server_content_root}"
 exec dotnet exec "$server_dll"
 EOF
 
-    run chmod +x "$BIN_DIR/taskboard-server"
+    run chmod +x "$BIN_DIR/harness-server"
 
-    write_file "$BIN_DIR/taskboard-mcp" <<EOF
+    write_file "$BIN_DIR/harness-mcp" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-ENV_FILE="\${TASKBOARD_HOME:-\$HOME/.taskboard}/env"
+HARNESS_DIR_RESOLVED="\${HARNESS_HOME:-\${TASKBOARD_HOME:-\$HOME/.agent-harness}}"
+ENV_FILE="\$HARNESS_DIR_RESOLVED/env"
+if [ ! -f "\$ENV_FILE" ] && [ -f "\$HOME/.taskboard/env" ]; then
+    ENV_FILE="\$HOME/.taskboard/env"
+fi
 if [ -f "\$ENV_FILE" ]; then
     # shellcheck source=/dev/null
     source "\$ENV_FILE"
@@ -302,7 +314,7 @@ fi
 exec dotnet exec "$mcp_dll"
 EOF
 
-    run chmod +x "$BIN_DIR/taskboard-mcp"
+    run chmod +x "$BIN_DIR/harness-mcp"
 }
 
 create_systemd_service() {
@@ -312,21 +324,21 @@ create_systemd_service() {
     fi
 
     local unit_dir="$HOME/.config/systemd/user"
-    local unit_file="$unit_dir/taskboard-server.service"
+    local unit_file="$unit_dir/harness-server.service"
 
-    echo "Criando servico systemd para o servidor taskboard..."
+    echo "Criando servico systemd para o servidor harness..."
 
     write_file "$unit_file" <<EOF
 [Unit]
-Description=Taskboard AI Web Server
+Description=Harness Web Server (agent-harness)
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=$BIN_DIR/taskboard-server
+ExecStart=$BIN_DIR/harness-server
 Restart=on-failure
 RestartSec=5s
-Environment="TASKBOARD_HOME=$TASKBOARD_HOME"
+Environment="HARNESS_HOME=$HARNESS_HOME"
 Environment="HOME=$HOME"
 
 [Install]
@@ -335,8 +347,8 @@ EOF
 
     if [ "$DRY_RUN" = false ]; then
         run systemctl --user daemon-reload || true
-        run systemctl --user enable taskboard-server || true
-        run systemctl --user start taskboard-server || true
+        run systemctl --user enable harness-server || true
+        run systemctl --user start harness-server || true
     fi
 }
 
@@ -358,8 +370,8 @@ add_path_to_shell() {
 }
 
 print_summary() {
-    local password_file="$TASKBOARD_HOME/admin-password"
-    local env_file="$TASKBOARD_HOME/env"
+    local password_file="$HARNESS_HOME/admin-password"
+    local env_file="$HARNESS_HOME/env"
 
     cat <<EOF
 
@@ -369,33 +381,98 @@ Instalacao concluida!
 
 Repositorio:      $REPO_DIR
 Binarios:         $BIN_DIR
-Dados:            $TASKBOARD_HOME/data
+Dados:            $HARNESS_HOME/data
 Senha admin:      $password_file
 Configuracao:     ~/.config/taskctl/settings.json
 
 Comandos disponiveis:
   taskctl --help
-  taskboard-server
-  taskboard-mcp
+  harness-server
+  harness-mcp
 
 Servico systemd:
-  systemctl --user status taskboard-server
+  systemctl --user status harness-server
 
 Para ativar o PATH neste shell, execute:
   source $env_file
 
 Para iniciar o servidor (frontend estara em http://127.0.0.1:47823):
   source $env_file
-  taskboard-server
+  harness-server
 
 Para executar o servidor MCP:
   source $env_file
-  taskboard-mcp
+  harness-mcp
 
 EOF
 }
 
+migrate_legacy() {
+    local legacy_home="$HOME/.taskboard"
+    local new_home="$HARNESS_HOME"
+
+    if [ ! -d "$legacy_home" ]; then
+        echo "Nada a migrar: $legacy_home nao existe."
+        return 0
+    fi
+    if [ -e "$new_home" ]; then
+        echo "Erro: $new_home ja existe — remova ou escolha outro HARNESS_HOME." >&2
+        exit 1
+    fi
+
+    echo "Migrando $legacy_home → $new_home..."
+
+    if command -v systemctl &> /dev/null; then
+        run systemctl --user stop taskboard-server || true
+        run systemctl --user disable taskboard-server || true
+    fi
+
+    run mv "$legacy_home" "$new_home"
+
+    # Rename the SQLite database (server startup would also do this).
+    if [ -f "$new_home/data/taskboard.sqlite" ] && [ ! -f "$new_home/data/harness.sqlite" ]; then
+        run mv "$new_home/data/taskboard.sqlite" "$new_home/data/harness.sqlite"
+        for ext in -wal -shm; do
+            if [ -f "$new_home/data/taskboard.sqlite$ext" ]; then
+                run mv "$new_home/data/taskboard.sqlite$ext" "$new_home/data/harness.sqlite$ext"
+            fi
+        done
+    fi
+
+    # Rewrite the generated env file to the canonical HARNESS_* names.
+    if [ -f "$new_home/env" ]; then
+        run sed -i -e 's/^export TASKBOARD_/export HARNESS_/' "$new_home/env"
+    fi
+
+    # Drop legacy wrappers (new ones are written by create_wrappers).
+    run rm -f "$new_home/bin/taskboard-server" "$new_home/bin/taskboard-mcp"
+
+    # Replace the legacy systemd unit.
+    local unit_dir="$HOME/.config/systemd/user"
+    if [ -f "$unit_dir/taskboard-server.service" ]; then
+        run rm -f "$unit_dir/taskboard-server.service"
+    fi
+    create_wrappers
+    create_systemd_service
+
+    if command -v systemctl &> /dev/null && [ "$DRY_RUN" = false ]; then
+        run systemctl --user daemon-reload || true
+        echo "Verificando saude do servico..."
+        sleep 5
+        if curl -fsS http://127.0.0.1:47823/health > /dev/null 2>&1; then
+            echo "Migracao concluida — servico saudavel em http://127.0.0.1:47823"
+        else
+            echo "Aviso: /health nao respondeu — verifique 'systemctl --user status harness-server'." >&2
+        fi
+    fi
+}
+
 main() {
+    if [ "$MIGRATE" = true ]; then
+        migrate_legacy
+        return 0
+    fi
+
     check_dotnet
     detect_repo_dir
     build_solution

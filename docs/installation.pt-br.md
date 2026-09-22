@@ -61,27 +61,27 @@ dotnet test Taskboard.sln
 
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `TASKBOARD_PORT` | `47823` | Porta HTTP usada pelo servidor |
-| `TASKBOARD_DATA_DIR` | `.data` sob o content root do servidor | Diretório onde `taskboard.sqlite` e `.admin-password` são armazenados |
+| `HARNESS_PORT` | `47823` | Porta HTTP usada pelo servidor |
+| `HARNESS_DATA_DIR` | `.data` sob o content root do servidor | Diretório onde `harness.sqlite` e `.admin-password` são armazenados |
 | `GITHUB_TOKEN` | *(nenhum)* | Token de acesso pessoal do GitHub para o board Kanban (`/github-board`) |
-| `TASKBOARD_URL` | `http://127.0.0.1:47823` | URL base usada pela CLI `taskctl` e pelo servidor MCP |
-| `TASKBOARD_API_KEY` | *(nenhuma)* | Chave de API enviada como `X-Api-Key` pela `taskctl`/MCP para autenticar na `/api` do servidor (todos os endpoints, exceto `login`, `auth/me`, `meta` e health, exigem cookie ou API key) |
-| `ASPNETCORE_URLS` | *(nenhum)* | Sobrescreve `TASKBOARD_PORT` com uma URL completa, como `http://0.0.0.0:47823` |
-| `TASKBOARD_SKILLS_REPO` | `afonsoft/skills` | Repositório de skills instalado/sincronizado pelo `/settings` (`npx skills add <repo> -g --all --copy` + `install.sh --all`) |
-| `TASKBOARD_RAG_NAME` | `knowledge` | Nome do servidor MCP gerenciado provisionado nos CLIs habilitados |
-| `TASKBOARD_RAG_URL` | *(nenhuma)* | URL do MCP RAG provisionada nos CLIs habilitados (vazio = entrada removida) |
-| `TASKBOARD_RAG_API_KEY` | *(nenhuma)* | Chave Bearer do servidor MCP RAG (mascarada nas leituras; também editável em `/settings`) |
-| `TASKBOARD_TERMINAL_ENABLED` | `true` | Habilita a página `/terminal` (bash PTY) e o painel `/agents` (desabilite para remover o shell web) |
+| `HARNESS_URL` | `http://127.0.0.1:47823` | URL base usada pela CLI `taskctl` e pelo servidor MCP |
+| `HARNESS_API_KEY` | *(nenhuma)* | Chave de API enviada como `X-Api-Key` pela `taskctl`/MCP para autenticar na `/api` do servidor (todos os endpoints, exceto `login`, `auth/me`, `meta` e health, exigem cookie ou API key) |
+| `ASPNETCORE_URLS` | *(nenhum)* | Sobrescreve `HARNESS_PORT` com uma URL completa, como `http://0.0.0.0:47823` |
+| `HARNESS_SKILLS_REPO` | `afonsoft/skills` | Repositório de skills instalado/sincronizado pelo `/settings` (`npx skills add <repo> -g --all --copy` + `install.sh --all`) |
+| `HARNESS_RAG_NAME` | `knowledge` | Nome do servidor MCP gerenciado provisionado nos CLIs habilitados |
+| `HARNESS_RAG_URL` | *(nenhuma)* | URL do MCP RAG provisionada nos CLIs habilitados (vazio = entrada removida) |
+| `HARNESS_RAG_API_KEY` | *(nenhuma)* | Chave Bearer do servidor MCP RAG (mascarada nas leituras; também editável em `/settings`) |
+| `HARNESS_TERMINAL_ENABLED` | `true` | Habilita a página `/terminal` (bash PTY) e o painel `/agents` (desabilite para remover o shell web) |
 
 Defina as variáveis para a sessão atual do shell:
 
 ```bash
-export TASKBOARD_PORT=47823
-export TASKBOARD_DATA_DIR="$PWD/.data"
+export HARNESS_PORT=47823
+export HARNESS_DATA_DIR="$PWD/.data"
 export GITHUB_TOKEN="ghp_your_token"
 ```
 
-> **Breaking change:** As variáveis legadas `CODEX_TASKBOARD_PORT` e `CODEX_TASKBOARD_DATA_DIR` não são mais lidas. Use `TASKBOARD_PORT` e `TASKBOARD_DATA_DIR`.
+> **Migração:** variáveis legadas `TASKBOARD_*` ainda são lidas como fallback depreciado por um ciclo (SPEC-20260922-harness-home-rename); `CODEX_TASKBOARD_*` não são mais lidas. Use os nomes `HARNESS_*`.
 
 ## Executar o servidor
 
@@ -109,7 +109,7 @@ Resposta esperada:
 Para mudar a porta:
 
 ```bash
-TASKBOARD_PORT=8080 dotnet run --project src/Taskboard.Server
+HARNESS_PORT=8080 dotnet run --project src/Taskboard.Server
 ```
 
 ## Executar a CLI
@@ -132,10 +132,10 @@ Criar um projeto:
 dotnet run --project src/Taskboard.Cli -- project create --id my-project --name "My Project" --workspace-path /abs/path/to/project
 ```
 
-A CLI usa `TASKBOARD_URL` para encontrar o servidor. Para apontar para outra URL:
+A CLI usa `HARNESS_URL` para encontrar o servidor. Para apontar para outra URL:
 
 ```bash
-TASKBOARD_URL=http://127.0.0.1:8080 dotnet run --project src/Taskboard.Cli -- project list
+HARNESS_URL=http://127.0.0.1:8080 dotnet run --project src/Taskboard.Cli -- project list
 ```
 
 ## Executar o servidor MCP
@@ -156,7 +156,7 @@ Para configuração do cliente, veja [plugins.md](./plugins.md) e [SPEC-004](../
 
 ## Usar a interface web
 
-Abra `http://127.0.0.1:47823/github-board` em um navegador. As credenciais de admin padrão são configuradas a partir de `appsettings.json` ou variáveis de ambiente (`TASKBOARD_ADMIN_USERNAME`, `TASKBOARD_ADMIN_PASSWORD`).
+Abra `http://127.0.0.1:47823/github-board` em um navegador. As credenciais de admin padrão são configuradas a partir de `appsettings.json` ou variáveis de ambiente (`HARNESS_ADMIN_USERNAME`, `HARNESS_ADMIN_PASSWORD`).
 
 ## Board Kanban do GitHub
 
@@ -184,7 +184,7 @@ Após a instalação:
 ### Porta já em uso
 
 ```bash
-TASKBOARD_PORT=8080 dotnet run --project src/Taskboard.Server
+HARNESS_PORT=8080 dotnet run --project src/Taskboard.Server
 ```
 
 ### .NET 10 SDK ausente
@@ -193,7 +193,7 @@ Instale o [.NET 10 SDK](https://dotnet.microsoft.com/download) e verifique com `
 
 ### Banco SQLite bloqueado
 
-Pare qualquer instância do servidor em execução. Apenas um processo do servidor pode usar o mesmo `TASKBOARD_DATA_DIR` por vez.
+Pare qualquer instância do servidor em execução. Apenas um processo do servidor pode usar o mesmo `HARNESS_DATA_DIR` por vez.
 
 ### `GITHUB_TOKEN` ausente
 
@@ -201,10 +201,10 @@ O board Kanban requer `GITHUB_TOKEN`. Gere um token em [GitHub Settings > Develo
 
 ### CLI não consegue conectar
 
-Verifique se o servidor está executando e se `TASKBOARD_URL` corresponde à URL do servidor:
+Verifique se o servidor está executando e se `HARNESS_URL` corresponde à URL do servidor:
 
 ```bash
-TASKBOARD_URL=http://127.0.0.1:47823 dotnet run --project src/Taskboard.Cli -- project list
+HARNESS_URL=http://127.0.0.1:47823 dotnet run --project src/Taskboard.Cli -- project list
 ```
 
 ### Permissões no Linux / macOS
@@ -217,7 +217,7 @@ chmod +x install.sh
 
 ## CLIs de agentes e o terminal web
 
-A página `/agents` lista os CLIs de agente suportados (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) com status de instalação/autenticação, e `/terminal` abre uma sessão bash interativa para executar os fluxos de login (`claude`, `codex login`, `devin auth login`, `agy`). O terminal é controlado por `Taskboard:Terminal:Enabled` (`TASKBOARD_TERMINAL_ENABLED`).
+A página `/agents` lista os CLIs de agente suportados (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) com status de instalação/autenticação, e `/terminal` abre uma sessão bash interativa para executar os fluxos de login (`claude`, `codex login`, `devin auth login`, `agy`). O terminal é controlado por `Taskboard:Terminal:Enabled` (`HARNESS_TERMINAL_ENABLED`).
 
 - **Instalação no host (bare-metal):** o servidor usa o `$HOME` real, então CLIs já instalados são detectados diretamente.
 - **Imagem Docker:** o stage de runtime já traz Node.js LTS e os cinco CLIs pré-instalados, e define `HOME=/data/home` para que as credenciais caiam dentro do volume `/data` e sobrevivam à recriação do container. Autentique cada CLI uma vez pelo `/terminal`.
@@ -232,13 +232,13 @@ Tudo o que é persistente fica no volume nomeado `taskboard-data` montado em `/d
 
 | Path | Conteúdo |
 |---|---|
-| `/data/taskboard.sqlite` | banco + overrides de configuração |
+| `/data/harness.sqlite` | banco + overrides de configuração |
 | `/data/admin.json` | credenciais de admin geradas |
 | `/data/skills-cache/` | cache do repositório de skills |
 | `/data/home/` | `$HOME` do container — credenciais dos CLIs (`.claude`, `.codex`, `.config/…`) |
 | `/data/home/repos` | workspace dos agentes — o `~/repos` do container, workdir padrão dos agent runs, pipelines e terminal |
 
-A imagem define `TASKBOARD_DATA_DIR=/data` (vencendo o `appsettings.Production.json`), declara `VOLUME /data` e um `HEALTHCHECK` em `/health`. O `git safe.directory` já vem configurado, então bind-mount de repos do host funciona:
+A imagem define `HARNESS_DATA_DIR=/data` (vencendo o `appsettings.Production.json`), declara `VOLUME /data` e um `HEALTHCHECK` em `/health`. O `git safe.directory` já vem configurado, então bind-mount de repos do host funciona:
 
 ```yaml
 # docker-compose.yml — opt-in: expõe os repos reais do servidor aos agentes

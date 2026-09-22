@@ -47,6 +47,26 @@ public class GitCommandRunnerTests
     }
 
     [Fact]
+    public async Task Dado_EnvHarness_Quando_RunAsync_Entao_VariavelRemovidaDoFilho()
+    {
+        const string key = "HARNESS_SCRUBBED_TEST";
+        Environment.SetEnvironmentVariable(key, "segredo");
+        try
+        {
+            var runner = new GitCommandRunner(executable: "printenv");
+
+            var result = await runner.RunAsync(Directory.GetCurrentDirectory(), [key]);
+
+            result.ExitCode.ShouldBe(1);
+            result.StandardOutput.ShouldNotContain("segredo");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(key, null);
+        }
+    }
+
+    [Fact]
     public async Task Dado_EnvTaskboard_Quando_RunAsync_Entao_VariavelRemovidaDoFilho()
     {
         const string key = "TASKBOARD_SCRUBBED_TEST";

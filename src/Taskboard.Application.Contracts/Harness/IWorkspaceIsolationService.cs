@@ -3,7 +3,7 @@ using Taskboard.Dtos;
 namespace Taskboard.Application.Contracts.Harness;
 
 /// <summary>
-/// Manages per-run isolated Git worktrees under <c>~/.taskboard/worktrees/{runId}</c>
+/// Manages per-run isolated Git worktrees under <c>~/.agent-harness/worktrees/{runId}</c>
 /// (SPEC-20260919-harness-workspace-isolation RF-001..RF-004).
 /// </summary>
 public interface IWorkspaceIsolationService

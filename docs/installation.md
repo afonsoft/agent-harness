@@ -61,27 +61,27 @@ dotnet test Taskboard.sln
 
 | Variable | Default | Description |
 |---|---|---|
-| `TASKBOARD_PORT` | `47823` | HTTP port used by the server |
-| `TASKBOARD_DATA_DIR` | `.data` under the server content root | Directory where `taskboard.sqlite` and `.admin-password` are stored |
+| `HARNESS_PORT` | `47823` | HTTP port used by the server |
+| `HARNESS_DATA_DIR` | `.data` under the server content root | Directory where `harness.sqlite` and `.admin-password` are stored |
 | `GITHUB_TOKEN` | *(none)* | GitHub personal access token for the Kanban board (`/github-board`) |
-| `TASKBOARD_URL` | `http://127.0.0.1:47823` | Base URL used by the `taskctl` CLI and MCP server |
-| `TASKBOARD_API_KEY` | *(none)* | API key sent as `X-Api-Key` by `taskctl`/MCP to authenticate against the server's `/api` (all endpoints except `login`, `auth/me`, `meta` and health require cookie or API-key auth) |
-| `ASPNETCORE_URLS` | *(none)* | Overrides `TASKBOARD_PORT` with a complete URL such as `http://0.0.0.0:47823` |
-| `TASKBOARD_SKILLS_REPO` | `afonsoft/skills` | Skills repository installed/synced from `/settings` (`npx skills add <repo> -g --all --copy` + `install.sh --all`) |
-| `TASKBOARD_RAG_NAME` | `knowledge` | Managed MCP server name provisioned into enabled agent CLIs |
-| `TASKBOARD_RAG_URL` | *(none)* | RAG MCP URL provisioned into enabled agent CLIs (empty = entry removed) |
-| `TASKBOARD_RAG_API_KEY` | *(none)* | Bearer key for the RAG MCP server (masked in reads; also editable in `/settings`) |
-| `TASKBOARD_TERMINAL_ENABLED` | `true` | Enables the `/terminal` bash PTY page and `/agents` CLI status board (disable to remove the web shell surface) |
+| `HARNESS_URL` | `http://127.0.0.1:47823` | Base URL used by the `taskctl` CLI and MCP server |
+| `HARNESS_API_KEY` | *(none)* | API key sent as `X-Api-Key` by `taskctl`/MCP to authenticate against the server's `/api` (all endpoints except `login`, `auth/me`, `meta` and health require cookie or API-key auth) |
+| `ASPNETCORE_URLS` | *(none)* | Overrides `HARNESS_PORT` with a complete URL such as `http://0.0.0.0:47823` |
+| `HARNESS_SKILLS_REPO` | `afonsoft/skills` | Skills repository installed/synced from `/settings` (`npx skills add <repo> -g --all --copy` + `install.sh --all`) |
+| `HARNESS_RAG_NAME` | `knowledge` | Managed MCP server name provisioned into enabled agent CLIs |
+| `HARNESS_RAG_URL` | *(none)* | RAG MCP URL provisioned into enabled agent CLIs (empty = entry removed) |
+| `HARNESS_RAG_API_KEY` | *(none)* | Bearer key for the RAG MCP server (masked in reads; also editable in `/settings`) |
+| `HARNESS_TERMINAL_ENABLED` | `true` | Enables the `/terminal` bash PTY page and `/agents` CLI status board (disable to remove the web shell surface) |
 
 Set variables for the current shell session:
 
 ```bash
-export TASKBOARD_PORT=47823
-export TASKBOARD_DATA_DIR="$PWD/.data"
+export HARNESS_PORT=47823
+export HARNESS_DATA_DIR="$PWD/.data"
 export GITHUB_TOKEN="ghp_your_token"
 ```
 
-> **Breaking change:** Legacy `CODEX_TASKBOARD_PORT` and `CODEX_TASKBOARD_DATA_DIR` variables are no longer read. Use `TASKBOARD_PORT` and `TASKBOARD_DATA_DIR` instead.
+> **Migration:** Legacy `TASKBOARD_*` variables are still read as a deprecated fallback for one cycle (SPEC-20260922-harness-home-rename); `CODEX_TASKBOARD_*` variables are no longer read. Use `HARNESS_*` names.
 
 ## Run the server
 
@@ -109,7 +109,7 @@ Expected response:
 To change the port:
 
 ```bash
-TASKBOARD_PORT=8080 dotnet run --project src/Taskboard.Server
+HARNESS_PORT=8080 dotnet run --project src/Taskboard.Server
 ```
 
 ## Run the CLI
@@ -132,10 +132,10 @@ Create a project:
 dotnet run --project src/Taskboard.Cli -- project create --id my-project --name "My Project" --workspace-path /abs/path/to/project
 ```
 
-The CLI uses `TASKBOARD_URL` to find the server. To point it at a different URL:
+The CLI uses `HARNESS_URL` to find the server. To point it at a different URL:
 
 ```bash
-TASKBOARD_URL=http://127.0.0.1:8080 dotnet run --project src/Taskboard.Cli -- project list
+HARNESS_URL=http://127.0.0.1:8080 dotnet run --project src/Taskboard.Cli -- project list
 ```
 
 ## Run the MCP server
@@ -156,7 +156,7 @@ For client configuration, see [plugins.md](./plugins.md) and [SPEC-004](../.spec
 
 ## Use the web UI
 
-Open `http://127.0.0.1:47823/github-board` in a browser. The default admin credentials are configured from `appsettings.json` or environment variables (`TASKBOARD_ADMIN_USERNAME`, `TASKBOARD_ADMIN_PASSWORD`).
+Open `http://127.0.0.1:47823/github-board` in a browser. The default admin credentials are configured from `appsettings.json` or environment variables (`HARNESS_ADMIN_USERNAME`, `HARNESS_ADMIN_PASSWORD`).
 
 ## GitHub Kanban board
 
@@ -184,7 +184,7 @@ After installation:
 ### Port already in use
 
 ```bash
-TASKBOARD_PORT=8080 dotnet run --project src/Taskboard.Server
+HARNESS_PORT=8080 dotnet run --project src/Taskboard.Server
 ```
 
 ### Missing .NET 10 SDK
@@ -193,7 +193,7 @@ Install the [.NET 10 SDK](https://dotnet.microsoft.com/download) and verify with
 
 ### SQLite database is locked
 
-Stop any running server instances. Only one server process may use the same `TASKBOARD_DATA_DIR` at a time.
+Stop any running server instances. Only one server process may use the same `HARNESS_DATA_DIR` at a time.
 
 ### Missing `GITHUB_TOKEN`
 
@@ -201,10 +201,10 @@ The Kanban board requires `GITHUB_TOKEN`. Generate a token at [GitHub Settings >
 
 ### CLI cannot connect
 
-Check that the server is running and that `TASKBOARD_URL` matches the server URL:
+Check that the server is running and that `HARNESS_URL` matches the server URL:
 
 ```bash
-TASKBOARD_URL=http://127.0.0.1:47823 dotnet run --project src/Taskboard.Cli -- project list
+HARNESS_URL=http://127.0.0.1:47823 dotnet run --project src/Taskboard.Cli -- project list
 ```
 
 ### Permissions on Linux / macOS
@@ -217,7 +217,7 @@ chmod +x install.sh
 
 ## Agent CLIs and the web terminal
 
-The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`TASKBOARD_TERMINAL_ENABLED`).
+The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`HARNESS_TERMINAL_ENABLED`).
 
 - **Bare-metal/host install:** the server uses the real `$HOME`, so CLIs already installed on the host are detected as-is.
 - **Docker image:** the runtime stage ships Node.js LTS plus all five CLIs pre-installed, and sets `HOME=/data/home` so CLI credentials land inside the `/data` volume and survive container recreation. Authenticate each CLI once from `/terminal`.
@@ -232,13 +232,13 @@ Everything persistent lives in the `taskboard-data` named volume mounted at `/da
 
 | Path | Contents |
 |---|---|
-| `/data/taskboard.sqlite` | database + configuration overrides |
+| `/data/harness.sqlite` | database + configuration overrides |
 | `/data/admin.json` | generated admin credentials |
 | `/data/skills-cache/` | skills repository cache |
 | `/data/home/` | container `$HOME` — CLI credentials (`.claude`, `.codex`, `.config/…`) |
 | `/data/home/repos` | agent workspace — the container's `~/repos`, default workdir for agent runs, pipelines and the terminal |
 
-The image sets `TASKBOARD_DATA_DIR=/data` (overriding `appsettings.Production.json`), declares `VOLUME /data` and a `HEALTHCHECK` on `/health`. Git safe.directory is preconfigured, so bind-mounting host-owned repos works:
+The image sets `HARNESS_DATA_DIR=/data` (overriding `appsettings.Production.json`), declares `VOLUME /data` and a `HEALTHCHECK` on `/health`. Git safe.directory is preconfigured, so bind-mounting host-owned repos works:
 
 ```yaml
 # docker-compose.yml — opt-in: expose the server's real repos to the agents

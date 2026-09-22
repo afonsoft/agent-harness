@@ -104,7 +104,7 @@ public class ProjectContextCompilerTests : IDisposable
     [Fact]
     public async Task Dado_EnvComSegredo_Quando_Compile_Entao_SemVazamento()
     {
-        Environment.SetEnvironmentVariable("TASKBOARD_TEST_SECRET_CTX", "s3cr3t-value");
+        Environment.SetEnvironmentVariable("HARNESS_TEST_SECRET_CTX", "s3cr3t-value");
         try
         {
             var result = await _sut.CompileAsync(_repoPath, AgentType.Claude, 32000);
@@ -112,7 +112,7 @@ public class ProjectContextCompilerTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("TASKBOARD_TEST_SECRET_CTX", null);
+            Environment.SetEnvironmentVariable("HARNESS_TEST_SECRET_CTX", null);
         }
     }
 

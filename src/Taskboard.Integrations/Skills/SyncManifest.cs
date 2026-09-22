@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Taskboard.Integrations.Skills;
 
 /// <summary>
-/// Per-destination manifest (<c>.taskboard-skills.json</c>) recording which
+/// Per-destination manifest (<c>.harness-skills.json</c>; legacy <c>.taskboard-skills.json</c> read as fallback) recording which
 /// skills were installed by the sync engine and their content hash, so later
 /// runs can copy only what changed and flag skills removed upstream.
 /// </summary>

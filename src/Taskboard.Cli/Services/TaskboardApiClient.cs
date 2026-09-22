@@ -1,3 +1,4 @@
+using Taskboard.Domain.Shared.Configuration;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -19,7 +20,7 @@ public sealed class TaskboardApiClient
 
         // SPEC-20260915-api-authorization-hardening RF-004: machine clients
         // authenticate via X-Api-Key when the key is configured.
-        var apiKey = Environment.GetEnvironmentVariable("TASKBOARD_API_KEY");
+        var apiKey = HarnessEnv.Get("HARNESS_API_KEY");
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             _client.DefaultRequestHeaders.Add("X-Api-Key", apiKey.Trim());
