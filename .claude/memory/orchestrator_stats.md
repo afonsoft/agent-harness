@@ -549,3 +549,23 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - Consumidores de eventos por escopo: produtor (pipeline `run:`) e consumidor (aba `issue:`) devem convergir — espelhar no producer é mais simples que re-mapear queries no consumer.
 - `gh pr checks --watch` mostra runs stale após push novo; confirmar estado real via `gh pr view --json statusCheckRollup` e `state` do PR (o #296 mergeou enquanto o rerun estava pendente — commit tardio na branch ficou fora do squash e virou o PR #297).
 - Teste que depende de observar janela temporal curta via polling é flake estrutural — controlar a janela (TCS) torna determinístico.
+
+---
+
+## Execução da sessão 2026-09-22 (worktree root → ~/repos)
+
+### Entregas
+
+| Entrega | PR | Escopo |
+|---|---|---|
+| Worktree root em ~/repos | #298 (merged `6960cfe`) | `WorktreePaths.ResolveRoot(configured, home)` — `Taskboard:WorktreeRoot` com expansão de `~`, default `~/repos` (mesmo `WorkspacePaths.DefaultRootName` dos clones) — worktrees de run aparecem no workspace/VS Code ao lado dos clones; stale-dir cleanup endurecido: só worktree real (`.git` **arquivo**) ou dir vazio é apagado — clone real (`.git` **dir**) ou outro conteúdo lança `InvalidValue` |
+
+### Verificação
+
+- Unit: 1013/1013 (+4 `WorktreePathsTests`, +2 guard tests) · Integração: 262/262 · format: limpo · CI verde
+- Deploy `taskboard-server` republicado de `main` @`6960cfe` (`_framework` limpo), health 200
+
+### Lições
+
+- Sessões de worktree guardam `Path` absoluto no DB — mudar o root só afeta **novas** sessões; as antigas continuam funcionando do local original (sem migração necessária).
+- Root compartilhado com clones exige guarda no stale-cleanup: distinguir worktree (`.git` file) de clone (`.git` dir) antes de qualquer delete recursivo.
