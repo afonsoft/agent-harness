@@ -55,4 +55,6 @@ public sealed record PipelineExecutionDto(
     string? WorktreePath,
     DateTime CreatedAtUtc,
     DateTime? CompletedAtUtc,
-    IReadOnlyList<PipelineStageDto> Stages);
+    IReadOnlyList<PipelineStageDto> Stages,
+    /// <summary>Board issue this run was started for, when launched from the Kanban board.</summary>
+    string? IssueId = null);

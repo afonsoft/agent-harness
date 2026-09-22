@@ -20,6 +20,13 @@ public interface IPipelineOrchestrator
     /// <summary>Snapshot of a running/finished pipeline.</summary>
     Task<PipelineExecutionDto?> GetAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Latest execution launched for a board issue (any status, newest first) —
+    /// routes <c>issue:</c>-scoped control/state lookups to the pipeline run the
+    /// board started (SPEC-20260921-board-cockpit-agent-observability RF-004).
+    /// </summary>
+    Task<PipelineExecutionDto?> GetLatestByIssueAsync(string issueId, CancellationToken cancellationToken = default);
+
     /// <summary>Approves a `WaitingApproval` stage; dependents become eligible (RF gates).</summary>
     Task<PipelineExecutionDto> ApproveStageAsync(
         string pipelineExecutionId, string stageKey, string? comment, CancellationToken cancellationToken = default);

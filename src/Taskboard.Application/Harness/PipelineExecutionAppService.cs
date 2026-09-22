@@ -86,6 +86,18 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         return execution is null ? null : ToDto(execution);
     }
 
+    public async Task<PipelineExecutionDto?> GetLatestByIssueAsync(
+        string issueId, CancellationToken cancellationToken = default)
+    {
+        var execution = await _executions.Query
+            .Include(e => e.Stages)
+            .Where(e => e.IssueId == issueId)
+            .OrderByDescending(e => e.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return execution is null ? null : ToDto(execution);
+    }
+
     public async Task<PipelineExecutionDto> ApproveStageAsync(
         string pipelineExecutionId, string stageKey, string? comment,
         CancellationToken cancellationToken = default)
@@ -217,5 +229,6 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                     s.HandoffSummary,
                     s.LastError,
                     s.DependsOn))
-                .ToList());
+                .ToList(),
+            execution.IssueId);
 }

@@ -174,12 +174,12 @@ public sealed class PipelineEngine
             // and approval gates stream to the run's cockpit group.
             foreach (var stage in approvals)
             {
-                await PublishApprovalAsync(exec.Id.Value, stage).ConfigureAwait(false);
+                await PublishApprovalAsync(exec, stage).ConfigureAwait(false);
             }
 
             foreach (var stage in toDispatch)
             {
-                await PublishAsync(exec.Id.Value, "stage", $"Stage '{stage.Name}' started", stage.StageKey)
+                await PublishAsync(exec, "stage", $"Stage '{stage.Name}' started", stage.StageKey)
                     .ConfigureAwait(false);
             }
 
@@ -312,13 +312,8 @@ public sealed class PipelineEngine
 
             // SPEC-20260921-agent-execution-event-pipeline RF-003: durable
             // normalized stream (tool_call/plan/output) alongside the cockpit.
-            if (_eventSink is not null)
-            {
-                _ = _eventSink.EmitAsync(
-                    AgentEventNormalizer.FromLogMessage(
-                        message, AgentEventScope.Run, runId, stageId: stageKey),
-                    CancellationToken.None);
-            }
+            EmitNormalized(exec, AgentEventNormalizer.FromLogMessage(
+                message, AgentEventScope.Run, runId, stageId: stageKey));
         });
 
         var instructions = PipelineContextSynthesizer.BuildStagePrompt(exec, stage);
@@ -351,13 +346,13 @@ public sealed class PipelineEngine
         if (result.IsSuccess)
         {
             exec.CompleteStage(stage.StageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), now);
-            await PublishAsync(exec.Id.Value, "stage", $"Stage '{stage.Name}' completed", stage.StageKey)
+            await PublishAsync(exec, "stage", $"Stage '{stage.Name}' completed", stage.StageKey)
                 .ConfigureAwait(false);
         }
         else
         {
             exec.FailStage(stage.StageKey, $"Agent exited with code {result.ExitCode}", now);
-            await PublishAsync(exec.Id.Value, "stage", $"Stage '{stage.Name}' failed (exit {result.ExitCode})", stage.StageKey)
+            await PublishAsync(exec, "stage", $"Stage '{stage.Name}' failed (exit {result.ExitCode})", stage.StageKey)
                 .ConfigureAwait(false);
         }
 
@@ -411,7 +406,7 @@ public sealed class PipelineEngine
         // SPEC-20260919-ade-cockpit-hitl RF-001: verification outcomes land on
         // the cockpit timeline as `verification` cards.
         await PublishAsync(
-            exec.Id.Value,
+            exec,
             "verification",
             report.IsSuccess
                 ? $"Verification passed — coverage {report.CoveragePercent}%"
@@ -457,25 +452,46 @@ public sealed class PipelineEngine
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private async Task PublishAsync(string runId, string kind, string title, string? stageKey)
+    /// <summary>
+    /// Emits the normalized event under <c>run:{exec.Id}</c> and, when the
+    /// execution is bound to a board issue, mirrors it under <c>issue:{IssueId}</c> —
+    /// the Board task log reads the issue scope
+    /// (SPEC-20260921-board-cockpit-agent-observability RF-002).
+    /// </summary>
+    private void EmitNormalized(PipelineExecution exec, AgentExecutionEvent evt)
     {
+        if (_eventSink is null)
+        {
+            return;
+        }
+
+        _ = _eventSink.EmitAsync(evt, CancellationToken.None);
+        if (!string.IsNullOrEmpty(exec.IssueId))
+        {
+            _ = _eventSink.EmitAsync(
+                evt with { ScopeKind = AgentEventScope.Issue, ScopeId = exec.IssueId },
+                CancellationToken.None);
+        }
+    }
+
+    private async Task PublishAsync(PipelineExecution exec, string kind, string title, string? stageKey)
+    {
+        var runId = exec.Id.Value;
+
         // SPEC-20260921-agent-execution-event-pipeline: cockpit kinds map to
         // the normalized taxonomy — the durable event goes out even without a cockpit.
-        if (_eventSink is not null)
+        var normalizedKind = kind switch
         {
-            var normalizedKind = kind switch
-            {
-                "stage" or "status" => AgentEventKinds.Lifecycle,
-                "verification" => AgentEventKinds.Verification,
-                "steer" => AgentEventKinds.Steer,
-                "diff" => AgentEventKinds.Diff,
-                "approval" => AgentEventKinds.Approval,
-                _ => AgentEventKinds.Activity
-            };
-            _ = _eventSink.EmitAsync(new AgentExecutionEvent(
-                string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
-                normalizedKind, stageKey, Title: title), CancellationToken.None);
-        }
+            "stage" or "status" => AgentEventKinds.Lifecycle,
+            "verification" => AgentEventKinds.Verification,
+            "steer" => AgentEventKinds.Steer,
+            "diff" => AgentEventKinds.Diff,
+            "approval" => AgentEventKinds.Approval,
+            _ => AgentEventKinds.Activity
+        };
+        EmitNormalized(exec, new AgentExecutionEvent(
+            string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
+            normalizedKind, stageKey, Title: title));
 
         if (_cockpit is null)
         {
@@ -493,19 +509,17 @@ public sealed class PipelineEngine
         }
     }
 
-    private async Task PublishApprovalAsync(string runId, PipelineStageExecution stage)
+    private async Task PublishApprovalAsync(PipelineExecution exec, PipelineStageExecution stage)
     {
+        var runId = exec.Id.Value;
+
         // The `stage:` requestId prefix is how the approvals endpoint resolves
         // the reply back to the stage gate (SPEC-20260919-ade-cockpit-hitl §5).
-        if (_eventSink is not null)
-        {
-            _ = _eventSink.EmitAsync(new AgentExecutionEvent(
-                string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
-                AgentEventKinds.Approval, stage.StageKey,
-                Title: $"Stage '{stage.Name}' awaits approval",
-                PayloadJson: JsonSerializer.Serialize(new { requestId = $"stage:{stage.StageKey}", options = new[] { "Allow", "Deny" } }, JsonOptions)),
-                CancellationToken.None);
-        }
+        EmitNormalized(exec, new AgentExecutionEvent(
+            string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
+            AgentEventKinds.Approval, stage.StageKey,
+            Title: $"Stage '{stage.Name}' awaits approval",
+            PayloadJson: JsonSerializer.Serialize(new { requestId = $"stage:{stage.StageKey}", options = new[] { "Allow", "Deny" } }, JsonOptions)));
 
         if (_cockpit is null)
         {
