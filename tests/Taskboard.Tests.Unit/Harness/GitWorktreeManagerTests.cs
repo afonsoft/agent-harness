@@ -43,7 +43,7 @@ public class GitWorktreeManagerTests : IDisposable
         head.StandardOutput.Trim().ShouldBe(dto.Branch);
     }
 
-    // Guardrail: runId nunca escapa de ~/.taskboard/worktrees
+    // Guardrail: runId nunca escapa do root de worktrees
     [Fact]
     public async Task Dado_RunIdComTraversal_Quando_CreateWorktree_Entao_PathConfinadoNoRoot()
     {
@@ -51,6 +51,36 @@ public class GitWorktreeManagerTests : IDisposable
 
         WorktreePaths.IsUnder(_worktreeRoot, dto.Path).ShouldBeTrue();
         dto.Path.ShouldBe(WorktreePaths.SessionDir(_worktreeRoot, "../evil/../escape"));
+    }
+
+    // Guardrail: com root compartilhado (~/repos) um dir que não é worktree
+    // nunca é apagado — stale cleanup só vale para .git-file ou dir vazio.
+    [Fact]
+    public async Task Dado_DirOcupadoPorClone_Quando_CreateWorktree_Entao_RecusaENaoApaga()
+    {
+        var path = WorktreePaths.SessionDir(_worktreeRoot, "run_clone");
+        Directory.CreateDirectory(Path.Combine(path, ".git")); // clone: .git é diretório
+        await File.WriteAllTextAsync(Path.Combine(path, "KEEP.txt"), "precious");
+
+        await Should.ThrowAsync<DomainException>(
+            () => _sut.CreateWorktreeAsync("run_clone", _repoPath, "main", "x"));
+
+        File.Exists(Path.Combine(path, "KEEP.txt")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_DirStaleDeWorktree_Quando_CreateWorktree_Entao_LimpaERecria()
+    {
+        var path = WorktreePaths.SessionDir(_worktreeRoot, "run_stale");
+        Directory.CreateDirectory(path);
+        await File.WriteAllTextAsync(Path.Combine(path, ".git"), "gitdir: /tmp/stale"); // worktree: .git é arquivo
+        await File.WriteAllTextAsync(Path.Combine(path, "junk.txt"), "old");
+
+        var dto = await _sut.CreateWorktreeAsync("run_stale", _repoPath, "main", "x");
+
+        dto.Path.ShouldBe(path);
+        File.Exists(Path.Combine(path, "junk.txt")).ShouldBeFalse();
+        File.Exists(Path.Combine(path, "README.md")).ShouldBeTrue();
     }
 
     // Covers RF-002 / AC-02: diff retorna arquivos + patch
@@ -190,6 +220,155 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_SessaoInexistente_Quando_GetDiff_Entao_DomainException()
     {
         await Should.ThrowAsync<DomainException>(() => _sut.GetDiffAsync("run_inexistente"));
+    }
+
+    // RF-003: explorer — lista diretórios sem .git, paths relativos ao worktree
+    [Fact]
+    public async Task Dado_WorktreeComArquivos_Quando_ListFiles_Entao_ListaSemGitERelativo()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_e1", _repoPath, "main", "explorer");
+        Directory.CreateDirectory(Path.Combine(dto.Path, "src"));
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "src", "App.cs"), "class App {}\n");
+
+        var root = await _sut.ListFilesAsync("run_e1", null);
+
+        root.ShouldNotBeNull();
+        root.Entries.ShouldContain(e => e.Name == "src" && e.Directory && e.Path == "src");
+        root.Entries.ShouldContain(e => e.Name == "README.md" && !e.Directory && e.Path == "README.md");
+        root.Entries.ShouldNotContain(e => e.Name == ".git");
+        root.Entries.First().Directory.ShouldBeTrue(); // diretórios primeiro
+
+        var src = await _sut.ListFilesAsync("run_e1", "src");
+        src.ShouldNotBeNull();
+        src.Path.ShouldBe("src");
+        src.Entries.ShouldContain(e => e.Name == "App.cs" && e.Path == "src/App.cs" && e.SizeBytes > 0);
+    }
+
+    [Fact]
+    public async Task Dado_PathTraversal_Quando_ListFiles_Entao_DomainException()
+    {
+        await _sut.CreateWorktreeAsync("run_e2", _repoPath, "main", "guard");
+
+        await Should.ThrowAsync<DomainException>(() => _sut.ListFilesAsync("run_e2", "../repo"));
+        await Should.ThrowAsync<DomainException>(() => _sut.ListFilesAsync("run_e2", "/etc"));
+    }
+
+    [Fact]
+    public async Task Dado_DiretorioInexistente_Quando_ListFiles_Entao_Null()
+    {
+        await _sut.CreateWorktreeAsync("run_e3", _repoPath, "main", "missing");
+        (await _sut.ListFilesAsync("run_e3", "nao-existe")).ShouldBeNull();
+    }
+
+    // RF-003: leitura confinada — conteúdo, binário, inexistente e traversal
+    [Fact]
+    public async Task Dado_ArquivoTexto_Quando_ReadFile_Entao_ConteudoCompleto()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_e4", _repoPath, "main", "read");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "nota.md"), "# nota\n");
+
+        var file = await _sut.ReadFileAsync("run_e4", "nota.md");
+
+        file.ShouldNotBeNull();
+        file.Content.ShouldBe("# nota\n");
+        file.Binary.ShouldBeFalse();
+        file.Truncated.ShouldBeFalse();
+        file.SizeBytes.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Dado_ArquivoBinario_Quando_ReadFile_Entao_BinarySemConteudo()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_e5", _repoPath, "main", "binary");
+        await File.WriteAllBytesAsync(Path.Combine(dto.Path, "img.bin"), [0x89, 0x50, 0x00, 0x47]);
+
+        var file = await _sut.ReadFileAsync("run_e5", "img.bin");
+
+        file.ShouldNotBeNull();
+        file.Binary.ShouldBeTrue();
+        file.Content.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_ArquivoGrande_Quando_ReadFile_Entao_Truncated()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_e6", _repoPath, "main", "large");
+        await File.WriteAllTextAsync(
+            Path.Combine(dto.Path, "grande.txt"), new string('x', GitWorktreeManager.MaxContentBytes + 100));
+
+        var file = await _sut.ReadFileAsync("run_e6", "grande.txt");
+
+        file.ShouldNotBeNull();
+        file.Truncated.ShouldBeTrue();
+        file.Content!.Length.ShouldBe(GitWorktreeManager.MaxContentBytes);
+    }
+
+    [Fact]
+    public async Task Dado_PathTraversal_Quando_ReadFile_Entao_DomainException()
+    {
+        await _sut.CreateWorktreeAsync("run_e7", _repoPath, "main", "guard-read");
+
+        await Should.ThrowAsync<DomainException>(() => _sut.ReadFileAsync("run_e7", "../../etc/passwd"));
+    }
+
+    [Fact]
+    public async Task Dado_ArquivoInexistente_Quando_ReadFile_Entao_Null()
+    {
+        await _sut.CreateWorktreeAsync("run_e8", _repoPath, "main", "missing-file");
+        (await _sut.ReadFileAsync("run_e8", "fantasma.cs")).ShouldBeNull();
+    }
+
+    // RF-004: --numstat por arquivo preenche contadores do DTO
+    [Fact]
+    public async Task Dado_DiffComArquivos_Quando_GetDiff_Entao_ContadoresPorArquivo()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_e9", _repoPath, "main", "numstat");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "README.md"), "l1\nl2\nl3\n");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "novo.cs"), "class Novo {}\n");
+
+        var diff = await _sut.GetDiffAsync("run_e9");
+
+        var readme = diff.Files.Single(f => f.Path == "README.md");
+        (readme.Insertions + readme.Deletions).ShouldBeGreaterThan(0);
+        diff.Files.Single(f => f.Path == "novo.cs").Insertions.ShouldBe(0); // untracked não entra no diff
+        diff.Insertions.ShouldBeGreaterThanOrEqualTo(readme.Insertions);
+    }
+
+    // Regression: mudança commitada na branch do run sai do `status --porcelain`
+    // mas continua no `git diff base` — Files deve uni-las (senão a UI agrupa
+    // tudo em "(outros)").
+    [Fact]
+    public async Task Dado_AlteracaoCommitada_Quando_GetDiff_Entao_ArquivoEmFiles()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_diff_commit", _repoPath, "main", "committed");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "comitado.cs"), "class C {}\n");
+        await _git.RunAsync(dto.Path, ["add", "-A"]);
+        (await _git.RunAsync(dto.Path, ["commit", "-m", "feat: add comitado"]))
+            .ExitCode.ShouldBe(0);
+
+        var diff = await _sut.GetDiffAsync("run_diff_commit");
+
+        var file = diff.Files.Single(f => f.Path == "comitado.cs");
+        file.Status.ShouldBe("Added");
+        file.Insertions.ShouldBe(1);
+        diff.Patch.ShouldContain("diff --git a/comitado.cs b/comitado.cs");
+    }
+
+    [Fact]
+    public async Task Dado_AlteracaoCommitadaEPendente_Quando_GetDiff_Entao_AmbasEmFiles()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_diff_mix", _repoPath, "main", "mixed");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "comitado.cs"), "class C {}\n");
+        await _git.RunAsync(dto.Path, ["add", "-A"]);
+        (await _git.RunAsync(dto.Path, ["commit", "-m", "feat: add comitado"]))
+            .ExitCode.ShouldBe(0);
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "README.md"), "changed\n");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "solto.cs"), "class S {}\n");
+
+        var diff = await _sut.GetDiffAsync("run_diff_mix");
+
+        diff.Files.Select(f => f.Path).ShouldBe(["comitado.cs", "README.md", "solto.cs"], ignoreOrder: true);
+        diff.Files.Single(f => f.Path == "solto.cs").Status.ShouldBe("Untracked");
     }
 
     private void InitRepo(string path, string branch = "main")

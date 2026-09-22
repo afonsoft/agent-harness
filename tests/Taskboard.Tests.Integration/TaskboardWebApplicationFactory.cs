@@ -33,6 +33,12 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public string WorkspaceRoot { get; protected set; } = string.Empty;
 
+    /// <summary>
+    /// Enables the Web CLI Agent feature flag for subclass factories (queue/
+    /// retry endpoints return 404 otherwise). Off by default — matches prod.
+    /// </summary>
+    public bool WebCliAgentEnabled { get; protected set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Fresh data dir per factory: admin.json persists the password hash, so a
@@ -76,6 +82,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         // the real CLI backend (SPEC-20260921-ai-chat-cli-backend) is covered
         // by unit tests; integration tests must never spawn agent processes.
         builder.UseSetting("Taskboard:AiChat:MockProvider", "true");
+        builder.UseSetting("Taskboard:WebCliAgent:Enabled", WebCliAgentEnabled ? "true" : "false");
         builder.ConfigureServices(services =>
         {
             // GET /api/agents must not depend on which CLIs happen to be on the

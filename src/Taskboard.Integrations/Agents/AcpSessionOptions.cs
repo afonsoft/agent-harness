@@ -21,6 +21,14 @@ public sealed class AcpSessionOptions
     /// <summary>Advertise boolean session config options support.</summary>
     public bool BooleanConfigOptions { get; set; } = true;
 
+    /// <summary>
+    /// Highest ACP protocol version offered during <c>initialize</c>
+    /// (SPEC-20260921-acp-v2-readiness RF-202). Default 1 — ACP v2 stays
+    /// opt-in while the spec is draft. A v1-only agent answering a max-2
+    /// offer transparently falls back to v1.
+    /// </summary>
+    public int MaxProtocolVersion { get; set; } = 1;
+
     /// <summary>Timeout for non-turn JSON-RPC requests (initialize, session/*, fs/* replies).</summary>
     public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(60);
 

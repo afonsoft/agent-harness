@@ -526,3 +526,46 @@ As specs aprovadas nesta sessão foram registradas para execução:
 - Serviço `taskboard-server` (systemd user) ativo em `127.0.0.1:47823`, unit description atualizada, env/`~/.taskboard/agent-harness` alinhados ao rename. Endpoints novos (`/api/specs`, `/api/harness/runs`, `/api/vscode/workdir`) respondendo 401 anônimo.
 
 **Status**: fluxo encerrado — zero issues abertas, zero SPECs pendentes, main verde, deploy atual.
+
+---
+
+## Execução da sessão 2026-09-21/22 (Cockpit UX + board agent observability)
+
+### Entregas
+
+| Entrega | PR | Escopo |
+|---|---|---|
+| Board issue agent tab | #295 (merged `ee3dfcc`) | `PipelineEngine.EmitNormalized` espelha eventos normalizados `run:{id}`→`issue:{IssueId}`; `GetLatestByIssueAsync` + `IssueId` no `PipelineExecutionDto`; `AgentControlService` roteia `issue:` cancel/steer/retry/replies para o pipeline; "Criar PR" move card→`in_review` + comenta URL do PR (best-effort, `PublishIssueReviewAsync`); orquestração create-pr movida do `Program.cs` para `PipelineExecutionAppService` |
+| Cockpit live logs/explorer/diff | #296 (merged `1b92be3`) | SPEC-20260921-cockpit-live-logs-explorer-diff: terminal xterm com follow-scroll + pill "↓ novos logs", filtros stage/stream (stderr vermelho), toolbar copy/download/clear, badge live; aba `Arquivos` (`WorktreeExplorer` — lazy dirs, `.git` oculto, path-jail, 500 entries/dir, 512 KB texto, binário detectado); Diff por arquivo com collapse (`UnifiedDiffParser` em Contracts, numstat por arquivo +/-, expand/collapse all, truncação 2 MB); endpoints `GET /api/harness/worktrees/{runId}/files[?path=]` e `/files/content?path=` |
+| Deflake LiveIds test | #297 | `Dado_RunEnfileirado_Quando_Processar_Entao_LiveIdsApareceESome`: execução mockada completava dentro da janela de poll 50 ms sob carga no CI — gate `TaskCompletionSource` mantém a janela "live" aberta até o teste liberar |
+
+### Verificação
+
+- Unit: 936/936 · Integração: 250/250 · format: limpo (ambos os PRs)
+- Deploy `taskboard-server` republicado de `main` @`1b92be3` (`rm -rf publish/wwwroot/_framework` antes do publish — lição mantida), health 200 em `127.0.0.1:47823`
+
+### Lições
+
+- Consumidores de eventos por escopo: produtor (pipeline `run:`) e consumidor (aba `issue:`) devem convergir — espelhar no producer é mais simples que re-mapear queries no consumer.
+- `gh pr checks --watch` mostra runs stale após push novo; confirmar estado real via `gh pr view --json statusCheckRollup` e `state` do PR (o #296 mergeou enquanto o rerun estava pendente — commit tardio na branch ficou fora do squash e virou o PR #297).
+- Teste que depende de observar janela temporal curta via polling é flake estrutural — controlar a janela (TCS) torna determinístico.
+
+---
+
+## Execução da sessão 2026-09-22 (worktree root → ~/repos)
+
+### Entregas
+
+| Entrega | PR | Escopo |
+|---|---|---|
+| Worktree root em ~/repos | #298 (merged `6960cfe`) | `WorktreePaths.ResolveRoot(configured, home)` — `Taskboard:WorktreeRoot` com expansão de `~`, default `~/repos` (mesmo `WorkspacePaths.DefaultRootName` dos clones) — worktrees de run aparecem no workspace/VS Code ao lado dos clones; stale-dir cleanup endurecido: só worktree real (`.git` **arquivo**) ou dir vazio é apagado — clone real (`.git` **dir**) ou outro conteúdo lança `InvalidValue` |
+
+### Verificação
+
+- Unit: 1013/1013 (+4 `WorktreePathsTests`, +2 guard tests) · Integração: 262/262 · format: limpo · CI verde
+- Deploy `taskboard-server` republicado de `main` @`6960cfe` (`_framework` limpo), health 200
+
+### Lições
+
+- Sessões de worktree guardam `Path` absoluto no DB — mudar o root só afeta **novas** sessões; as antigas continuam funcionando do local original (sem migração necessária).
+- Root compartilhado com clones exige guarda no stale-cleanup: distinguir worktree (`.git` file) de clone (`.git` dir) antes de qualquer delete recursivo.

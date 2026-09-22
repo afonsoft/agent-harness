@@ -18,6 +18,9 @@ public sealed class AgentRunEventConfiguration : IEntityTypeConfiguration<AgentR
         builder.Property(x => x.SessionId).HasMaxLength(255);
         builder.Property(x => x.ParentEventId).HasMaxLength(64);
         builder.Property(x => x.ToolCallId).HasMaxLength(255);
+        builder.Property(x => x.MessageId).HasMaxLength(255);
+        builder.Property(x => x.PlanId).HasMaxLength(255);
+        builder.Property(x => x.PatchOp).HasMaxLength(16);
         builder.Property(x => x.Title).HasMaxLength(512);
         builder.Property(x => x.Stream).IsRequired().HasMaxLength(16);
         builder.Property(x => x.TimestampUtc)

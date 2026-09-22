@@ -77,6 +77,7 @@ Componente em `Components/Agents/` consumido por Board, Cockpit e (fase 2) AI Ch
 - Live via SignalR (grupo por issue).
 - Header de controle: estado real do run (`running`/`waiting_permission`/`idle`), botão Cancel (disabled quando não running), permissões pendentes com approve/deny inline.
 - Compat: durante rollout, eventos `output` cobrem o que antes eram `AgentLogMessage` — nenhuma informação perdida.
+- **Implementação:** board runs são pipelines (`single-agent`). O `PipelineEngine` emite eventos normalizados em `run:{runId}` e os espelha em `issue:{issueId}` quando `PipelineExecution.IssueId` está preenchido — o escopo `issue` do endpoint e o grupo SignalR `agent:issue:{id}` cobrem a aba do board.
 
 ### RF-003 — Cockpit integration
 
@@ -97,6 +98,7 @@ POST /api/agents/runs/{scopeId}/permissions/{requestId}/reply
 ```
 
 - `scopeId` é RunId (cockpit), IssueId (board one-shot) ou ThreadId (chat) — o serviço roteia para `PipelineEngine.SteerAsync`/`CancelAsync`, `AgentOrchestrationService.CancelAsync` ou `AgentSessionManager` conforme `ScopeKind`.
+- **Implementação:** como board runs são pipelines, `issue` resolve primeiro via `IPipelineOrchestrator.GetLatestByIssueAsync(issueId)` — `cancel`/`steer`/`retry` e replies `stage:{key}` roteam para o `pipelineExecutionId` resolvido (retry usa o estágio `Failed` quando `stageId` não é informado); execuções `Completed`/`Cancelled` ou ausentes caem no fallback legado (`AgentOrchestrationService`).
 - Toda ação de controle emite `AgentExecutionEvent` (`steer`, `permission` com `respondedBy`, `lifecycle:stopping`) — auditável na própria timeline.
 - Autorização: endpoints exigem role existente de admin/operator (mesmo policy dos demais `/api/agents/*`).
 

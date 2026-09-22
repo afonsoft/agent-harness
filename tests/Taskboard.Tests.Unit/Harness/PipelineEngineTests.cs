@@ -52,9 +52,9 @@ public class PipelineEngineTests : IDisposable
         }
     }
 
-    private PipelineEngine CriarEngine() =>
+    private PipelineEngine CriarEngine(IAgentExecutionEventSink? eventSink = null) =>
         new(_scopeFactory, _acp, _verification,
-            NullLogger<PipelineEngine>.Instance);
+            NullLogger<PipelineEngine>.Instance, eventSink: eventSink);
 
     private PipelineExecution SalvarExecucao(PipelineDefinition def)
     {
@@ -256,5 +256,53 @@ public class PipelineEngineTests : IDisposable
         agentes[0].ShouldBe(AgentType.Claude);
         agentes.Skip(1).Order().ShouldBe([AgentType.Codex, AgentType.OpenCode]);
         Recarregar(exec.Id).Status.ShouldBe(PipelineStatus.Completed);
+    }
+
+    [Fact]
+    public async Task Dado_ExecucaoVinculadaAIssue_Quando_ProgressoDoAgente_Entao_EmiteNosEscoposRunEIssue()
+    {
+        // SPEC-20260921-board-cockpit-agent-observability RF-002: the Board task
+        // log reads issue:{issueId} — pipeline events must mirror run-scoped
+        // emissions to the bound issue scope.
+        ConfigurarIsolacao();
+        var emitted = new List<AgentExecutionEvent>();
+        var sink = Substitute.For<IAgentExecutionEventSink>();
+        sink.EmitAsync(Arg.Any<AgentExecutionEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var evt = call.ArgAt<AgentExecutionEvent>(0);
+                lock (emitted)
+                {
+                    emitted.Add(evt);
+                }
+                return Task.FromResult(evt);
+            });
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var progress = call.ArgAt<IProgress<AgentLogMessage>>(1);
+                progress.Report(new AgentLogMessage(DateTimeOffset.UtcNow, "150", AgentLogStream.StdOut, "trabalhando no diff"));
+                return Task.FromResult(new AgentExecutionResult(0, true));
+            });
+        _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
+            .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
+        var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
+        var engine = CriarEngine(sink);
+
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        List<AgentExecutionEvent> snapshot;
+        lock (emitted)
+        {
+            snapshot = [.. emitted];
+        }
+        snapshot.ShouldContain(e => e.ScopeKind == AgentEventScope.Run && e.ScopeId == exec.Id.Value);
+        snapshot.ShouldContain(e => e.ScopeKind == AgentEventScope.Issue && e.ScopeId == "150");
+        // The mirrored issue event preserves the normalized payload of the run event.
+        var runOutput = snapshot.First(e => e.ScopeKind == AgentEventScope.Run
+            && e.PayloadJson is not null && e.PayloadJson.Contains("trabalhando no diff"));
+        snapshot.ShouldContain(e => e.ScopeKind == AgentEventScope.Issue
+            && e.ScopeId == "150" && e.Kind == runOutput.Kind && e.PayloadJson == runOutput.PayloadJson);
     }
 }

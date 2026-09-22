@@ -115,6 +115,7 @@ src/Taskboard.Client/wwwroot/js/diff-viewer.js                       [new]
 ### RF-005: Ação de Conclusão / Pull Request
 - **Description:** Quando o run atinge status `Completed` e as verificações forem verdes, o Cockpit habilita o botão "Criar Pull Request".
 - **Rules:** Ao clicar, o sistema comita o worktree (se pendente), envia o push para o remote e abre o PR via Octokit no repositório GitHub correspondente, exibindo o link resultante.
+- **Implementação:** `IPipelineOrchestrator.CreatePullRequestAsync` (`PipelineExecutionAppService`) orquestra commit→push→PR. Quando o run está vinculado a uma issue do board (`PipelineExecution.IssueId`), a issue é resolvida por `GetIssuesAsync` (match `IssueDto.Id`), o card move para `in_review` (`UpdateIssueColumnAsync` com a coluna atual) e o link do PR é comentado na issue (`AddIssueCommentAsync`) — best-effort: falhas no board não derrubam a request, pois o PR já existe.
 
 ---
 

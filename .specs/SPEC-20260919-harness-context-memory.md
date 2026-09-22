@@ -99,7 +99,7 @@ tests/Taskboard.Tests.Unit/Harness/ContextCompactorTests.cs           [new]
 - **Input → Output:**
   ```xml
   <env>
-    Working directory: /home/ubuntu/.taskboard/worktrees/run_123
+    Working directory: /home/ubuntu/repos/run_123
     Git branch: feature/agent-run_123-login
     Base commit: a1b2c3d
     Runtime: Linux x64, .NET 10.0.100
@@ -123,7 +123,7 @@ tests/Taskboard.Tests.Unit/Harness/ContextCompactorTests.cs           [new]
 POST /api/harness/context/compile
 Content-Type: application/json
 {
-  "worktreePath": "/home/ubuntu/.taskboard/worktrees/run_01j7abcde",
+  "worktreePath": "/home/ubuntu/repos/run_01j7abcde",
   "agentType": "Claude",
   "maxTokenBudget": 32000
 }

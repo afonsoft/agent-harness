@@ -542,6 +542,75 @@ public sealed class AiChatService
         return chatEvent.ToDto();
     }
 
+    /// <summary>
+    /// SPEC-20260921-ai-code-chat-ux RF-004: creates a new thread that replays
+    /// the source conversation up to (and including) the selected event, so
+    /// the user can branch a session without losing the original.
+    /// </summary>
+    public async Task<AiChatThreadDto> ForkThreadAsync(
+        AiChatThreadId id,
+        string eventId,
+        Actor actor,
+        CancellationToken ct = default)
+    {
+        var source = await _threadRepo.GetAsync(id, ct)
+            ?? throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Thread '{id.Value}' not found.");
+
+        var events = await _eventRepo.Query
+            .Where(e => e.ThreadId == id)
+            .OrderBy(e => e.CreatedAt)
+            .ToListAsync(ct);
+
+        var cut = events.FindIndex(e => e.Id.Value == eventId);
+        if (cut < 0)
+        {
+            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Event '{eventId}' not found in thread '{id.Value}'.");
+        }
+
+        var title = source.Title.Length > 224
+            ? source.Title[..224]
+            : source.Title;
+        title = $"{title} (source: fork)";
+
+        var fork = source.Mode == "agent" && source.AgentType is not null
+            ? AiChatThread.CreateAgentThread(
+                AiChatThreadId.NewGuid(),
+                title,
+                source.Model,
+                source.ReasoningEffort,
+                source.Sandbox,
+                source.AgentType.Value,
+                source.WorkspacePath,
+                source.RepositoryFullName)
+            : AiChatThread.Create(
+                AiChatThreadId.NewGuid(),
+                title,
+                source.Model,
+                source.ReasoningEffort,
+                source.Sandbox,
+                agentType: source.AgentType,
+                repositoryFullName: source.RepositoryFullName);
+        fork.SetModelChoice(source.ModelTier, source.ModelSource);
+
+        await _threadRepo.AddAsync(fork, ct);
+        foreach (var ev in events.Take(cut + 1))
+        {
+            var copy = AiChatEvent.CreateTyped(
+                AiChatEventId.NewGuid(),
+                fork.Id,
+                ev.Role,
+                ev.Content,
+                ev.Kind,
+                ev.PayloadJson,
+                ev.CreatedAt);
+            fork.AddEvent(copy);
+            await _eventRepo.AddAsync(copy, ct);
+        }
+
+        await _threadRepo.SaveChangesAsync(ct);
+        return fork.ToDto();
+    }
+
     public async Task<IReadOnlyList<AiChatEventDto>> GetEventsAsync(
         AiChatThreadId threadId,
         CancellationToken ct = default)

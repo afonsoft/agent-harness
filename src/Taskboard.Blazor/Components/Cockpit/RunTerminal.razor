@@ -1,34 +1,95 @@
-@* SPEC-20260920-board-cockpit-unified-runs R6: read-only xterm.js view of the
-   run's agent_output events — live stream plus replay on remount (the written
-   set replays every buffered event when the component is recreated). *@
+@* SPEC-20260920-board-cockpit-unified-runs R6 + SPEC-20260921-cockpit-live-
+   logs-explorer-diff RF-001/RF-002: xterm.js read-only com stream ao vivo,
+   follow-scroll (pill "novos logs"), filtros por stage/stream, copiar,
+   baixar .log e limpar — replay do buffer a cada remount. *@
 @using System.Text.Json
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
-@if (_initFailed)
-{
-    <pre class="small mb-0 p-2" style="max-height: 55vh; overflow: auto;">@FallbackText</pre>
-}
-else
-{
-    <div id="@_elementId" style="height: 55vh; min-height: 320px; background: #0d1117;"></div>
-}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2 run-term-toolbar">
+    @if (IsLive)
+    {
+        <span class="badge text-bg-success run-term-live"><span class="run-term-dot"></span> ao vivo</span>
+    }
+    else
+    {
+        <span class="badge text-bg-secondary">stream encerrado</span>
+    }
+
+    <select class="form-select form-select-sm w-auto" title="Filtrar por stage"
+            @bind="_stageFilter" @bind:after="OnFilterChanged">
+        <option value="">Todos os stages</option>
+        @foreach (var stage in StageKeys)
+        {
+            <option value="@stage">@stage</option>
+        }
+    </select>
+
+    <select class="form-select form-select-sm w-auto" title="Filtrar por stream"
+            @bind="_streamFilter" @bind:after="OnFilterChanged">
+        <option value="">stdout + stderr</option>
+        <option value="stdout">stdout</option>
+        <option value="stderr">stderr</option>
+    </select>
+
+    <div class="ms-auto d-flex gap-1">
+        <button class="btn btn-sm btn-outline-secondary" title="Copiar saída" @onclick="CopyAsync">
+            <Icon Name="IconName.Clipboard" />
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" title="Baixar .log" @onclick="DownloadAsync">
+            <Icon Name="IconName.Download" />
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" title="Limpar visão" @onclick="ClearAsync">
+            <Icon Name="IconName.Eraser" />
+        </button>
+    </div>
+</div>
+
+<div class="position-relative">
+    @if (_initFailed)
+    {
+        <pre class="small mb-0 p-2" style="max-height: 55vh; overflow: auto;">@FallbackText</pre>
+    }
+    else
+    {
+        <div id="@_elementId" style="height: 55vh; min-height: 320px; background: #0d1117;"></div>
+        <button id="@_pillId" type="button"
+                class="btn btn-sm btn-primary position-absolute run-term-pill"
+                style="display: none; right: 16px; bottom: 16px; z-index: 5;"
+                @onclick="JumpToLatestAsync">
+            ↓ novos logs
+        </button>
+    }
+</div>
 
 @code {
     /// <summary>Live cockpit events — the component picks the `agent_output` ones.</summary>
     [Parameter, EditorRequired]
     public IReadOnlyList<CockpitEventDto> Events { get; set; } = [];
 
+    /// <summary>True enquanto a execução está ativa — badge "ao vivo" (RF-001).</summary>
+    [Parameter] public bool IsLive { get; set; }
+
     private readonly string _elementId = $"run-term-{Guid.NewGuid():N}";
+    private readonly string _pillId = $"run-term-pill-{Guid.NewGuid():N}";
     private readonly HashSet<string> _written = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (string? Content, bool IsStderr)> _parsed = new(StringComparer.Ordinal);
     private string? _lastStageKey;
+    private string? _stageFilter;
+    private string? _streamFilter;
     private bool _initialized;
     private bool _initFailed;
 
+    private IEnumerable<string> StageKeys => Events
+        .Where(e => e.Kind == "agent_output" && !string.IsNullOrWhiteSpace(e.Title))
+        .Select(e => e.Title)
+        .Distinct(StringComparer.Ordinal)
+        .OrderBy(s => s, StringComparer.OrdinalIgnoreCase);
+
     private string FallbackText => string.Concat(
-        Events.Where(e => e.Kind == "agent_output")
+        Events.Where(Matches)
             .OrderBy(e => e.TimestampUtc)
-            .Select(e => ExtractContent(e.PayloadJson).Content ?? string.Empty));
+            .Select(e => Parse(e).Content ?? string.Empty));
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -38,6 +99,10 @@ else
             {
                 _initialized = await JS.InvokeAsync<bool>("taskboardTerminal.initReadOnly", _elementId);
                 _initFailed = !_initialized;
+                if (_initialized)
+                {
+                    await JS.InvokeVoidAsync("taskboardTerminal.watchScroll", _elementId, _pillId);
+                }
             }
             catch
             {
@@ -56,9 +121,7 @@ else
             return;
         }
 
-        foreach (var evt in Events
-            .Where(e => e.Kind == "agent_output")
-            .OrderBy(e => e.TimestampUtc))
+        foreach (var evt in Events.Where(Matches).OrderBy(e => e.TimestampUtc))
         {
             var key = $"{evt.TimestampUtc:O}|{evt.Title}|{evt.PayloadJson}";
             if (!_written.Add(key))
@@ -74,13 +137,78 @@ else
                     $"\r\n\x1b[36m── {evt.Title} ──\x1b[0m\r\n");
             }
 
-            var chunk = ExtractContent(evt.PayloadJson);
+            var chunk = Parse(evt);
             if (chunk.Content is not null)
             {
                 var data = chunk.IsStderr ? $"\x1b[31m{chunk.Content}\x1b[0m" : chunk.Content;
                 await JS.InvokeVoidAsync("taskboardTerminal.write", _elementId, data);
             }
         }
+    }
+
+    private bool Matches(CockpitEventDto evt)
+    {
+        if (evt.Kind != "agent_output")
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(_stageFilter)
+            && !string.Equals(evt.Title, _stageFilter, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(_streamFilter))
+        {
+            var isStderr = Parse(evt).IsStderr;
+            return string.Equals(_streamFilter, "stderr", StringComparison.Ordinal) == isStderr;
+        }
+
+        return true;
+    }
+
+    private (string? Content, bool IsStderr) Parse(CockpitEventDto evt)
+    {
+        var key = evt.PayloadJson ?? string.Empty;
+        if (!_parsed.TryGetValue(key, out var parsed))
+        {
+            parsed = ExtractContent(evt.PayloadJson);
+            _parsed[key] = parsed;
+        }
+
+        return parsed;
+    }
+
+    /// <summary>Filtros afetam só a renderização — reseta o xterm e o índice
+    /// de dedup para reescrever o buffer filtrado (RF-002).</summary>
+    private async Task OnFilterChanged()
+    {
+        _written.Clear();
+        _lastStageKey = null;
+        if (_initialized)
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.reset", _elementId);
+        }
+    }
+
+    private async Task CopyAsync()
+    {
+        var text = await JS.InvokeAsync<string>("taskboardTerminal.getText", _elementId);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private async Task DownloadAsync()
+    {
+        var text = await JS.InvokeAsync<string>("taskboardTerminal.getText", _elementId);
+        await JS.InvokeVoidAsync("taskboardTerminal.downloadText", "run.log", text);
+    }
+
+    private Task ClearAsync() => OnFilterChanged();
+
+    private async Task JumpToLatestAsync()
+    {
+        await JS.InvokeVoidAsync("taskboardTerminal.scrollToBottom", _elementId);
     }
 
     private static (string? Content, bool IsStderr) ExtractContent(string? payloadJson)

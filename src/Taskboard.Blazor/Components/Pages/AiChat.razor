@@ -109,23 +109,58 @@ else
                     }
                     @if (_activeThread.Mode == "agent")
                     {
-                        @foreach (var ev in _events)
+                        @foreach (var item in AgentRenderItems)
                         {
-                            @if (ev.Kind == "tool_call")
+                            if (item.Tool is { } tool)
                             {
-                                <Taskboard.Blazor.Components.AiChat.ToolCallCard ToolName="@ev.Role" Arguments="@ev.Content" Output="@ev.PayloadJson" Status="completed" />
+                                <ToolCallCard Model="tool" />
+                                continue;
                             }
-                            else if (ev.Kind == "permission")
+
+                            if (item.Group is { } group)
                             {
-                                <Taskboard.Blazor.Components.AiChat.PermissionPromptCard RequestId="@ev.Id" Tool="tool" Detail="@ev.Content" OnReply="OnPermissionReplyAsync" />
+                                <ToolCallChangesCard Items="group" />
+                                continue;
                             }
-                            else if (ev.Role is "user")
+
+                            var ev = item.Event!;
+                            if (ev.Kind is "metric" or "permission")
+                            {
+                                // Metrics feed the composer meter; pending
+                                // permissions render below the stream.
+                                continue;
+                            }
+
+                            if (ev.Role is "queued")
                             {
                                 <div class="ai-chat-msg ai-chat-msg-user">
-                                    <div class="ai-chat-bubble">@ev.Content</div>
+                                    <div class="ai-chat-bubble ai-chat-queued">
+                                        @ev.Content
+                                        <span class="badge text-bg-secondary ms-2">queued</span>
+                                        <button type="button" class="btn btn-sm btn-link text-danger py-0 ms-1"
+                                                title="Cancel queued prompt"
+                                                @onclick="() => CancelQueuedAsync(ev.Id)">
+                                            <Icon Name="IconName.XCircle" />
+                                        </button>
+                                    </div>
+                                </div>
+                                continue;
+                            }
+
+                            if (ev.Role is "user")
+                            {
+                                <div class="ai-chat-msg ai-chat-msg-user">
+                                    <div class="ai-chat-bubble">
+                                        @ev.Content
+                                        <button type="button" class="btn btn-sm btn-link ai-chat-fork-btn"
+                                                title="Fork thread from here"
+                                                @onclick="() => ForkFromAsync(ev.Id)">
+                                            <Icon Name="IconName.Diagram3" />
+                                        </button>
+                                    </div>
                                 </div>
                             }
-                            else if (ev.Role is "assistant")
+                            else if (ev.Role is "assistant" && ev.Kind is not "session")
                             {
                                 <div class="ai-chat-msg ai-chat-msg-assistant">
                                     <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(ev.Content))</div>
@@ -137,6 +172,10 @@ else
                                     <span class="@(ev.Role == "error" ? "text-danger" : "text-body-secondary")">@ev.Content</span>
                                 </div>
                             }
+                        }
+                        @foreach (var permission in _permissions)
+                        {
+                            <PermissionPromptCard Request="permission" OnReply="OnPermissionReplyAsync" />
                         }
                     }
                     else
@@ -174,6 +213,52 @@ else
                 </div>
 
                 <div class="card-footer p-2">
+                    @if (_activeThread.Mode == "agent" && (_modelOptions.Count > 0 || _modes.Count > 0 || Usage is not null))
+                    {
+                        <div class="d-flex gap-3 align-items-center mb-2 flex-wrap small">
+                            @if (_modelOptions.Count > 0)
+                            {
+                                <label class="d-flex align-items-center gap-1 mb-0">
+                                    <span class="text-body-secondary">model</span>
+                                    <select class="form-select form-select-sm ai-chat-quickselect"
+                                            value="@_currentModel"
+                                            @onchange="OnModelSwitchAsync">
+                                        @foreach (var option in _modelOptions)
+                                        {
+                                            <option value="@option" selected="@(option == _currentModel)">@option</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                            @if (_modes.Count > 0)
+                            {
+                                <label class="d-flex align-items-center gap-1 mb-0">
+                                    <span class="text-body-secondary">mode</span>
+                                    <select class="form-select form-select-sm ai-chat-quickselect"
+                                            value="@_currentMode"
+                                            @onchange="OnModeSwitchAsync">
+                                        @foreach (var mode in _modes)
+                                        {
+                                            <option value="@mode.Id" selected="@(mode.Id == _currentMode)">@mode.Name</option>
+                                        }
+                                    </select>
+                                </label>
+                            }
+                            @if (Usage is { } usage)
+                            {
+                                var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
+                                var meterClass = percent >= 95 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-success";
+                                <div class="d-flex align-items-center gap-2 ms-auto" title="@UsageTooltip(usage)">
+                                    <div class="progress ai-chat-meter" role="progressbar">
+                                        <div class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></div>
+                                    </div>
+                                    <span class="text-body-secondary">
+                                        @usage.Used.ToString("N0")@(usage.Size is { } s ? $" / {s:N0}" : "") tokens
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    }
                     <div class="d-flex gap-2 align-items-end">
                         <textarea class="form-control ai-chat-composer" rows="2"
                                   placeholder="@(_running && _activeThread.Mode != "agent" ? "Waiting for the assistant…" : (_activeThread.Mode == "agent" && _running ? "Steer or queue instruction…" : "Message…"))"
@@ -187,6 +272,10 @@ else
                                     @onclick="SendMessageAsync">Send</Button>
                             @if (_activeThread.Mode == "agent")
                             {
+                                <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                                        Disabled="@_sending"
+                                        title="Resend the last user prompt"
+                                        @onclick="RetryAgentAsync">Retry</Button>
                                 @if (_running)
                                 {
                                     <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="StopAgentAsync">Stop</Button>
@@ -217,6 +306,12 @@ else
     private AiChatThreadDto? _activeThread;
     private readonly List<AiChatEventDto> _events = [];
     private readonly HashSet<string> _seenEventIds = new(StringComparer.Ordinal);
+    private readonly List<PermissionRequestInfo> _permissions = [];
+    private readonly List<string> _modelOptions = [];
+    private readonly List<(string Id, string Name)> _modes = [];
+    private string? _modelConfigId;
+    private string? _currentModel;
+    private string? _currentMode;
     private string _composer = string.Empty;
     private bool _running;
     private bool _sending;
@@ -231,6 +326,43 @@ else
 
     private IEnumerable<AiChatThreadDto> OrderedThreads =>
         _threads?.OrderByDescending(t => t.UpdatedAt) ?? Enumerable.Empty<AiChatThreadDto>();
+
+    // SPEC-20260921-ai-code-chat-ux RF-001: o stream flat vira render items —
+    // tool_call+updates fundem por toolCallId e edições consecutivas agregam.
+    private IReadOnlyList<ChatRenderItem> AgentRenderItems => ToolCallGrouper.Build(_events);
+
+    // RF-003: último usage_update do stream alimenta o medidor de contexto.
+    private ContextUsage? Usage
+    {
+        get
+        {
+            for (var i = _events.Count - 1; i >= 0; i--)
+            {
+                if (_events[i].Kind == "metric")
+                {
+                    return ContextUsage.TryParse(_events[i].PayloadJson);
+                }
+            }
+
+            return null;
+        }
+    }
+
+    private static string UsageTooltip(ContextUsage usage)
+    {
+        var tip = $"context used: {usage.Used:N0}";
+        if (usage.Size is { } size)
+        {
+            tip += $" of {size:N0} tokens";
+        }
+
+        if (usage.Cost is { } cost)
+        {
+            tip += $" · cost ${cost:F4}";
+        }
+
+        return tip;
+    }
 
     // Consecutive user/assistant events render as one bubble — the server stores
     // one event per streamed delta, so grouping merges them into a growing
@@ -300,6 +432,12 @@ else
         _activeThreadId = thread.Id;
         _events.Clear();
         _seenEventIds.Clear();
+        _permissions.Clear();
+        _modelOptions.Clear();
+        _modes.Clear();
+        _modelConfigId = null;
+        _currentModel = null;
+        _currentMode = null;
         _running = thread.Status == "running";
         _sseError = false;
         _scrollPending = true;
@@ -310,6 +448,83 @@ else
             $"/api/local/ai/threads/{Uri.EscapeDataString(thread.Id)}/events",
             _dotNetRef,
             new[] { "ai_chat.event", "ai_chat.run", "ai_chat.session", "ai_chat.permission" });
+
+        // RF-005: quick-switch controls appear only when the peer advertised
+        // model configOptions / modes in the negotiated session info.
+        if (thread.Mode == "agent")
+        {
+            try
+            {
+                var state = await Client.GetAgentScopeStateAsync("thread", thread.Id);
+                ParseSessionInfo(state?.SessionInfoJson);
+                _running = state?.State == "running" || _running;
+            }
+            catch (Exception)
+            {
+                // Controls are optional — session info may be absent.
+            }
+        }
+    }
+
+    private void ParseSessionInfo(string? sessionInfoJson)
+    {
+        if (string.IsNullOrWhiteSpace(sessionInfoJson))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(sessionInfoJson);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("configOptions", out var options) && options.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var option in options.EnumerateArray())
+                {
+                    var category = option.TryGetProperty("category", out var c) ? c.GetString() : null;
+                    if (!string.Equals(category, "model", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    _modelConfigId = option.TryGetProperty("id", out var oid) ? oid.GetString() : "model";
+                    _currentModel = option.TryGetProperty("value", out var v) ? v.GetString() : null;
+                    if (option.TryGetProperty("options", out var values) && values.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var entry in values.EnumerateArray())
+                        {
+                            var val = entry.TryGetProperty("value", out var ev) ? ev.GetString()
+                                : entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+                            if (val is { Length: > 0 } && !_modelOptions.Contains(val))
+                            {
+                                _modelOptions.Add(val);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (root.TryGetProperty("modes", out var modes) && modes.ValueKind == JsonValueKind.Object)
+            {
+                _currentMode = modes.TryGetProperty("currentModeId", out var cm) ? cm.GetString() : null;
+                if (modes.TryGetProperty("availableModes", out var available) && available.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var mode in available.EnumerateArray())
+                    {
+                        var id = mode.TryGetProperty("id", out var mid) ? mid.GetString() : null;
+                        if (id is { Length: > 0 })
+                        {
+                            var name = mode.TryGetProperty("name", out var mn) ? mn.GetString() : null;
+                            _modes.Add((id, name ?? id));
+                        }
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
     }
 
     [JSInvokable]
@@ -317,13 +532,44 @@ else
     {
         try
         {
-            if (eventType == "ai_chat.event" || eventType == "ai_chat.permission")
+            if (eventType == "ai_chat.permission")
+            {
+                var permission = JsonSerializer.Deserialize<PermissionRequestInfo>(data, SseJson);
+                if (permission is not null && !_permissions.Any(p => p.RequestId == permission.RequestId))
+                {
+                    _permissions.Add(permission);
+                    _scrollPending = true;
+                }
+                _sseError = false;
+            }
+            else if (eventType == "ai_chat.event")
             {
                 var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
-                if (ev is not null && _seenEventIds.Add(ev.Id))
+                if (ev is not null)
                 {
-                    _events.Add(ev);
-                    _scrollPending = true;
+                    if (_seenEventIds.Add(ev.Id))
+                    {
+                        _events.Add(ev);
+                        _scrollPending = true;
+                    }
+                    else
+                    {
+                        // Re-published event (e.g. queued → dispatched user):
+                        // update in place rather than skip.
+                        var index = _events.FindIndex(e => e.Id == ev.Id);
+                        if (index >= 0)
+                        {
+                            _events[index] = ev;
+                        }
+                    }
+
+                    // Turn ends on session/prompt stopReason or session death.
+                    if (ev.Kind == "session"
+                        && (ev.PayloadJson?.Contains("\"stopReason\"") == true
+                            || ev.PayloadJson?.Contains("\"dead\"") == true))
+                    {
+                        _running = false;
+                    }
                 }
                 _sseError = false;
             }
@@ -387,16 +633,23 @@ else
         {
             if (_activeThread?.Mode == "agent")
             {
-                var posted = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content, "message"));
+                // RF-002: the queue endpoint persists the prompt (queued event)
+                // and dispatches FIFO — no separate user-event post needed.
+                var queued = await Client.QueueAgentThreadPromptAsync(threadId, content);
                 _composer = string.Empty;
-                var wasRunning = _running;
-                _running = true;
-
-                var ok = await Client.PromptAgentThreadAsync(threadId, content, wasRunning ? "steer" : "queue");
-                if (!ok)
+                if (queued is null)
                 {
-                    ToastService.Notify(new(ToastType.Warning, "Agent prompt admitted/queued."));
+                    ToastService.Notify(new(ToastType.Danger, "Failed to queue the prompt."));
+                    return;
                 }
+
+                if (_seenEventIds.Add(queued.Id))
+                {
+                    _events.Add(queued);
+                    _scrollPending = true;
+                }
+
+                _running = true;
                 return;
             }
 
@@ -439,13 +692,100 @@ else
         }
     }
 
+    /// <summary>RF-002: cancel a queued prompt before the backend dispatches it.</summary>
+    private async Task CancelQueuedAsync(string eventId)
+    {
+        if (_activeThreadId is null) return;
+        if (await Client.CancelQueuedPromptAsync(_activeThreadId, eventId))
+        {
+            _events.RemoveAll(e => e.Id == eventId);
+            _seenEventIds.Remove(eventId);
+        }
+    }
+
+    /// <summary>RF-004: fork this thread at the selected event and switch to the new thread.</summary>
+    private async Task ForkFromAsync(string eventId)
+    {
+        if (_activeThreadId is null) return;
+        var fork = await Client.ForkAiChatThreadAsync(_activeThreadId, eventId);
+        if (fork is null)
+        {
+            ToastService.Notify(new(ToastType.Danger, "Failed to fork the thread."));
+            return;
+        }
+
+        _threads = (_threads ?? []).Concat([fork]).ToList();
+        ToastService.Notify(new(ToastType.Success, $"Forked into '{fork.Title}'."));
+        await SelectThreadAsync(fork);
+    }
+
+    /// <summary>RF-004: resend the last user prompt (cancels an active turn first).</summary>
+    private async Task RetryAgentAsync()
+    {
+        if (_activeThreadId is null) return;
+        var admitted = await Client.RetryAgentThreadAsync(_activeThreadId);
+        if (admitted)
+        {
+            _running = true;
+        }
+        else
+        {
+            ToastService.Notify(new(ToastType.Warning, "Nothing to retry — send a prompt first."));
+        }
+    }
+
+    /// <summary>RF-005: session/set_config_option for the ACP model option.</summary>
+    private async Task OnModelSwitchAsync(ChangeEventArgs e)
+    {
+        if (_activeThreadId is null || _modelConfigId is null || e.Value is not string value)
+        {
+            return;
+        }
+
+        var ok = await Client.PostAgentControlAsync(
+            new AgentControlRequest("thread", _activeThreadId, "set_config", Content: value, ConfigId: _modelConfigId));
+        if (ok)
+        {
+            _currentModel = value;
+        }
+        else
+        {
+            ToastService.Notify(new(ToastType.Warning, "Model switch rejected — no live session."));
+        }
+    }
+
+    /// <summary>RF-005: session/set_mode on the live session.</summary>
+    private async Task OnModeSwitchAsync(ChangeEventArgs e)
+    {
+        if (_activeThreadId is null || e.Value is not string modeId)
+        {
+            return;
+        }
+
+        var ok = await Client.PostAgentControlAsync(
+            new AgentControlRequest("thread", _activeThreadId, "set_mode", Content: modeId));
+        if (ok)
+        {
+            _currentMode = modeId;
+        }
+        else
+        {
+            ToastService.Notify(new(ToastType.Warning, "Mode switch rejected — no live session."));
+        }
+    }
+
     private async Task OnPermissionReplyAsync((string RequestId, string Outcome) args)
     {
         if (_activeThreadId is null) return;
         var ok = await Client.ReplyAgentPermissionAsync(_activeThreadId, args.RequestId, args.Outcome);
+        _permissions.RemoveAll(p => p.RequestId == args.RequestId);
         if (ok)
         {
             ToastService.Notify(new(ToastType.Success, $"Permission '{args.Outcome}' sent to agent."));
+        }
+        else
+        {
+            ToastService.Notify(new(ToastType.Warning, "Permission request already expired."));
         }
     }
 

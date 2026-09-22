@@ -55,6 +55,28 @@
     private bool _loading;
     private bool _rawOnly;
     private long _lastSequence;
+    private List<AgentExecutionEvent> _folded = [];
+    private bool _foldedDirty = true;
+
+    /// <summary>
+    /// SPEC-20260921-acp-v2-readiness RF-203: the folded view — upserts merge
+    /// into the entity keyed by (Kind, ToolCallId|MessageId|PlanId); PatchOp
+    /// resolves replace/clear. v1 events carry no PatchOp other than the
+    /// implicit append, so the fold is a no-op for v1 traffic.
+    /// </summary>
+    private List<AgentExecutionEvent> Folded
+    {
+        get
+        {
+            if (_foldedDirty)
+            {
+                _folded = Fold(_events);
+                _foldedDirty = false;
+            }
+
+            return _folded;
+        }
+    }
 
     private IEnumerable<AgentExecutionEvent> VisibleEvents
     {
@@ -62,18 +84,141 @@
         {
             // Correlated tool_output rows are merged into their tool_call card —
             // rendering both would duplicate the same logical call.
+            var folded = Folded;
             var correlatedCalls = new HashSet<string>(
-                _events.Where(e => e.Kind == AgentEventKinds.ToolCall && e.ToolCallId is not null)
-                       .Select(e => e.ToolCallId!), StringComparer.Ordinal);
+                folded.Where(e => e.Kind == AgentEventKinds.ToolCall && e.ToolCallId is not null)
+                      .Select(e => e.ToolCallId!), StringComparer.Ordinal);
 
-            return _events
+            return folded
                 .Where(e => !(e.Kind == AgentEventKinds.ToolOutput
                               && e.ToolCallId is not null
                               && correlatedCalls.Contains(e.ToolCallId)))
                 .Where(e => _rawOnly
                     ? e.Kind is AgentEventKinds.Output or AgentEventKinds.Message
-                    : _enabledKinds.Count == 0 || _enabledKinds.Contains(e.Kind))
-                .OrderBy(e => e.Sequence);
+                    : _enabledKinds.Count == 0 || _enabledKinds.Contains(e.Kind));
+        }
+    }
+
+    /// <summary>Merge key for upsert semantics: the correlation id + kind.</summary>
+    private static string? MergeKey(AgentExecutionEvent e)
+    {
+        var id = e.ToolCallId ?? e.MessageId ?? e.PlanId;
+        return id is null ? null : $"{e.Kind}:{id}";
+    }
+
+    /// <summary>
+    /// Folds the raw event log into the rendered entity view. PatchOp=replace
+    /// merges fields into the keyed slot (explicit nulls delete, absent keys
+    /// keep their value); clear empties content; append with a known key
+    /// concatenates chunk text (v2 message/thought streaming). Events without
+    /// a correlation id always append — v1 behavior is preserved.
+    /// </summary>
+    private static List<AgentExecutionEvent> Fold(List<AgentExecutionEvent> events)
+    {
+        var result = new List<AgentExecutionEvent>(events.Count);
+        var slots = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var evt in events.OrderBy(e => e.Sequence))
+        {
+            var key = MergeKey(evt);
+            // v1 parity: tool_output updates collapse into the call's output
+            // slot even without a PatchOp.
+            var collapsibleOutput = evt.Kind == AgentEventKinds.ToolOutput && evt.ToolCallId is not null;
+
+            if (key is not null
+                && (evt.PatchOp is AgentPatchOps.Replace or AgentPatchOps.Clear || collapsibleOutput))
+            {
+                if (slots.TryGetValue(key, out var idx))
+                {
+                    result[idx] = MergeInto(result[idx], evt, evt.PatchOp == AgentPatchOps.Clear);
+                    continue;
+                }
+
+                slots[key] = result.Count;
+                result.Add(evt);
+                continue;
+            }
+
+            if (key is not null && evt.PatchOp == AgentPatchOps.Append
+                && slots.TryGetValue(key, out var appendIdx))
+            {
+                result[appendIdx] = AppendInto(result[appendIdx], evt);
+                continue;
+            }
+
+            if (key is not null)
+            {
+                slots[key] = result.Count;
+            }
+
+            result.Add(evt);
+        }
+
+        return result;
+    }
+
+    /// <summary>Upsert merge: new fields win, explicit nulls remove, absent keys keep.</summary>
+    private static AgentExecutionEvent MergeInto(AgentExecutionEvent prev, AgentExecutionEvent next, bool clear) =>
+        prev with
+        {
+            TimestampUtc = next.TimestampUtc,
+            Title = clear ? next.Title : next.Title ?? prev.Title,
+            PayloadJson = MergeJsonObjects(prev.PayloadJson, next.PayloadJson),
+            RawJson = next.RawJson ?? prev.RawJson
+        };
+
+    /// <summary>Chunk append: concatenates display text, merges payload fields.</summary>
+    private static AgentExecutionEvent AppendInto(AgentExecutionEvent prev, AgentExecutionEvent next) =>
+        prev with
+        {
+            TimestampUtc = next.TimestampUtc,
+            Title = string.Concat(prev.Title, next.Title),
+            PayloadJson = MergeJsonObjects(prev.PayloadJson, next.PayloadJson)
+        };
+
+    private static string? MergeJsonObjects(string? prevJson, string? nextJson)
+    {
+        if (prevJson is null)
+        {
+            return nextJson;
+        }
+
+        if (nextJson is null)
+        {
+            return prevJson;
+        }
+
+        try
+        {
+            using var nextDoc = JsonDocument.Parse(nextJson);
+            if (nextDoc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return nextJson;
+            }
+
+            var merged = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(prevJson);
+            if (merged is null)
+            {
+                return nextJson;
+            }
+
+            foreach (var prop in nextDoc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Null)
+                {
+                    merged.Remove(prop.Name);
+                }
+                else
+                {
+                    merged[prop.Name] = prop.Value.Clone();
+                }
+            }
+
+            return JsonSerializer.Serialize(merged);
+        }
+        catch (JsonException)
+        {
+            return nextJson;
         }
     }
 
@@ -130,6 +275,7 @@
                 .ToList();
             _events.Clear();
             _events.AddRange(merged);
+            _foldedDirty = true;
             _lastSequence = merged.Count > 0 ? merged[^1].Sequence : 0;
         }
         catch (Exception ex)
@@ -143,9 +289,9 @@
     }
 
     /// <summary>
-    /// Inserts an event keeping sequence order and EventId dedup. Several
-    /// `tool_output` rows for the same call collapse into the latest — the
-    /// merged card shows only the freshest output.
+    /// Inserts an event keeping sequence order and EventId dedup. Upsert
+    /// collapse happens at render time in <see cref="Folded"/> so replayed
+    /// and live events fold identically.
     /// </summary>
     private void Ingest(AgentExecutionEvent evt)
     {
@@ -153,18 +299,8 @@
         if (byId >= 0)
         {
             _events[byId] = evt;
+            _foldedDirty = true;
             return;
-        }
-
-        if (evt.Kind == AgentEventKinds.ToolOutput && evt.ToolCallId is not null)
-        {
-            var prev = _events.FindIndex(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
-            if (prev >= 0)
-            {
-                _events[prev] = evt;
-                _lastSequence = Math.Max(_lastSequence, evt.Sequence);
-                return;
-            }
         }
 
         var pos = _events.FindIndex(e => e.Sequence > evt.Sequence);
@@ -177,6 +313,7 @@
             _events.Insert(pos, evt);
         }
 
+        _foldedDirty = true;
         _lastSequence = Math.Max(_lastSequence, evt.Sequence);
     }
 
@@ -259,10 +396,10 @@
         // Merge the latest correlated tool_output so the card shows the
         // terminal status/output instead of a duplicate row.
         var outputEvt = evt.ToolCallId is null ? null
-            : _events.LastOrDefault(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
+            : Folded.LastOrDefault(e => e.Kind == AgentEventKinds.ToolOutput && e.ToolCallId == evt.ToolCallId);
         var output = outputEvt is not null ? ParseTool(outputEvt.PayloadJson) : null;
-        <ToolCallCard ToolName="@tool.Name" Arguments="@tool.Arguments"
-                      Status="@(output?.Status ?? tool.Status)" Output="@(output?.Output ?? tool.Output)" />
+        <ToolCallCard Model="ToolCallRenderModel.Generic(tool.Name, tool.Arguments,
+            output?.Status ?? tool.Status, output?.Output ?? tool.Output)" />
     };
 
     private RenderFragment RenderPermission(AgentExecutionEvent evt) => __builder =>

@@ -15,6 +15,15 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 {
     private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(2);
 
+    /// <summary>Cap de entradas por diretório no explorer (RF-003).</summary>
+    internal const int MaxEntriesPerDirectory = 500;
+
+    /// <summary>Cap de leitura de arquivo no explorer — 512 KB.</summary>
+    internal const int MaxContentBytes = 512 * 1024;
+
+    /// <summary>Janela de sniff para detectar binário (NUL nos primeiros 8 KB).</summary>
+    internal const int BinarySniffBytes = 8 * 1024;
+
     private readonly IGitCommandRunner _git;
     private readonly IWorktreeSessionRepository _sessions;
     private readonly string _worktreeRoot;
@@ -54,6 +63,16 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 
         if (Directory.Exists(path))
         {
+            // O root pode ser compartilhado com os clones (~/repos) — só uma
+            // worktree real (.git FILE, não dir) ou um diretório vazio é
+            // limpo; qualquer outra coisa aborta em vez de apagar um clone.
+            if (!IsWorktreeDir(path) && Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Worktree path '{path}' exists and is not a stale worktree; refusing to delete it.");
+            }
+
             _logger.LogInformation("Cleaning stale worktree directory {Path}.", path);
             Directory.Delete(path, recursive: true);
         }
@@ -91,17 +110,123 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         EnsureSuccess(status, "git status");
 
         // Two-dot diff vs the base branch covers committed AND working-tree
-        // (pending) changes — RF-002 exige ambos.
+        // (pending) changes — RF-002 exige ambos. O status --porcelain sozinho
+        // não basta: mudanças já commitadas na branch do run saem do status mas
+        // continuam no patch, o que derrubava os arquivos no bucket "(outros)".
         var numstat = await _git.RunAsync(session.Path, ["diff", "--numstat", session.BaseBranch], GitTimeout, cancellationToken);
         EnsureSuccess(numstat, "git diff --numstat");
+
+        var nameStatus = await _git.RunAsync(session.Path, ["diff", "--name-status", session.BaseBranch], GitTimeout, cancellationToken);
+        EnsureSuccess(nameStatus, "git diff --name-status");
 
         var patch = await _git.RunAsync(session.Path, ["diff", session.BaseBranch], GitTimeout, cancellationToken);
         EnsureSuccess(patch, "git diff");
 
-        var files = ParseStatus(status.StandardOutput);
-        var (insertions, deletions) = ParseNumstat(numstat.StandardOutput);
+        var perFile = ParseNumstatPerFile(numstat.StandardOutput);
+        var files = ParseNameStatus(nameStatus.StandardOutput);
+        var known = new HashSet<string>(files.Select(f => f.Path), StringComparer.Ordinal);
+        foreach (var f in ParseStatus(status.StandardOutput))
+        {
+            if (known.Add(f.Path))
+            {
+                files.Add(f);
+            }
+        }
+
+        files = files
+            .Select(f => perFile.TryGetValue(f.Path, out var counts)
+                ? f with { Insertions = counts.Insertions, Deletions = counts.Deletions }
+                : f)
+            .ToList();
+        var insertions = perFile.Values.Sum(v => v.Insertions);
+        var deletions = perFile.Values.Sum(v => v.Deletions);
 
         return new WorkspaceDiffDto(files.Count, insertions, deletions, files, patch.StandardOutput);
+    }
+
+    /// <inheritdoc />
+    public async Task<WorktreeListDto?> ListFilesAsync(
+        string runId,
+        string? subdir,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await RequireSessionAsync(runId, cancellationToken).ConfigureAwait(false);
+        var directory = ResolveInsideWorktree(session.Path, subdir);
+        if (!Directory.Exists(directory))
+        {
+            return null;
+        }
+
+        var entries = new List<WorktreeEntryDto>();
+        var truncated = false;
+        foreach (var fullPath in Directory.EnumerateFileSystemEntries(directory)
+                     .OrderBy(p => !System.IO.Directory.Exists(p))
+                     .ThenBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            var info = new FileInfo(fullPath);
+            if (IsGitMetadata(info) || EscapesViaLink(info, session.Path))
+            {
+                continue;
+            }
+
+            if (entries.Count >= MaxEntriesPerDirectory)
+            {
+                truncated = true;
+                break;
+            }
+
+            var isDirectory = System.IO.Directory.Exists(fullPath);
+            entries.Add(new WorktreeEntryDto(
+                info.Name,
+                RelativePath(session.Path, fullPath),
+                isDirectory,
+                isDirectory ? null : info.Length));
+        }
+
+        var rel = RelativePath(session.Path, directory);
+        return new WorktreeListDto(rel, entries, truncated);
+    }
+
+    /// <inheritdoc />
+    public async Task<WorktreeFileContentDto?> ReadFileAsync(
+        string runId,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        var session = await RequireSessionAsync(runId, cancellationToken).ConfigureAwait(false);
+        var file = ResolveInsideWorktree(session.Path, path);
+
+        var info = new FileInfo(file);
+        if (!info.Exists || System.IO.Directory.Exists(file) || EscapesViaLink(info, session.Path))
+        {
+            return null;
+        }
+
+        var buffer = new byte[Math.Min(info.Length, MaxContentBytes + 1)];
+        await using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            var read = 0;
+            while (read < buffer.Length)
+            {
+                var n = await stream.ReadAsync(buffer.AsMemory(read, buffer.Length - read), cancellationToken)
+                    .ConfigureAwait(false);
+                if (n == 0)
+                {
+                    break;
+                }
+
+                read += n;
+            }
+
+            if (buffer.AsSpan(0, Math.Min(read, BinarySniffBytes)).IndexOf((byte)0) >= 0)
+            {
+                return new WorktreeFileContentDto(path, null, info.Length, false, true);
+            }
+
+            var truncated = info.Length > MaxContentBytes;
+            var content = System.Text.Encoding.UTF8.GetString(buffer, 0, truncated ? MaxContentBytes : read);
+            return new WorktreeFileContentDto(path, content, info.Length, truncated, false);
+        }
     }
 
     public async Task<string> CommitAsync(
@@ -267,6 +392,35 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         }
     }
 
+    /// <summary>--name-status vs base: tracked modificados/adicionados/deletados/renomeados
+    /// (commitados ou não). Renames resolvem para o path novo.</summary>
+    private static List<WorkspaceDiffFileDto> ParseNameStatus(string output)
+    {
+        var files = new List<WorkspaceDiffFileDto>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('\t');
+            if (parts.Length < 2 || parts[0].Length == 0)
+            {
+                continue;
+            }
+
+            var status = parts[0][0] switch
+            {
+                'M' => "Modified",
+                'A' => "Added",
+                'D' => "Deleted",
+                'R' or 'C' => "Renamed",
+                'T' => "TypeChanged",
+                var other => other.ToString(),
+            };
+
+            files.Add(new WorkspaceDiffFileDto(parts[^1].Trim(), status));
+        }
+
+        return files;
+    }
+
     private static List<WorkspaceDiffFileDto> ParseStatus(string porcelain)
     {
         var files = new List<WorkspaceDiffFileDto>();
@@ -287,26 +441,83 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 var other => other,
             };
 
-            files.Add(new WorkspaceDiffFileDto(line[3..].Trim(), status));
+            var path = line[3..].Trim();
+            var arrow = path.IndexOf(" -> ", StringComparison.Ordinal);
+            if (arrow >= 0)
+            {
+                path = path[(arrow + 4)..];
+            }
+
+            files.Add(new WorkspaceDiffFileDto(path, status));
         }
 
         return files;
     }
 
-    private static (int Insertions, int Deletions) ParseNumstat(string numstat)
+    /// <summary>--numstat por arquivo (renames resolvem para o path novo).</summary>
+    private static Dictionary<string, (int Insertions, int Deletions)> ParseNumstatPerFile(string numstat)
     {
-        var insertions = 0;
-        var deletions = 0;
+        var map = new Dictionary<string, (int Insertions, int Deletions)>(StringComparer.Ordinal);
         foreach (var line in numstat.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var parts = line.Split('\t');
-            if (parts.Length >= 2)
+            if (parts.Length < 3)
             {
-                insertions += int.TryParse(parts[0], out var i) ? i : 0;
-                deletions += int.TryParse(parts[1], out var d) ? d : 0;
+                continue;
             }
+
+            var insertions = int.TryParse(parts[0], out var i) ? i : 0;
+            var deletions = int.TryParse(parts[1], out var d) ? d : 0;
+            var path = parts[2];
+            var arrow = path.IndexOf(" => ", StringComparison.Ordinal);
+            if (arrow >= 0)
+            {
+                path = path[(arrow + 4)..].Replace("}", string.Empty, StringComparison.Ordinal);
+            }
+
+            map[path] = (insertions, deletions);
         }
 
-        return (insertions, deletions);
+        return map;
+    }
+
+    /// <summary>Confina <paramref name="relativePath"/> ao worktree — traversal absoluto/`..` → 400.</summary>
+    private static string ResolveInsideWorktree(string worktreePath, string? relativePath)
+    {
+        var target = Path.GetFullPath(Path.Combine(worktreePath, relativePath ?? string.Empty));
+        if (!WorktreePaths.IsUnder(worktreePath, target))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue, "Path escapes the worktree.");
+        }
+
+        return target;
+    }
+
+    private static string RelativePath(string root, string fullPath) =>
+        Path.GetRelativePath(root, fullPath).Replace(Path.DirectorySeparatorChar, '/');
+
+    private static bool IsGitMetadata(FileSystemInfo info) =>
+        string.Equals(info.Name, ".git", StringComparison.Ordinal);
+
+    /// <summary>
+    /// A real git worktree has <c>.git</c> as a <b>file</b> (gitfile pointing
+    /// to the main repo's <c>.git/worktrees/&lt;id&gt;</c>) — clones have a
+    /// <c>.git</c> <b>directory</b>. Used to tell stale worktrees apart from
+    /// real checkouts when the root is shared (~/repos).
+    /// </summary>
+    private static bool IsWorktreeDir(string path) =>
+        File.Exists(Path.Combine(path, ".git"));
+
+    /// <summary>Symlinks apontando para fora do worktree são ocultados/negados (RF-003).</summary>
+    private static bool EscapesViaLink(FileSystemInfo info, string root)
+    {
+        if (info.LinkTarget is null)
+        {
+            return false;
+        }
+
+        var real = info.ResolveLinkTarget(returnFinalTarget: true);
+        return real is null || !WorktreePaths.IsUnder(root, real.FullName);
     }
 }

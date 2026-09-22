@@ -6,13 +6,24 @@ namespace Taskboard.Harness;
 /// <summary>
 /// Pure path/name helpers for per-run Git worktrees
 /// (SPEC-20260919-harness-workspace-isolation). Every session dir is confined
-/// under <c>~/.taskboard/worktrees</c> — runIds/slugs are sanitized so they can
-/// never escape via <c>..</c> or separators.
+/// under the configured worktree root — default <c>~/repos</c>, the same
+/// workspace root used for clones — and runIds/slugs are sanitized so they
+/// can never escape via <c>..</c> or separators.
 /// </summary>
 public static class WorktreePaths
 {
-    /// <summary>Default worktree root: <c>&lt;home&gt;/.taskboard/worktrees</c>.</summary>
-    public static string ResolveRoot(string home) => Path.Combine(home, ".taskboard", "worktrees");
+    /// <summary>
+    /// Worktree root: configured value (<c>Taskboard:WorktreeRoot</c>, with
+    /// <c>~</c> expansion) or <c>$HOME/repos</c> — the workspace root, so run
+    /// worktrees live next to the clones in the VS Code/explorer tree.
+    /// </summary>
+    public static string ResolveRoot(string? configured, string home)
+    {
+        var root = string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(home, WorkspacePaths.DefaultRootName)
+            : WorkspacePaths.ExpandHome(configured.Trim(), home);
+        return Path.GetFullPath(root);
+    }
 
     /// <summary>Session directory <c>&lt;root&gt;/&lt;sanitized-runId&gt;</c> — always inside root.</summary>
     public static string SessionDir(string root, string runId) => Path.Combine(root, Sanitize(runId));

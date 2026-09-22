@@ -1,37 +1,130 @@
-@using System.Text.Json
+@using Taskboard.Application.Contracts.AiChat
 
-<div class="card my-2 border-secondary-subtle">
-    <div class="card-header py-1 px-2 d-flex align-items-center justify-content-between bg-body-tertiary">
-        <div class="d-flex align-items-center gap-2">
-            <span class="badge text-bg-info">tool</span>
-            <strong>@ToolName</strong>
-        </div>
-        <span class="badge @StatusBadgeClass">@Status</span>
+@*
+    SPEC-20260921-ai-code-chat-ux RF-001/RF-006: renderer por tool kind —
+    edit/write → diff inline, execute/terminal → output colapsável + exit code,
+    read → preview truncado, desconhecido → card genérico. Payloads >8k
+    colapsam atrás de "show more".
+*@
+
+<div class="card my-2 border-secondary-subtle toolcall-card">
+    <div class="card-header py-1 px-2 d-flex align-items-center gap-2 bg-body-tertiary flex-wrap">
+        <span class="badge @KindBadgeClass">@KindLabel</span>
+        <strong class="small">@Model.Title</strong>
+        @if (!string.IsNullOrWhiteSpace(Model.Path))
+        {
+            <code class="small text-body-secondary text-truncate toolcall-path" title="@Model.Path">@Model.Path</code>
+        }
+        <span class="ms-auto d-flex align-items-center gap-2">
+            @if (Model.Kind == "edit" && (Model.AddedLines > 0 || Model.RemovedLines > 0))
+            {
+                <span class="badge toolcall-badge-add">+@Model.AddedLines</span>
+                <span class="badge toolcall-badge-del">-@Model.RemovedLines</span>
+            }
+            @if (Model.ExitCode is { } exit)
+            {
+                <span class="badge @(exit == 0 ? "text-bg-success" : "text-bg-danger")" title="exit code">exit @exit</span>
+            }
+            <span class="badge @StatusBadgeClass">@Model.Status</span>
+        </span>
     </div>
-    @if (!string.IsNullOrWhiteSpace(Arguments))
+    @if (Model.Kind == "edit" && (Model.OldText is not null || Model.NewText is not null))
     {
-        <div class="card-body p-2 font-monospace small bg-dark-subtle text-body">
-            <code>@Arguments</code>
+        var (oldLines, newLines) = VisibleDiff();
+        <div class="card-body p-0 font-monospace small overflow-auto toolcall-body">
+            <div class="px-2 py-1 toolcall-diff">
+                @foreach (var line in oldLines)
+                {
+                    <div class="toolcall-diff-line toolcall-diff-del">-@line</div>
+                }
+                @foreach (var line in newLines)
+                {
+                    <div class="toolcall-diff-line toolcall-diff-add">+@line</div>
+                }
+            </div>
+            @if (DiffTruncated)
+            {
+                <button type="button" class="btn btn-sm btn-link py-0 px-2" @onclick="() => _expanded = !_expanded">
+                    @(_expanded ? "show less" : "show full diff")
+                </button>
+            }
         </div>
     }
-    @if (!string.IsNullOrWhiteSpace(Output))
+    else if (Model.Output is { Length: > 0 } output)
     {
-        <div class="card-footer p-2 font-monospace small bg-dark text-light overflow-auto" style="max-height: 200px;">
-            <pre class="mb-0">@Output</pre>
+        <div class="card-body p-0 font-monospace small overflow-auto toolcall-body">
+            @if (NeedsCollapse(output))
+            {
+                <pre class="mb-0 px-2 py-1 toolcall-output">@(_expanded ? output : Preview(output))</pre>
+                <button type="button" class="btn btn-sm btn-link py-0 px-2" @onclick="() => _expanded = !_expanded">
+                    @(_expanded ? "show less" : $"show more ({output.Length:N0} chars)")
+                </button>
+            }
+            else if (Model.Kind == "read" && output.Length > ReadPreviewLimit)
+            {
+                <pre class="mb-0 px-2 py-1 toolcall-output">@output[..ReadPreviewLimit]</pre>
+                <div class="px-2 py-1 text-body-secondary small">… preview truncated (@output.Length:N0 chars)</div>
+            }
+            else
+            {
+                <pre class="mb-0 px-2 py-1 toolcall-output">@output</pre>
+            }
         </div>
     }
 </div>
 
 @code {
-    [Parameter] public string ToolName { get; set; } = "tool";
-    [Parameter] public string? Arguments { get; set; }
-    [Parameter] public string Status { get; set; } = "running";
-    [Parameter] public string? Output { get; set; }
+    [Parameter, EditorRequired] public ToolCallRenderModel Model { get; set; } = default!;
 
-    private string StatusBadgeClass => Status switch
+    private const int ReadPreviewLimit = 2000;
+    private bool _expanded;
+
+    private string KindLabel => Model.Kind switch
+    {
+        "edit" => "edit",
+        "execute" => "terminal",
+        "read" => "read",
+        _ => "tool"
+    };
+
+    private string KindBadgeClass => Model.Kind switch
+    {
+        "edit" => "text-bg-warning",
+        "execute" => "text-bg-dark",
+        "read" => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private string StatusBadgeClass => Model.Status switch
     {
         "completed" or "success" => "text-bg-success",
         "failed" or "error" => "text-bg-danger",
         _ => "text-bg-warning"
     };
+
+    private static bool NeedsCollapse(string content) => content.Length > ToolCallRenderModel.CollapseThreshold;
+
+    private static string Preview(string content) =>
+        content[..1200] + $"\n\n… collapsed — {content.Length:N0} chars total";
+
+    // RF-006: diffs bigger than the threshold render trimmed until "show full".
+    private bool DiffTruncated =>
+        !_expanded
+        && (Model.OldText?.Length ?? 0) + (Model.NewText?.Length ?? 0) > ToolCallRenderModel.CollapseThreshold;
+
+    private (IReadOnlyList<string> OldLines, IReadOnlyList<string> NewLines) VisibleDiff()
+    {
+        static IReadOnlyList<string> Lines(string? text, int budget) =>
+            text is null ? []
+                : text.Length <= budget ? text.Split('\n')
+                : text[..budget].Split('\n');
+
+        if (_expanded)
+        {
+            return (Lines(Model.OldText, int.MaxValue), Lines(Model.NewText, int.MaxValue));
+        }
+
+        var budget = ToolCallRenderModel.CollapseThreshold / 2;
+        return (Lines(Model.OldText, budget), Lines(Model.NewText, budget));
+    }
 }

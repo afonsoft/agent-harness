@@ -1,7 +1,10 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Dtos;
+using Taskboard.GitHub;
 using Taskboard.Harness;
 using Taskboard.Repositories;
 
@@ -16,15 +19,24 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
 {
     private readonly IRepository<PipelineExecution> _executions;
     private readonly PipelineEngine _engine;
+    private readonly IWorkspaceIsolationService _isolation;
+    private readonly IGitHubService _gitHub;
+    private readonly ILogger<PipelineExecutionAppService> _logger;
     private readonly ICockpitEventStream? _cockpit;
 
     public PipelineExecutionAppService(
         IRepository<PipelineExecution> executions,
         PipelineEngine engine,
+        IWorkspaceIsolationService isolation,
+        IGitHubService gitHub,
+        ILogger<PipelineExecutionAppService> logger,
         ICockpitEventStream? cockpit = null)
     {
         _executions = executions;
         _engine = engine;
+        _isolation = isolation;
+        _gitHub = gitHub;
+        _logger = logger;
         _cockpit = cockpit;
     }
 
@@ -83,6 +95,18 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         string pipelineExecutionId, CancellationToken cancellationToken = default)
     {
         var execution = await FindAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        return execution is null ? null : ToDto(execution);
+    }
+
+    public async Task<PipelineExecutionDto?> GetLatestByIssueAsync(
+        string issueId, CancellationToken cancellationToken = default)
+    {
+        var execution = await _executions.Query
+            .Include(e => e.Stages)
+            .Where(e => e.IssueId == issueId)
+            .OrderByDescending(e => e.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
         return execution is null ? null : ToDto(execution);
     }
 
@@ -160,6 +184,89 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
     }
 
+    public async Task<string?> CreatePullRequestAsync(
+        string pipelineExecutionId, string title, string? body, CancellationToken cancellationToken = default)
+    {
+        var execution = await FindAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        if (execution is null)
+        {
+            return null;
+        }
+
+        if (execution.Status != PipelineStatus.Completed)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineState,
+                $"Run is {execution.Status} — a PR can only be created once the pipeline completes.");
+        }
+
+        var session = await _isolation.GetAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        if (session is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineState,
+                "Run has no worktree — nothing to push.");
+        }
+
+        // RF-005: commit pending changes, push the worktree branch, open the PR.
+        var diff = await _isolation.GetDiffAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        if (diff.FilesChanged > 0)
+        {
+            await _isolation.CommitAsync(pipelineExecutionId, title, "Harness <harness@taskboard.local>", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var branch = await _isolation.PushAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        var prUrl = await _gitHub.CreatePullRequestAsync(
+            execution.RepositoryFullName, title, branch, execution.BaseBranch, body, cancellationToken)
+            .ConfigureAwait(false);
+
+        await PublishIssueReviewAsync(execution, prUrl, cancellationToken).ConfigureAwait(false);
+        return prUrl;
+    }
+
+    /// <summary>
+    /// Board bookkeeping once the PR exists: the bound issue card moves to
+    /// <c>in_review</c> and the PR link lands as a comment
+    /// (SPEC-20260919-ade-cockpit-hitl RF-005). Best-effort — the PR was
+    /// already created, so GitHub board failures never fail the request.
+    /// </summary>
+    private async Task PublishIssueReviewAsync(
+        PipelineExecution execution, string prUrl, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(execution.IssueId))
+        {
+            return;
+        }
+
+        try
+        {
+            var issue = (await _gitHub.GetIssuesAsync(execution.RepositoryFullName, cancellationToken).ConfigureAwait(false))
+                .FirstOrDefault(i => i.Id.ToString(CultureInfo.InvariantCulture) == execution.IssueId);
+            if (issue is null)
+            {
+                _logger.LogWarning(
+                    "Run {RunId}: issue {IssueId} not found on {Repo} — card not moved to in_review.",
+                    execution.Id.Value, execution.IssueId, execution.RepositoryFullName);
+                return;
+            }
+
+            await _gitHub.UpdateIssueColumnAsync(
+                execution.RepositoryFullName, issue.Number, issue.Column,
+                GitHubBoardColumn.InReview, cancellationToken).ConfigureAwait(false);
+            await _gitHub.AddIssueCommentAsync(
+                execution.RepositoryFullName, issue.Number,
+                $"Pull request opened by Harness: {prUrl}",
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Run {RunId}: could not move issue {IssueId} to in_review or comment the PR link.",
+                execution.Id.Value, execution.IssueId);
+        }
+    }
+
     private Task PublishStatusAsync(string runId, string title) =>
         _cockpit?.PublishAsync(new CockpitEventDto(runId, DateTimeOffset.UtcNow, "status", title, null))
             ?? Task.CompletedTask;
@@ -217,5 +324,6 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                     s.HandoffSummary,
                     s.LastError,
                     s.DependsOn))
-                .ToList());
+                .ToList(),
+            execution.IssueId);
 }

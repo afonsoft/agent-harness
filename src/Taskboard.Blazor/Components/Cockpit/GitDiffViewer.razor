@@ -1,5 +1,7 @@
-@* SPEC-20260919-ade-cockpit-hitl RF-002: unified diff com realce por linha.
-   Diffs grandes (>2MB) são truncados com aviso — edge case do §6. *@
+@* SPEC-20260919-ade-cockpit-hitl RF-002 + SPEC-20260921-cockpit-live-logs-
+   explorer-diff RF-004: diff agrupado por arquivo — cada card colapsável
+   mostra path, status e +ins/-del próprios; o corpo carrega apenas o trecho
+   de patch daquele arquivo. Diffs >2MB mantêm o modo truncado. *@
 
 @if (Diff is null)
 {
@@ -14,6 +16,13 @@ else
         @if (Truncated)
         {
             <span class="badge text-bg-warning">Diff muito grande — renderização truncada, listando resumo dos arquivos</span>
+        }
+        else
+        {
+            <span class="ms-auto d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ExpandAll">Expandir todos</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CollapseAll">Recolher todos</button>
+            </span>
         }
     </div>
 
@@ -31,27 +40,133 @@ else
     }
     else
     {
-        <pre class="cockpit-diff font-monospace small mb-0 p-2">@foreach (var line in _lines)
+        <div class="list-group list-group-flush small">
+            @foreach (var card in Cards)
+            {
+                <div class="list-group-item p-0">
+                    <button type="button"
+                            class="btn btn-link btn-sm text-decoration-none text-body w-100 text-start d-flex align-items-center gap-2 px-2 py-1"
+                            @onclick="() => Toggle(card.Path)">
+                        <Icon Name="@(_expanded.Contains(card.Path) ? IconName.DashSquare : IconName.PlusSquare)" />
+                        <code class="text-truncate" title="@card.Path">@card.Path</code>
+                        @if (card.Status is not null)
+                        {
+                            <span class="badge text-bg-secondary">@card.Status</span>
+                        }
+                        <span class="ms-auto d-flex gap-2">
+                            @if (card.Insertions > 0)
+                            {
+                                <span class="text-success">+@card.Insertions</span>
+                            }
+                            @if (card.Deletions > 0)
+                            {
+                                <span class="text-danger">-@card.Deletions</span>
+                            }
+                        </span>
+                    </button>
+                    @if (_expanded.Contains(card.Path))
+                    {
+                        @if (card.Lines is null)
+                        {
+                            <div class="text-body-secondary px-3 py-2">Arquivo novo não rastreado — sem diff.</div>
+                        }
+                        else
+                        {
+                            <pre class="cockpit-diff font-monospace small mb-0 p-2">@foreach (var line in card.Lines)
 {<span class="@LineClass(line)">@line
 </span>}</pre>
+                        }
+                    }
+                </div>
+            }
+        </div>
     }
 }
 
 @code {
     private const int MaxPatchChars = 2 * 1024 * 1024;
 
-    private string[] _lines = [];
+    private readonly HashSet<string> _expanded = new(StringComparer.Ordinal);
+    private IReadOnlyList<FileCard> _cards = [];
+    private string? _lastPatch;
 
     /// <summary>Diff do worktree retornado por GET /api/harness/worktrees/{runId}/diff.</summary>
     [Parameter] public WorkspaceDiffDto? Diff { get; set; }
 
     private bool Truncated => Diff?.Patch.Length > MaxPatchChars;
 
-    protected override void OnParametersSet()
+    private IReadOnlyList<FileCard> Cards
     {
-        _lines = Truncated
-            ? []
-            : (Diff?.Patch ?? string.Empty).Split('\n');
+        get
+        {
+            if (Diff is not null && !ReferenceEquals(Diff.Patch, _lastPatch))
+            {
+                _lastPatch = Diff.Patch;
+                _cards = BuildCards(Diff);
+                _expanded.Clear();
+                if (_cards.Count > 0)
+                {
+                    _expanded.Add(_cards[0].Path);
+                }
+            }
+
+            return _cards;
+        }
+    }
+
+    private void Toggle(string path)
+    {
+        if (!_expanded.Remove(path))
+        {
+            _expanded.Add(path);
+        }
+    }
+
+    private void ExpandAll()
+    {
+        foreach (var card in _cards)
+        {
+            _expanded.Add(card.Path);
+        }
+    }
+
+    private void CollapseAll() => _expanded.Clear();
+
+    /// <summary>Casa cada arquivo do status com a seção de patch
+    /// (<see cref="UnifiedDiffParser"/>); seções sem arquivo entram no card "outros".</summary>
+    private static IReadOnlyList<FileCard> BuildCards(WorkspaceDiffDto diff)
+    {
+        var sections = UnifiedDiffParser.SplitByFile(diff.Patch);
+        var byPath = sections
+            .Where(s => s.Path is not null)
+            .GroupBy(s => s.Path!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var matched = new HashSet<DiffFileSection>();
+        var cards = new List<FileCard>();
+
+        foreach (var file in diff.Files)
+        {
+            var section = byPath.GetValueOrDefault(file.Path);
+            if (section is not null)
+            {
+                matched.Add(section);
+            }
+
+            cards.Add(new FileCard(
+                file.Path,
+                file.Status,
+                file.Insertions,
+                file.Deletions,
+                section?.Body.Split('\n')));
+        }
+
+        var others = sections.Where(s => !matched.Contains(s)).ToList();
+        foreach (var other in others)
+        {
+            cards.Add(new FileCard(other.Path ?? "(outros)", null, 0, 0, other.Body.Split('\n')));
+        }
+
+        return cards;
     }
 
     private static string LineClass(string line) =>
@@ -61,4 +176,7 @@ else
         : line.StartsWith('-') ? "diff-del"
         : line.StartsWith("diff --git", StringComparison.Ordinal) ? "diff-file"
         : "diff-ctx";
+
+    private sealed record FileCard(
+        string Path, string? Status, int Insertions, int Deletions, string[]? Lines);
 }

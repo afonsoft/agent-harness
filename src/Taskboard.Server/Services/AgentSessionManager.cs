@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Mapping;
 using Taskboard.Domain.Entities;
+using Taskboard.Dtos;
 using Taskboard.Integrations.Agents;
 using Taskboard.Integrations.Workspace;
 using Taskboard.Repositories;
@@ -28,6 +30,9 @@ public sealed class AgentSessionManager : IAsyncDisposable
     private readonly ILogger<AgentSessionManager> _logger;
     private readonly IAgentExecutionEventSink? _eventSink;
     private readonly CancellationTokenSource _reaperCts = new();
+
+    // SPEC-20260921-ai-code-chat-ux RF-002: per-thread FIFO of queued prompts.
+    private readonly ConcurrentDictionary<string, PromptQueue> _promptQueues = new();
 
     public AgentSessionManager(
         AcpSessionClient sessionClient,
@@ -111,6 +116,25 @@ public sealed class AgentSessionManager : IAsyncDisposable
                     "ai_chat.session",
                     new AgentSessionStateInfo("ready", thread.AgentType.Value.ToString(), workdir)),
                 cancellationToken).ConfigureAwait(false);
+
+            // RF-002: queued prompts persist as events — a session respawn
+            // rebuilds the in-memory queue from durable rows before dispatch.
+            var queue = _promptQueues.GetOrAdd(threadId, _ => new PromptQueue());
+            if (queue.Count == 0)
+            {
+                var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+                var persisted = await eventRepo.Query
+                    .Where(e => e.ThreadId == thread.Id && e.Role == AiChatEventRole.Queued)
+                    .OrderBy(e => e.CreatedAt)
+                    .Select(e => e.Id.Value)
+                    .ToListAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var eventId in persisted)
+                {
+                    queue.Enqueue(eventId);
+                }
+            }
+
+            _ = TryDispatchNextAsync(threadId);
         }
 
         return started;
@@ -144,7 +168,164 @@ public sealed class AgentSessionManager : IAsyncDisposable
             return false;
         }
 
-        return await _sessionClient.SendPromptAsync(threadId, text, delivery, cancellationToken).ConfigureAwait(false);
+        var sent = await _sessionClient.SendPromptAsync(threadId, text, delivery, cancellationToken).ConfigureAwait(false);
+        if (sent)
+        {
+            // A session/prompt is in flight — queued items wait for its
+            // stopReason event before dispatching.
+            _promptQueues.GetOrAdd(threadId, _ => new PromptQueue()).MarkTurnActive();
+        }
+
+        return sent;
+    }
+
+    /// <summary>
+    /// SPEC-20260921-ai-code-chat-ux RF-002: persists the prompt as a
+    /// <c>queued</c> event and dispatches it when no turn is in flight. Returns
+    /// the event dto so the composer can render the queued bubble immediately.
+    /// </summary>
+    public async Task<AiChatEventDto?> EnqueuePromptAsync(
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var threadRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatThread>>();
+        var thread = await threadRepo.GetAsync(AiChatThreadId.From(threadId), cancellationToken).ConfigureAwait(false);
+        if (thread is null || thread.Mode != "agent" || thread.AgentType is null || string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+        var queued = AiChatEvent.CreateTyped(
+            AiChatEventId.NewGuid(),
+            thread.Id,
+            AiChatEventRole.Queued,
+            text,
+            AiChatEventKind.Message);
+        await eventRepo.AddAsync(queued, cancellationToken).ConfigureAwait(false);
+        await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        var dto = queued.ToDto();
+        await _threadEvents.PublishAsync(
+            threadId,
+            new ServerSentEvent("ai_chat.event", dto),
+            cancellationToken).ConfigureAwait(false);
+
+        _promptQueues.GetOrAdd(threadId, _ => new PromptQueue()).Enqueue(queued.Id.Value);
+        await TryDispatchNextAsync(threadId, cancellationToken).ConfigureAwait(false);
+        return dto;
+    }
+
+    /// <summary>RF-002: cancels a queued prompt before dispatch.</summary>
+    public async Task<bool> CancelQueuedPromptAsync(
+        string threadId,
+        string eventId,
+        CancellationToken cancellationToken = default)
+    {
+        var removed = _promptQueues.TryGetValue(threadId, out var queue) && queue.Remove(eventId);
+
+        using var scope = _scopeFactory.CreateScope();
+        var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+        var evt = await eventRepo.GetAsync(AiChatEventId.From(eventId), cancellationToken).ConfigureAwait(false);
+        if (evt is not null && evt.ThreadId.Value == threadId && evt.Role == AiChatEventRole.Queued)
+        {
+            await eventRepo.DeleteAsync(evt, cancellationToken).ConfigureAwait(false);
+            await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// SPEC-20260921-ai-code-chat-ux RF-004: resends the most recent user
+    /// prompt; an active turn is cancelled first.
+    /// </summary>
+    public async Task<bool> RetryLastPromptAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+        var lastUserPrompt = await eventRepo.Query
+            .Where(e => e.ThreadId == AiChatThreadId.From(threadId) && e.Role == AiChatEventRole.User)
+            .OrderByDescending(e => e.CreatedAt)
+            .Select(e => e.Content)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(lastUserPrompt))
+        {
+            return false;
+        }
+
+        if (_sessionClient.IsSessionActive(threadId))
+        {
+            await _sessionClient.CancelAsync(threadId, cancellationToken).ConfigureAwait(false);
+            if (_promptQueues.TryGetValue(threadId, out var queue))
+            {
+                queue.Reset();
+            }
+        }
+
+        return await PromptAsync(threadId, lastUserPrompt, "queue", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Dispatches the next queued prompt when the turn is idle. PromptQueue's
+    /// atomic TryDispatch makes concurrent callers safe (NFR-002).
+    /// </summary>
+    private async Task TryDispatchNextAsync(string threadId, CancellationToken cancellationToken = default)
+    {
+        if (!_promptQueues.TryGetValue(threadId, out var queue)
+            || !queue.TryDispatch(out var eventId)
+            || eventId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var ready = await EnsureSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
+            string? text = null;
+            AiChatEvent? evt = null;
+            IRepository<AiChatEvent>? eventRepo = null;
+            IServiceScope? scope = null;
+            if (ready)
+            {
+                scope = _scopeFactory.CreateScope();
+                eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+                evt = await eventRepo.GetAsync(AiChatEventId.From(eventId), cancellationToken).ConfigureAwait(false);
+                text = evt?.Content;
+            }
+
+            var sent = ready
+                && text is not null
+                && await _sessionClient.SendPromptAsync(threadId, text, "queue", cancellationToken).ConfigureAwait(false);
+
+            if (!sent)
+            {
+                scope?.Dispose();
+                queue.DispatchFailed(eventId);
+                return;
+            }
+
+            if (evt is not null && eventRepo is not null)
+            {
+                evt.MarkDispatched();
+                await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await _threadEvents.PublishAsync(
+                    threadId,
+                    new ServerSentEvent("ai_chat.event", evt.ToDto()),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            scope?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to dispatch queued prompt '{EventId}' for thread '{ThreadId}'.", eventId, threadId);
+            queue.DispatchFailed(eventId);
+        }
     }
 
     private Task<bool> ExecuteOneShotFallbackAsync(AiChatThread thread, string text, CancellationToken cancellationToken)
@@ -242,7 +423,30 @@ public sealed class AgentSessionManager : IAsyncDisposable
         // to 3 attempts per 5-minute window to avoid crash-loops.
         if (e.Kind == "lifecycle" && e.PayloadJson?.Contains("\"dead\"") == true)
         {
+            _promptQueues.TryGetValue(threadId, out var deadQueue);
+            deadQueue?.Reset();
             _ = Task.Run(() => TryReconnectAsync(threadId));
+        }
+
+        // RF-002: the turn boundary is the session/prompt response — free the
+        // queue on stopReason or turn rejection, then dispatch the next item.
+        var turnEnded =
+            (e.Kind == "session" && e.PayloadJson?.Contains("\"stopReason\"") == true)
+            || (e.Kind == "error" && e.Content?.StartsWith("Prompt turn rejected", StringComparison.Ordinal) == true)
+            || (e.Kind == "session" && e.PayloadJson?.Contains("\"dead\"") == true);
+        if (turnEnded)
+        {
+            var queue = _promptQueues.GetOrAdd(threadId, _ => new PromptQueue());
+            if (e.Kind == "session" && e.PayloadJson?.Contains("\"dead\"") == true)
+            {
+                queue.Reset();
+            }
+            else
+            {
+                queue.TurnCompleted();
+            }
+
+            _ = Task.Run(() => TryDispatchNextAsync(threadId));
         }
 
         _ = Task.Run(async () =>
@@ -262,7 +466,10 @@ public sealed class AgentSessionManager : IAsyncDisposable
                         ToolCallId: e.ToolCallId,
                         Title: e.Content,
                         PayloadJson: e.PayloadJson,
-                        Stream: e.Kind == "error" ? "stderr" : "system"), CancellationToken.None).ConfigureAwait(false);
+                        Stream: e.Kind == "error" ? "stderr" : "system",
+                        MessageId: e.MessageId,
+                        PlanId: e.PlanId,
+                        PatchOp: e.PatchOp), CancellationToken.None).ConfigureAwait(false);
                 }
 
                 if (e.Kind == "permission" && !string.IsNullOrWhiteSpace(e.PayloadJson))

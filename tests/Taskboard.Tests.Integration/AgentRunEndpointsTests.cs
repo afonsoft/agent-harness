@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Shouldly;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Xunit;
 
 namespace Taskboard.Tests.Integration;
@@ -156,7 +157,8 @@ public class AgentRunEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         var client = await _factory.CreateAuthenticatedClientAsync();
 
         var response = await client.PutAsJsonAsync(
-            "/api/agents/prompt-template", new { template = new string('x', 9000) });
+            "/api/agents/prompt-template",
+            new { template = new string('x', AgentPromptTemplate.MaxLength + 1) });
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }

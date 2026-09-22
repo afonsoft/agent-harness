@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Taskboard.Server/Taskboard.Server.csproj" />
     <ProjectReference Include="../../src/Taskboard.Application/Taskboard.Application.csproj" />
+    <ProjectReference Include="../../src/Taskboard.Integrations/Taskboard.Integrations.csproj" />
     <ProjectReference Include="../../src/Taskboard.Mcp/Taskboard.Mcp.csproj" />
   </ItemGroup>
   <ItemGroup>

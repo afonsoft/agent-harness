@@ -128,7 +128,7 @@ tests/Taskboard.Tests.Unit/Harness/DotNetVerificationEngineTests.cs       [new]
 POST /api/harness/verification/run
 Content-Type: application/json
 {
-  "worktreePath": "/home/ubuntu/.taskboard/worktrees/run_01j7abcde",
+  "worktreePath": "/home/ubuntu/repos/run_01j7abcde",
   "solutionFile": "Taskboard.sln",
   "minCoverageThreshold": 66.26,
   "enforceFormat": false
