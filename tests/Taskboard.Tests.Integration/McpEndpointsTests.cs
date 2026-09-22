@@ -133,14 +133,10 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
         });
         put.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        // Provision runs in background — the file may already exist from an
-        // earlier test without the managed entry, so poll for the entry itself.
+        // Provision runs in background — wait on the observable run status
+        // (GET /api/mcp/status) instead of polling the file on a fixed deadline.
         var claudeConfig = Path.Combine(_factory.HomeDir, ".claude.json");
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!HasManagedEntry(claudeConfig) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(200);
-        }
+        await WaitForClaudeAgentStateAsync(client, McpAgentStateConfigured);
 
         HasManagedEntry(claudeConfig).ShouldBeTrue();
         var json = JsonNode.Parse(File.ReadAllText(claudeConfig))!.AsObject();
@@ -199,11 +195,7 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
         var claudeConfig = Path.Combine(_factory.HomeDir, ".claude.json");
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!HasManagedEntry(claudeConfig) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(200);
-        }
+        await WaitForClaudeAgentStateAsync(client, McpAgentStateConfigured);
 
         HasManagedEntry(claudeConfig).ShouldBeTrue();
     }
@@ -246,23 +238,54 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
             apiKey = (string?)null
         });
         var claudeConfig = Path.Combine(_factory.HomeDir, ".claude.json");
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!File.Exists(claudeConfig) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(200);
-        }
+        await WaitForClaudeAgentStateAsync(client, McpAgentStateConfigured);
 
         var response = await client.PostAsync("/api/mcp/remove", content: null);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (HasManagedEntry(claudeConfig) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(200);
-        }
+        // Removal is fire-and-forget (202 + queued background run). Wait on the
+        // run status: the removal run replaces lastRun's per-agent states, so
+        // the Claude agent flips Configured → Removed when it completes.
+        await WaitForClaudeAgentStateAsync(
+            client, McpAgentStateRemoved, McpAgentStateNotConfigured,
+            McpAgentStateSkipped, McpAgentStateFailed);
 
         HasManagedEntry(claudeConfig).ShouldBeFalse(
             "the managed entry should be removed from .claude.json");
+    }
+
+    // McpAgentState / AgentType serialize as numbers (ApiJsonOptions has no
+    // JsonStringEnumConverter): Claude = AgentType 1; Configured = 0,
+    // Removed = 2, Skipped = 4, NotConfigured = 5, Failed = 6.
+    private const int AgentTypeClaude = 1;
+    private const int McpAgentStateConfigured = 0;
+    private const int McpAgentStateRemoved = 2;
+    private const int McpAgentStateSkipped = 4;
+    private const int McpAgentStateNotConfigured = 5;
+    private const int McpAgentStateFailed = 6;
+
+    private static async Task WaitForClaudeAgentStateAsync(
+        HttpClient client, params int[] acceptedStates)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            var status = await client.GetAsync("/api/mcp/status");
+            status.StatusCode.ShouldBe(HttpStatusCode.OK);
+            var body = JsonNode.Parse(await status.Content.ReadAsStringAsync())!.AsObject();
+            var agent = body["agents"]?.AsArray()
+                .FirstOrDefault(a => a?["agent"]?.GetValue<int>() == AgentTypeClaude);
+            if (agent is not null &&
+                acceptedStates.Contains(agent["state"]!.GetValue<int>()))
+            {
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        Assert.Fail(
+            $"Claude agent state never reached [{string.Join(", ", acceptedStates)}] within 30s");
     }
 
     private static bool HasManagedEntry(string claudeConfigPath)
