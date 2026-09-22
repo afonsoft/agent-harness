@@ -28,6 +28,8 @@ name: agent-harness-global
 4. **SPEC lifecycle**: PR que entrega uma SPEC marca `Status: Done` (com
    referência ao PR) no mesmo PR — nunca deixar SPECs entregues em
    `Approved`/`Draft` (anti-regressão, SPEC-20260919-stale-spec-status).
+   Rodar `./scripts/check-spec-status.sh` antes de abrir PR para detectar
+   drift (`--fix` corrige a linha de Status quando há PR merged evidenciado).
 
 ## Planejamento Obrigatório
 

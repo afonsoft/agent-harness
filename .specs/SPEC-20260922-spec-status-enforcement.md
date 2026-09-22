@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-spec-status-enforcement` |
 | Ticket | [#319](https://github.com/afonsoft/agent-harness/issues/319) — Epic [#318](https://github.com/afonsoft/agent-harness/issues/318) |
-| Status | `Approved` |
+| Status | `Done` |
 | Gap | `GAP-automation-spec-status-enforcement` (3ª recorrência do drift de status de SPECs) |
 
 ## 1. User Story
@@ -150,12 +150,12 @@ N/A — local tooling + doc changes.
 
 ## 7. Task Plan
 
-- [ ] **T1 — Script:** `scripts/check-spec-status.sh` + shellcheck clean +
+- [x] **T1 — Script:** `scripts/check-spec-status.sh` + shellcheck clean +
   fixture tests (temp dir with sample spec files).
-- [ ] **T2 — Housekeeping:** bump the 3 stale specs with PR refs.
-- [ ] **T3 — Convention:** update `.claude/rules/global-rules.md` line 28 to
+- [x] **T2 — Housekeeping:** bump the 3 stale specs with PR refs.
+- [x] **T3 — Convention:** update `.claude/rules/global-rules.md` line 28 to
   reference the script.
-- [ ] **T4 — Validation:** run script clean; `dotnet build`/`test`
+- [x] **T4 — Validation:** run script clean; `dotnet build`/`test`
   unaffected (no code change); docs en/pt-br if applicable.
 
 ## 8. Organization Guardrails

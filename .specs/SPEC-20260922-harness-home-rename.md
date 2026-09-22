@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `refactor/20260922-harness-home-rename` |
 | Ticket | [#309](https://github.com/afonsoft/agent-harness/issues/309) — solicitado pelo usuário (epic #306) |
-| Status | `Approved` |
+| Status | `Done — delivered in PR #313` |
 
 ---
 
