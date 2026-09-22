@@ -54,7 +54,7 @@ public sealed class CodexCliDbExtractor : CliDbExtractorBase
                     CliDbTimestamps.OptEpochSeconds(r.GetInt64("updated_at")),
                     MessageCount: null,
                     r.GetString("model"),
-                    TokensInput: null, TokensOutput: null, TokensCached: null)),
+                    TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
             whereClause: rowCursor is null ? null : "rowid > @cursor",
             parameters: rowCursor is null ? null : new Dictionary<string, object?> { ["@cursor"] = rowCursor },
             orderBy: "rowid",

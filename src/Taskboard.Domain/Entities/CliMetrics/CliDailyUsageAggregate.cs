@@ -22,6 +22,11 @@ public sealed class CliDailyUsageAggregate : AggregateRoot<CliDailyUsageAggregat
     public long TokensCached { get; private set; }
     /// <summary>Projected USD cost for the bucket — maintained by the FinOps aggregation job.</summary>
     public decimal CostUsd { get; private set; }
+    /// <summary>
+    /// True when every contributing session carries estimated (not vendor-reported)
+    /// token counts. SPEC-20260922-finops-dashboard-detail RF-006.
+    /// </summary>
+    public bool TokensEstimated { get; private set; }
     public string ModelsJson { get; private set; } = "[]";
     public DateTime UpdatedAt { get; private set; }
 
@@ -87,6 +92,14 @@ public sealed class CliDailyUsageAggregate : AggregateRoot<CliDailyUsageAggregat
             }
         }
 
+        UpdatedAt = now;
+        IncrementVersion();
+    }
+
+    /// <summary>Records whether all contributing session rows carry estimated tokens.</summary>
+    public void SetTokensEstimated(bool tokensEstimated, DateTime now)
+    {
+        TokensEstimated = tokensEstimated;
         UpdatedAt = now;
         IncrementVersion();
     }

@@ -37,7 +37,11 @@ public sealed record CliSessionRecord(
     string? ModelName,
     long? TokensInput,
     long? TokensOutput,
-    long? TokensCached);
+    long? TokensCached,
+    // SPEC-20260922-finops-dashboard-detail RF-006: the extractor declares per
+    // row whether token counts come from real vendor usage columns (false) or
+    // are estimated / unavailable (true).
+    bool TokensEstimated = true);
 
 /// <summary>Normalized token/cost usage row when the vendor schema exposes it.</summary>
 public sealed record CliUsageRecord(

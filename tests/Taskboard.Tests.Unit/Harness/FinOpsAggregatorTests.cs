@@ -81,6 +81,19 @@ public sealed class FinOpsAggregatorTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_ModeloSemRate_Quando_RunOnce_Entao_FallbackFlat95PorMtok()
+    {
+        // SPEC-20260922 RF-007 — modelo só coberto pelo wildcard "*" usa a
+        // taxa flat $9.5/1M: 1M in + 1M out = 2M tok × $9.5 = $19.00.
+        AddSession("fb1", "modelo-desconhecido", 1_000_000, 1_000_000);
+
+        await _aggregator.RunOnceAsync();
+
+        var session = await _context.CliSessionMetrics.SingleAsync();
+        session.CostUsd.ShouldBe(19.00m);
+    }
+
+    [Fact]
     public async Task Dado_SessaoSemTokens_Quando_RunOnce_Entao_CustoZeroMarcado()
     {
         AddSession("s3", null, null, null);

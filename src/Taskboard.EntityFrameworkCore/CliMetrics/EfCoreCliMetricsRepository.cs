@@ -105,14 +105,14 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
                 if (existing.TryGetValue(record.ExternalId, out var row))
                 {
                     row.Update(record.Title, record.EndedAtUtc?.UtcDateTime, record.MessageCount, record.ModelName,
-                        record.TokensInput, record.TokensOutput, record.TokensCached, now);
+                        record.TokensInput, record.TokensOutput, record.TokensCached, now, record.TokensEstimated);
                 }
                 else
                 {
                     _context.CliSessionMetrics.Add(CliSessionMetric.Create(
                         source.Id, kind, record.ExternalId, record.Title, record.StartedAtUtc.UtcDateTime,
                         record.EndedAtUtc?.UtcDateTime, record.MessageCount, record.ModelName,
-                        record.TokensInput, record.TokensOutput, record.TokensCached, now));
+                        record.TokensInput, record.TokensOutput, record.TokensCached, now, record.TokensEstimated));
                 }
                 written++;
             }
@@ -175,6 +175,10 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
                 aggregate.Add(g.Sessions, g.Messages, g.In, g.Out, g.Cached,
                     g.Model.Length > 0 ? g.Model : null, now);
             }
+
+            // SPEC-20260922 RF-006: the bucket is estimated only when every
+            // contributing session carries estimated (not vendor) tokens.
+            aggregate.SetTokensEstimated(sessions.All(s => s.TokensEstimated), now);
         }
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -265,7 +269,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
             .Select(r => new CliSessionMetricDto(
                 r.Metric.Kind.ToString(), r.SourceName, r.Metric.ExternalId, r.Metric.Title,
                 r.Metric.StartedAtUtc, r.Metric.EndedAtUtc, r.Metric.MessageCount, r.Metric.ModelName,
-                r.Metric.TokensInput, r.Metric.TokensOutput, r.Metric.TokensCached))
+                r.Metric.TokensInput, r.Metric.TokensOutput, r.Metric.TokensCached,
+                r.Metric.TokensEstimated))
             .ToList();
     }
 

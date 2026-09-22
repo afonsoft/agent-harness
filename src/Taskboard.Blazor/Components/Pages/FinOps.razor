@@ -6,13 +6,13 @@
 <PageTitle>FinOps - Harness</PageTitle>
 
 <h1 class="h4 fw-bold mb-1">FinOps</h1>
-<p class="small text-body-secondary mb-4">Token usage and USD cost per run, agent and model (E14).</p>
+<p class="small text-body-secondary mb-4">Token usage and USD cost per run, agent and model (E14/E17).</p>
 
 <div class="card">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div class="d-flex gap-1 flex-wrap">
-                @foreach (var p in new[] { ("last-7-days", "7 days"), ("last-30-days", "30 days"), ("all", "All") })
+                @foreach (var p in new[] { ("24h", "24h"), ("last-7-days", "7 days"), ("last-30-days", "30 days"), ("all", "All") })
                 {
                     var period = p;
                     <Button Color="@(_period == period.Item1 ? ButtonColor.Primary : ButtonColor.Secondary)"
@@ -40,26 +40,112 @@
         }
         else if (_summary is { } summary)
         {
-            <div class="row g-3 mb-4">
-                <div class="col-md-4">
+            @if (summary.Alerts is { Count: > 0 })
+            {
+                <div class="mb-4">
+                    @foreach (var alert in summary.Alerts)
+                    {
+                        <Alert Color="@(alert.Severity == "crit" ? AlertColor.Danger : AlertColor.Warning)"
+                               Dismissable="true" class="py-2 mb-2">
+                            <Icon Name="@(alert.Severity == "crit" ? IconName.ExclamationTriangleFill : IconName.ExclamationCircle)" class="me-1" />
+                            @alert.Message
+                        </Alert>
+                    }
+                </div>
+            }
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
                     <div class="border rounded p-3 h-100">
                         <div class="small text-body-secondary">Total cost</div>
                         <div class="h3 mb-0">@summary.TotalCostUsd.ToString("C4")</div>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="border rounded p-3 h-100">
                         <div class="small text-body-secondary">Total tokens</div>
                         <div class="h3 mb-0">@summary.TotalTokens.ToString("N0")</div>
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="border rounded p-3 h-100">
                         <div class="small text-body-secondary">Runs</div>
                         <div class="h3 mb-0">@summary.RunsCount</div>
                     </div>
                 </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-3 h-100">
+                        <div class="small text-body-secondary">External CLI sessions</div>
+                        <div class="h3 mb-0">@(summary.CliUsage?.Sessions.ToString("N0") ?? "—")</div>
+                    </div>
+                </div>
             </div>
+
+            @if (summary.TokenWindows is { } windows)
+            {
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="border rounded p-2 text-center">
+                            <div class="small text-body-secondary">Tokens 24h</div>
+                            <div class="fw-semibold">@windows.Last24h.ToString("N0")</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-2 text-center">
+                            <div class="small text-body-secondary">Tokens 7d</div>
+                            <div class="fw-semibold">@windows.Last7d.ToString("N0")</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-2 text-center">
+                            <div class="small text-body-secondary">Tokens 30d</div>
+                            <div class="fw-semibold">@windows.Last30d.ToString("N0")</div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (summary.CliUsage is { } cli)
+            {
+                <h2 class="h6 fw-semibold">External CLI usage</h2>
+                <div class="border rounded p-3 mb-4">
+                    <div class="row g-3 mb-2">
+                        <div class="col-md-2"><div class="small text-body-secondary">Sessions</div><div>@cli.Sessions.ToString("N0")</div></div>
+                        <div class="col-md-2"><div class="small text-body-secondary">Tokens in</div><div>@cli.TokensInput.ToString("N0")</div></div>
+                        <div class="col-md-2"><div class="small text-body-secondary">Tokens out</div><div>@cli.TokensOutput.ToString("N0")</div></div>
+                        <div class="col-md-2"><div class="small text-body-secondary">Tokens cached</div><div>@cli.TokensCached.ToString("N0")</div></div>
+                        <div class="col-md-2">
+                            <div class="small text-body-secondary">Cost</div>
+                            <div>
+                                @cli.CostUsd.ToString("C4")
+                                @if (cli.EstimatedShare > 0)
+                                {
+                                    <span class="badge text-bg-secondary" title="@(cli.EstimatedShare.ToString("P0")) of sessions have estimated tokens">~ @(cli.EstimatedShare.ToString("P0"))</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    @if (cli.CostByCli.Count > 0)
+                    {
+                        <table class="table table-sm align-middle mb-0">
+                            <tbody>
+                                @foreach (var kv in cli.CostByCli.OrderByDescending(kv => kv.Value))
+                                {
+                                    <tr>
+                                        <td>@kv.Key</td>
+                                        <td class="text-end">@kv.Value.ToString("C4")</td>
+                                        <td style="width: 40%">
+                                            <div class="progress" style="height: 8px">
+                                                <div class="progress-bar bg-success" style="width: @BarWidth(kv.Value, cli.CostByCli)%"></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            }
 
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
@@ -101,6 +187,119 @@
                     </table>
                 </div>
             </div>
+
+            @if (summary.ModelUsage is { Count: > 0 } modelUsage)
+            {
+                <h2 class="h6 fw-semibold">Usage distribution — Source · Model</h2>
+                <table class="table table-sm align-middle mb-4">
+                    <tbody>
+                        @foreach (var kv in modelUsage.OrderByDescending(kv => kv.Value))
+                        {
+                            <tr>
+                                <td><code class="small">@kv.Key</code></td>
+                                <td class="text-end" style="width: 80px">@kv.Value.ToString("F1")%</td>
+                                <td style="width: 50%">
+                                    <div class="progress" style="height: 8px">
+                                        <div class="progress-bar bg-secondary" style="width: @kv.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+
+            @if (summary.ActivityBins is { Count: > 0 } bins)
+            {
+                var maxTokens = bins.Max(b => b.Tokens);
+                <h2 class="h6 fw-semibold">Activity</h2>
+                <div class="d-flex align-items-end gap-1 mb-1" style="height: 64px">
+                    @foreach (var bin in bins)
+                    {
+                        var pct = maxTokens > 0 ? (double)bin.Tokens / maxTokens * 100.0 : 0;
+                        <div class="bg-primary rounded-top flex-fill"
+                             style="height: @(Math.Max(pct, bin.Tokens > 0 ? 2 : 0).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%; min-height: 1px"
+                             title="@bin.Start.ToString("g") — @bin.Sessions sessions, @bin.Messages messages, @bin.Tokens.ToString("N0") tokens"></div>
+                    }
+                </div>
+                <div class="d-flex justify-content-between small text-body-secondary mb-4">
+                    <span>@bins[0].Start.ToString("g")</span>
+                    <span>@bins[^1].Start.ToString("g")</span>
+                </div>
+            }
+
+            @if (summary.RecentSessions is { Count: > 0 } sessions)
+            {
+                <h2 class="h6 fw-semibold">Recent sessions</h2>
+                <div class="table-responsive mb-4">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Source</th><th>Session</th><th>Model</th><th>Status</th>
+                                <th class="text-end">Msgs</th><th class="text-end">Tokens</th>
+                                <th class="text-end">Cost</th><th>Started</th><th>Last activity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in sessions)
+                            {
+                                <tr>
+                                    <td class="small">@s.Source</td>
+                                    <td class="small">
+                                        <code>@(s.Id.Length > 12 ? s.Id[..12] : s.Id)</code>
+                                        @if (!string.IsNullOrEmpty(s.Title))
+                                        {
+                                            <span class="text-body-secondary">— @s.Title</span>
+                                        }
+                                    </td>
+                                    <td><code class="small">@s.Model</code></td>
+                                    <td>
+                                        <span class="badge @(s.Status == "running" ? "text-bg-success" : "text-bg-secondary")">@s.Status</span>
+                                    </td>
+                                    <td class="text-end small">@(s.Messages?.ToString("N0") ?? "—")</td>
+                                    <td class="text-end small">
+                                        @s.Tokens.ToString("N0")@if (s.Estimated) { <span class="text-body-secondary" title="estimated">~</span> }
+                                    </td>
+                                    <td class="text-end small">@(s.CostUsd?.ToString("C4") ?? "—")@if (s.Estimated && s.CostUsd > 0) { <span class="text-body-secondary" title="estimated">~</span> }</td>
+                                    <td class="small text-nowrap">@s.StartedAtUtc.ToString("MM-dd HH:mm")</td>
+                                    <td class="small text-nowrap">@s.LastActivityUtc.ToString("MM-dd HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+            <h2 class="h6 fw-semibold">Source health</h2>
+            @if (_sources is { Count: > 0 })
+            {
+                <div class="table-responsive mb-4">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr><th>Source</th><th>Status</th><th>Path</th><th>Last sync</th><th class="text-end">Rows</th><th>Detail</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var src in _sources)
+                            {
+                                <tr>
+                                    <td class="small">@src.Kind / @src.SourceName</td>
+                                    <td><span class="badge @SourceBadge(src.Status)">@src.Status</span></td>
+                                    <td class="small"><code class="small">@(src.Path ?? "—")</code></td>
+                                    <td class="small text-nowrap">@(src.LastSyncUtc?.ToString("MM-dd HH:mm") ?? "—")</td>
+                                    <td class="text-end small">@src.RowCount.ToString("N0")</td>
+                                    <td class="small text-body-secondary">@(src.LastError ?? (src.SchemaDrifted ? "schema drifted" : ""))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <Alert Color="AlertColor.Secondary" Dismissable="false" class="py-2 mb-4">
+                    No CLI sources registered yet.
+                </Alert>
+            }
 
             <h2 class="h6 fw-semibold">Daily burn</h2>
             <div class="table-responsive">
@@ -160,6 +359,7 @@
     private string _period = "last-30-days";
     private string _runIdQuery = string.Empty;
     private FinOpsSummaryDto? _summary;
+    private IReadOnlyList<CliMetricSourceDto> _sources = [];
     private RunTelemetryDto? _telemetry;
     private bool _loading;
 
@@ -176,11 +376,29 @@
         _loading = true;
         try
         {
-            _summary = await Client.GetFinOpsSummaryAsync(_period);
-        }
-        catch (Exception ex)
-        {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to load FinOps summary: {ex.Message}"));
+            var summaryTask = Client.GetFinOpsSummaryAsync(_period);
+            var sourcesTask = Client.GetCliMetricSourcesAsync();
+
+            try
+            {
+                _summary = await summaryTask;
+            }
+            catch (Exception ex)
+            {
+                ToastService.Notify(new(ToastType.Danger, $"Failed to load FinOps summary: {ex.Message}"));
+            }
+
+            // RF-009: a failing sources call degrades to an empty checklist +
+            // toast — it never blocks the summary.
+            try
+            {
+                _sources = await sourcesTask;
+            }
+            catch (Exception ex)
+            {
+                _sources = [];
+                ToastService.Notify(new(ToastType.Warning, $"Failed to load CLI source health: {ex.Message}"));
+            }
         }
         finally
         {
@@ -205,4 +423,14 @@
         var max = map.Count > 0 ? map.Values.Max() : 0m;
         return max <= 0 ? "0" : ((double)(value / max) * 100).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private static string SourceBadge(string status) => status switch
+    {
+        "Available" => "text-bg-success",
+        "CopiedToTemp" => "text-bg-info",
+        "Missing" => "text-bg-secondary",
+        "SchemaDrifted" => "text-bg-warning",
+        "Error" => "text-bg-danger",
+        _ => "text-bg-secondary",
+    };
 }

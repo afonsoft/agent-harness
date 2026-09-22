@@ -58,7 +58,7 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
                     CliDbTimestamps.ParseText(r.GetString("last_modified_time")),
                     r.GetInt64("step_count") is { } steps ? (int)steps : null,
                     ModelName: null,
-                    TokensInput: null, TokensOutput: null, TokensCached: null)),
+                    TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
             whereClause: rowCursor is null ? null : "rowid > @cursor",
             parameters: rowCursor is null ? null : new Dictionary<string, object?> { ["@cursor"] = rowCursor },
             orderBy: "rowid",
