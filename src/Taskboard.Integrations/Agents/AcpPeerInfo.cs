@@ -35,6 +35,9 @@ public sealed class AcpPeerInfo
     public bool AdditionalDirectories { get; set; }
     public bool McpHttp { get; set; }
     public bool McpSse { get; set; }
+
+    /// <summary>v2 capabilities.session.mcp.stdio — the agent can spawn MCP subprocesses.</summary>
+    public bool McpStdio { get; set; }
     public bool PromptImage { get; set; }
     public bool PromptAudio { get; set; }
     public bool PromptEmbeddedContext { get; set; }
@@ -47,13 +50,28 @@ public sealed class AcpPeerInfo
     /// <summary>Raw <c>configOptions</c> array returned by <c>session/new</c>/<c>set_config_option</c>.</summary>
     public JsonElement? ConfigOptions { get; set; }
 
-    public static AcpPeerInfo FromInitialize(JsonElement result)
+    public static AcpPeerInfo FromInitialize(JsonElement result) => FromInitialize(result, 1);
+
+    /// <summary>
+    /// SPEC-20260921-acp-v2-readiness RF-202: parses the initialize result for
+    /// the negotiated version. v2 reorganized capabilities — a single
+    /// <c>capabilities</c> object with session-scoped groups, object presence
+    /// markers instead of booleans, and a baseline of session methods implied
+    /// by <c>capabilities.session</c> itself.
+    /// </summary>
+    public static AcpPeerInfo FromInitialize(JsonElement result, int protocolVersion)
     {
         var info = new AcpPeerInfo();
 
         if (result.TryGetProperty("protocolVersion", out var pv) && pv.ValueKind == JsonValueKind.Number)
         {
             info.ProtocolVersion = pv.GetInt32();
+        }
+
+        if (protocolVersion >= 2)
+        {
+            ApplyInitializeV2(info, result);
+            return info;
         }
 
         if (result.TryGetProperty("agentInfo", out var ai) && ai.ValueKind == JsonValueKind.Object)
@@ -94,42 +112,97 @@ public sealed class AcpPeerInfo
             }
         }
 
-        if (result.TryGetProperty("authMethods", out var methods) && methods.ValueKind == JsonValueKind.Array)
+        info.AuthMethods = ParseAuthMethods(result);
+        return info;
+    }
+
+    /// <summary>
+    /// v2 initialize result: <c>info</c>+<c>capabilities</c> are role-agnostic,
+    /// <c>capabilities.session</c> implies the baseline session methods
+    /// (new/resume/list/close/prompt/cancel), support markers are objects, and
+    /// a non-empty <c>authMethods</c> implies both auth/login and auth/logout.
+    /// </summary>
+    private static void ApplyInitializeV2(AcpPeerInfo info, JsonElement result)
+    {
+        if (result.TryGetProperty("info", out var agentInfo) && agentInfo.ValueKind == JsonValueKind.Object)
         {
-            var list = new List<AcpAuthMethod>();
-            foreach (var m in methods.EnumerateArray())
-            {
-                if (m.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                var id = m.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-                if (id is null)
-                {
-                    continue;
-                }
-
-                var args = new List<string>();
-                if (m.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
-                {
-                    args.AddRange(argsEl.EnumerateArray()
-                        .Select(a => a.GetString())
-                        .Where(a => a is not null)!);
-                }
-
-                list.Add(new AcpAuthMethod(
-                    id,
-                    m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
-                    m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
-                    m.TryGetProperty("description", out var d) ? d.GetString() : null,
-                    args));
-            }
-
-            info.AuthMethods = list;
+            info.AgentName = agentInfo.TryGetProperty("name", out var n) ? n.GetString() : null;
+            info.AgentVersion = agentInfo.TryGetProperty("version", out var v) ? v.GetString() : null;
         }
 
-        return info;
+        if (result.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Object
+            && caps.TryGetProperty("session", out var session) && session.ValueKind == JsonValueKind.Object)
+        {
+            // Advertising capabilities.session commits the agent to the
+            // baseline methods — no individual list/resume/close markers.
+            info.SessionResume = true;
+            info.SessionClose = true;
+            info.SessionList = true;
+            info.SessionDelete = HasObject(session, "delete");
+            info.AdditionalDirectories = HasObject(session, "additionalDirectories");
+
+            if (session.TryGetProperty("prompt", out var prompt) && prompt.ValueKind == JsonValueKind.Object)
+            {
+                info.PromptImage = HasObject(prompt, "image");
+                info.PromptAudio = HasObject(prompt, "audio");
+                info.PromptEmbeddedContext = HasObject(prompt, "embeddedContext");
+            }
+
+            if (session.TryGetProperty("mcp", out var mcp) && mcp.ValueKind == JsonValueKind.Object)
+            {
+                info.McpHttp = HasObject(mcp, "http");
+                info.McpStdio = HasObject(mcp, "stdio");
+            }
+        }
+
+        var authMethods = ParseAuthMethods(result);
+        info.AuthMethods = authMethods;
+        // v2: non-empty authMethods advertises the whole auth surface —
+        // auth/login AND auth/logout are both required, no logout marker.
+        info.AuthLogout = authMethods.Count > 0;
+    }
+
+    /// <summary>Parses authMethods; accepts v1 <c>id</c> and v2 <c>methodId</c> descriptors.</summary>
+    private static IReadOnlyList<AcpAuthMethod> ParseAuthMethods(JsonElement result)
+    {
+        if (!result.TryGetProperty("authMethods", out var methods) || methods.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var list = new List<AcpAuthMethod>();
+        foreach (var m in methods.EnumerateArray())
+        {
+            if (m.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var id = m.TryGetProperty("methodId", out var mid) ? mid.GetString()
+                : m.TryGetProperty("id", out var idEl) ? idEl.GetString()
+                : null;
+            if (id is null)
+            {
+                continue;
+            }
+
+            var args = new List<string>();
+            if (m.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
+            {
+                args.AddRange(argsEl.EnumerateArray()
+                    .Select(a => a.GetString())
+                    .Where(a => a is not null)!);
+            }
+
+            list.Add(new AcpAuthMethod(
+                id,
+                m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
+                m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
+                m.TryGetProperty("description", out var d) ? d.GetString() : null,
+                args));
+        }
+
+        return list;
     }
 
     /// <summary>Merges <c>modes</c>/<c>configOptions</c> from a session lifecycle response.</summary>

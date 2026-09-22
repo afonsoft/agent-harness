@@ -30,6 +30,13 @@ public sealed class AcpSessionOptions
     /// <summary>Timeout for the initialize/session-new handshake phase.</summary>
     public TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
+    /// <summary>
+    /// SPEC-20260921-acp-v2-readiness RF-202: highest ACP protocol version the
+    /// client offers in initialize. Default 1 — v2 is experimental and never
+    /// negotiated unless Taskboard:Acp:MaxProtocolVersion=2 is set explicitly.
+    /// </summary>
+    public int MaxProtocolVersion { get; set; } = 1;
+
     /// <summary>Grace period for session/close before killing the process.</summary>
     public TimeSpan CloseTimeout { get; set; } = TimeSpan.FromSeconds(2);
 

@@ -36,10 +36,16 @@ public static class AcpProtocolParser
         string? RequestId = null,
         JsonElement ResponseResult = default,
         JsonElement ResponseError = default,
-        JsonElement Params = default);
+        JsonElement Params = default,
+        // SPEC-20260921-acp-v2-readiness RF-203: upsert-capable envelope fields,
+        // populated by the v2 parser; always null under v1.
+        string? MessageId = null,
+        string? PlanId = null,
+        string? PatchOp = null,
+        string? EntityKind = null);
 
     /// <summary>Returns null when the line is not JSON.</summary>
-    public static Parsed? Parse(string line)
+    public static Parsed? Parse(string line, int protocolVersion = 1)
     {
         JsonDocument doc;
         try
@@ -86,7 +92,10 @@ public static class AcpProtocolParser
 
             var parsed = method switch
             {
+                "session/update" when protocolVersion >= 2 => ParseSessionUpdateV2(p, requestId),
                 "session/update" => ParseSessionUpdate(p, requestId),
+                "session/request_permission" when protocolVersion >= 2 =>
+                    ParsePermissionV2(p, requestId, isRequest),
                 "session/request_permission" => ParsePermission(p, requestId, isRequest),
                 _ when p.TryGetProperty("kind", out var legacyKind) => new Parsed(
                     type, method, legacyKind.GetString() ?? "message",
@@ -162,6 +171,166 @@ public static class AcpProtocolParser
                 MessageType.Notification, "session/update", AgentEventKinds.Activity,
                 ExtractText(update), payload, sessionId, RequestId: requestId)
         };
+    }
+
+    /// <summary>
+    /// SPEC-20260921-acp-v2-readiness RF-205/RF-206: v2 session/update variants.
+    /// Upsert semantics — messages, tool calls and plans are patched by id
+    /// (MessageId/ToolCallId/PlanId + PatchOp/EntityKind on the envelope).
+    /// Unknown discriminants degrade to a generic activity event with the raw
+    /// payload preserved (forward compatibility); known variants missing a
+    /// required identity field surface as parse errors instead.
+    /// </summary>
+    private static Parsed ParseSessionUpdateV2(JsonElement p, string? requestId)
+    {
+        var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
+
+        if (!p.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
+        {
+            return new Parsed(MessageType.Notification, "session/update", "activity", null,
+                p.GetRawText(), SessionId: sessionId, RequestId: requestId);
+        }
+
+        var updateKind = update.TryGetProperty("sessionUpdate", out var su)
+            ? su.GetString() ?? string.Empty
+            : string.Empty;
+        var payload = update.GetRawText();
+
+        var messageId = update.TryGetProperty("messageId", out var mid) ? mid.GetString() : null;
+        var toolCallId = update.TryGetProperty("toolCallId", out var tcid) ? tcid.GetString() : null;
+        var planId = update.TryGetProperty("planId", out var pid) ? pid.GetString() : null;
+
+        Parsed Malformed(string variant, string field) => new(
+            MessageType.Notification, "session/update", AgentEventKinds.Error,
+            $"Malformed {variant}: missing required '{field}'.", payload, sessionId,
+            RequestId: requestId);
+
+        return updateKind switch
+        {
+            "agent_message_chunk" => messageId is null ? Malformed(updateKind, "messageId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Message,
+                ExtractText(update), payload, sessionId, RequestId: requestId,
+                MessageId: messageId, PatchOp: "append", EntityKind: "message"),
+            "user_message_chunk" => messageId is null ? Malformed(updateKind, "messageId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Message,
+                ExtractText(update), payload, sessionId, RequestId: requestId,
+                MessageId: messageId, PatchOp: "append", EntityKind: "message"),
+            "agent_thought_chunk" => messageId is null ? Malformed(updateKind, "messageId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Thought,
+                ExtractText(update), payload, sessionId, RequestId: requestId,
+                MessageId: messageId, PatchOp: "append", EntityKind: "message"),
+            // Whole-message upserts — content is an array of blocks.
+            "user_message" or "agent_message" => messageId is null ? Malformed(updateKind, "messageId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Message,
+                ExtractText(update), payload, sessionId, RequestId: requestId,
+                MessageId: messageId, PatchOp: "upsert", EntityKind: "message"),
+            "agent_thought" => messageId is null ? Malformed(updateKind, "messageId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Thought,
+                ExtractText(update), payload, sessionId, RequestId: requestId,
+                MessageId: messageId, PatchOp: "upsert", EntityKind: "message"),
+            // Foreground lifecycle — running/idle/requires_action + stopReason.
+            "state_update" => !update.TryGetProperty("state", out _)
+                ? Malformed(updateKind, "state")
+                : new Parsed(MessageType.Notification, "session/update", AgentEventKinds.State,
+                    null, payload, sessionId, RequestId: requestId),
+            // The first tool_call_update for a toolCallId creates the entity;
+            // the client reclassifies it as tool_call on first sight.
+            "tool_call_update" => toolCallId is null ? Malformed(updateKind, "toolCallId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.ToolOutput,
+                update.TryGetProperty("title", out var t) ? t.GetString() : null,
+                payload, sessionId, toolCallId, requestId,
+                PatchOp: "upsert", EntityKind: "tool_call"),
+            "tool_call_content_chunk" => toolCallId is null ? Malformed(updateKind, "toolCallId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.ToolOutput,
+                null, payload, sessionId, toolCallId, requestId,
+                PatchOp: "append", EntityKind: "tool_call"),
+            // Agent-owned display terminal — display only, never a client method.
+            "terminal_update" or "terminal_output_chunk" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Output,
+                null, payload, sessionId, RequestId: requestId,
+                PatchOp: updateKind == "terminal_output_chunk" ? "append" : "upsert",
+                EntityKind: "terminal"),
+            "plan_update" => planId is null ? Malformed(updateKind, "planId") : new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Plan,
+                null, payload, sessionId, RequestId: requestId,
+                PlanId: planId, PatchOp: "upsert", EntityKind: "plan"),
+            "available_commands_update" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Commands,
+                null, payload, sessionId, RequestId: requestId),
+            "config_option_update" or "session_info_update" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.SessionInfo,
+                null, payload, sessionId, RequestId: requestId),
+            "usage_update" => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Metric,
+                null, payload, sessionId, RequestId: requestId),
+            // Unknown/future discriminants — preserved raw, never throw.
+            _ => new Parsed(
+                MessageType.Notification, "session/update", AgentEventKinds.Activity,
+                ExtractText(update), payload, sessionId, RequestId: requestId)
+        };
+    }
+
+    /// <summary>
+    /// v2 session/request_permission: required <c>title</c> + optional
+    /// <c>description</c> and tagged <c>subject</c> (tool_call/command/unknown —
+    /// preserved raw). Normalized to the same downstream payload as v1.
+    /// </summary>
+    private static Parsed ParsePermissionV2(JsonElement p, string? requestId, bool isRequest)
+    {
+        var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
+        var tool = p.TryGetProperty("title", out var title) ? title.GetString() ?? string.Empty : string.Empty;
+        var detail = p.TryGetProperty("description", out var desc) ? desc.GetString() ?? string.Empty : string.Empty;
+        if (string.IsNullOrEmpty(detail)
+            && p.TryGetProperty("subject", out var subject) && subject.ValueKind == JsonValueKind.Object)
+        {
+            detail = subject.GetRawText();
+        }
+
+        if (string.IsNullOrEmpty(tool) && p.TryGetProperty("subject", out var subj)
+            && subj.TryGetProperty("toolCall", out var tc))
+        {
+            tool = tc.TryGetProperty("title", out var tt) ? tt.GetString() ?? string.Empty : string.Empty;
+        }
+
+        var options = new List<string>();
+        if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var opt in opts.EnumerateArray())
+            {
+                if (opt.ValueKind == JsonValueKind.Object
+                    && opt.TryGetProperty("optionId", out var oid)
+                    && oid.GetString() is { } optionId)
+                {
+                    options.Add(optionId);
+                }
+            }
+        }
+
+        if (options.Count == 0)
+        {
+            options.AddRange(["allow", "deny"]);
+        }
+
+        var effectiveRequestId = isRequest
+            ? requestId ?? Guid.NewGuid().ToString("N")
+            : p.TryGetProperty("requestId", out var rid) ? rid.GetString() ?? string.Empty : string.Empty;
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            requestId = effectiveRequestId,
+            tool,
+            detail,
+            options
+        });
+
+        return new Parsed(
+            isRequest ? MessageType.Request : MessageType.Notification,
+            "session/request_permission",
+            AgentEventKinds.Permission,
+            detail,
+            payload,
+            sessionId,
+            RequestId: requestId);
     }
 
     private static Parsed ParsePermission(JsonElement p, string? requestId, bool isRequest)
@@ -251,6 +420,23 @@ public static class AcpProtocolParser
             && content.TryGetProperty("text", out var text))
         {
             return text.GetString();
+        }
+
+        // v2 whole-message updates carry a content block array.
+        if (content.ValueKind == JsonValueKind.Array)
+        {
+            var parts = new List<string>();
+            foreach (var block in content.EnumerateArray())
+            {
+                if (block.ValueKind == JsonValueKind.Object
+                    && block.TryGetProperty("text", out var bt)
+                    && bt.GetString() is { } blockText)
+                {
+                    parts.Add(blockText);
+                }
+            }
+
+            return parts.Count > 0 ? string.Concat(parts) : null;
         }
 
         return content.GetRawText();

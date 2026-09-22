@@ -193,6 +193,8 @@ builder.Services.AddSingleton(sp =>
         HandshakeTimeout = TimeSpan.FromSeconds(cfg.GetValue("Taskboard:Acp:HandshakeTimeoutSeconds", 15)),
         PermissionTimeout = TimeSpan.FromMinutes(cfg.GetValue("Taskboard:Acp:PermissionTimeoutMinutes", 10)),
         AgentTcpPort = cfg.GetValue<int?>("Taskboard:Acp:TcpPort"),
+        // SPEC-20260921-acp-v2-readiness: v2 é experimental — opt-in explícito.
+        MaxProtocolVersion = Math.Clamp(cfg.GetValue("Taskboard:Acp:MaxProtocolVersion", 1), 1, 2),
     };
     var ragUrl = cfg["Taskboard:Rag:Url"];
     if (!string.IsNullOrWhiteSpace(ragUrl))

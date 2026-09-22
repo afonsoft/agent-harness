@@ -1,0 +1,2 @@
+[{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"state_update","state":"running"}}},{"jsonrpc":"2.0","id":"req-1","method":"elicitation/select","params":{}},42]
+{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"state_update","state":"idle","stopReason":"end_turn"}}}

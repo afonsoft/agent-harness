@@ -6,12 +6,28 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-20 UTC` (sessão 3)
-- **fase_atual**: `Phase 8 — fluxo encerrado, zero issues abertas, main verde`
+- **iniciado_em**: `2026-09-21 UTC` (sessão 4)
+- **fase_atual**: `Phase 5 — 3 SPECs aprovadas entregues como PRs abertos (#292, #293, #294)`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
-- **branch_trabalho**: `main`
+- **branch_trabalho**: `feature/devin-20260921-acp-v2-readiness` (stacked em `feature/20260921-ai-code-chat-ux`)
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
 - **framework_update_check**: `up-to-date` (commit `dc353de` em `/home/ubuntu/repos/skills`)
+
+### Entregas da sessão 2026-09-21 (3 SPECs aprovadas)
+
+| SPEC | Issue | Status | Entrega |
+|---|---|---|---|
+| `SPEC-20260921-ai-code-thread-config` | #288 | PR aberto | PR #292 — repo combobox, workspace auto-resolve, model tier + ACP-first catalog, auditoria ModelSource, tooltips nativos do rail |
+| `SPEC-20260921-ai-code-chat-ux` | #289 | PR aberto | PR #293 — tool-call renderers, fila FIFO de prompts, medidor de contexto, fork/retry, quick-switch modelo/modo |
+| `SPEC-20260921-acp-v2-readiness` | #282 | PR aberto | PR #294 — `IAcpDialect`/`AcpV1Dialect`/`AcpV2Dialect`, negociação por conexão, `ITurnTracker` v1/v2, parser v2, batch NDJSON |
+
+### Verificação 2026-09-21
+
+- `dotnet build`: ✅ 0 warnings/0 errors
+- `dotnet test` unit: ✅ **997/997**
+- `dotnet test` integration: ✅ 257/259 — 1 falha pré-existente (`AgentRunEndpointsTests.Dado_TemplateMuitoLongo`, reproduz na base limpa) + 1 flake MCP (passa isolado)
+- `dotnet format --verify-no-changes`: ✅ limpo
+- v1 invisível: default `MaxProtocolVersion=1`, wire v1 inalterado; v2 só com flag explícita
 
 ### Epics em curso (fila sequencial — todos SPECs aprovados 2026-09-19)
 

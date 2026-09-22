@@ -52,8 +52,14 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         public ConcurrentDictionary<string, string> AlwaysAnswers { get; } = new();
         /// <summary>Registration that enforces TurnTimeout on the in-flight prompt.</summary>
         public CancellationTokenRegistration TurnTimeoutReg { get; set; }
+        /// <summary>Timeout source armed for the whole open turn (v1: until prompt response; v2: until idle state_update).</summary>
+        public CancellationTokenSource? TurnTimeoutCts { get; set; }
         /// <summary>True while the session is expected to stay alive (drives auto-reconnect).</summary>
         public bool WantsReconnect { get; set; } = true;
+        /// <summary>Negotiated wire dialect — one per connection (SPEC-20260921-acp-v2-readiness RF-202).</summary>
+        public IAcpDialect Dialect { get; set; } = AcpV1Dialect.Instance;
+        /// <summary>Dialect-specific turn tracker (RF-204).</summary>
+        public ITurnTracker Turn { get; set; } = AcpV1Dialect.Instance.CreateTurnTracker();
     }
 
     private readonly IEnumerable<IAgentAdapter> _adapters;
@@ -122,15 +128,14 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         _sessions[threadId] = holder;
         _ = Task.Run(() => ReadLoopAsync(holder));
 
-        // RF-001: ACP initialize — clientInfo + real clientCapabilities; the
-        // response carries the negotiated version, agentCapabilities and
-        // authMethods, all captured into holder.Peer.
-        var initResult = await SendRequestAsync(holder, "initialize", new
-        {
-            protocolVersion = 1,
-            clientCapabilities = BuildClientCapabilities(),
-            clientInfo = new { name = "taskboard", title = "Harness", version = "1.0.0" }
-        }, _options.HandshakeTimeout, cancellationToken).ConfigureAwait(false);
+        // RF-001/RF-202: ACP initialize offers the highest configured version
+        // (MaxProtocolVersion; v1 by default). The agent answers with that
+        // version or its own latest — the negotiated version selects the
+        // dialect for the whole connection, never mixed.
+        var offered = Math.Clamp(_options.MaxProtocolVersion, 1, AcpDialects.MaxSupported);
+        var initResult = await SendRequestAsync(holder, "initialize",
+            AcpDialects.For(offered).BuildInitializeParams(_options),
+            _options.HandshakeTimeout, cancellationToken).ConfigureAwait(false);
 
         if (initResult is null)
         {
@@ -140,15 +145,27 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
-        holder.Peer = AcpPeerInfo.FromInitialize(initResult.Value);
+        var negotiated = initResult.Value.TryGetProperty("protocolVersion", out var pvEl)
+            && pvEl.ValueKind == JsonValueKind.Number
+                ? pvEl.GetInt32()
+                : 0;
 
-        if (holder.Peer.ProtocolVersion != 1)
+        // The negotiated version must be one we offered to speak: v1 agents
+        // answer 1 even when we offer 2 (fallback), while anything higher
+        // than the offer or unknown is an unsupported-version failure.
+        if (!AcpDialects.IsSupported(negotiated) || negotiated > offered)
         {
             EmitEvent(threadId, "error", "system",
-                $"Agent answered protocolVersion {holder.Peer.ProtocolVersion}; this client speaks ACP v1.", null);
+                $"Agent answered protocolVersion {negotiated}; this client supports ACP v1" +
+                (offered >= 2 ? "–v2." : " only — set Taskboard:Acp:MaxProtocolVersion=2 to enable experimental v2."),
+                JsonSerializer.Serialize(new { code = "unsupported_version", offered, negotiated }));
             await StopSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
             return false;
         }
+
+        holder.Dialect = AcpDialects.For(negotiated);
+        holder.Turn = holder.Dialect.CreateTurnTracker();
+        holder.Peer = AcpPeerInfo.FromInitialize(initResult.Value, negotiated);
 
         EmitPeerInfo(holder);
 
@@ -164,7 +181,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         var resumed = await TryResumeSessionAsync(holder, cancellationToken).ConfigureAwait(false);
         if (!resumed)
         {
-            var newResult = await SendRequestAsync(holder, "session/new", BuildSessionNewParams(holder, workspacePath),
+            var newResult = await SendRequestAsync(holder, "session/new",
+                holder.Dialect.BuildSessionNewParams(holder.Peer, workspacePath, BuildMcpServers(holder.Peer)),
                 _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
 
             if (newResult is null)
@@ -192,25 +210,6 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             JsonSerializer.Serialize(new { state = "ready", sessionId = holder.SessionId, resumed }));
         EmitSessionInfo(holder);
         return true;
-    }
-
-    private object BuildClientCapabilities() => new
-    {
-        fs = new { readTextFile = _options.ClientFs, writeTextFile = _options.ClientFs },
-        terminal = _options.ClientTerminal,
-        auth = new { terminal = _options.TerminalAuth },
-        session = new { configOptions = new { boolean = _options.BooleanConfigOptions ? new { } : (object?)null } }
-    };
-
-    private object BuildSessionNewParams(SessionHolder holder, string workspacePath)
-    {
-        var mcpServers = BuildMcpServers(holder.Peer);
-        if (holder.Peer.AdditionalDirectories)
-        {
-            return new { cwd = workspacePath, mcpServers, additionalDirectories = Array.Empty<string>() };
-        }
-
-        return new { cwd = workspacePath, mcpServers };
     }
 
     /// <summary>RF-012: configured MCP servers (e.g. RAG/Knowledge) handed to the agent.</summary>
@@ -265,7 +264,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
-        var auth = await SendRequestAsync(holder, "authenticate", new { methodId = agentMethod.Id },
+        var auth = await SendRequestAsync(holder, holder.Dialect.AuthenticateMethod,
+            new { methodId = agentMethod.Id },
             _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
         if (auth is null)
         {
@@ -286,23 +286,22 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
-        object p = new
-        {
-            sessionId = previousId,
-            cwd = holder.Spawn.WorkspacePath,
-            mcpServers = BuildMcpServers(holder.Peer)
-        };
-
+        var mcpServers = BuildMcpServers(holder.Peer);
         JsonElement? result = null;
         if (holder.Peer.SessionResume)
         {
-            result = await SendRequestAsync(holder, "session/resume", p, _options.RequestTimeout, cancellationToken)
+            result = await SendRequestAsync(holder, "session/resume",
+                holder.Dialect.BuildResumeParams(previousId, holder.Spawn.WorkspacePath, mcpServers),
+                _options.RequestTimeout, cancellationToken)
                 .ConfigureAwait(false);
         }
-        else if (holder.Peer.LoadSession)
+        else if (holder.Dialect.SupportsSessionLoad && holder.Peer.LoadSession)
         {
-            // session/load replays history as session/update notifications before responding.
-            result = await SendRequestAsync(holder, "session/load", p, _options.RequestTimeout * 4, cancellationToken)
+            // v1-only: session/load replays history as session/update
+            // notifications before responding. v2 removed it (resume+replayFrom).
+            result = await SendRequestAsync(holder, "session/load",
+                holder.Dialect.BuildResumeParams(previousId, holder.Spawn.WorkspacePath, mcpServers),
+                _options.RequestTimeout * 4, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -327,43 +326,55 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return false;
         }
 
-        // Real ACP: session/prompt takes content blocks and only responds when
-        // the turn ends (stopReason) — awaiting the response here would hold
-        // the HTTP endpoint for the whole turn. The id stays registered and
-        // the response becomes a session event in the dispatch loop.
-        object promptParams = holder.SessionId is { } sessionId
-            ? new { sessionId, prompt = new[] { new { type = "text", text } } }
-            : (object)new { text, delivery };
+        // Real ACP: session/prompt takes content blocks. v1 responds only when
+        // the turn ends (stopReason); v2 responds immediately with a messageId
+        // ack and ends the turn via state_update(idle) — the dialect tracker
+        // owns the difference. The id stays registered and the response
+        // becomes a session event in the dispatch loop.
+        var promptParams = holder.Dialect.BuildPromptParams(holder.SessionId, text, delivery);
 
         var id = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         holder.PendingResponses[id] = tcs;
 
-        // RF-011: a stuck agent must not leak the pending turn forever.
+        // RF-011/RF-204: a stuck agent must not leak the pending turn forever —
+        // the timeout covers the whole turn (response for v1, idle for v2).
+        holder.Turn.BeginTurn();
         var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(holder.Cts.Token);
         timeoutCts.CancelAfter(_options.TurnTimeout);
+        holder.TurnTimeoutCts = timeoutCts;
         holder.TurnTimeoutReg = timeoutCts.Token.Register(() =>
         {
             if (holder.PendingResponses.TryRemove(id, out var pending))
             {
+                // Response never arrived — fault it; the continuation emits the event.
                 pending.TrySetException(new AcpException(AcpErrorCode.TurnTimeout, "session/prompt",
                     $"turn exceeded {_options.TurnTimeout}"));
+            }
+            else if (holder.Turn.Abort())
+            {
+                // v2: the ack arrived but the idle state_update never did.
+                EmitEvent(threadId, "error", "system",
+                    $"Prompt turn exceeded {_options.TurnTimeout}.", null);
+                EndTurn(holder, "cancelled");
             }
         });
 
         _ = tcs.Task.ContinueWith(t =>
         {
-            holder.TurnTimeoutReg.Dispose();
-            timeoutCts.Dispose();
             if (t is { IsCompletedSuccessfully: true, Status: TaskStatus.RanToCompletion })
             {
-                var stopReason = t.Result.TryGetProperty("stopReason", out var sr)
-                    ? sr.GetString() : null;
-                EmitEvent(threadId, "session", "system", "Prompt turn completed",
-                    JsonSerializer.Serialize(new { state = "ready", stopReason }));
+                // v1: ends the turn now; v2: stores the messageId ack and waits
+                // for state_update(idle) in the notification path.
+                if (holder.Turn.OnPromptResponse(t.Result, out var stopReason))
+                {
+                    EndTurn(holder, stopReason);
+                }
             }
             else if (t.IsFaulted)
             {
+                holder.Turn.Abort();
+                DisposeTurnTimeout(holder);
                 EmitEvent(threadId, "error", "system",
                     $"Prompt turn rejected: {t.Exception?.GetBaseException().Message}", null);
             }
@@ -499,12 +510,37 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         return result is not null;
     }
 
+    /// <summary>Emits the turn-completed event and disarms the turn timeout.</summary>
+    private void EndTurn(SessionHolder holder, string? stopReason)
+    {
+        DisposeTurnTimeout(holder);
+        EmitEvent(holder.ThreadId, "session", "system", "Prompt turn completed",
+            JsonSerializer.Serialize(new { state = "ready", stopReason }));
+    }
+
+    private static void DisposeTurnTimeout(SessionHolder holder)
+    {
+        holder.TurnTimeoutReg.Dispose();
+        if (holder.TurnTimeoutCts is { } cts)
+        {
+            holder.TurnTimeoutCts = null;
+            cts.Dispose();
+        }
+    }
+
     /// <summary>RF-003: legacy mode switching for agents that only expose modes.</summary>
     public async Task<bool> SetModeAsync(string threadId, string modeId, CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(threadId, out var holder) || !IsAlive(holder) || holder.SessionId is null)
         {
             return false;
+        }
+
+        if (!holder.Dialect.SupportsSetMode)
+        {
+            // v2 removed session/set_mode — modes are config options now.
+            return await SetConfigOptionAsync(threadId, "mode", modeId,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         var result = await SendRequestAsync(holder, "session/set_mode",
@@ -816,6 +852,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
 
         holder.OpenToolCalls.Clear();
+        holder.Turn.Abort();
+        DisposeTurnTimeout(holder);
     }
 
     private void HandleStdout(string threadId, string line)
@@ -825,9 +863,62 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return;
         }
 
+        // RF-207: one NDJSON line may be a JSON-RPC batch array — each element
+        // is processed independently (requests get individual responses,
+        // notifications none, invalid entries a -32600 for that entry only).
+        if (line.TrimStart().StartsWith('['))
+        {
+            HandleBatch(holder, line);
+            return;
+        }
+
+        HandleMessage(holder, line);
+    }
+
+    private void HandleBatch(SessionHolder holder, string line)
+    {
         try
         {
-            var parsed = AcpProtocolParser.Parse(line);
+            using var doc = JsonDocument.Parse(line);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() == 0)
+            {
+                _ = WriteLineAsync(holder, new
+                {
+                    jsonrpc = "2.0",
+                    id = (string?)null,
+                    error = new { code = -32600, message = "Invalid Request" }
+                }, CancellationToken.None);
+                return;
+            }
+
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.Object)
+                {
+                    _ = WriteLineAsync(holder, new
+                    {
+                        jsonrpc = "2.0",
+                        id = (string?)null,
+                        error = new { code = -32600, message = "Invalid Request" }
+                    }, CancellationToken.None);
+                    continue;
+                }
+
+                HandleMessage(holder, element.GetRawText());
+            }
+        }
+        catch (JsonException)
+        {
+            EmitEvent(holder.ThreadId, "message", "assistant", line, null);
+        }
+    }
+
+    private void HandleMessage(SessionHolder holder, string line)
+    {
+        var threadId = holder.ThreadId;
+        try
+        {
+            var parsed = AcpProtocolParser.Parse(line, holder.Dialect.ProtocolVersion);
             if (parsed is null)
             {
                 EmitEvent(threadId, "message", "assistant", line, null);
@@ -866,21 +957,49 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                         UpdatePeerFromUpdate(holder, parsed);
                     }
 
+                    // RF-204: v2 turns end on state_update(idle) + stopReason;
+                    // session/cancel is confirmed by idle + "cancelled".
+                    if (parsed.Kind == AgentEventKinds.State && parsed.PayloadJson is { } stateJson)
+                    {
+                        try
+                        {
+                            using var stateDoc = JsonDocument.Parse(stateJson);
+                            if (holder.Turn.OnSessionUpdate(stateDoc.RootElement, out var stopReason))
+                            {
+                                EndTurn(holder, stopReason);
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                        }
+                    }
+
                     // Track open tool calls so session/cancel can close them.
+                    // v2 removed tool_call — the first tool_call_update for an
+                    // unseen id creates the entity (reclassified for the UI).
+                    var effectiveKind = parsed.Kind;
                     if (parsed.ToolCallId is { } tcId)
                     {
                         if (parsed.Kind == AgentEventKinds.ToolCall)
                         {
                             holder.OpenToolCalls[tcId] = 1;
                         }
-                        else if (parsed.Kind == AgentEventKinds.ToolOutput && IsTerminalToolUpdate(parsed.PayloadJson))
+                        else if (parsed.Kind == AgentEventKinds.ToolOutput
+                            && IsTerminalToolUpdate(parsed.PayloadJson))
                         {
                             holder.OpenToolCalls.TryRemove(tcId, out _);
                         }
+                        else if (holder.Dialect.ProtocolVersion >= 2
+                            && !holder.OpenToolCalls.ContainsKey(tcId))
+                        {
+                            holder.OpenToolCalls[tcId] = 1;
+                            effectiveKind = AgentEventKinds.ToolCall;
+                        }
                     }
 
-                    EmitEvent(threadId, parsed.Kind, "assistant", parsed.Content, parsed.PayloadJson,
-                        parsed.SessionId, parsed.ToolCallId);
+                    EmitEvent(threadId, effectiveKind, "assistant", parsed.Content, parsed.PayloadJson,
+                        parsed.SessionId, parsed.ToolCallId,
+                        parsed.MessageId, parsed.PlanId, parsed.PatchOp, parsed.EntityKind);
                     return;
             }
         }
@@ -989,6 +1108,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return;
         }
 
+        // RF-205: v2 removed client-side fs/* and terminal/* — a v2 connection
+        // must never serve them, even when the v1 tool handler is registered.
+        var clientToolMethod = parsed.Method.StartsWith("fs/", StringComparison.Ordinal)
+            || parsed.Method.StartsWith("terminal/", StringComparison.Ordinal);
+        var handler = clientToolMethod && !holder.Dialect.SupportsClientTools ? null : _toolHandler;
+
         // RF-008/009: fs/*, terminal/*, elicitation/* and extension methods go to
         // the client tool handler when one is registered; otherwise -32601 so
         // the agent does not hang on an undeclared capability.
@@ -1002,11 +1127,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             try
             {
                 object response;
-                if (_toolHandler is not null && parsed.RequestId is not null && parsed.Params.ValueKind != JsonValueKind.Undefined)
+                if (handler is not null && parsed.RequestId is not null && parsed.Params.ValueKind != JsonValueKind.Undefined)
                 {
                     try
                     {
-                        var result = await _toolHandler.HandleAsync(
+                        var result = await handler.HandleAsync(
                             holder.ThreadId, holder.SessionId ?? string.Empty,
                             holder.Spawn.WorkspacePath,
                             parsed.Method, parsed.Params, requestCts?.Token ?? holder.Cts.Token).ConfigureAwait(false);
@@ -1106,17 +1231,27 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         try
         {
             using var doc = JsonDocument.Parse(rawLine);
-            if (doc.RootElement.TryGetProperty("params", out var p)
-                && p.TryGetProperty("toolCall", out var tc) && tc.ValueKind == JsonValueKind.Object)
+            if (doc.RootElement.TryGetProperty("params", out var p))
             {
-                if (tc.TryGetProperty("kind", out var k) && k.GetString() is { } kind)
-                {
-                    return $"kind:{kind}";
-                }
+                // v2 permissions carry the tool call under subject.toolCall.
+                var tc = p.TryGetProperty("toolCall", out var direct) && direct.ValueKind == JsonValueKind.Object
+                    ? direct
+                    : p.TryGetProperty("subject", out var subj) && subj.ValueKind == JsonValueKind.Object
+                        && subj.TryGetProperty("toolCall", out var nested) && nested.ValueKind == JsonValueKind.Object
+                            ? nested
+                            : (JsonElement?)null;
 
-                if (tc.TryGetProperty("title", out var t) && t.GetString() is { } title)
+                if (tc is { } toolCall)
                 {
-                    return $"title:{title}";
+                    if (toolCall.TryGetProperty("kind", out var k) && k.GetString() is { } kind)
+                    {
+                        return $"kind:{kind}";
+                    }
+
+                    if (toolCall.TryGetProperty("title", out var t) && t.GetString() is { } title)
+                    {
+                        return $"title:{title}";
+                    }
                 }
             }
         }
@@ -1404,7 +1539,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             }));
     }
 
-    private static async Task WriteLineAsync(SessionHolder holder, object payload, CancellationToken cancellationToken)
+    private async Task WriteLineAsync(SessionHolder holder, object payload, CancellationToken cancellationToken)
     {
         await holder.WriteLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -1420,10 +1555,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     private void EmitEvent(
         string threadId, string kind, string role, string? content, string? payload,
-        string? sessionId = null, string? toolCallId = null)
+        string? sessionId = null, string? toolCallId = null,
+        string? messageId = null, string? planId = null, string? patchOp = null, string? entityKind = null)
     {
         var evt = new AgentSessionEvent(threadId, DateTimeOffset.UtcNow, kind, role, content, payload,
-            SessionId: sessionId, ToolCallId: toolCallId);
+            SessionId: sessionId, ToolCallId: toolCallId,
+            MessageId: messageId, PlanId: planId, PatchOp: patchOp, EntityKind: entityKind);
         if (_listeners.TryGetValue(threadId, out var listener))
         {
             listener(evt);

@@ -19,7 +19,11 @@ public sealed record AgentExecutionEvent(
     string? Title = null,
     string? PayloadJson = null,
     string? RawJson = null,
-    string Stream = "system");
+    string Stream = "system",
+    string? MessageId = null,
+    string? PlanId = null,
+    string? PatchOp = null,
+    string? EntityKind = null);
 
 /// <summary>Scope an <see cref="AgentExecutionEvent"/> belongs to.</summary>
 public static class AgentEventScope
@@ -53,4 +57,7 @@ public static class AgentEventKinds
 
     /// <summary>Session metadata: modes, config options, negotiated peer info.</summary>
     public const string SessionInfo = "session_info";
+
+    /// <summary>ACP v2 foreground state transitions (running/idle/requires_action + stopReason).</summary>
+    public const string State = "state";
 }
