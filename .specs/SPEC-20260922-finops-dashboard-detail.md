@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-finops-dashboard-detail` |
 | Ticket | [#316 — E17](https://github.com/afonsoft/agent-harness/issues/316) |
-| Status | `Done` — delivered in PR (pending link) |
+| Status | `Done` — delivered in PR #322 |
 | Referência | Especificação externa "Session Monitor" (ingestão multi-fonte de agentes: devin/cognition SQLite, claude-code JSONL, copilot workspaceStorage, devin-desktop ACP, Devin API, DEVA-AI) — adaptada ao modelo já persistido pelo módulo `cli-metrics` |
 
 ## 1. User Story
