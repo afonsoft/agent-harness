@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-workflow-actions-resilience` |
 | Ticket | [#324 — E19](https://github.com/afonsoft/agent-harness/issues/324) |
-| Status | `Approved` |
+| Status | `Done` — delivered in PR #327 |
 | Referência | SPEC-20260918-workflow-github-actions (tela atual), SPEC-20260911-refine-github-actions (mesma área — Actions), SPEC-20260919-legacy-workflow-surface (grafo legado removido) |
 
 ## 1. User Story
