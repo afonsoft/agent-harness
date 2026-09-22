@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Dtos;
@@ -235,39 +237,15 @@ public sealed class PipelineEngine
             using var stageActivity = HarnessTelemetrySource.StartStageSpan(
                 executionId, stageKey, stage.Agent, modelName: null);
 
-            TokenUsage? usage = null;
             if (stage.Kind is PipelineStageKind.Verification)
             {
                 await RunVerificationStageAsync(exec, stage, cts.Token).ConfigureAwait(false);
             }
             else
             {
-                usage = await RunAgentStageAsync(exec, stage, cts.Token).ConfigureAwait(false);
-            }
-
-            // RF-001/RF-002: per-stage cost metric; RF-003: over-cap cancels the
-            // execution so dependent stages never start.
-            var finOps = scope.ServiceProvider.GetService<IFinOpsService>();
-            if (usage is not null && finOps is not null)
-            {
-                var metric = await finOps.RecordUsageAsync(
-                    executionId, stage.Agent ?? AgentType.Codex, modelName: null, usage,
-                    stageKey: stage.StageKey, budgetCapUsd: exec.BudgetCapUsd,
-                    CancellationToken.None).ConfigureAwait(false);
-                HarnessTelemetrySource.RecordUsage(stageActivity, usage, metric.CostUsd);
-
-                if (exec.BudgetCapUsd is { } cap
-                    && exec.Status is not (PipelineStatus.Completed or PipelineStatus.Cancelled))
-                {
-                    var cumulative = await finOps.GetCumulativeCostAsync(executionId, CancellationToken.None).ConfigureAwait(false);
-                    if (cumulative > cap)
-                    {
-                        _logger.LogWarning(
-                            "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
-                            executionId, cap, cumulative);
-                        exec.Cancel(DateTime.UtcNow);
-                    }
-                }
+                await RunAgentStageAsync(
+                    exec, stage, scope.ServiceProvider, repo, stageActivity, cts.Token)
+                    .ConfigureAwait(false);
             }
 
             await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
@@ -288,8 +266,20 @@ public sealed class PipelineEngine
         }
     }
 
-    private async Task<TokenUsage?> RunAgentStageAsync(
-        PipelineExecution exec, PipelineStageExecution stage, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs an AgentWork stage through the CLI fallback chain
+    /// (SPEC-20260922-cockpit-agent-selection-fallback RF-003/RF-004): the
+    /// stage's bound CLI first, then every other eligible CLI not yet tried —
+    /// same synthesized prompt/context on each attempt, usage billed to the
+    /// CLI that actually ran. Exhaustion keeps the existing FailStage path.
+    /// </summary>
+    private async Task RunAgentStageAsync(
+        PipelineExecution exec,
+        PipelineStageExecution stage,
+        IServiceProvider services,
+        IRepository<PipelineExecution> repo,
+        Activity? stageActivity,
+        CancellationToken cancellationToken)
     {
         var chunks = new List<string>();
         var runId = exec.Id.Value;
@@ -330,44 +320,254 @@ public sealed class PipelineEngine
             }
         }
 
-        var request = new AgentExecutionRequest(
-            IssueId: exec.IssueId ?? exec.Id.Value,
-            IssueNumber: 0,
-            RepositoryFullName: exec.RepositoryFullName,
-            RepoPath: exec.WorktreePath ?? exec.RepositoryPath,
-            Branch: null,
-            Scope: $"pipeline:{exec.TemplateId}/{stage.StageKey}",
-            Instructions: instructions,
-            AgentType: stage.Agent ?? AgentType.Codex,
-            ModelTier: stage.ModelTier);
+        var eligibility = services.GetService<IAgentEligibilityService>();
+        var modelConfig = services.GetService<IAgentModelConfigService>();
+        var catalog = services.GetService<IAgentModelCatalogService>();
+        var finOps = services.GetService<IFinOpsService>();
 
-        var result = await _acpClient.ExecuteAsync(request, progress, cancellationToken).ConfigureAwait(false);
-        var now = DateTime.UtcNow;
-        if (result.IsSuccess)
-        {
-            exec.CompleteStage(stage.StageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), now);
-            await PublishAsync(exec, "stage", $"Stage '{stage.Name}' completed", stage.StageKey)
-                .ConfigureAwait(false);
-        }
-        else
-        {
-            exec.FailStage(stage.StageKey, $"Agent exited with code {result.ExitCode}", now);
-            await PublishAsync(exec, "stage", $"Stage '{stage.Name}' failed (exit {result.ExitCode})", stage.StageKey)
-                .ConfigureAwait(false);
-        }
+        var eligible = eligibility is null
+            ? null
+            : await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
 
-        // RF-001: usage reportado no resultado ou varrido das linhas de stdout.
-        TokenUsage? usage = result.Usage;
-        if (usage is null)
+        string? lastError = null;
+        foreach (var candidate in FallbackCandidates(stage, eligible))
         {
-            lock (chunks)
+            if (stage.Agent != candidate)
             {
-                foreach (var line in chunks)
+                var previous = stage.TriedAgents.LastOrDefault()
+                    ?? stage.Agent?.ToString()
+                    ?? "?";
+                exec.BeginStageFallback(stageKey, candidate);
+                await PublishAsync(exec, "stage",
+                    $"Stage '{stage.Name}' — {previous} failed ({lastError}); retrying with {candidate}",
+                    stageKey).ConfigureAwait(false);
+            }
+
+            // Eligibility is dynamic — a CLI disabled mid-run is skipped, never dispatched.
+            if (eligible is not null && !eligible.Contains(candidate))
+            {
+                lastError = $"Agent {candidate} is not eligible (disabled or CLI not authenticated).";
+                exec.RecordStageAttemptFailure(stageKey, lastError);
+                await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+                continue;
+            }
+
+            var (model, omitFlag) = await ResolveStageModelAsync(
+                    candidate, stage.ModelTier, modelConfig, catalog,
+                    exec, stage.Name, stageKey, cancellationToken)
+                .ConfigureAwait(false);
+
+            var retriedWithoutFlag = false;
+            while (true)
+            {
+                var chunkOffset = chunks.Count;
+                var request = new AgentExecutionRequest(
+                    IssueId: exec.IssueId ?? exec.Id.Value,
+                    IssueNumber: 0,
+                    RepositoryFullName: exec.RepositoryFullName,
+                    RepoPath: exec.WorktreePath ?? exec.RepositoryPath,
+                    Branch: null,
+                    Scope: $"pipeline:{exec.TemplateId}/{stage.StageKey}",
+                    Instructions: instructions,
+                    AgentType: candidate,
+                    ModelTier: stage.ModelTier,
+                    ResolvedModelName: model,
+                    OmitModelFlag: omitFlag);
+
+                AgentExecutionResult? result = null;
+                try
                 {
-                    if (TokenUsageParser.TryExtract(line) is { } parsed)
+                    result = await _acpClient.ExecuteAsync(request, progress, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex.Message;
+                }
+
+                // SPEC-20260922 §8: every attempt bills under the CLI that ran
+                // it — usage from the result or scanned from the output tail.
+                var attemptUsage = result?.Usage ?? ScanUsage(chunks, chunkOffset);
+                if (attemptUsage is not null && finOps is not null)
+                {
+                    var metric = await finOps.RecordUsageAsync(
+                        runId, candidate, result?.ModelUsed, attemptUsage,
+                        stageKey: stageKey, budgetCapUsd: exec.BudgetCapUsd,
+                        CancellationToken.None).ConfigureAwait(false);
+                    HarnessTelemetrySource.RecordUsage(stageActivity, attemptUsage, metric.CostUsd);
+
+                    // E14 RF-003: over-cap cancels the execution — no further
+                    // attempt or dependent stage is dispatched.
+                    if (exec.BudgetCapUsd is { } cap
+                        && exec.Status is not (PipelineStatus.Completed or PipelineStatus.Cancelled))
                     {
-                        usage = parsed; // última linha com usage vence (contadores cumulativos)
+                        var cumulative = await finOps.GetCumulativeCostAsync(runId, CancellationToken.None)
+                            .ConfigureAwait(false);
+                        if (cumulative > cap)
+                        {
+                            _logger.LogWarning(
+                                "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
+                                runId, cap, cumulative);
+                            exec.Cancel(DateTime.UtcNow);
+                            return;
+                        }
                     }
+                }
+
+                if (result is null)
+                {
+                    break;
+                }
+
+                if (result.IsSuccess)
+                {
+                    exec.CompleteStage(
+                        stageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), DateTime.UtcNow);
+                    await PublishAsync(exec, "stage", $"Stage '{stage.Name}' completed", stageKey)
+                        .ConfigureAwait(false);
+                    return;
+                }
+
+                lastError = $"Agent exited with code {result.ExitCode}";
+
+                // RF-004: a model-catalog rejection retries once on the same
+                // CLI without a model flag before consuming a fallback CLI.
+                if (!retriedWithoutFlag && !omitFlag && OutputSuggestsInvalidModel(chunks, chunkOffset))
+                {
+                    retriedWithoutFlag = true;
+                    omitFlag = true;
+                    model = null;
+                    await PublishAsync(exec, "stage",
+                        $"Stage '{stage.Name}' — {candidate} rejected the model; retrying with the CLI default",
+                        stageKey).ConfigureAwait(false);
+                    continue;
+                }
+
+                break;
+            }
+
+            exec.RecordStageAttemptFailure(stageKey, lastError ?? "agent failed");
+            await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
+        exec.FailStage(
+            stageKey,
+            lastError ?? "No eligible agent CLI could run the stage.",
+            DateTime.UtcNow);
+        await PublishAsync(exec, "stage", $"Stage '{stage.Name}' failed ({lastError})", stageKey)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// CLI chain for a stage: the bound agent first (when untried), then the
+    /// remaining eligible CLIs in enum order — each tried at most once
+    /// (SPEC-20260922 RF-003). Without an eligibility service the chain is the
+    /// bound CLI only.
+    /// </summary>
+    private static List<AgentType> FallbackCandidates(
+        PipelineStageExecution stage, IReadOnlySet<AgentType>? eligible)
+    {
+        var tried = new HashSet<string>(stage.TriedAgents, StringComparer.Ordinal);
+        var current = stage.Agent ?? AgentType.Codex;
+        var candidates = new List<AgentType>();
+        if (!tried.Contains(current.ToString()))
+        {
+            candidates.Add(current);
+        }
+
+        if (eligible is not null)
+        {
+            foreach (var type in Enum.GetValues<AgentType>())
+            {
+                if (eligible.Contains(type) && type != current && !tried.Contains(type.ToString()))
+                {
+                    candidates.Add(type);
+                }
+            }
+        }
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// Resolves the model passed to the CLI: per-tier override ?? curated
+    /// table, validated against the CLI's probed catalog when it has one —
+    /// a name the installed CLI does not report is dropped so the run uses
+    /// the CLI default instead of dying on `unrecognized_model`
+    /// (SPEC-20260922 RF-004).
+    /// </summary>
+    private async Task<(string? Model, bool OmitFlag)> ResolveStageModelAsync(
+        AgentType candidate,
+        AgentModelTier tier,
+        IAgentModelConfigService? modelConfig,
+        IAgentModelCatalogService? catalog,
+        PipelineExecution exec,
+        string stageName,
+        string stageKey,
+        CancellationToken cancellationToken)
+    {
+        var resolved = modelConfig is null
+            ? AgentCliModels.ModelFor(candidate, tier)
+            : await modelConfig.ResolveModelAsync(candidate, tier, cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return (null, true);
+        }
+
+        if (catalog is null || AgentCliModels.ModelListProbe(candidate) is null)
+        {
+            return (resolved, false);
+        }
+
+        var available = await catalog.ListAvailableAsync(candidate, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (available.Count > 0 && !available.Contains(resolved, StringComparer.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "Pipeline {Id} stage {Stage}: resolved model '{Model}' is not in {Agent}'s probed catalog — dispatching with the CLI default.",
+                exec.Id.Value, stageKey, resolved, candidate);
+            await PublishAsync(exec, "stage",
+                $"Stage '{stageName}' — model '{resolved}' is not in {candidate}'s catalog; using the CLI default",
+                stageKey).ConfigureAwait(false);
+            return (null, true);
+        }
+
+        return (resolved, false);
+    }
+
+    /// <summary>RF-004: detects the `unrecognized_model` / stale-catalog signature in the attempt's output tail.</summary>
+    private static bool OutputSuggestsInvalidModel(List<string> chunks, int offset)
+    {
+        lock (chunks)
+        {
+            for (var i = offset; i < chunks.Count; i++)
+            {
+                if (chunks[i].Contains("unrecognized_model", StringComparison.OrdinalIgnoreCase)
+                    || chunks[i].Contains("model catalog", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>RF-001: usage varrido das linhas de stdout da tentativa (última linha com usage vence).</summary>
+    private static TokenUsage? ScanUsage(List<string> chunks, int offset)
+    {
+        TokenUsage? usage = null;
+        lock (chunks)
+        {
+            for (var i = offset; i < chunks.Count; i++)
+            {
+                if (TokenUsageParser.TryExtract(chunks[i]) is { } parsed)
+                {
+                    usage = parsed;
                 }
             }
         }

@@ -89,7 +89,7 @@ else if (_runs is not null)
                     <select id="cockpit-agent" class="form-select form-select-sm" @bind="_start.AgentType">
                         @foreach (var agent in _agents ?? [])
                         {
-                            <option value="@agent.Type">@agent.Name (@agent.Status)</option>
+                            <option value="@agent.Type">@agent.Name</option>
                         }
                     </select>
                 </div>
@@ -105,6 +105,94 @@ else if (_runs is not null)
                     <div class="form-check">
                         <input id="cockpit-verify" type="checkbox" class="form-check-input" @bind="_start.RunVerification" />
                         <label class="form-check-label" for="cockpit-verify">Run verification stage (dotnet format/build/test)</label>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="col-12">
+                    <div class="form-check">
+                        <input id="cockpit-single" type="checkbox" class="form-check-input" @bind="_start.SingleAgent" />
+                        <label class="form-check-label" for="cockpit-single">Single agent — um CLI para todas as etapas</label>
+                    </div>
+                </div>
+                @if (_start.SingleAgent)
+                {
+                    <div class="col-md-6">
+                        <label class="form-label" for="cockpit-single-agent">Agent CLI</label>
+                        <select id="cockpit-single-agent" class="form-select form-select-sm" @bind="_start.SingleAgentType">
+                            <option value="">Auto</option>
+                            @foreach (var agent in _agents ?? [])
+                            {
+                                <option value="@agent.Type">@agent.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="cockpit-single-tier">Model tier</label>
+                        <select id="cockpit-single-tier" class="form-select form-select-sm" @bind="_start.SingleAgentTier">
+                            <option value="">Auto (template)</option>
+                            <option value="@AgentModelTier.Lite">Lite</option>
+                            <option value="@AgentModelTier.Normal">Normal</option>
+                            <option value="@AgentModelTier.Ultra">Ultra</option>
+                        </select>
+                    </div>
+                }
+            }
+            @if (SelectedTemplate is { } selectedTemplate)
+            {
+                <div class="col-12">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="() => _optionsOpen = !_optionsOpen"
+                            aria-expanded="@_optionsOpen" aria-controls="cockpit-stage-options">
+                        <Icon Name="@(_optionsOpen ? IconName.ChevronDown : IconName.ChevronRight)" class="me-1" />
+                        Options — @selectedTemplate.Stages.Count steps
+                    </button>
+                    @if (_optionsOpen)
+                    {
+                        <div id="cockpit-stage-options" class="border rounded mt-2">
+                            @foreach (var stage in selectedTemplate.Stages)
+                            {
+                                <div class="d-flex align-items-center gap-2 px-2 py-1 border-bottom">
+                                    <span class="small text-body-secondary" style="min-width: 8rem">
+                                        <code>@stage.Key</code> · @stage.Name
+                                    </span>
+                                    @if (stage.Kind == "AgentWork")
+                                    {
+                                        var row = StageOptionFor(stage.Key);
+                                        <select class="form-select form-select-sm" style="max-width: 12rem"
+                                                disabled="@(!IsSingleAgent && _start.SingleAgent)"
+                                                @bind="row.Agent">
+                                            <option value="">Auto (@stage.DefaultAgent)</option>
+                                            @foreach (var agent in _agents ?? [])
+                                            {
+                                                <option value="@agent.Type">@agent.Name</option>
+                                            }
+                                        </select>
+                                        <select class="form-select form-select-sm" style="max-width: 9rem"
+                                                disabled="@(!IsSingleAgent && _start.SingleAgent)"
+                                                @bind="row.Tier">
+                                            <option value="">@stage.DefaultTier</option>
+                                            <option value="@AgentModelTier.Lite">Lite</option>
+                                            <option value="@AgentModelTier.Normal">Normal</option>
+                                            <option value="@AgentModelTier.Ultra">Ultra</option>
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge text-bg-light">@stage.Kind</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+            @if (_agents is { Count: 0 })
+            {
+                <div class="col-12">
+                    <div class="alert alert-warning small mb-0" role="alert">
+                        Nenhum Agent CLI disponível — instale e autentique um em <strong>Settings → Agents</strong>.
                     </div>
                 </div>
             }
@@ -158,14 +246,20 @@ else if (_runs is not null)
     private bool _promptTemplateLoading;
     private Modal _startModal = default!;
     private readonly RunStartForm _start = new();
+    private readonly Dictionary<string, StageOption> _stageOptions = new(StringComparer.Ordinal);
+    private bool _optionsOpen;
     private CancellationTokenSource _cts = new();
 
     private bool IsSingleAgent => _start.TemplateId == PipelineTemplateIds.SingleAgent;
 
+    private PipelineTemplateDto? SelectedTemplate =>
+        _templates?.FirstOrDefault(t => t.TemplateId == _start.TemplateId);
+
     private bool CanStart =>
         !string.IsNullOrWhiteSpace(_start.TemplateId)
         && !string.IsNullOrWhiteSpace(_start.RepositoryFullName)
-        && !string.IsNullOrWhiteSpace(_start.Prompt);
+        && !string.IsNullOrWhiteSpace(_start.Prompt)
+        && _agents is not { Count: 0 };
 
     protected override async Task OnInitializedAsync()
     {
@@ -255,7 +349,11 @@ else if (_runs is not null)
                 _start.Prompt!, _start.MaxBudgetUsd,
                 AgentOverride: IsSingleAgent ? _start.AgentType : null,
                 TierOverride: IsSingleAgent ? _start.ModelTier : null,
-                SkipVerification: IsSingleAgent && !_start.RunVerification), _cts.Token);
+                SkipVerification: IsSingleAgent && !_start.RunVerification,
+                StageOverrides: BuildStageOverrides(),
+                SingleAgent: !IsSingleAgent && _start.SingleAgent,
+                SingleAgentType: ParseAgent(_start.SingleAgentType),
+                SingleAgentTier: ParseTier(_start.SingleAgentTier)), _cts.Token);
             await _startModal.HideAsync();
             if (run is not null)
             {
@@ -371,6 +469,44 @@ else if (_runs is not null)
         }
     }
 
+    private StageOption StageOptionFor(string stageKey) =>
+        _stageOptions.TryGetValue(stageKey, out var option)
+            ? option
+            : _stageOptions[stageKey] = new StageOption();
+
+    private IReadOnlyDictionary<string, PipelineStageOverrideDto>? BuildStageOverrides()
+    {
+        // Only keys of the template currently selected — options typed for a
+        // previous template must not leak into the request.
+        var validKeys = SelectedTemplate?.Stages
+            .Where(s => s.Kind == "AgentWork")
+            .Select(s => s.Key)
+            .ToHashSet(StringComparer.Ordinal) ?? [];
+        var map = new Dictionary<string, PipelineStageOverrideDto>(StringComparer.Ordinal);
+        foreach (var (key, option) in _stageOptions)
+        {
+            if (!validKeys.Contains(key))
+            {
+                continue;
+            }
+
+            var agent = ParseAgent(option.Agent);
+            var tier = ParseTier(option.Tier);
+            if (agent is not null || tier is not null)
+            {
+                map[key] = new PipelineStageOverrideDto(agent, tier);
+            }
+        }
+
+        return map.Count > 0 ? map : null;
+    }
+
+    private static AgentType? ParseAgent(string? value) =>
+        Enum.TryParse<AgentType>(value, out var agent) ? agent : null;
+
+    private static AgentModelTier? ParseTier(string? value) =>
+        Enum.TryParse<AgentModelTier>(value, out var tier) ? tier : null;
+
     private void OpenRun(string runId) => Nav.NavigateTo($"/cockpit/runs/{runId}");
 
     private static int CompletedStages(PipelineExecutionDto run) =>
@@ -394,5 +530,19 @@ else if (_runs is not null)
         public AgentType AgentType { get; set; } = AgentType.Codex;
         public AgentModelTier ModelTier { get; set; } = AgentModelTier.Normal;
         public bool RunVerification { get; set; } = true;
+        /// <summary>Single agent mode for multi-stage templates (SPEC-20260922 RF-005).</summary>
+        public bool SingleAgent { get; set; }
+        /// <summary>Single-agent CLI — empty means Auto (server picks one eligible CLI).</summary>
+        public string? SingleAgentType { get; set; }
+        /// <summary>Single-agent tier — empty keeps each stage's template default.</summary>
+        public string? SingleAgentTier { get; set; }
+    }
+
+    private sealed class StageOption
+    {
+        /// <summary>Stage agent pick — empty means Auto.</summary>
+        public string Agent { get; set; } = "";
+        /// <summary>Stage tier pick — empty keeps the template default.</summary>
+        public string Tier { get; set; } = "";
     }
 }

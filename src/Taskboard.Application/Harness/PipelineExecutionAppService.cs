@@ -1,6 +1,8 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Dtos;
@@ -22,6 +24,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
     private readonly IWorkspaceIsolationService _isolation;
     private readonly IGitHubService _gitHub;
     private readonly ILogger<PipelineExecutionAppService> _logger;
+    private readonly IAgentEligibilityService? _eligibility;
     private readonly ICockpitEventStream? _cockpit;
 
     public PipelineExecutionAppService(
@@ -30,6 +33,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         IWorkspaceIsolationService isolation,
         IGitHubService gitHub,
         ILogger<PipelineExecutionAppService> logger,
+        IAgentEligibilityService? eligibility = null,
         ICockpitEventStream? cockpit = null)
     {
         _executions = executions;
@@ -37,6 +41,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         _isolation = isolation;
         _gitHub = gitHub;
         _logger = logger;
+        _eligibility = eligibility;
         _cockpit = cockpit;
     }
 
@@ -45,7 +50,16 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         Task.FromResult<IReadOnlyList<PipelineTemplateDto>>(
             PipelineTemplates.All
                 .Select(t => new PipelineTemplateDto(
-                    t.TemplateId, t.Name, t.Stages.Select(s => s.Key).ToList()))
+                    t.TemplateId,
+                    t.Name,
+                    t.Stages.Select(s => s.Key).ToList(),
+                    t.Stages.Select(s => new PipelineTemplateStageDto(
+                        s.Key,
+                        s.Name,
+                        s.Kind.ToString(),
+                        s.Role?.ToString(),
+                        s.Agent?.ToString(),
+                        s.ModelTier.ToString())).ToList()))
                 .ToList());
 
     public async Task<IReadOnlyList<PipelineExecutionDto>> ListAsync(
@@ -75,10 +89,20 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
             ?? throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidPipelineDag,
                 $"Unknown pipeline template '{request.TemplateId}'.");
-        if (request.TemplateId == PipelineTemplates.SingleAgentId)
+        if (request.TemplateId == PipelineTemplates.SingleAgentId && request.SkipVerification)
         {
-            definition = ApplyOverrides(definition, request);
+            definition = definition with
+            {
+                Stages = definition.Stages
+                    .Where(s => s.Kind is not PipelineStageKind.Verification)
+                    .ToList()
+            };
         }
+
+        // SPEC-20260922-cockpit-agent-selection-fallback RF-001/RF-002: apply
+        // per-stage/single-agent picks to any template, then bind every
+        // AgentWork stage to an eligible CLI before the run is created.
+        definition = await ApplyStageOverridesAsync(definition, request, cancellationToken).ConfigureAwait(false);
 
         var execution = PipelineExecution.Create(
             definition, request.RepositoryFullName, request.RepositoryPath,
@@ -272,25 +296,122 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
             ?? Task.CompletedTask;
 
     /// <summary>
-    /// `single-agent` only — rewrites the AgentWork stage with the requested
-    /// agent/tier and drops Verification when skipped
-    /// (SPEC-20260920-board-cockpit-unified-runs R2).
+    /// SPEC-20260922-cockpit-agent-selection-fallback RF-001/RF-002 — binds
+    /// every AgentWork stage to a CLI before the run exists:
+    /// <list type="number">
+    /// <item>explicit picks (<c>StageOverrides</c>, <c>SingleAgentType</c> or
+    /// legacy <c>AgentOverride</c> on <c>single-agent</c>) must be eligible —
+    /// otherwise <see cref="TaskboardDomainErrorCodes.AgentNotEligible"/> (422);</item>
+    /// <item>Auto (no explicit pick) keeps the template default when eligible,
+    /// else falls to the first eligible CLI in enum order;</item>
+    /// <item>Single Agent with Auto picks the first eligible CLI once and
+    /// applies it to every AgentWork stage;</item>
+    /// <item>no eligible CLI at all → 422 — a run never dispatches a disabled
+    /// or unauthenticated CLI.</item>
+    /// </list>
     /// </summary>
-    private static PipelineDefinition ApplyOverrides(
-        PipelineDefinition definition, PipelineStartRequest request) =>
-        definition with
+    private async Task<PipelineDefinition> ApplyStageOverridesAsync(
+        PipelineDefinition definition, PipelineStartRequest request, CancellationToken cancellationToken)
+    {
+        var agentWork = definition.Stages.Where(s => s.Kind is PipelineStageKind.AgentWork).ToList();
+        if (agentWork.Count == 0)
         {
-            Stages = definition.Stages
-                .Where(s => !(request.SkipVerification && s.Kind is PipelineStageKind.Verification))
-                .Select(s => s.Kind is PipelineStageKind.AgentWork
-                    ? s with
-                    {
-                        Agent = request.AgentOverride ?? s.Agent,
-                        ModelTier = request.TierOverride ?? s.ModelTier
-                    }
-                    : s)
-                .ToList()
-        };
+            return definition;
+        }
+
+        if (request.StageOverrides is not null)
+        {
+            foreach (var key in request.StageOverrides.Keys)
+            {
+                var stage = definition.Stages.FirstOrDefault(s => s.Key == key)
+                    ?? throw new DomainException(
+                        TaskboardDomainErrorCodes.InvalidValue,
+                        $"Unknown stage '{key}' in template '{definition.TemplateId}'.");
+                if (stage.Kind is not PipelineStageKind.AgentWork)
+                {
+                    throw new DomainException(
+                        TaskboardDomainErrorCodes.InvalidValue,
+                        $"Stage '{key}' is {stage.Kind} — agent overrides only apply to AgentWork stages.");
+                }
+            }
+        }
+
+        var eligible = _eligibility is null
+            ? null
+            : await _eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
+
+        // Single-agent Auto resolves once so every stage runs the same CLI.
+        AgentType? singleAuto = null;
+        if (request.SingleAgent && request.SingleAgentType is null && eligible is not null)
+        {
+            singleAuto = FirstEligible(eligible)
+                ?? throw new DomainException(
+                    TaskboardDomainErrorCodes.AgentNotEligible,
+                    "No eligible agent CLI — install and authenticate one under Settings → Agents.");
+        }
+
+        var legacyAgent = request.TemplateId == PipelineTemplates.SingleAgentId ? request.AgentOverride : null;
+        var legacyTier = request.TemplateId == PipelineTemplates.SingleAgentId ? request.TierOverride : null;
+
+        var stages = definition.Stages.Select(s =>
+        {
+            if (s.Kind is not PipelineStageKind.AgentWork)
+            {
+                return s;
+            }
+
+            var ov = request.StageOverrides?.GetValueOrDefault(s.Key);
+            var pick = ov?.Agent ?? (request.SingleAgent ? request.SingleAgentType : null) ?? legacyAgent;
+            AgentType? resolved;
+            if (pick is { } explicitPick)
+            {
+                if (eligible is not null && !eligible.Contains(explicitPick))
+                {
+                    throw new DomainException(
+                        TaskboardDomainErrorCodes.AgentNotEligible,
+                        $"Stage '{s.Key}' requests '{explicitPick}' but it is not installed, authenticated and enabled — pick an available CLI or leave it on Auto.");
+                }
+
+                resolved = explicitPick;
+            }
+            else if (singleAuto is { } single)
+            {
+                resolved = single;
+            }
+            else
+            {
+                resolved = s.Agent;
+                if (eligible is not null && (resolved is null || !eligible.Contains(resolved.Value)))
+                {
+                    resolved = FirstEligible(eligible)
+                        ?? throw new DomainException(
+                            TaskboardDomainErrorCodes.AgentNotEligible,
+                            $"No eligible agent CLI for stage '{s.Key}' — install and authenticate one under Settings → Agents.");
+                }
+            }
+
+            var tier = ov?.Tier
+                ?? (request.SingleAgent ? request.SingleAgentTier : null)
+                ?? legacyTier
+                ?? s.ModelTier;
+            return s with { Agent = resolved, ModelTier = tier };
+        }).ToList();
+
+        return definition with { Stages = stages };
+    }
+
+    private static AgentType? FirstEligible(IReadOnlySet<AgentType> eligible)
+    {
+        foreach (var type in Enum.GetValues<AgentType>())
+        {
+            if (eligible.Contains(type))
+            {
+                return type;
+            }
+        }
+
+        return null;
+    }
 
     private Task<PipelineExecution> LoadAsync(string id, CancellationToken cancellationToken) =>
         _executions.Query
@@ -323,7 +444,8 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                     s.Attempts,
                     s.HandoffSummary,
                     s.LastError,
-                    s.DependsOn))
+                    s.DependsOn,
+                    s.TriedAgents))
                 .ToList(),
             execution.IssueId);
 }

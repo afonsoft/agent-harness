@@ -38,6 +38,79 @@ public class PipelineEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
     }
 
     [Fact]
+    public async Task Dado_Templates_Quando_Get_Entao_ExpoeStagesComDefaults()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var templates = await client.GetFromJsonAsync<List<PipelineTemplateDto>>("/api/harness/pipelines/templates");
+
+        var standard = templates!.Single(t => t.TemplateId == "standard-feature");
+        standard.Stages.Select(s => s.Key)
+            .ShouldBe(["architect", "approve-plan", "builder", "verifier", "reviewer"]);
+        standard.Stages[0].Kind.ShouldBe("AgentWork");
+        standard.Stages[0].DefaultAgent.ShouldBe("Claude");
+        standard.Stages[1].Kind.ShouldBe("Approval");
+    }
+
+    [Fact]
+    public async Task Dado_StageOverrideEmTemplateFixo_Quando_Start_Entao_201ComAgentePedido()
+    {
+        // SPEC-20260922 RF-001: overrides por stage valem para qualquer template.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var created = await client.PostAsJsonAsync("/api/harness/pipelines/start",
+            StartRequest() with
+            {
+                StageOverrides = new Dictionary<string, PipelineStageOverrideDto>
+                {
+                    ["builder"] = new(Taskboard.Agents.AgentType.Devin, null),
+                },
+            });
+
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+        dto!.Stages.Single(s => s.StageKey == "builder").Agent.ShouldBe("Devin");
+    }
+
+    [Fact]
+    public async Task Dado_StageOverrideEmEstagioNaoAgente_Quando_Start_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var created = await client.PostAsJsonAsync("/api/harness/pipelines/start",
+            StartRequest("standard-feature") with
+            {
+                StageOverrides = new Dictionary<string, PipelineStageOverrideDto>
+                {
+                    ["approve-plan"] = new(Taskboard.Agents.AgentType.Codex, null),
+                },
+            });
+
+        created.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_SingleAgentEmTemplateMultiEstagio_Quando_Start_Entao_TodosAgentWorkComMesmoCli()
+    {
+        // SPEC-20260922 RF-005: um único CLI para todo o fluxo, preservando
+        // Approval/Verification sem agente.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var created = await client.PostAsJsonAsync("/api/harness/pipelines/start",
+            StartRequest("standard-feature") with
+            {
+                SingleAgent = true,
+                SingleAgentType = Taskboard.Agents.AgentType.Codex,
+            });
+
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+        dto!.Stages.Where(s => s.Kind == "AgentWork")
+            .ShouldAllBe(s => s.Agent == "Codex");
+        dto.Stages.Single(s => s.StageKey == "approve-plan").Agent.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Dado_TemplateInvalido_Quando_PostStart_Entao_400()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
