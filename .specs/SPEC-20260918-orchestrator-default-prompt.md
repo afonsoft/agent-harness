@@ -110,3 +110,13 @@ Sem mudança — `GET/PUT /api/agents/prompt-template` inalterados.
 - [ ] Placeholders e `Issue:`/`{issueBody}` preservados; testes verdes.
 - [ ] Override de produção tratado e documentado.
 - [ ] PR merged + deploy; tela mostra o novo texto.
+
+## 10. Revision — 2026-09-22 (Knowledge-First merged prompt)
+
+O `Builtin` foi substituído pelo prompt "Knowledge-First, Spec-Driven Development and Harness Engineering":
+
+- Placeholders `{repoUrl}`, `{issueTitle}`, `{issueBody}`, `{issueComments}` no bloco de contexto no topo (não mais em seção `ISSUE` no final).
+- `# Mandatory rules` + passos numerados: wiki discovery (`read_wiki_structure`/`read_wiki_contents`), task management (`manage-taskboard`), preparo do repo em `~/repos`, harness validation (mantém `orchestrator`/`create-agent-harness`), spec resolution (`write-specs`/`execute-specs`), execution, validation e finalize (`write_knowledge` + relatório final).
+- Cada passo registra `write_note`; o processo termina com `write_knowledge`.
+- `NormalizeComments` passou a detectar o cabeçalho `Comments:` de forma case-insensitive — o builtin usa `Issue comments:` e não deve renderizar cabeçalho duplicado.
+- O texto merged também foi persistido como override `Taskboard:Agents:DefaultPrompt` em `ConfigurationOverrides` (SQLite de produção), a pedido do usuário — como o valor é idêntico ao builtin, `customized` permanece `false`.

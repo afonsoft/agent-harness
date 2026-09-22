@@ -50,8 +50,8 @@ public class AgentPromptTemplateTests
         rendered.ShouldContain("orchestrator");
         rendered.ShouldContain("~/repos");
         rendered.ShouldContain("manage-taskboard");
-        rendered.ShouldContain("Title:\n\nt");
-        rendered.ShouldContain("Body:\n\nb");
+        rendered.ShouldContain("Issue title:\n\nt");
+        rendered.ShouldContain("Issue body:\n\nb");
     }
 
     [Fact]
@@ -100,6 +100,18 @@ public class AgentPromptTemplateTests
     }
 
     [Fact]
+    public void Dado_TemplateComCabecalhoIssueComments_Quando_Renderizar_Entao_NaoDuplicaCabecalho()
+    {
+        // O builtin usa "Issue comments:" — a detecção de cabeçalho é
+        // case-insensitive para não renderizar "Comments:" duplicado.
+        var rendered = AgentPromptTemplate.Render(
+            "Issue comments:\n\n{issueComments}",
+            "u", "T", "B", "- dev: nota");
+
+        rendered.ShouldBe("Issue comments:\n\n- dev: nota");
+    }
+
+    [Fact]
     public void Dado_TemplateComIssueComments_Quando_SemComentarios_Entao_PlaceholderVazio()
     {
         var rendered = AgentPromptTemplate.Render(
@@ -111,13 +123,13 @@ public class AgentPromptTemplateTests
     [Fact]
     public void Dado_Builtin_Quando_Renderizar_Entao_ContemTodosOsPlaceholders()
     {
-        // A seção ISSUE fecha o template com Comments + Repository — todos os
-        // placeholders devem estar presentes para o Render substituir.
+        // O bloco de contexto no topo do template carrega os 4 placeholders —
+        // todos devem estar presentes para o Render substituir.
         AgentPromptTemplate.HasCommentsPlaceholder(AgentPromptTemplate.Builtin).ShouldBeTrue();
         AgentPromptTemplate.Builtin.ShouldContain("{issueTitle}");
         AgentPromptTemplate.Builtin.ShouldContain("{issueBody}");
         AgentPromptTemplate.Builtin.ShouldContain("{repoUrl}");
-        AgentPromptTemplate.Builtin.TrimEnd().ShouldEndWith("{repoUrl}");
+        AgentPromptTemplate.Builtin.ShouldContain("{issueComments}");
         AgentPromptTemplate.Builtin.Length.ShouldBeLessThanOrEqualTo(AgentPromptTemplate.MaxLength);
     }
 }
