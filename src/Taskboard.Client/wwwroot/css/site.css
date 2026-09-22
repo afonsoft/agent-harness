@@ -1509,23 +1509,16 @@ body {
     font-size: 0.8rem;
 }
 
-/* AI Chat — threads + messages (SPEC-20260918-ai-chat-threads) */
-.ai-chat-layout {
-    display: grid;
-    grid-template-columns: 280px 1fr;
-    gap: 1rem;
-    align-items: start;
+/* AI Chat — command-bar layout (SPEC-20260922-ai-chat-command-bar RF-005) */
+.ai-chat-commandbar {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: var(--bs-tertiary-bg);
 }
 
-@media (max-width: 768px) {
-    .ai-chat-layout {
-        grid-template-columns: 1fr;
-    }
-}
-
-.ai-chat-sidebar {
-    max-height: calc(100vh - 220px);
-    overflow-y: auto;
+.ai-chat-commandbar .badge {
+    font-weight: 500;
 }
 
 .ai-chat-thread-item {

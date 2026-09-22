@@ -37,7 +37,11 @@
 
 ## AI Chat
 
-- Full chat UI at `/ai-chat`: thread sidebar (create via eligible agent CLI + model picker + sandbox picker, delete with confirm), message area with markdown rendering, composer, typing indicator and auto-scroll
+- Full chat UI at `/ai-chat` (SPEC-20260922-ai-chat-command-bar): message area with markdown rendering, composer, typing indicator and auto-scroll — no sidebar; the whole thread history lives behind a Threads icon next to the title (select + inline-confirm delete), with a New icon beside it
+- Command bar above the composer configures the next conversation: Mode (Assistant/Agent), Agent CLI picker (eligible CLIs only, name shown), repo popup (free text or the shared repository combobox), fixed `~/repos` workspace, Model popup (tier Lite/Normal/Ultra or explicit catalog model) and Sandbox popup (Agent mode only); the first Send creates the thread — the title derives automatically from the prompt (~60 chars) — and locks the bar until New unlocks it; Modo/model quick-switch stay usable on a live agent session
+- Errors surface the real backend reason — `problem+json` `detail`/`code` and `{ error.message }` envelopes reach the toast instead of a generic failure; deleting a stale thread is idempotent (204) and the single-thread GET returns 404 `THREAD_NOT_FOUND` for unknown ids
+- The per-thread SSE stream emits a `: hb` heartbeat comment every `Taskboard:AiChat:SseHeartbeatSeconds` (default 15s) so idle connections survive reverse proxies, and closes cleanly on client disconnect; unknown threads fail fast with 404 instead of hanging
+- Modal close paths blur the focused element before `aria-hidden` applies (`taskboard.blurActiveElement`) — no focus-trap warning for assistive technology
 - Every thread is bound to an eligible agent CLI — there is no direct LLM provider in the server (SPEC-20260921-ai-chat-cli-backend). The model catalog lists per-agent models: CLI-reported (`opencode models`, `devin models list`…) merged with the curated table and saved tier overrides; "CLI default" lets the agent pick its own model
 - `assistant` threads run one-shot through the bound CLI (`IAgentAcpClient`) with the transcript as prompt — the run fails with a clear error if no agent is eligible; legacy threads without an agent auto-bind to the first eligible CLI on the next run; disabling an agent stops its threads at run time
 - `agent` threads keep the interactive ACP session (`AgentSessionManager`); the picked model reaches the session via the CLI's model flag

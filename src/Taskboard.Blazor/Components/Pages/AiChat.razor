@@ -4,13 +4,25 @@
 @using System.Text.Json
 @inject TaskboardClient Client
 @inject IAgentOrchestrationService OrchestrationService
+@inject IGitHubService GitHubService
 @inject IJSRuntime JS
 @inject ToastService ToastService
 
 <PageTitle>AI Code - Harness</PageTitle>
 
-<h1 class="h4 fw-bold mb-1">AI Code</h1>
-<p class="small text-body-secondary mb-3">Chat threads and agent sub-tasks</p>
+<div class="d-flex align-items-center gap-2 mb-3">
+    <h1 class="h4 fw-bold mb-0">AI Code</h1>
+    @* RF-005: history + New live behind icons next to the title. *@
+    <button type="button" class="btn btn-sm btn-outline-secondary" title="Threads"
+            @onclick="ShowHistoryAsync">
+        <Icon Name="IconName.ClockHistory" />
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-primary" title="New conversation"
+            @onclick="NewConversationAsync">
+        <Icon Name="IconName.PlusSquare" />
+    </button>
+    <span class="small text-body-secondary ms-1">Chat threads and agent sub-tasks</span>
+</div>
 
 @if (_threads is null)
 {
@@ -18,284 +30,447 @@
 }
 else
 {
-    <div class="ai-chat-layout">
-        <aside class="ai-chat-sidebar card">
-            <div class="card-body p-2">
-                <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" Class="w-100 mb-2" @onclick="ShowNewThreadAsync">
-                    + New thread
-                </Button>
-                @if (_threads.Count == 0)
-                {
-                    <div class="text-body-secondary small p-2">No threads yet.</div>
-                }
-                <ul class="ai-chat-thread-list list-unstyled mb-0">
-                    @foreach (var thread in OrderedThreads)
+    <section class="ai-chat-main card">
+        @if (_activeThread is not null)
+        {
+            <div class="card-header d-flex align-items-center justify-content-between py-2">
+                <div class="text-truncate">
+                    <strong>@_activeThread.Title</strong>
+                    <span class="text-body-secondary small ms-2">@_activeThread.Model</span>
+                    @if (!string.IsNullOrWhiteSpace(_activeThread.AgentType))
                     {
-                        var isActive = thread.Id == _activeThreadId;
-                        <li class="ai-chat-thread-item @(isActive ? "active" : null)">
-                            <button type="button" class="ai-chat-thread-btn" @onclick="() => SelectThreadAsync(thread)">
-                                <span class="ai-chat-thread-title text-truncate">@thread.Title</span>
-                                <span class="ai-chat-thread-meta">
-                                    <span class="badge text-bg-secondary">@thread.Model</span>
-                                    @if (thread.Status == "running")
-                                    {
-                                        <span class="badge text-bg-warning ai-chat-badge-live">running</span>
-                                    }
-                                    else if (thread.Status == "failed")
-                                    {
-                                        <span class="badge text-bg-danger">failed</span>
-                                    }
-                                </span>
-                            </button>
-                            @if (_deleteConfirmId == thread.Id)
-                            {
-                                <span class="ai-chat-thread-confirm">
-                                    <button type="button" class="btn btn-sm btn-danger" @onclick="() => DeleteThreadAsync(thread)">Delete</button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _deleteConfirmId = null">Cancel</button>
-                                </span>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn btn-sm btn-link text-danger ai-chat-thread-delete"
-                                        title="Delete thread" @onclick="() => _deleteConfirmId = thread.Id">
-                                    <Icon Name="IconName.Trash" />
-                                </button>
-                            }
-                        </li>
+                        <span class="badge text-bg-primary ms-2">agent: @_activeThread.AgentType</span>
                     }
-                </ul>
-            </div>
-        </aside>
-
-        <section class="ai-chat-main card">
-            @if (_activeThread is null)
-            {
-                <div class="card-body">
-                    <EmptyState Message="Select a thread or create a new one." />
                 </div>
+                @if (_running)
+                {
+                    <span class="badge text-bg-warning ai-chat-badge-live">running</span>
+                }
+                else if (_activeThread.Status == "failed")
+                {
+                    <span class="badge text-bg-danger">failed</span>
+                }
+            </div>
+        }
+
+        @if (_sseError)
+        {
+            <div class="alert alert-warning small py-1 px-3 mb-0 rounded-0">
+                Live stream interrupted — retrying automatically.
+            </div>
+        }
+
+        <div class="ai-chat-messages card-body" @ref="_messagesRef">
+            @if (_events.Count == 0 && !_running)
+            {
+                <div class="text-body-secondary small">
+                    @(_activeThread is null
+                        ? "Configure the bar below and send a message to start a conversation."
+                        : "No messages yet — say something below.")
+                </div>
+            }
+            @if (IsAgentMode)
+            {
+                @foreach (var item in AgentRenderItems)
+                {
+                    if (item.Tool is { } tool)
+                    {
+                        <ToolCallCard Model="tool" />
+                        continue;
+                    }
+
+                    if (item.Group is { } group)
+                    {
+                        <ToolCallChangesCard Items="group" />
+                        continue;
+                    }
+
+                    var ev = item.Event!;
+                    if (ev.Kind is "metric" or "permission")
+                    {
+                        // Metrics feed the composer meter; pending
+                        // permissions render below the stream.
+                        continue;
+                    }
+
+                    if (ev.Role is "queued")
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-user">
+                            <div class="ai-chat-bubble ai-chat-queued">
+                                @ev.Content
+                                <span class="badge text-bg-secondary ms-2">queued</span>
+                                <button type="button" class="btn btn-sm btn-link text-danger py-0 ms-1"
+                                        title="Cancel queued prompt"
+                                        @onclick="() => CancelQueuedAsync(ev.Id)">
+                                    <Icon Name="IconName.XCircle" />
+                                </button>
+                            </div>
+                        </div>
+                        continue;
+                    }
+
+                    if (ev.Role is "user")
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-user">
+                            <div class="ai-chat-bubble">
+                                @ev.Content
+                                <button type="button" class="btn btn-sm btn-link ai-chat-fork-btn"
+                                        title="Fork thread from here"
+                                        @onclick="() => ForkFromAsync(ev.Id)">
+                                    <Icon Name="IconName.Diagram3" />
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else if (ev.Role is "assistant" && ev.Kind is not "session")
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-assistant">
+                            <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(ev.Content))</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-system">
+                            <span class="@(ev.Role == "error" ? "text-danger" : "text-body-secondary")">@ev.Content</span>
+                        </div>
+                    }
+                }
+                @foreach (var permission in _permissions)
+                {
+                    <PermissionPromptCard Request="permission" OnReply="OnPermissionReplyAsync" />
+                }
             }
             else
             {
-                <div class="card-header d-flex align-items-center justify-content-between py-2">
-                    <div class="text-truncate">
-                        <strong>@_activeThread.Title</strong>
-                        <span class="text-body-secondary small ms-2">@_activeThread.Model</span>
-                        @if (!string.IsNullOrWhiteSpace(_activeThread.AgentType))
-                        {
-                            <span class="badge text-bg-primary ms-2">agent: @_activeThread.AgentType</span>
-                        }
-                    </div>
-                    @if (_running)
-                    {
-                        <span class="badge text-bg-warning ai-chat-badge-live">running</span>
-                    }
-                    else if (_activeThread.Status == "failed")
-                    {
-                        <span class="badge text-bg-danger">failed</span>
-                    }
-                </div>
-
-                @if (_sseError)
+                @foreach (var group in GroupedEvents)
                 {
-                    <div class="alert alert-warning small py-1 px-3 mb-0 rounded-0">
-                        Live stream interrupted — retrying automatically.
-                    </div>
-                }
-
-                <div class="ai-chat-messages card-body" @ref="_messagesRef">
-                    @if (_events.Count == 0 && !_running)
+                    @if (group.Role is "user")
                     {
-                        <div class="text-body-secondary small">No messages yet — say something below.</div>
+                        <div class="ai-chat-msg ai-chat-msg-user">
+                            <div class="ai-chat-bubble">@group.Text</div>
+                        </div>
+                    }
+                    else if (group.Role is "assistant")
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-assistant">
+                            <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(group.Text))</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ai-chat-msg ai-chat-msg-system">
+                            <span class="@(group.Role == "error" ? "text-danger" : "text-body-secondary")">@group.Text</span>
+                        </div>
+                    }
+                }
+            }
+            @if (_running)
+            {
+                <div class="ai-chat-msg ai-chat-msg-assistant">
+                    <div class="ai-chat-bubble ai-chat-typing">
+                        <Spinner Size="SpinnerSize.Small" /> thinking…
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="card-footer p-2">
+            @* RF-005/RF-006: command bar — selects while unlocked, chips once
+               the conversation is bound to a thread. *@
+            <div class="ai-chat-commandbar d-flex gap-2 align-items-center mb-2 flex-wrap small">
+                @if (_activeThread is null)
+                {
+                    <label class="d-flex align-items-center gap-1 mb-0">
+                        <span class="text-body-secondary">Mode</span>
+                        <select class="form-select form-select-sm ai-chat-quickselect" @bind="_cfgMode">
+                            <option value="assistant">Assistant</option>
+                            <option value="agent">Agent</option>
+                        </select>
+                    </label>
+                    <label class="d-flex align-items-center gap-1 mb-0">
+                        <span class="text-body-secondary">Agent CLI</span>
+                        <select class="form-select form-select-sm ai-chat-quickselect"
+                                value="@_cfgAgentType" @onchange="OnCfgAgentChanged">
+                            @foreach (var agent in _agents ?? [])
+                            {
+                                <option value="@agent.Type"
+                                        disabled="@(agent.Status != AgentStatus.Available)">
+                                    @agent.Name
+                                </option>
+                            }
+                        </select>
+                    </label>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            title="Repository (optional — resolves to ~/repos/<name>)"
+                            @onclick="ShowRepoModalAsync">
+                        <Icon Name="IconName.Folder" />
+                        <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : _cfgRepo)</span>
+                    </button>
+                    <span class="text-body-secondary" title="Workspace root (fixed)">~/repos</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            title="Model"
+                            @onclick="ShowModelModalAsync">
+                        <Icon Name="IconName.Cpu" />
+                        <span class="ms-1">@ConfigModelLabel</span>
+                    </button>
+                    @if (_cfgMode == "agent")
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                title="Sandbox"
+                                @onclick="ShowSandboxModalAsync">
+                            <Icon Name="IconName.ShieldLock" />
+                            <span class="ms-1">@_cfgSandbox</span>
+                        </button>
+                    }
+                    @if (_agents is not null && !_agents.Any(a => a.Status == AgentStatus.Available))
+                    {
+                        <span class="text-warning">
+                            No enabled CLI —
+                            <a href="/settings" class="alert-link">Settings → Agents</a>
+                        </span>
+                    }
+                }
+                else
+                {
+                    <span class="badge text-bg-secondary">@_activeThread.Mode</span>
+                    @if (!string.IsNullOrWhiteSpace(_activeThread.AgentType))
+                    {
+                        <span class="badge text-bg-primary">@_activeThread.AgentType</span>
+                    }
+                    @if (_modes.Count > 0)
+                    {
+                        @* RF-006: Modo is a session control — it stays usable on a
+                           live agent session even while the bar is locked. *@
+                        <label class="d-flex align-items-center gap-1 mb-0">
+                            <span class="text-body-secondary">modo</span>
+                            <select class="form-select form-select-sm ai-chat-quickselect"
+                                    value="@_currentMode"
+                                    @onchange="OnModeSwitchAsync">
+                                @foreach (var mode in _modes)
+                                {
+                                    <option value="@mode.Id" selected="@(mode.Id == _currentMode)">@mode.Name</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_activeThread.RepositoryFullName))
+                    {
+                        <span class="badge text-bg-light border">
+                            <Icon Name="IconName.Folder" /> @_activeThread.RepositoryFullName
+                        </span>
+                    }
+                    <span class="text-body-secondary" title="Workspace">@(_activeThread.WorkspacePath ?? "~/repos")</span>
+                    @if (_modelOptions.Count > 0)
+                    {
+                        <label class="d-flex align-items-center gap-1 mb-0">
+                            <span class="text-body-secondary">model</span>
+                            <select class="form-select form-select-sm ai-chat-quickselect"
+                                    value="@_currentModel"
+                                    @onchange="OnModelSwitchAsync">
+                                @foreach (var option in _modelOptions)
+                                {
+                                    <option value="@option" selected="@(option == _currentModel)">@option</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    else
+                    {
+                        <span class="badge text-bg-light border">
+                            <Icon Name="IconName.Cpu" /> @_activeThread.Model
+                        </span>
                     }
                     @if (_activeThread.Mode == "agent")
                     {
-                        @foreach (var item in AgentRenderItems)
+                        <span class="badge text-bg-light border">
+                            <Icon Name="IconName.ShieldLock" /> @_activeThread.Sandbox
+                        </span>
+                    }
+                }
+                @if (Usage is { } usage)
+                {
+                    var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
+                    var meterClass = percent >= 95 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-success";
+                    <div class="d-flex align-items-center gap-2 ms-auto" title="@UsageTooltip(usage)">
+                        <div class="progress ai-chat-meter" role="progressbar">
+                            <div class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></div>
+                        </div>
+                        <span class="text-body-secondary">
+                            @usage.Used.ToString("N0")@(usage.Size is { } s ? $" / {s:N0}" : "") tokens
+                        </span>
+                    </div>
+                }
+            </div>
+            <div class="d-flex gap-2 align-items-end">
+                <textarea class="form-control ai-chat-composer" rows="2"
+                          @ref="_composerRef"
+                          placeholder="@ComposerPlaceholder"
+                          disabled="@((_running && !IsAgentMode) || _sending)"
+                          @bind="_composer"
+                          @bind:event="oninput"
+                          @onkeydown="OnComposerKeyDownAsync"></textarea>
+                <div class="d-flex flex-column gap-2">
+                    <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
+                            Disabled="@((_running && !IsAgentMode) || _sending || string.IsNullOrWhiteSpace(_composer))"
+                            @onclick="SendMessageAsync">Send</Button>
+                    @if (IsAgentMode)
+                    {
+                        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                                Disabled="@(_sending || _activeThread is null)"
+                                title="Resend the last user prompt"
+                                @onclick="RetryAgentAsync">Retry</Button>
+                        @if (_running)
                         {
-                            if (item.Tool is { } tool)
-                            {
-                                <ToolCallCard Model="tool" />
-                                continue;
-                            }
-
-                            if (item.Group is { } group)
-                            {
-                                <ToolCallChangesCard Items="group" />
-                                continue;
-                            }
-
-                            var ev = item.Event!;
-                            if (ev.Kind is "metric" or "permission")
-                            {
-                                // Metrics feed the composer meter; pending
-                                // permissions render below the stream.
-                                continue;
-                            }
-
-                            if (ev.Role is "queued")
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-user">
-                                    <div class="ai-chat-bubble ai-chat-queued">
-                                        @ev.Content
-                                        <span class="badge text-bg-secondary ms-2">queued</span>
-                                        <button type="button" class="btn btn-sm btn-link text-danger py-0 ms-1"
-                                                title="Cancel queued prompt"
-                                                @onclick="() => CancelQueuedAsync(ev.Id)">
-                                            <Icon Name="IconName.XCircle" />
-                                        </button>
-                                    </div>
-                                </div>
-                                continue;
-                            }
-
-                            if (ev.Role is "user")
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-user">
-                                    <div class="ai-chat-bubble">
-                                        @ev.Content
-                                        <button type="button" class="btn btn-sm btn-link ai-chat-fork-btn"
-                                                title="Fork thread from here"
-                                                @onclick="() => ForkFromAsync(ev.Id)">
-                                            <Icon Name="IconName.Diagram3" />
-                                        </button>
-                                    </div>
-                                </div>
-                            }
-                            else if (ev.Role is "assistant" && ev.Kind is not "session")
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-assistant">
-                                    <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(ev.Content))</div>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-system">
-                                    <span class="@(ev.Role == "error" ? "text-danger" : "text-body-secondary")">@ev.Content</span>
-                                </div>
-                            }
-                        }
-                        @foreach (var permission in _permissions)
-                        {
-                            <PermissionPromptCard Request="permission" OnReply="OnPermissionReplyAsync" />
+                            <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="StopAgentAsync">Stop</Button>
                         }
                     }
                     else
                     {
-                        @foreach (var group in GroupedEvents)
-                        {
-                            @if (group.Role is "user")
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-user">
-                                    <div class="ai-chat-bubble">@group.Text</div>
-                                </div>
-                            }
-                            else if (group.Role is "assistant")
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-assistant">
-                                    <div class="ai-chat-bubble ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(group.Text))</div>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="ai-chat-msg ai-chat-msg-system">
-                                    <span class="@(group.Role == "error" ? "text-danger" : "text-body-secondary")">@group.Text</span>
-                                </div>
-                            }
-                        }
-                    }
-                    @if (_running)
-                    {
-                        <div class="ai-chat-msg ai-chat-msg-assistant">
-                            <div class="ai-chat-bubble ai-chat-typing">
-                                <Spinner Size="SpinnerSize.Small" /> thinking…
-                            </div>
-                        </div>
+                        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                                Disabled="@(_running || _sending || _activeThread is null)"
+                                title="Queue a CLI agent run on this conversation"
+                                @onclick="ShowRunAgentAsync">Run agent</Button>
                     }
                 </div>
-
-                <div class="card-footer p-2">
-                    @if (_activeThread.Mode == "agent" && (_modelOptions.Count > 0 || _modes.Count > 0 || Usage is not null))
-                    {
-                        <div class="d-flex gap-3 align-items-center mb-2 flex-wrap small">
-                            @if (_modelOptions.Count > 0)
-                            {
-                                <label class="d-flex align-items-center gap-1 mb-0">
-                                    <span class="text-body-secondary">model</span>
-                                    <select class="form-select form-select-sm ai-chat-quickselect"
-                                            value="@_currentModel"
-                                            @onchange="OnModelSwitchAsync">
-                                        @foreach (var option in _modelOptions)
-                                        {
-                                            <option value="@option" selected="@(option == _currentModel)">@option</option>
-                                        }
-                                    </select>
-                                </label>
-                            }
-                            @if (_modes.Count > 0)
-                            {
-                                <label class="d-flex align-items-center gap-1 mb-0">
-                                    <span class="text-body-secondary">mode</span>
-                                    <select class="form-select form-select-sm ai-chat-quickselect"
-                                            value="@_currentMode"
-                                            @onchange="OnModeSwitchAsync">
-                                        @foreach (var mode in _modes)
-                                        {
-                                            <option value="@mode.Id" selected="@(mode.Id == _currentMode)">@mode.Name</option>
-                                        }
-                                    </select>
-                                </label>
-                            }
-                            @if (Usage is { } usage)
-                            {
-                                var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
-                                var meterClass = percent >= 95 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-success";
-                                <div class="d-flex align-items-center gap-2 ms-auto" title="@UsageTooltip(usage)">
-                                    <div class="progress ai-chat-meter" role="progressbar">
-                                        <div class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></div>
-                                    </div>
-                                    <span class="text-body-secondary">
-                                        @usage.Used.ToString("N0")@(usage.Size is { } s ? $" / {s:N0}" : "") tokens
-                                    </span>
-                                </div>
-                            }
-                        </div>
-                    }
-                    <div class="d-flex gap-2 align-items-end">
-                        <textarea class="form-control ai-chat-composer" rows="2"
-                                  placeholder="@(_running && _activeThread.Mode != "agent" ? "Waiting for the assistant…" : (_activeThread.Mode == "agent" && _running ? "Steer or queue instruction…" : "Message…"))"
-                                  disabled="@((_running && _activeThread.Mode != "agent") || _sending)"
-                                  @bind="_composer"
-                                  @bind:event="oninput"
-                                  @onkeydown="OnComposerKeyDownAsync"></textarea>
-                        <div class="d-flex flex-column gap-2">
-                            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
-                                    Disabled="@((_running && _activeThread.Mode != "agent") || _sending || string.IsNullOrWhiteSpace(_composer))"
-                                    @onclick="SendMessageAsync">Send</Button>
-                            @if (_activeThread.Mode == "agent")
-                            {
-                                <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                        Disabled="@_sending"
-                                        title="Resend the last user prompt"
-                                        @onclick="RetryAgentAsync">Retry</Button>
-                                @if (_running)
-                                {
-                                    <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="StopAgentAsync">Stop</Button>
-                                }
-                            }
-                            else
-                            {
-                                <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                        Disabled="@(_running || _sending)"
-                                        @onclick="ShowRunAgentAsync">Run agent</Button>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
-        </section>
-    </div>
+            </div>
+        </div>
+    </section>
 }
 
-<Modal @ref="_newThreadModal" />
+@* RF-008: every thread lives behind the history icon — newest first, with
+   inline-confirm delete; picking one loads it and locks the bar. *@
+<Modal @ref="_historyModal" Title="Threads" IsScrollable="true">
+    <BodyTemplate>
+        @if ((_threads?.Count ?? 0) == 0)
+        {
+            <div class="text-body-secondary small p-2">No threads yet.</div>
+        }
+        <ul class="ai-chat-thread-list list-unstyled mb-0">
+            @foreach (var thread in OrderedThreads)
+            {
+                var isActive = thread.Id == _activeThreadId;
+                <li class="ai-chat-thread-item @(isActive ? "active" : null)">
+                    <button type="button" class="ai-chat-thread-btn" @onclick="() => SelectThreadFromHistoryAsync(thread)">
+                        <span class="ai-chat-thread-title text-truncate">@thread.Title</span>
+                        <span class="ai-chat-thread-meta">
+                            <span class="badge text-bg-secondary">@thread.Model</span>
+                            <span class="text-body-secondary">@RelativeTime(thread.UpdatedAt)</span>
+                            @if (thread.Status == "running")
+                            {
+                                <span class="badge text-bg-warning ai-chat-badge-live">running</span>
+                            }
+                            else if (thread.Status == "failed")
+                            {
+                                <span class="badge text-bg-danger">failed</span>
+                            }
+                        </span>
+                    </button>
+                    @if (_deleteConfirmId == thread.Id)
+                    {
+                        <span class="ai-chat-thread-confirm">
+                            <button type="button" class="btn btn-sm btn-danger" @onclick="() => DeleteThreadAsync(thread)">Delete</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _deleteConfirmId = null">Cancel</button>
+                        </span>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-link text-danger ai-chat-thread-delete"
+                                title="Delete thread" @onclick="() => _deleteConfirmId = thread.Id">
+                            <Icon Name="IconName.Trash" />
+                        </button>
+                    }
+                </li>
+            }
+        </ul>
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => HideModalAsync(_historyModal)">Close</Button>
+    </FooterTemplate>
+</Modal>
+
+@* RF-006: repo picker popup — free text or the shared repository combobox. *@
+<Modal @ref="_repoModal" Title="Repository" Size="ModalSize.Small" IsVerticallyCentered="true">
+    <BodyTemplate>
+        <RepositoryCombobox Id="cmdbar-repo"
+                            AriaLabel="Repository"
+                            Placeholder="owner/repo (optional)"
+                            Repositories="@_repoNames"
+                            @bind-Value="_cfgRepo" />
+        <p class="form-text mb-0 mt-2">
+            Workspace resolves to <code>~/repos/&lt;name&gt;</code> server-side.
+            @(_cfgMode == "agent" ? " Required in Agent mode." : " Optional in Assistant mode.")
+        </p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => HideModalAsync(_repoModal)">Done</Button>
+    </FooterTemplate>
+</Modal>
+
+@* RF-006: model popup — tier + explicit model in config mode; the live
+   session's advertised options in session mode. *@
+<Modal @ref="_modelModal" Title="Model" Size="ModalSize.Small" IsVerticallyCentered="true">
+    <BodyTemplate>
+        @if (_activeThread is not null && _modelOptions.Count > 0)
+        {
+            <label class="form-label" for="cmdbar-session-model">Session model</label>
+            <select id="cmdbar-session-model" class="form-select"
+                    value="@_currentModel" @onchange="OnModelSwitchAsync">
+                @foreach (var option in _modelOptions)
+                {
+                    <option value="@option" selected="@(option == _currentModel)">@option</option>
+                }
+            </select>
+            <p class="form-text mb-0">Reported by the live agent session — applies via session/set_config.</p>
+        }
+        else
+        {
+            <div class="mb-3">
+                <label class="form-label" for="cmdbar-tier">Model tier</label>
+                <select id="cmdbar-tier" class="form-select" @bind="_cfgModelTier">
+                    <option value="">Auto</option>
+                    <option value="@AgentModelTier.Lite">Lite</option>
+                    <option value="@AgentModelTier.Normal">Normal</option>
+                    <option value="@AgentModelTier.Ultra">Ultra</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label" for="cmdbar-model">Model</label>
+                <select id="cmdbar-model" class="form-select" @bind="_cfgModelId">
+                    <option value="">@(_cfgModelTier.Length == 0 ? "CLI default" : "Tier default")</option>
+                    @foreach (var model in ConfigAgentModels)
+                    {
+                        <option value="@model.Name">@ModelOptionLabel(model)</option>
+                    }
+                </select>
+                @if (ConfigAgentModels.Count == 0)
+                {
+                    <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
+                }
+                else
+                {
+                    <p class="form-text mb-0">An explicit model overrides the tier.</p>
+                }
+            </div>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => HideModalAsync(_modelModal)">Done</Button>
+    </FooterTemplate>
+</Modal>
+
+<Modal @ref="_sandboxModal" Title="Sandbox" Size="ModalSize.Small" IsVerticallyCentered="true">
+    <BodyTemplate>
+        <select class="form-select" @bind="_cfgSandbox" aria-label="Sandbox">
+            <option value="read-only">read-only</option>
+            <option value="workspace-write">workspace-write</option>
+            <option value="danger-full-access">danger-full-access</option>
+        </select>
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => HideModalAsync(_sandboxModal)">Done</Button>
+    </FooterTemplate>
+</Modal>
+
 <Modal @ref="_runAgentModal" />
 
 @code {
@@ -319,10 +494,42 @@ else
     private bool _scrollPending;
     private string? _deleteConfirmId;
     private ElementReference _messagesRef;
-    private Modal _newThreadModal = default!;
+    private ElementReference _composerRef;
+    private Modal _historyModal = default!;
+    private Modal _repoModal = default!;
+    private Modal _modelModal = default!;
+    private Modal _sandboxModal = default!;
     private Modal _runAgentModal = default!;
     private DotNetObjectReference<AiChat>? _dotNetRef;
     private CancellationTokenSource _disposeCts = new();
+
+    // RF-006: unlocked command-bar configuration — survives "New conversation"
+    // so the next thread starts from the last-used selections.
+    private IReadOnlyList<AgentInfo>? _agents;
+    private IReadOnlyList<AiChatModelDto> _catalog = [];
+    private IReadOnlyList<string> _repoNames = [];
+    private string _cfgMode = "assistant";
+    private string _cfgAgentType = string.Empty;
+    private string _cfgRepo = string.Empty;
+    private string _cfgModelTier = string.Empty;
+    private string _cfgModelId = string.Empty;
+    private string _cfgSandbox = "read-only";
+
+    private bool IsAgentMode =>
+        (_activeThread?.Mode ?? _cfgMode) == "agent";
+
+    private string ComposerPlaceholder =>
+        _running && !IsAgentMode ? "Waiting for the assistant…"
+        : IsAgentMode && _running ? "Steer or queue instruction…"
+        : "Message…";
+
+    private string ConfigModelLabel =>
+        _cfgModelId.Length > 0 ? _cfgModelId
+        : _cfgModelTier.Length > 0 ? _cfgModelTier
+        : "model";
+
+    private IReadOnlyList<AiChatModelDto> ConfigAgentModels =>
+        _catalog.Where(m => string.Equals(m.AgentType, _cfgAgentType, StringComparison.OrdinalIgnoreCase)).ToList();
 
     private IEnumerable<AiChatThreadDto> OrderedThreads =>
         _threads?.OrderByDescending(t => t.UpdatedAt) ?? Enumerable.Empty<AiChatThreadDto>();
@@ -362,6 +569,15 @@ else
         }
 
         return tip;
+    }
+
+    private static string RelativeTime(DateTime updatedAt)
+    {
+        var span = DateTime.UtcNow - updatedAt;
+        return span.TotalMinutes < 1 ? "now"
+            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m"
+            : span.TotalDays < 1 ? $"{(int)span.TotalHours}h"
+            : $"{(int)span.TotalDays}d";
     }
 
     // Consecutive user/assistant events render as one bubble — the server stores
@@ -415,6 +631,34 @@ else
             ToastService.Notify(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
             _threads = [];
         }
+
+        // Command-bar data — same sources the create dialog used. GitHub repo
+        // list is best-effort (missing token must not break the page).
+        try
+        {
+            _agents = await OrchestrationService.GetAvailableAgentsAsync();
+            _catalog = await Client.GetAiChatCatalogAsync();
+            var first = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            if (first is not null)
+            {
+                _cfgAgentType = first.Type.ToString();
+            }
+        }
+        catch
+        {
+            _agents ??= [];
+            _catalog = [];
+        }
+
+        try
+        {
+            var repos = await GitHubService.GetRepositoriesAsync();
+            _repoNames = repos.Select(r => r.FullName).ToList();
+        }
+        catch
+        {
+            _repoNames = [];
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -424,6 +668,52 @@ else
             _scrollPending = false;
             await JS.InvokeVoidAsync("taskboard.scrollToBottom", _messagesRef);
         }
+    }
+
+    /// <summary>RF-004: blur before hide — aria-hidden never lands on a focused descendant.</summary>
+    private async Task HideModalAsync(Modal modal)
+    {
+        await JS.InvokeVoidAsync("taskboard.blurActiveElement");
+        await modal.HideAsync();
+    }
+
+    private async Task ShowHistoryAsync()
+    {
+        // Refresh on open so deletes from other tabs show up.
+        try
+        {
+            _threads = await Client.GetAiChatThreadsAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
+        }
+
+        _deleteConfirmId = null;
+        await _historyModal.ShowAsync();
+    }
+
+    private async Task ShowRepoModalAsync() => await _repoModal.ShowAsync();
+
+    private async Task ShowModelModalAsync() => await _modelModal.ShowAsync();
+
+    private async Task ShowSandboxModalAsync() => await _sandboxModal.ShowAsync();
+
+    private void OnCfgAgentChanged(ChangeEventArgs e)
+    {
+        _cfgAgentType = e.Value?.ToString() ?? string.Empty;
+        _cfgModelId = string.Empty; // reset to CLI default when switching agents
+    }
+
+    private static string ModelOptionLabel(AiChatModelDto model) =>
+        model.Source == "acp"
+            ? $"{model.Name} (reported by agent)"
+            : model.Name;
+
+    private async Task SelectThreadFromHistoryAsync(AiChatThreadDto thread)
+    {
+        await HideModalAsync(_historyModal);
+        await SelectThreadAsync(thread);
     }
 
     private async Task SelectThreadAsync(AiChatThreadDto thread)
@@ -441,6 +731,17 @@ else
         _running = thread.Status == "running";
         _sseError = false;
         _scrollPending = true;
+
+        // Keep the bar defaults in sync so "New" starts from this config.
+        _cfgMode = thread.Mode;
+        if (!string.IsNullOrWhiteSpace(thread.AgentType))
+        {
+            _cfgAgentType = thread.AgentType;
+        }
+        _cfgRepo = thread.RepositoryFullName ?? string.Empty;
+        _cfgModelTier = thread.ModelTier ?? string.Empty;
+        _cfgModelId = string.Empty;
+        _cfgSandbox = thread.Sandbox;
 
         await JS.InvokeVoidAsync(
             "taskboardSse.connect",
@@ -612,7 +913,7 @@ else
     {
         if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer))
         {
-            if (!_running || _activeThread?.Mode == "agent")
+            if (!_running || IsAgentMode)
             {
                 await SendMessageAsync();
             }
@@ -621,9 +922,8 @@ else
 
     private async Task SendMessageAsync()
     {
-        var threadId = _activeThreadId;
         var content = _composer.Trim();
-        if (threadId is null || content.Length == 0)
+        if (content.Length == 0)
         {
             return;
         }
@@ -631,15 +931,43 @@ else
         _sending = true;
         try
         {
-            if (_activeThread?.Mode == "agent")
+            // RF-007: no create form — the first Send materializes the thread
+            // with the command-bar config and an auto-derived title.
+            if (_activeThreadId is null)
+            {
+                var request = new CreateAiChatThreadRequest(
+                    AiChatThreadTitle.Derive(content),
+                    _cfgModelId, // empty → tier/CLI default
+                    "none",
+                    _cfgMode == "agent" ? _cfgSandbox : "read-only",
+                    Mode: _cfgMode,
+                    AgentType: _cfgAgentType,
+                    WorkspacePath: null, // fixed ~/repos — repo resolves server-side
+                    RepositoryFullName: string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim(),
+                    ModelTier: _cfgModelTier.Length == 0 ? null : _cfgModelTier);
+
+                var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
+                if (thread is null)
+                {
+                    // RF-003: surface the real backend reason (e.g. missing clone).
+                    ToastService.Notify(new(ToastType.Danger, createError ?? "Failed to create the thread."));
+                    return;
+                }
+
+                _threads = (_threads ?? []).Concat([thread]).ToList();
+                await SelectThreadAsync(thread);
+            }
+
+            var threadId = _activeThreadId!;
+            if (IsAgentMode)
             {
                 // RF-002: the queue endpoint persists the prompt (queued event)
                 // and dispatches FIFO — no separate user-event post needed.
-                var queued = await Client.QueueAgentThreadPromptAsync(threadId, content);
+                var (queued, queueError) = await Client.QueueAgentThreadPromptAsync(threadId, content);
                 _composer = string.Empty;
                 if (queued is null)
                 {
-                    ToastService.Notify(new(ToastType.Danger, "Failed to queue the prompt."));
+                    ToastService.Notify(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
                     return;
                 }
 
@@ -653,21 +981,21 @@ else
                 return;
             }
 
-            var postedAssistant = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
+            var (postedAssistant, postError) = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
             if (postedAssistant is null)
             {
-                ToastService.Notify(new(ToastType.Danger, "Failed to post the message."));
+                ToastService.Notify(new(ToastType.Danger, postError ?? "Failed to post the message."));
                 return;
             }
 
             _composer = string.Empty;
             _running = true;
 
-            var run = await Client.StartAiChatRunAsync(threadId);
+            var (run, runError) = await Client.StartAiChatRunAsync(threadId);
             if (run is null)
             {
                 _running = false;
-                ToastService.Notify(new(ToastType.Danger, "Failed to start the assistant run."));
+                ToastService.Notify(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
             }
         }
         catch (Exception ex)
@@ -679,6 +1007,27 @@ else
         {
             _sending = false;
         }
+    }
+
+    /// <summary>RF-007: New — clears the composer/stream and unlocks the bar.</summary>
+    private async Task NewConversationAsync()
+    {
+        await JS.InvokeVoidAsync("taskboardSse.disconnect", "ai-chat");
+        _activeThread = null;
+        _activeThreadId = null;
+        _events.Clear();
+        _seenEventIds.Clear();
+        _permissions.Clear();
+        _modelOptions.Clear();
+        _modes.Clear();
+        _modelConfigId = null;
+        _currentModel = null;
+        _currentMode = null;
+        _composer = string.Empty;
+        _running = false;
+        _sseError = false;
+        _scrollPending = false;
+        await JS.InvokeVoidAsync("taskboard.focusElement", _composerRef);
     }
 
     private async Task StopAgentAsync()
@@ -707,10 +1056,10 @@ else
     private async Task ForkFromAsync(string eventId)
     {
         if (_activeThreadId is null) return;
-        var fork = await Client.ForkAiChatThreadAsync(_activeThreadId, eventId);
+        var (fork, error) = await Client.ForkAiChatThreadAsync(_activeThreadId, eventId);
         if (fork is null)
         {
-            ToastService.Notify(new(ToastType.Danger, "Failed to fork the thread."));
+            ToastService.Notify(new(ToastType.Danger, error ?? "Failed to fork the thread."));
             return;
         }
 
@@ -789,30 +1138,6 @@ else
         }
     }
 
-    private async Task ShowNewThreadAsync()
-    {
-        var parameters = new Dictionary<string, object>
-        {
-            ["OnSubmit"] = EventCallback.Factory.Create<CreateAiChatThreadRequest>(this, CreateThreadAsync),
-            ["OnCancel"] = EventCallback.Factory.Create(this, () => _newThreadModal.HideAsync())
-        };
-        await _newThreadModal.ShowAsync<NewThreadDialog>(title: "New thread", parameters: parameters);
-    }
-
-    private async Task CreateThreadAsync(CreateAiChatThreadRequest request)
-    {
-        var thread = await Client.CreateAiChatThreadAsync(request);
-        await _newThreadModal.HideAsync();
-        if (thread is null)
-        {
-            ToastService.Notify(new(ToastType.Danger, "Failed to create the thread."));
-            return;
-        }
-
-        _threads = (_threads ?? []).Concat([thread]).ToList();
-        await SelectThreadAsync(thread);
-    }
-
     private async Task DeleteThreadAsync(AiChatThreadDto thread)
     {
         _deleteConfirmId = null;
@@ -840,14 +1165,14 @@ else
         var parameters = new Dictionary<string, object>
         {
             ["OnSubmit"] = EventCallback.Factory.Create<RunAgentDialog.RunAgentSelection>(this, QueueAgentAsync),
-            ["OnCancel"] = EventCallback.Factory.Create(this, () => _runAgentModal.HideAsync())
+            ["OnCancel"] = EventCallback.Factory.Create(this, () => HideModalAsync(_runAgentModal))
         };
         await _runAgentModal.ShowAsync<RunAgentDialog>(title: "Run agent on this thread", parameters: parameters);
     }
 
     private async Task QueueAgentAsync(RunAgentDialog.RunAgentSelection selection)
     {
-        await _runAgentModal.HideAsync();
+        await HideModalAsync(_runAgentModal);
         var threadId = _activeThreadId;
         var threadTitle = _activeThread?.Title ?? "thread";
         if (threadId is null)
@@ -885,10 +1210,14 @@ else
             return;
         }
 
-        await Client.PostAiChatEventAsync(
+        var (_, error) = await Client.PostAiChatEventAsync(
             threadId,
             new AddAiChatEventRequest("activity",
                 $"{selection.AgentName} queued for {selection.RepositoryFullName} (tier {selection.Tier})."));
+        if (error is not null)
+        {
+            ToastService.Notify(new(ToastType.Warning, error));
+        }
 
         _ = PollAgentRunAsync(issueId, threadId, selection.AgentName, selection.RepositoryFullName, _disposeCts.Token);
     }

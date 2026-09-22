@@ -1221,20 +1221,41 @@ api.MapPost("local/ai/threads", async (
     return Results.Created($"/api/local/ai/threads/{thread.Id}", new { thread });
 });
 
+// SPEC-20260922-ai-chat-command-bar RF-002: single-thread read backs the
+// history popup refresh and thread reload.
+api.MapGet("local/ai/threads/{id}", async (
+    string id,
+    AiChatService aiChatService,
+    CancellationToken ct) =>
+{
+    var thread = await aiChatService.GetThreadAsync(AiChatThreadId.From(id), ct);
+    return thread is null
+        ? Results.NotFound(new { error = new { code = "THREAD_NOT_FOUND", message = $"Thread '{id}' not found." } })
+        : Results.Ok(new { thread });
+});
+
+// RF-002: idempotent delete — removing an already-gone thread is the desired
+// end state, so a stale row returns 204 instead of 404 noise.
 api.MapDelete("local/ai/threads/{id}", async (
     string id,
     AiChatService aiChatService,
     CancellationToken ct) =>
 {
-    var deleted = await aiChatService.DeleteThreadAsync(AiChatThreadId.From(id), ct);
-    return deleted
-        ? Results.NoContent()
-        : Results.NotFound(new { error = new { code = "THREAD_NOT_FOUND", message = $"Thread '{id}' not found." } });
+    await aiChatService.DeleteThreadAsync(AiChatThreadId.From(id), ct);
+    return Results.NoContent();
 });
 
-api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpResponse response, string id, IRepository<AiChatEvent> eventRepo, IThreadEventStreamService threadEvents, CancellationToken ct) =>
+api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpResponse response, string id, AiChatService aiChatService, IRepository<AiChatEvent> eventRepo, IThreadEventStreamService threadEvents, IConfiguration config, CancellationToken ct) =>
 {
     var threadId = AiChatThreadId.From(id);
+
+    // RF-002: unknown threads fail fast — both the JSON snapshot and the SSE
+    // stream answer 404 instead of hanging on a stream that never produces.
+    if (await aiChatService.GetThreadAsync(threadId, ct) is null)
+    {
+        return Results.NotFound(new { error = new { code = "THREAD_NOT_FOUND", message = $"Thread '{id}' not found." } });
+    }
+
     var existing = await eventRepo.Query.Where(e => e.ThreadId == threadId).OrderBy(e => e.CreatedAt).Select(e => e.ToDto()).ToListAsync(ct);
 
     // SPEC-20260918-ai-chat-threads: JSON snapshot for plain REST consumers;
@@ -1247,19 +1268,65 @@ api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpRespo
     response.Headers.ContentType = "text/event-stream";
     response.Headers.CacheControl = "no-cache";
 
-    foreach (var ev in existing)
-    {
-        await response.WriteAsync($"event: ai_chat.event\n", ct);
-        await response.WriteAsync($"data: {JsonSerializer.Serialize(ev, ApiJsonOptions.Default)}\n\n", ct);
-    }
+    // RF-001: idle streams die on proxy read timeouts (nginx default 60s) —
+    // a heartbeat comment every SseHeartbeatSeconds keeps the connection
+    // alive; a client disconnect ends the handler normally instead of
+    // aborting mid-response (the 502s seen behind the reverse proxy).
+    var heartbeatSeconds = Math.Max(1, config.GetValue("Taskboard:AiChat:SseHeartbeatSeconds", 15));
+    var heartbeatInterval = TimeSpan.FromSeconds(heartbeatSeconds);
 
-    await response.Body.FlushAsync(ct);
-
-    await foreach (var ev in threadEvents.SubscribeAsync(id, ct))
+    try
     {
-        await response.WriteAsync($"event: {ev.Type}\n", ct);
-        await response.WriteAsync($"data: {JsonSerializer.Serialize(ev.Payload, ApiJsonOptions.Default)}\n\n", ct);
+        foreach (var ev in existing)
+        {
+            await response.WriteAsync($"event: ai_chat.event\n", ct);
+            await response.WriteAsync($"data: {JsonSerializer.Serialize(ev, ApiJsonOptions.Default)}\n\n", ct);
+        }
+
         await response.Body.FlushAsync(ct);
+
+        await using var enumerator = threadEvents.SubscribeAsync(id, ct).GetAsyncEnumerator(ct);
+        // The pending MoveNext must survive heartbeat iterations — a second
+        // MoveNextAsync while one is in flight is illegal on IAsyncEnumerable.
+        Task<bool>? moveNext = null;
+        while (true)
+        {
+            moveNext ??= enumerator.MoveNextAsync().AsTask();
+            var heartbeat = Task.Delay(heartbeatInterval, ct);
+            var completed = await Task.WhenAny(moveNext, heartbeat).ConfigureAwait(false);
+            if (completed == heartbeat)
+            {
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                await response.WriteAsync(": hb\n\n", ct);
+                await response.Body.FlushAsync(ct);
+                continue;
+            }
+
+            if (!await moveNext.ConfigureAwait(false))
+            {
+                break;
+            }
+
+            moveNext = null;
+
+            var live = enumerator.Current;
+            await response.WriteAsync($"event: {live.Type}\n", ct);
+            await response.WriteAsync($"data: {JsonSerializer.Serialize(live.Payload, ApiJsonOptions.Default)}\n\n", ct);
+            await response.Body.FlushAsync(ct);
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Client disconnected (page nav, EventSource reconnect) — end the
+        // response normally; throwing here aborts mid-response → upstream 502.
+    }
+    catch (IOException)
+    {
+        // Broken pipe on a gone client — same clean-close semantics.
     }
 
     return Results.Empty;

@@ -14,6 +14,7 @@ PUT    /api/client-storage
 ```http
 GET    /api/local/ai/threads
 POST   /api/local/ai/threads
+GET    /api/local/ai/threads/:id
 DELETE /api/local/ai/threads/:id
 GET    /api/local/ai/threads/:id/events
 POST   /api/local/ai/threads/:id/events
@@ -396,7 +397,7 @@ GET /api/local/ai/threads/:id/events
 Accept: text/event-stream
 ```
 
-`GET .../events` is dual-mode: `Accept: application/json` returns a one-shot `200 { events: [{ id, threadId, role, content, createdAt }] }` snapshot; any other Accept streams SSE — the stored backlog replayed as `ai_chat.event` frames followed by live `ai_chat.event` (new messages, including streamed assistant deltas) and `ai_chat.run` (run status changes: `running`/`completed`/`failed`) frames. `POST .../events` `{ role: "user|assistant|activity|error", content }` persists and publishes an event; `POST .../runs` starts a background run executed by the thread's bound agent CLI — one-shot, transcript as prompt (the assistant answers the latest user message); `DELETE /api/local/ai/threads/:id` removes the thread with its events and runs (204 | 404).
+`GET .../events` is dual-mode: `Accept: application/json` returns a one-shot `200 { events: [{ id, threadId, role, content, createdAt }] }` snapshot; any other Accept streams SSE — the stored backlog replayed as `ai_chat.event` frames followed by live `ai_chat.event` (new messages, including streamed assistant deltas), `ai_chat.run` (run status changes: `running`/`completed`/`failed`), `ai_chat.session` and `ai_chat.permission` frames. Idle streams survive reverse-proxy read timeouts: the server emits a `: hb` heartbeat comment every `Taskboard:AiChat:SseHeartbeatSeconds` (default 15s, minimum 1) and closes the response normally when the client disconnects (no mid-response abort → no upstream 502). Unknown thread ids return `404 { error: { code: "THREAD_NOT_FOUND" } }` in both modes instead of opening a stream that never produces. `GET /api/local/ai/threads/:id` returns `200 { thread }` or the same 404. `POST .../events` `{ role: "user|assistant|activity|error", content }` persists and publishes an event; `POST .../runs` starts a background run executed by the thread's bound agent CLI — one-shot, transcript as prompt (the assistant answers the latest user message); `DELETE /api/local/ai/threads/:id` removes the thread with its events and runs — idempotent, always 204.
 
 ## Error Contract
 
