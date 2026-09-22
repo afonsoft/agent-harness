@@ -225,12 +225,11 @@ body {
 
 .sidebar-repo-rail .rail-label {
     display: block;
-    flex: 1 1 auto;
-    min-width: 0;
+    max-width: 3.5rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.75rem;
+    font-size: 0.625rem;
     line-height: 1.2;
     text-align: left;
     color: var(--bs-secondary-color);
@@ -255,9 +254,6 @@ body {
 
     html[data-sidebar-collapsed] .app-sidebar .sidebar-repo-rail {
         display: flex;
-        flex-direction: row;
-        justify-content: flex-start;
-        padding-inline: 0.5rem;
     }
 }
 
