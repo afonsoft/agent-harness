@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-living-specs-default-view` |
 | Ticket | [#325 — E20](https://github.com/afonsoft/agent-harness/issues/325) |
-| Status | `Approved` |
+| Status | `Done` — delivered in PR #326 |
 | Referência | SPEC-20260919-ade-living-specs (tela atual), SPEC-20260918-issue-history (formato) |
 
 ## 1. User Story
