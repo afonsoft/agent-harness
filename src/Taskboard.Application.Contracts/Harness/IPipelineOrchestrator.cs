@@ -20,6 +20,13 @@ public interface IPipelineOrchestrator
     /// <summary>Snapshot of a running/finished pipeline.</summary>
     Task<PipelineExecutionDto?> GetAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Latest execution launched for a board issue (any status, newest first) —
+    /// routes <c>issue:</c>-scoped control/state lookups to the pipeline run the
+    /// board started (SPEC-20260921-board-cockpit-agent-observability RF-004).
+    /// </summary>
+    Task<PipelineExecutionDto?> GetLatestByIssueAsync(string issueId, CancellationToken cancellationToken = default);
+
     /// <summary>Approves a `WaitingApproval` stage; dependents become eligible (RF gates).</summary>
     Task<PipelineExecutionDto> ApproveStageAsync(
         string pipelineExecutionId, string stageKey, string? comment, CancellationToken cancellationToken = default);
@@ -37,6 +44,17 @@ public interface IPipelineOrchestrator
 
     /// <summary>Safe shutdown of running stages; pipeline → Cancelled.</summary>
     Task<PipelineExecutionDto> CancelAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Commits pending worktree changes, pushes the run branch and opens the
+    /// PR (SPEC-20260919-ade-cockpit-hitl RF-005). When the run is bound to a
+    /// board issue the card moves to <c>in_review</c> and the PR link is
+    /// commented on the issue. Returns the PR URL; `null` when the run does
+    /// not exist; throws `InvalidPipelineState` (409) when the run is not
+    /// Completed or has no worktree.
+    /// </summary>
+    Task<string?> CreatePullRequestAsync(
+        string pipelineExecutionId, string title, string? body, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Pauses the execution between stages — in-flight stages finish, nothing

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
+using Taskboard.Dtos;
 using Taskboard.Integrations.Agents;
 
 namespace Taskboard.Server.Services;
@@ -70,6 +71,18 @@ public sealed class AgentControlService
         {
             case (AgentEventScope.Issue, "cancel"):
                 {
+                    // SPEC-20260921-board-cockpit-agent-observability RF-004:
+                    // board runs are pipelines — cancel the execution bound to
+                    // the issue when one exists; the legacy orchestrator path
+                    // stays as fallback for one-shot runs.
+                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+                    if (exec is not null && !IsFinished(exec))
+                    {
+                        await _pipelines.CancelAsync(exec.PipelineExecutionId, cancellationToken);
+                        await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
+                        return new AgentControlResult(AgentControlStatus.Accepted);
+                    }
+
                     var signalled = await _orchestration.CancelAsync(request.ScopeId, cancellationToken);
                     if (!signalled)
                     {
@@ -78,6 +91,37 @@ public sealed class AgentControlService
 
                     await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
                     return new AgentControlResult(AgentControlStatus.Accepted);
+                }
+
+            case (AgentEventScope.Issue, "steer") when !string.IsNullOrWhiteSpace(request.Content):
+                {
+                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+                    if (exec is null || IsFinished(exec))
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
+                    }
+
+                    _steer.Enqueue(exec.PipelineExecutionId, request.Content.Trim());
+                    await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
+                        JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Accepted);
+                }
+
+            case (AgentEventScope.Issue, "retry"):
+                {
+                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+                    var stageKey = request.StageId
+                        ?? exec?.Stages.FirstOrDefault(s => s.Status == "Failed")?.StageKey;
+                    if (exec is null || IsFinished(exec) || stageKey is null)
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-failed-stage");
+                    }
+
+                    var retried = await _pipelines.RetryStageAsync(
+                        exec.PipelineExecutionId, stageKey, request.Content, cancellationToken);
+                    await EmitAsync(request, AgentEventKinds.Lifecycle,
+                        $"Retry dispatched for stage '{stageKey}'", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
                 }
 
             case (AgentEventScope.Run, "steer") when !string.IsNullOrWhiteSpace(request.Content):
@@ -191,8 +235,7 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Accepted);
                 }
 
-            case (AgentEventScope.Issue, "steer") or (AgentEventScope.Issue, "retry")
-                or (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, "steer"):
+            case (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, "steer"):
                 return new AgentControlResult(AgentControlStatus.Conflict,
                     Error: $"action '{action}' is not supported for scope '{request.ScopeKind}' (content required or unsupported).");
 
@@ -239,6 +282,25 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Ok, Payload: exec);
                 }
 
+            case AgentEventScope.Issue when request.RequestId.StartsWith("stage:", StringComparison.Ordinal):
+                {
+                    // Board runs are pipelines — a stage-gate reply on the
+                    // issue scope resolves to the issue's execution.
+                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+                    if (exec is null || IsFinished(exec))
+                    {
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
+                    }
+
+                    var stageKey = request.RequestId["stage:".Length..];
+                    var updated = string.Equals(request.Outcome, "deny", StringComparison.OrdinalIgnoreCase)
+                        ? await _pipelines.RejectStageAsync(exec.PipelineExecutionId, stageKey, request.Comment, cancellationToken)
+                        : await _pipelines.ApproveStageAsync(exec.PipelineExecutionId, stageKey, request.Comment, cancellationToken);
+                    await EmitAsync(AgentEventScope.Issue, request.ScopeId, AgentEventKinds.Approval,
+                        $"Approval '{request.RequestId}' → {request.Outcome}", cancellationToken);
+                    return new AgentControlResult(AgentControlStatus.Ok, Payload: updated);
+                }
+
             case AgentEventScope.Issue:
                 return new AgentControlResult(AgentControlStatus.Conflict,
                     Error: "one-shot issue runs cannot receive permission replies.");
@@ -264,17 +326,7 @@ public sealed class AgentControlService
                         return new AgentControlResult(AgentControlStatus.NotFound, Error: "no-such-run");
                     }
 
-                    var state = exec.Status.ToLowerInvariant() switch
-                    {
-                        "running" or "inprogress" => "running",
-                        "waitingapproval" => "waiting_permission",
-                        "awaitingretry" => "awaiting_retry",
-                        "paused" => "paused",
-                        "completed" => "completed",
-                        "failed" => "failed",
-                        "cancelled" or "canceled" => "stopped",
-                        _ => "queued",
-                    };
+                    var state = MapPipelineState(exec.Status);
                     return new AgentControlResult(AgentControlStatus.Ok,
                         Payload: new AgentScopeState(scopeKind, scopeId, state, LastEventSequence: lastSeq));
                 }
@@ -302,16 +354,28 @@ public sealed class AgentControlService
 
             case AgentEventScope.Issue:
                 {
-                    var latest = (await _orchestration.GetRunsAsync(scopeId, 1, cancellationToken)).FirstOrDefault();
-                    var issueState = latest?.State switch
+                    // Board runs are pipelines — prefer the execution bound to
+                    // the issue; fall back to legacy one-shot AgentRun records.
+                    var exec = await _pipelines.GetLatestByIssueAsync(scopeId, cancellationToken);
+                    string issueState;
+                    if (exec is not null)
                     {
-                        AgentRunState.Running => "running",
-                        AgentRunState.Queued => "queued",
-                        AgentRunState.Succeeded => "completed",
-                        AgentRunState.Failed => "failed",
-                        AgentRunState.Canceled => "stopped",
-                        _ => "idle",
-                    };
+                        issueState = MapPipelineState(exec.Status);
+                    }
+                    else
+                    {
+                        var latest = (await _orchestration.GetRunsAsync(scopeId, 1, cancellationToken)).FirstOrDefault();
+                        issueState = latest?.State switch
+                        {
+                            AgentRunState.Running => "running",
+                            AgentRunState.Queued => "queued",
+                            AgentRunState.Succeeded => "completed",
+                            AgentRunState.Failed => "failed",
+                            AgentRunState.Canceled => "stopped",
+                            _ => "idle",
+                        };
+                    }
+
                     return new AgentControlResult(AgentControlStatus.Ok,
                         Payload: new AgentScopeState(scopeKind, scopeId, issueState, LastEventSequence: lastSeq));
                 }
@@ -321,6 +385,21 @@ public sealed class AgentControlService
                     Error: "scopeKind must be run|thread|issue.");
         }
     }
+
+    private static bool IsFinished(PipelineExecutionDto exec) =>
+        exec.Status is "Completed" or "Cancelled";
+
+    private static string MapPipelineState(string status) => status.ToLowerInvariant() switch
+    {
+        "running" or "inprogress" => "running",
+        "waitingapproval" => "waiting_permission",
+        "awaitingretry" => "awaiting_retry",
+        "paused" => "paused",
+        "completed" => "completed",
+        "failed" => "failed",
+        "cancelled" or "canceled" => "stopped",
+        _ => "queued",
+    };
 
     private Task EmitAsync(AgentControlRequest request, string kind, string title, CancellationToken ct) =>
         EmitAsync(request.ScopeKind, request.ScopeId, kind, title, ct, request.StageId);
