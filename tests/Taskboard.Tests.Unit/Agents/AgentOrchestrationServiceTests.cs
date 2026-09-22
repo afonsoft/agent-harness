@@ -520,10 +520,17 @@ public class AgentOrchestrationServiceTests
         var runId = Guid.NewGuid();
         var runRepository = Substitute.For<IAgentRunRepository>();
         var acpClient = Substitute.For<IAgentAcpClient>();
+        // Gate mantém a execução aberta — sem isso o run completa entre polls
+        // e a janela "live" pode passar despercebida sob carga (flake no CI).
+        var executionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         acpClient.ExecuteAsync(
                 Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new AgentExecutionResult(0, true)));
+            .Returns(async _ =>
+            {
+                await executionGate.Task;
+                return new AgentExecutionResult(0, true);
+            });
         var service = CriarService(acpClient: acpClient, agentRunRepository: runRepository);
         runRepository.EnqueueAsync(Arg.Any<string>(), Arg.Any<AgentType>(), Arg.Any<AgentModelTier?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new AgentRunDto(
@@ -538,6 +545,7 @@ public class AgentOrchestrationServiceTests
             // O id entra no snapshot quando o worker despacha o job — não no enqueue.
             await AguardarAsync(() => Task.FromResult(service.GetLiveRunIds().Contains(runId)));
 
+            executionGate.SetResult();
             await AguardarAsync(async () =>
                 (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
             await AguardarAsync(() => Task.FromResult(!service.GetLiveRunIds().Contains(runId)));
