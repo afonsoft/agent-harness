@@ -26,6 +26,13 @@ public sealed class PipelineStageExecution : Entity<PipelineStageExecutionId>
     public DateTime? StartedAtUtc { get; private set; }
     public DateTime? CompletedAtUtc { get; private set; }
 
+    /// <summary>
+    /// CLIs already attempted for this stage, in order — persisted so a
+    /// fallback chain never re-tries a CLI that already failed and survives
+    /// restarts (SPEC-20260922-cockpit-agent-selection-fallback RF-003).
+    /// </summary>
+    public IReadOnlyList<string> TriedAgents { get; private set; } = [];
+
     private PipelineStageExecution()
     {
     }
@@ -118,6 +125,50 @@ public sealed class PipelineStageExecution : Entity<PipelineStageExecutionId>
         LastError = null;
         StartedAtUtc = null;
         CompletedAtUtc = null;
+        // Manual retry re-opens the whole fallback chain
+        // (SPEC-20260922-cockpit-agent-selection-fallback §6).
+        TriedAgents = [];
+    }
+
+    /// <summary>
+    /// Marks the current agent as tried and keeps the stage Running — the
+    /// engine immediately dispatches the next fallback candidate
+    /// (SPEC-20260922-cockpit-agent-selection-fallback RF-003).
+    /// </summary>
+    internal void RecordAttemptFailure(string error)
+    {
+        if (Status is not StageStatus.Running)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Stage '{StageKey}' cannot record an attempt failure from {Status}.");
+        }
+
+        if (Agent is { } agent)
+        {
+            var name = agent.ToString();
+            if (!TriedAgents.Contains(name, StringComparer.Ordinal))
+            {
+                TriedAgents = [.. TriedAgents, name];
+            }
+        }
+
+        LastError = error;
+    }
+
+    /// <summary>Switches the stage to the next fallback CLI and counts the attempt.</summary>
+    internal void BeginFallbackAttempt(AgentType next)
+    {
+        if (Status is not StageStatus.Running)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Stage '{StageKey}' cannot fall back from {Status}.");
+        }
+
+        Agent = next;
+        Attempts++;
+        LastError = null;
     }
 
     internal void Skip()

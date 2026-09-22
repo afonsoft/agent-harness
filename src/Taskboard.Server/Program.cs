@@ -905,7 +905,11 @@ runs.MapPost("", async (
             request.MaxBudgetUsd,
             request.AgentOverride,
             request.TierOverride,
-            request.SkipVerification),
+            request.SkipVerification,
+            request.StageOverrides,
+            request.SingleAgent,
+            request.SingleAgentType,
+            request.SingleAgentTier),
         ct);
     if (!string.IsNullOrWhiteSpace(request.IssueId))
     {

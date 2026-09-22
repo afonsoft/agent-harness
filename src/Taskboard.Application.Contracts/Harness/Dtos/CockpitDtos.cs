@@ -42,7 +42,15 @@ public sealed record RunStartRequest(
     /// <summary>`single-agent` only — model tier for the AgentWork stage.</summary>
     AgentModelTier? TierOverride = null,
     /// <summary>`single-agent` only — drops the Verification stage when true.</summary>
-    bool SkipVerification = false);
+    bool SkipVerification = false,
+    /// <summary>Per-stage agent/tier picks keyed by stage key — any template (SPEC-20260922 RF-001).</summary>
+    IReadOnlyDictionary<string, PipelineStageOverrideDto>? StageOverrides = null,
+    /// <summary>Run every AgentWork stage on one CLI (SPEC-20260922 RF-005).</summary>
+    bool SingleAgent = false,
+    /// <summary>The single CLI for the run, or null for Auto.</summary>
+    AgentType? SingleAgentType = null,
+    /// <summary>Tier applied to every AgentWork stage, or null to keep stage defaults.</summary>
+    AgentModelTier? SingleAgentTier = null);
 
 /// <summary>Body for `POST /api/harness/runs/{id}/steer` (RF-003).</summary>
 public sealed record SteerRequest(string Instruction);

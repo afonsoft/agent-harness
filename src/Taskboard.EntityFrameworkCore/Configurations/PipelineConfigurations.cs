@@ -78,6 +78,10 @@ public sealed class PipelineStageExecutionConfiguration : IEntityTypeConfigurati
             .HasMaxLength(1024)
             .HasConversion(new ReadOnlyListStringJsonValueConverter());
 
+        builder.Property(s => s.TriedAgents)
+            .HasMaxLength(1024)
+            .HasConversion(new ReadOnlyListStringJsonValueConverter());
+
         builder.Property(s => s.AdjustedPrompt).HasMaxLength(16384);
         builder.Property(s => s.HandoffSummary).HasMaxLength(16384);
         builder.Property(s => s.ApprovalComment).HasMaxLength(4096);

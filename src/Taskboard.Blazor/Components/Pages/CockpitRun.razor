@@ -49,6 +49,14 @@
         {
             <span class="d-inline-flex align-items-center gap-1 border rounded px-2 py-1 small">
                 <StatusBadge Status="@stage.Status" /> @stage.Name
+                @* SPEC-20260922 RF-006: effective CLI + attempt count; the fallback chain shows on hover. *@
+                @if (stage.Agent is not null)
+                {
+                    <span class="text-body-secondary"
+                          title="@(stage.TriedAgents is { Count: > 0 } ? $"tried: {string.Join(" → ", stage.TriedAgents)}" : null)">
+                        (@stage.Agent@(stage.Attempts > 1 ? $" ×{stage.Attempts}" : null))
+                    </span>
+                }
             </span>
         }
     </div>

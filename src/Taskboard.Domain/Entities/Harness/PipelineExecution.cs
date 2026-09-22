@@ -1,3 +1,4 @@
+using Taskboard.Agents;
 using Taskboard.Harness;
 
 namespace Taskboard.Domain.Entities.Harness;
@@ -156,6 +157,21 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
     {
         RequireStage(stageKey).Retry(adjustedPrompt);
         RecomputeStatus(now);
+    }
+
+    /// <summary>
+    /// Marks the running stage's current CLI as tried after a failed attempt
+    /// (SPEC-20260922-cockpit-agent-selection-fallback RF-003).
+    /// </summary>
+    public void RecordStageAttemptFailure(string stageKey, string error)
+    {
+        RequireStage(stageKey).RecordAttemptFailure(error);
+    }
+
+    /// <summary>Switches the running stage to the next fallback CLI.</summary>
+    public void BeginStageFallback(string stageKey, AgentType next)
+    {
+        RequireStage(stageKey).BeginFallbackAttempt(next);
     }
 
     /// <summary>

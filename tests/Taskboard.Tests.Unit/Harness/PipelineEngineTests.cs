@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Application.Harness;
 using Taskboard.Domain.Entities.Harness;
@@ -55,6 +56,25 @@ public class PipelineEngineTests : IDisposable
     private PipelineEngine CriarEngine(IAgentExecutionEventSink? eventSink = null) =>
         new(_scopeFactory, _acp, _verification,
             NullLogger<PipelineEngine>.Instance, eventSink: eventSink);
+
+    /// <summary>
+    /// Engine com <see cref="IAgentEligibilityService"/> no escopo — habilita a
+    /// cadeia de fallback de CLIs (SPEC-20260922 RF-003).
+    /// </summary>
+    private PipelineEngine CriarEngineComElegiveis(IReadOnlySet<AgentType> elegiveis)
+    {
+        var eligibility = Substitute.For<IAgentEligibilityService>();
+        eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>()).Returns(elegiveis);
+        var services = new ServiceCollection();
+        services.AddScoped(_ => new TaskboardDbContext(_options));
+        services.AddScoped<IRepository<PipelineExecution>>(sp =>
+            new EfCoreRepository<PipelineExecution>(sp.GetRequiredService<TaskboardDbContext>()));
+        services.AddScoped(_ => _isolation);
+        services.AddScoped(_ => eligibility);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+        return new PipelineEngine(
+            scopeFactory, _acp, _verification, NullLogger<PipelineEngine>.Instance);
+    }
 
     private PipelineExecution SalvarExecucao(PipelineDefinition def)
     {
@@ -256,6 +276,167 @@ public class PipelineEngineTests : IDisposable
         agentes[0].ShouldBe(AgentType.Claude);
         agentes.Skip(1).Order().ShouldBe([AgentType.Codex, AgentType.OpenCode]);
         Recarregar(exec.Id).Status.ShouldBe(PipelineStatus.Completed);
+    }
+
+    [Fact]
+    public async Task Dado_CliFalha_Quando_OutroElegivel_Entao_StageCompletaComFallback()
+    {
+        // SPEC-20260922 RF-003: falha do CLI vinculado → próximo elegível assume
+        // com o mesmo prompt; Agent/TriedAgents/Attempts registram a cadeia.
+        ConfigurarIsolacao();
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new AgentExecutionResult(
+                call.ArgAt<AgentExecutionRequest>(0).AgentType == AgentType.Codex ? 1 : 0,
+                call.ArgAt<AgentExecutionRequest>(0).AgentType != AgentType.Codex)));
+        _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
+            .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
+        var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        var final = Recarregar(exec.Id);
+        final.Status.ShouldBe(PipelineStatus.Completed);
+        var builder = final.Stages.Single(s => s.StageKey == "builder");
+        builder.Status.ShouldBe(StageStatus.Completed);
+        builder.Agent.ShouldBe(AgentType.OpenCode);
+        builder.Attempts.ShouldBe(2);
+        builder.TriedAgents.ShouldBe([nameof(AgentType.Codex)]);
+    }
+
+    [Fact]
+    public async Task Dado_ModeloRejeitado_Quando_UnrecognizedModel_Entao_RetentaSemFlagNoMesmoCli()
+    {
+        // SPEC-20260922 RF-004: `unrecognized_model` retenta uma vez no mesmo
+        // CLI sem model flag antes de consumir o próximo candidato.
+        ConfigurarIsolacao();
+        var chamadas = new List<AgentExecutionRequest>();
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var request = call.ArgAt<AgentExecutionRequest>(0);
+                chamadas.Add(request);
+                if (chamadas.Count == 1)
+                {
+                    call.ArgAt<IProgress<AgentLogMessage>>(1).Report(new AgentLogMessage(
+                        DateTimeOffset.UtcNow, "150", AgentLogStream.StdErr,
+                        "\"Opus\" isn't described by this version's model catalog [unrecognized_model]"));
+                    return Task.FromResult(new AgentExecutionResult(1, false));
+                }
+
+                return Task.FromResult(new AgentExecutionResult(0, true));
+            });
+        _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
+            .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
+        var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        var final = Recarregar(exec.Id);
+        final.Status.ShouldBe(PipelineStatus.Completed);
+        var builder = final.Stages.Single(s => s.StageKey == "builder");
+        builder.Agent.ShouldBe(AgentType.Codex);
+        chamadas.Count.ShouldBe(2);
+        chamadas.ShouldAllBe(r => r.AgentType == AgentType.Codex);
+        chamadas[0].OmitModelFlag.ShouldBeFalse();
+        chamadas[1].OmitModelFlag.ShouldBeTrue();
+        chamadas[1].ResolvedModelName.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_TodosClisFalham_Quando_EsgotaCadeia_Entao_StageFailedComTriedAgents()
+    {
+        ConfigurarIsolacao();
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentExecutionResult(1, false));
+        var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        var final = Recarregar(exec.Id);
+        final.Status.ShouldBe(PipelineStatus.AwaitingRetry);
+        var builder = final.Stages.Single(s => s.StageKey == "builder");
+        builder.Status.ShouldBe(StageStatus.Failed);
+        builder.TriedAgents.ShouldBe([nameof(AgentType.Codex), nameof(AgentType.OpenCode)]);
+        builder.Attempts.ShouldBe(2);
+        // O verifier nunca foi despachado — a DAG morreu no builder.
+        final.Stages.Single(s => s.StageKey == "verifier").Status.ShouldBe(StageStatus.Pending);
+    }
+
+    [Fact]
+    public async Task Dado_CliInelegivelNoDispatch_Quando_Roda_Entao_PulaParaProximoElegivel()
+    {
+        // RF-002: elegibilidade é dinâmica — CLI desabilitado depois do start é
+        // pulado, não despachado.
+        ConfigurarIsolacao();
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentExecutionResult(0, true));
+        _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
+            .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
+        var exec = SalvarExecucao(PipelineTemplates.QuickPatch); // builder → Codex
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.OpenCode });
+
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        var final = Recarregar(exec.Id);
+        final.Status.ShouldBe(PipelineStatus.Completed);
+        final.Stages.Single(s => s.StageKey == "builder").Agent.ShouldBe(AgentType.OpenCode);
+        await _acp.DidNotReceive().ExecuteAsync(
+            Arg.Is<AgentExecutionRequest>(r => r.AgentType == AgentType.Codex),
+            Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_SpawnLancaExcecao_Quando_ExecuteFalha_Entao_FallbackParaProximoCli()
+    {
+        ConfigurarIsolacao();
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<AgentExecutionRequest>(0).AgentType == AgentType.Codex
+                ? Task.FromException<AgentExecutionResult>(new FileNotFoundException("Executable 'codex' not found in PATH."))
+                : Task.FromResult(new AgentExecutionResult(0, true)));
+        _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
+            .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
+        var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        var final = Recarregar(exec.Id);
+        final.Status.ShouldBe(PipelineStatus.Completed);
+        final.Stages.Single(s => s.StageKey == "builder").Agent.ShouldBe(AgentType.OpenCode);
+    }
+
+    [Fact]
+    public async Task Dado_RetryManual_Quando_AposEsgotar_Entao_TriedAgentsResetam()
+    {
+        ConfigurarIsolacao();
+        _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
+            .Returns(new AgentExecutionResult(1, false));
+        var def = new PipelineDefinition("single", "Single",
+        [
+            new PipelineStage("builder", "Builder", PipelineStageKind.AgentWork,
+                AgentRole.Builder, AgentType.Codex, AgentModelTier.Normal, []),
+        ]);
+        var exec = SalvarExecucao(def);
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+        await engine.DispatchPendingAsync();
+        await engine.DrainAsync();
+
+        var falho = Recarregar(exec.Id);
+        falho.Stages.Single(s => s.StageKey == "builder")
+            .TriedAgents.ShouldBe([nameof(AgentType.Codex), nameof(AgentType.OpenCode)]);
+
+        falho.RetryStage("builder", null, DateTime.UtcNow);
+        _context.SaveChanges();
+
+        Recarregar(exec.Id).Stages.Single(s => s.StageKey == "builder").TriedAgents.ShouldBeEmpty();
     }
 
     [Fact]
