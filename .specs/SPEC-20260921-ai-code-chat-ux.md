@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | implementation branch per issue |
 | Ticket | [#289](https://github.com/afonsoft/agent-harness/issues/289) |
-| Status | `Approved` |
+| Status | `Done` (merged via [PR #293](https://github.com/afonsoft/agent-harness/pull/293); issue #289 closed 2026-09-22) |
 | Depends on | SPEC-20260921-ai-code-thread-config (RF-005 catálogo ACP) |
 
 ## 1. User Story

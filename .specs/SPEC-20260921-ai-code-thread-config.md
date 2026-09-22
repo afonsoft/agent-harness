@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feat/ai-code-rename` → implementation branch per issue |
 | Ticket | [#288](https://github.com/afonsoft/agent-harness/issues/288) |
-| Status | `Approved` (RF-001 delivered in the same PR that introduces this SPEC) |
+| Status | `Done` (merged via [PR #292](https://github.com/afonsoft/agent-harness/pull/292); issue #288 closed 2026-09-22) |
 
 ## 1. User Story
 
