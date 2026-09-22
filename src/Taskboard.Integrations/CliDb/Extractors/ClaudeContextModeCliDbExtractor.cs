@@ -17,15 +17,22 @@ public sealed class ClaudeContextModeCliDbExtractor : CliDbExtractorBase
         0, 0,
         "session_meta(compact_count,event_count,last_event_at,project_dir,session_id,started_at,usage_cursor)");
 
+    private readonly CliTokenEstimator _estimator;
+
     public ClaudeContextModeCliDbExtractor(
-        ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger<ClaudeContextModeCliDbExtractor> logger)
+        ICliDatabaseLocator locator, ICliDatabaseReader reader,
+        ILogger<ClaudeContextModeCliDbExtractor> logger, CliTokenEstimator? estimator = null)
         : base(locator, reader, logger)
     {
+        _estimator = estimator ?? new CliTokenEstimator();
     }
 
     public override AgentCliKind Kind => AgentCliKind.Claude;
     public override CliDbSchemaFingerprint ExpectedFingerprint => Baseline;
     public override IReadOnlyList<CliDbSource> Sources => CliDatabaseMap.SourcesFor(Kind);
+
+    // v2: event_count × EstimatedTokensPerEvent feeds TokensInput (RF-002).
+    public override int DataVersion => 2;
 
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,
@@ -41,6 +48,7 @@ public sealed class ClaudeContextModeCliDbExtractor : CliDbExtractorBase
             "session_meta",
             ["rowid", "session_id", "started_at", "last_event_at", "event_count"],
             r => (Rowid: r.GetInt64("rowid") ?? 0,
+                Events: r.GetInt64("event_count"),
                 Record: new CliSessionRecord(
                     source.Name,
                     r.GetString("session_id") ?? string.Empty,
@@ -55,13 +63,15 @@ public sealed class ClaudeContextModeCliDbExtractor : CliDbExtractorBase
             orderBy: "rowid",
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        foreach (var (rowid, record) in rows)
+        foreach (var (rowid, events, record) in rows)
         {
             if (record.ExternalId.Length == 0)
             {
                 continue;
             }
-            sessions.Add(record);
+            sessions.Add(events is { } n
+                ? record with { TokensInput = _estimator.FromEvents(n) }
+                : record);
             if (rowid > (maxRowid ?? 0))
             {
                 maxRowid = rowid;

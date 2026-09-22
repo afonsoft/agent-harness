@@ -29,6 +29,7 @@ public sealed class CliMetricSourceConfiguration : IEntityTypeConfiguration<CliM
         builder.Property(s => s.FileSizeBytes);
         builder.Property(s => s.LastSyncUtc);
         builder.Property(s => s.RowCount);
+        builder.Property(s => s.ExtractorDataVersion).HasDefaultValue(1);
         builder.Property(s => s.CreatedAt);
         builder.Property(s => s.UpdatedAt);
 

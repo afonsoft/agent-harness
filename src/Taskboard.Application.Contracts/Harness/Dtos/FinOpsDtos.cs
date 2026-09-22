@@ -27,7 +27,24 @@ public sealed record CliUsageSummaryDto(
     decimal CostUsd,
     IReadOnlyDictionary<string, decimal> CostByCli,
     /// <summary>Share (0-1) of sessions whose token counts are estimated, not vendor-reported.</summary>
-    double EstimatedShare = 0.0);
+    double EstimatedShare = 0.0,
+    /// <summary>
+    /// Per-CLI rows ordered Sessions desc / CostUsd desc / Cli asc — one entry
+    /// per kind with aggregates in the period, zero values included
+    /// (SPEC-20260922-finops-cli-usage-breakdown RF-001).
+    /// </summary>
+    IReadOnlyList<CliUsageByCliDto>? ByCli = null);
+
+/// <summary>Per-CLI usage row for the FinOps breakdown table (SPEC-20260922 RF-001).</summary>
+public sealed record CliUsageByCliDto(
+    string Cli,
+    int Sessions,
+    long TokensInput,
+    long TokensOutput,
+    long TokensCached,
+    decimal CostUsd,
+    /// <summary>Share (0-1) of the CLI's sessions with estimated (not vendor) tokens.</summary>
+    double EstimatedShare);
 
 /// <summary>Token totals for the fixed 24h/7d/30d windows anchored at `now` (RF-001).</summary>
 public sealed record FinOpsTokenWindowsDto(long Last24h, long Last7d, long Last30d);

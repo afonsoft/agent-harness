@@ -125,19 +125,42 @@
                             </div>
                         </div>
                     </div>
-                    @if (cli.CostByCli.Count > 0)
+                    @if (cli.ByCli is { Count: > 0 } byCli)
                     {
                         <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>CLI</th>
+                                    <th class="text-end">Sessions</th>
+                                    <th class="text-end">Tokens in</th>
+                                    <th class="text-end">Tokens out</th>
+                                    <th class="text-end">Tokens cached</th>
+                                    <th class="text-end">Cost</th>
+                                </tr>
+                            </thead>
                             <tbody>
-                                @foreach (var kv in cli.CostByCli.OrderByDescending(kv => kv.Value))
+                                @foreach (var row in byCli)
                                 {
+                                    var noUsage = row.Sessions > 0
+                                        && row.TokensInput == 0 && row.TokensOutput == 0 && row.TokensCached == 0;
                                     <tr>
-                                        <td>@kv.Key</td>
-                                        <td class="text-end">@kv.Value.ToString("C4")</td>
-                                        <td style="width: 40%">
-                                            <div class="progress" style="height: 8px">
-                                                <div class="progress-bar bg-success" style="width: @BarWidth(kv.Value, cli.CostByCli)%"></div>
-                                            </div>
+                                        <td>
+                                            @row.Cli
+                                            @if (noUsage)
+                                            {
+                                                <span class="badge text-bg-secondary" title="vendor does not report token usage">no usage data</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">@row.Sessions.ToString("N0")</td>
+                                        <td class="text-end">@row.TokensInput.ToString("N0")</td>
+                                        <td class="text-end">@row.TokensOutput.ToString("N0")</td>
+                                        <td class="text-end">@row.TokensCached.ToString("N0")</td>
+                                        <td class="text-end">
+                                            @row.CostUsd.ToString("C4")
+                                            @if (row.EstimatedShare > 0)
+                                            {
+                                                <span class="badge text-bg-secondary" title="@(row.EstimatedShare.ToString("P0")) of sessions have estimated tokens">~ @(row.EstimatedShare.ToString("P0"))</span>
+                                            }
                                         </td>
                                     </tr>
                                 }

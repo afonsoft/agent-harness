@@ -318,6 +318,16 @@ builder.Services.AddSingleton<ICliDatabaseLocator>(sp => new CliDatabaseLocator(
 builder.Services.AddSingleton<ICliDatabaseReader>(sp => new SqliteCliDatabaseReader(
     homeDir,
     sp.GetRequiredService<ILogger<SqliteCliDatabaseReader>>()));
+
+// SPEC-20260919-cli-metrics: ingestão incremental das fontes do cli-db-reader.
+// Options resolvem antes dos extratores — SPEC-20260922 RF-002 injeta o
+// CliTokenEstimator nos que estimam tokens.
+var cliMetricsOptions = builder.Configuration
+    .GetSection("Taskboard:CliMetrics")
+    .Get<CliMetricsOptions>() ?? new CliMetricsOptions();
+builder.Services.AddSingleton(cliMetricsOptions);
+builder.Services.AddSingleton(sp => new CliTokenEstimator(
+    sp.GetRequiredService<CliMetricsOptions>()));
 builder.Services.AddSingleton<ICliDbExtractor>(sp => new CodexCliDbExtractor(
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
@@ -329,25 +339,23 @@ builder.Services.AddSingleton<ICliDbExtractor>(sp => new OpenCodeCliDbExtractor(
 builder.Services.AddSingleton<ICliDbExtractor>(sp => new DevinCliDbExtractor(
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
-    sp.GetRequiredService<ILogger<DevinCliDbExtractor>>()));
+    sp.GetRequiredService<ILogger<DevinCliDbExtractor>>(),
+    sp.GetRequiredService<CliTokenEstimator>()));
 builder.Services.AddSingleton<ICliDbExtractor>(sp => new AntigravityCliDbExtractor(
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
-    sp.GetRequiredService<ILogger<AntigravityCliDbExtractor>>()));
+    sp.GetRequiredService<ILogger<AntigravityCliDbExtractor>>(),
+    sp.GetRequiredService<CliTokenEstimator>()));
 builder.Services.AddSingleton<ICliDbExtractor>(sp => new ClineCliDbExtractor(
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
-    sp.GetRequiredService<ILogger<ClineCliDbExtractor>>()));
+    sp.GetRequiredService<ILogger<ClineCliDbExtractor>>(),
+    sp.GetRequiredService<CliTokenEstimator>()));
 builder.Services.AddSingleton<ICliDbExtractor>(sp => new ClaudeContextModeCliDbExtractor(
     sp.GetRequiredService<ICliDatabaseLocator>(),
     sp.GetRequiredService<ICliDatabaseReader>(),
-    sp.GetRequiredService<ILogger<ClaudeContextModeCliDbExtractor>>()));
-
-// SPEC-20260919-cli-metrics: ingestão incremental das fontes do cli-db-reader.
-var cliMetricsOptions = builder.Configuration
-    .GetSection("Taskboard:CliMetrics")
-    .Get<CliMetricsOptions>() ?? new CliMetricsOptions();
-builder.Services.AddSingleton(cliMetricsOptions);
+    sp.GetRequiredService<ILogger<ClaudeContextModeCliDbExtractor>>(),
+    sp.GetRequiredService<CliTokenEstimator>()));
 builder.Services.AddScoped<ICliMetricsRepository, EfCoreCliMetricsRepository>();
 builder.Services.AddScoped<ICliUsageMetricsProvider, EfCoreCliUsageMetricsProvider>();
 builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(

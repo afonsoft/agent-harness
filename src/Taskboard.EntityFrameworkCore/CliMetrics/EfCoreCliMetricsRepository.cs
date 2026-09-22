@@ -26,7 +26,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
             .AsNoTracking()
             .Where(s => s.Kind == kind && s.SourceName == sourceName)
             .Select(s => new CliMetricSourceStateDto(
-                s.WatermarkCursor, s.ResolvedPath, s.FileModifiedUtc, s.FileSizeBytes, s.Status))
+                s.WatermarkCursor, s.ResolvedPath, s.FileModifiedUtc, s.FileSizeBytes, s.Status,
+                s.ExtractorDataVersion))
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
         return row;
@@ -44,7 +45,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
         long rowCount,
         string? lastError,
         DateTime now,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? extractorDataVersion = null)
     {
         var row = await _context.CliMetricSources
             .FirstOrDefaultAsync(s => s.Kind == kind && s.SourceName == sourceName, cancellationToken)
@@ -55,6 +57,13 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
         if (resolvedPaths is not null && maxMtimeTicks is not null && totalSizeBytes is not null)
         {
             row.RecordFileState(resolvedPaths, maxMtimeTicks.Value, totalSizeBytes.Value, now);
+        }
+
+        // Version handling precedes MarkSync so a bump clears the old cursor
+        // before the fresh one is written (SPEC-20260922 RF-003).
+        if (extractorDataVersion is { } version)
+        {
+            row.RecordExtractorDataVersion(version, now);
         }
 
         if (status == CliDbSourceStatus.Error)

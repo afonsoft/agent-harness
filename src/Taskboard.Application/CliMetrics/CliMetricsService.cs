@@ -124,12 +124,19 @@ public sealed class CliMetricsService : ICliMetricsService
         }
 
         var unchanged = true;
+        var staleVersion = false;
         string? resumeCursor = null;
         foreach (var (source, joined, mtime, size) in signatures)
         {
             var state = await _repository.GetSourceStateAsync(extractor.Kind, source.Name, cancellationToken)
                 .ConfigureAwait(false);
             resumeCursor ??= state?.WatermarkCursor;
+            // SPEC-20260922 RF-003: an extractor data-version bump bypasses the
+            // file-signature skip and forces one full re-extract.
+            if ((state?.ExtractorDataVersion ?? 0) < extractor.DataVersion)
+            {
+                staleVersion = true;
+            }
             // Errored sources always retry — the failure may have been transient or
             // caused by a previous build, and an unchanged file must not pin it.
             if (state?.Status is CliDbSourceStatus.Error
@@ -139,10 +146,18 @@ public sealed class CliMetricsService : ICliMetricsService
             }
         }
 
-        if (unchanged)
+        if (unchanged && !staleVersion)
         {
             _logger.LogDebug("CLI metrics: {Kind} unchanged, skipping", extractor.Kind);
             return 0;
+        }
+
+        if (staleVersion)
+        {
+            _logger.LogInformation(
+                "CLI metrics: {Kind} extractor data v{Version} ahead of stored state — full re-extract",
+                extractor.Kind, extractor.DataVersion);
+            resumeCursor = null;
         }
 
         var result = await extractor.ExtractSinceAsync(resumeCursor, cancellationToken).ConfigureAwait(false);
@@ -168,12 +183,18 @@ public sealed class CliMetricsService : ICliMetricsService
 
         var perSourceCounts = result.Sessions.GroupBy(s => s.Source, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => (long)g.Count(), StringComparer.Ordinal);
+        // Persist the applied data version only on a successful pass — a
+        // failed re-extract keeps the old version and retries next tick.
+        int? appliedVersion = result.Status is CliDbSourceStatus.Available or CliDbSourceStatus.CopiedToTemp
+            ? extractor.DataVersion
+            : null;
         foreach (var (source, joined, mtime, size) in signatures)
         {
             await _repository.SaveSourceStateAsync(
                 extractor.Kind, source.Name, source.RelativePathPattern, joined, mtime, size,
                 result.Status, result.NextCursor,
-                perSourceCounts.GetValueOrDefault(source.Name), result.Reason, now, cancellationToken)
+                perSourceCounts.GetValueOrDefault(source.Name), result.Reason, now, cancellationToken,
+                extractorDataVersion: appliedVersion)
                 .ConfigureAwait(false);
         }
 

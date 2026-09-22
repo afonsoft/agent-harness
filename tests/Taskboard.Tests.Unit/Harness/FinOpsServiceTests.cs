@@ -129,6 +129,89 @@ public sealed class FinOpsServiceTests : IDisposable
         summary.CliUsage.TokensInput.ShouldBe(1_000_000);
         summary.CliUsage.CostUsd.ShouldBe(4.25m);
         summary.CliUsage.CostByCli["OpenCode"].ShouldBe(4.25m);
+        var row = summary.CliUsage.ByCli.ShouldHaveSingleItem();
+        row.Cli.ShouldBe("OpenCode");
+        row.Sessions.ShouldBe(3);
+        row.TokensInput.ShouldBe(1_000_000);
+        row.CostUsd.ShouldBe(4.25m);
+        row.EstimatedShare.ShouldBe(0.0);
+    }
+
+    [Fact]
+    public async Task Dado_AgregadosMultiplosKinds_Quando_Summary_Entao_ByCliOrdenadoComZeros()
+    {
+        // SPEC-20260922 RF-001 — ByCli inclui kinds sem custo/tokens (Devin) e
+        // ordena Sessions desc → CostUsd desc → Cli asc.
+        var now = DateTime.UtcNow;
+        var day = now.ToString("yyyy-MM-dd");
+
+        var oc = CliDailyUsageAggregate.Register(AgentCliKind.OpenCode, day, now);
+        oc.Add(sessions: 2, messages: 5, tokensIn: 500, tokensOut: 100, tokensCached: 40,
+            modelName: "gpt-5", now);
+        oc.SetCost(1.50m, now);
+        oc.SetTokensEstimated(false, now);
+
+        var dv = CliDailyUsageAggregate.Register(AgentCliKind.Devin, day, now);
+        dv.Add(sessions: 10, messages: 30, tokensIn: 0, tokensOut: 0, tokensCached: 0,
+            modelName: null, now);
+        dv.SetTokensEstimated(true, now);
+
+        var cc = CliDailyUsageAggregate.Register(AgentCliKind.Claude, day, now);
+        cc.Add(sessions: 5, messages: 9, tokensIn: 2_000, tokensOut: 0, tokensCached: 0,
+            modelName: null, now);
+        cc.SetCost(0.10m, now);
+        cc.SetTokensEstimated(true, now);
+
+        _context.CliDailyUsageAggregates.AddRange(oc, dv, cc);
+        _context.SaveChanges();
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        var byCli = summary.CliUsage.ShouldNotBeNull().ByCli.ShouldNotBeNull();
+        byCli.Select(r => r.Cli).ShouldBe(["Devin CLI", "Claude Code", "OpenCode"],
+            customMessage: "Sessions desc é a ordenação contratual");
+
+        var devin = byCli[0];
+        devin.Sessions.ShouldBe(10);
+        devin.TokensInput.ShouldBe(0);
+        devin.CostUsd.ShouldBe(0m);
+        devin.EstimatedShare.ShouldBe(1.0);
+
+        summary.CliUsage.Sessions.ShouldBe(17);
+        summary.CliUsage.CostByCli["Devin"].ShouldBe(0m,
+            customMessage: "CostByCli mantém paridade por kind — zero incluído");
+        summary.CliUsage.EstimatedShare.ShouldBe(15.0 / 17.0, 0.001);
+    }
+
+    [Fact]
+    public async Task Dado_AgregadosParcialmenteEstimados_Quando_Summary_Entao_SharePorKind()
+    {
+        // 3 sessões reais + 1 estimada no mesmo kind → EstimatedShare 0.25.
+        var now = DateTime.UtcNow;
+        var day = now.ToString("yyyy-MM-dd");
+
+        var real = CliDailyUsageAggregate.Register(AgentCliKind.Codex, day, now);
+        real.Add(sessions: 3, messages: 0, tokensIn: 300, tokensOut: 0, tokensCached: 0,
+            modelName: "gpt-5", now);
+        real.SetTokensEstimated(false, now);
+
+        // Segundo agregado do mesmo kind não pode coexistir (índice único Kind+Day) —
+        // usa outro dia dentro do período.
+        var est2 = CliDailyUsageAggregate.Register(AgentCliKind.Codex,
+            now.AddDays(-1).ToString("yyyy-MM-dd"), now);
+        est2.Add(sessions: 1, messages: 0, tokensIn: 100, tokensOut: 0, tokensCached: 0,
+            modelName: "gpt-5", now);
+        est2.SetTokensEstimated(true, now);
+
+        _context.CliDailyUsageAggregates.AddRange(real, est2);
+        _context.SaveChanges();
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        var row = summary.CliUsage.ShouldNotBeNull().ByCli.ShouldHaveSingleItem();
+        row.Cli.ShouldBe("Codex");
+        row.Sessions.ShouldBe(4);
+        row.EstimatedShare.ShouldBe(0.25, 0.001);
     }
 
     [Fact]

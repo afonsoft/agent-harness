@@ -67,8 +67,8 @@ public class CliDbExtractorsTests : IDisposable
             is_pinned INTEGER, name TEXT, originator TEXT, preview TEXT, project_id TEXT,
             recency_at INTEGER, recency_at_ms INTEGER, section_entered_at_ms INTEGER, section_position INTEGER,
             thread_section_id TEXT, thread_source TEXT, updated_at_ms INTEGER);
-        INSERT INTO threads (id, title, created_at, updated_at, model)
-        VALUES ('cx-1','thread um',1700000000,1700000100,'codex-m');
+        INSERT INTO threads (id, title, created_at, updated_at, model, tokens_used)
+        VALUES ('cx-1','thread um',1700000000,1700000100,'codex-m',38190);
         """;
 
     private const string DevinDdl = """
@@ -76,7 +76,14 @@ public class CliDbExtractorsTests : IDisposable
             agent_mode TEXT, created_at INTEGER, last_activity_at INTEGER, title TEXT, main_chain_id INTEGER,
             shell_last_seen_index INTEGER, cogs_json TEXT, workspace_dirs TEXT, hidden INTEGER, metadata TEXT);
         INSERT INTO sessions (id, title, created_at, last_activity_at, model, hidden)
-        VALUES ('dv-1','sessao devin',1700000000,1700000500,'devin-m',0);
+        VALUES ('dv-1','sessao devin',1700000000,1700000500,'devin-m',0),
+               ('dv-2','sessao sem nodes',1700000600,1700000700,'devin-m',0);
+        CREATE TABLE message_nodes (row_id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,
+            node_id INTEGER NOT NULL, parent_node_id INTEGER, chat_message TEXT NOT NULL,
+            created_at INTEGER NOT NULL, metadata TEXT);
+        INSERT INTO message_nodes (session_id, node_id, chat_message, created_at)
+        VALUES ('dv-1',1,'SEGREDO-QUE-NUNCA-DEVE-SAIR-DO-BANCO-0123456789',1700000100),
+               ('dv-1',2,'outra mensagem qualquer',1700000200);
         """;
 
     private const string AntigravityDdl = """
@@ -87,8 +94,9 @@ public class CliDbExtractorsTests : IDisposable
             battle_id TEXT, winning_conversation_id TEXT, not_fully_idle INTEGER, killed INTEGER,
             last_user_input_time TEXT, last_user_input_step_index INTEGER, app_data_dir TEXT,
             raw_summary BLOB, group_id TEXT);
-        INSERT INTO conversation_summaries (conversation_id, title, step_count, last_modified_time)
-        VALUES ('ag-1','conv agy',7,'2026-09-19 10:00:00+00:00');
+        INSERT INTO conversation_summaries (conversation_id, title, preview, step_count,
+            last_modified_time, raw_summary)
+        VALUES ('ag-1','conv agy','prev-1',7,'2026-09-19 10:00:00+00:00',zeroblob(8));
         """;
 
     private const string ClineDdl = """
@@ -148,11 +156,15 @@ public class CliDbExtractorsTests : IDisposable
         var result = await extractor.ExtractSinceAsync(null);
 
         result.Status.ShouldBe(CliDbSourceStatus.Available);
-        result.Sessions.ShouldHaveSingleItem().ExternalId.ShouldBe("cx-1");
+        var session = result.Sessions.ShouldHaveSingleItem();
+        session.ExternalId.ShouldBe("cx-1");
+        // SPEC-20260922 RF-002: tokens_used (vendor total) → TokensInput estimado.
+        session.TokensInput.ShouldBe(38190);
+        session.TokensEstimated.ShouldBeTrue();
     }
 
     [Fact]
-    public async Task Dado_DevinDb_Quando_Extrair_Entao_Sessions()
+    public async Task Dado_DevinDb_Quando_Extrair_Entao_SessionsComEstimativaDeNodes()
     {
         CriarDb(".local/share/devin/cli/sessions.db", DevinDdl);
         var extractor = new DevinCliDbExtractor(
@@ -161,14 +173,64 @@ public class CliDbExtractorsTests : IDisposable
         var result = await extractor.ExtractSinceAsync(null);
 
         result.Status.ShouldBe(CliDbSourceStatus.Available);
-        var session = result.Sessions.ShouldHaveSingleItem();
-        session.ExternalId.ShouldBe("dv-1");
-        session.StartedAtUtc.ShouldBe(DateTimeOffset.FromUnixTimeSeconds(1700000000));
-        session.EndedAtUtc.ShouldBe(DateTimeOffset.FromUnixTimeSeconds(1700000500));
+        result.Sessions.Count.ShouldBe(2);
+
+        var com = result.Sessions.Single(s => s.ExternalId == "dv-1");
+        com.StartedAtUtc.ShouldBe(DateTimeOffset.FromUnixTimeSeconds(1700000000));
+        com.EndedAtUtc.ShouldBe(DateTimeOffset.FromUnixTimeSeconds(1700000500));
+        // chat_message lengths: 47 + 23 = 70 chars → ceil(70/4) = 18 tokens.
+        com.MessageCount.ShouldBe(2);
+        com.TokensInput.ShouldBe(18);
+        com.TokensEstimated.ShouldBeTrue();
+
+        // Sem nodes → tokens null (badge "no usage data"), não zero real.
+        var sem = result.Sessions.Single(s => s.ExternalId == "dv-2");
+        sem.TokensInput.ShouldBeNull();
+        sem.TokensEstimated.ShouldBeTrue();
     }
 
     [Fact]
-    public async Task Dado_AntigravityDb_Quando_Extrair_Entao_ApenasSummaries()
+    public async Task Dado_DevinDb_Quando_Extrair_Entao_ConteudoDeMensagemNuncaSai()
+    {
+        CriarDb(".local/share/devin/cli/sessions.db", DevinDdl);
+        var extractor = new DevinCliDbExtractor(
+            Locator(), Reader(), NullLogger<DevinCliDbExtractor>.Instance);
+
+        var result = await extractor.ExtractSinceAsync(null);
+
+        const string payload = "SEGREDO-QUE-NUNCA-DEVE-SAIR-DO-BANCO";
+        result.Sessions.ShouldAllBe(s =>
+            (s.Title ?? "").Contains(payload, StringComparison.Ordinal) == false
+            && s.ExternalId.Contains(payload, StringComparison.Ordinal) == false
+            && (s.ModelName ?? "").Contains(payload, StringComparison.Ordinal) == false,
+            customMessage: "somente scalars length()/count saem do banco do vendor");
+    }
+
+    [Fact]
+    public async Task Dado_DevinDbSemMessageNodes_Quando_Extrair_Entao_SessionsSemTokens()
+    {
+        // message_nodes ausente/driftado não pode derrubar a extração de sessions.
+        CriarDb(".local/share/devin/cli/sessions.db", """
+            CREATE TABLE sessions (id TEXT, working_directory TEXT, backend_type TEXT, model TEXT,
+                agent_mode TEXT, created_at INTEGER, last_activity_at INTEGER, title TEXT,
+                main_chain_id INTEGER, shell_last_seen_index INTEGER, cogs_json TEXT,
+                workspace_dirs TEXT, hidden INTEGER, metadata TEXT);
+            INSERT INTO sessions (id, title, created_at, last_activity_at, model, hidden)
+            VALUES ('dv-9','sessao solo',1700000000,1700000500,'devin-m',0);
+            """);
+        var extractor = new DevinCliDbExtractor(
+            Locator(), Reader(), NullLogger<DevinCliDbExtractor>.Instance);
+
+        var result = await extractor.ExtractSinceAsync(null);
+
+        result.Status.ShouldBe(CliDbSourceStatus.Available);
+        var session = result.Sessions.ShouldHaveSingleItem();
+        session.ExternalId.ShouldBe("dv-9");
+        session.TokensInput.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_AntigravityDb_Quando_Extrair_Entao_ApenasSummariesComEstimativa()
     {
         CriarDb(".gemini/antigravity-cli/conversation_summaries.db", AntigravityDdl);
         CriarDb(".gemini/antigravity-cli/conversations/aaaa.db", "CREATE TABLE steps (id TEXT);");
@@ -181,6 +243,9 @@ public class CliDbExtractorsTests : IDisposable
         var session = result.Sessions.ShouldHaveSingleItem();
         session.ExternalId.ShouldBe("ag-1");
         session.MessageCount.ShouldBe(7);
+        // title(8) + preview(6) + raw_summary blob(8) = 22 chars → ceil(22/4) = 6.
+        session.TokensInput.ShouldBe(6);
+        session.TokensEstimated.ShouldBeTrue();
     }
 
     [Fact]
@@ -194,9 +259,10 @@ public class CliDbExtractorsTests : IDisposable
 
         result.Status.ShouldBe(CliDbSourceStatus.Available);
         result.Sessions.Count.ShouldBe(2);
-        result.Sessions.ShouldContain(s => s.ExternalId == "cl-1" && s.MessageCount == 2);
-        result.Sessions.ShouldContain(s => s.ExternalId == "cl-2" && s.MessageCount == 1);
-        result.Sessions.ShouldAllBe(s => s.StartedAtUtc.Year == 2026,
+        // '{}' = 2 chars por envelope → cl-1: 4 chars → 1 token; cl-2: 2 → 1.
+        result.Sessions.ShouldContain(s => s.ExternalId == "cl-1" && s.MessageCount == 2 && s.TokensInput == 1);
+        result.Sessions.ShouldContain(s => s.ExternalId == "cl-2" && s.MessageCount == 1 && s.TokensInput == 1);
+        result.Sessions.ShouldAllBe(s => s.StartedAtUtc.Year == 2026 && s.TokensEstimated,
             customMessage: "created_at é epoch milissegundos (regressão: era lido como segundos)");
     }
 
@@ -237,6 +303,9 @@ public class CliDbExtractorsTests : IDisposable
         var session = result.Sessions.ShouldHaveSingleItem();
         session.ExternalId.ShouldBe("cc-1");
         session.MessageCount.ShouldBe(42);
+        // RF-002: event_count × EstimatedTokensPerEvent (default 1000).
+        session.TokensInput.ShouldBe(42_000);
+        session.TokensEstimated.ShouldBeTrue();
     }
 
     [Fact]
@@ -259,7 +328,9 @@ public class CliDbExtractorsTests : IDisposable
             var source = CliDatabaseMap.SourcesFor(extractor.Kind)
                 .First(s => s.Name == extractor.ExpectedFingerprintSourceName());
             await using var conn = await Reader().OpenAsync(source, path);
-            var fp = await conn.GetSchemaFingerprintAsync(source.WhitelistTables);
+            // Drift-checked tables only — estimation-only surfaces (Devin
+            // message_nodes) ficam fora do gate de drift (SPEC-20260922).
+            var fp = await conn.GetSchemaFingerprintAsync(extractor.DriftCheckedTables(source));
             CliDbSchemaFingerprinter.Matches(extractor.ExpectedFingerprint, fp, out var diff)
                 .ShouldBeTrue(customMessage: $"{extractor.Kind} driftou: {diff}");
         }
