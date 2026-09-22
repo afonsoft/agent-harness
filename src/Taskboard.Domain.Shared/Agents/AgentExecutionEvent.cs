@@ -19,7 +19,10 @@ public sealed record AgentExecutionEvent(
     string? Title = null,
     string? PayloadJson = null,
     string? RawJson = null,
-    string Stream = "system");
+    string Stream = "system",
+    string? MessageId = null,
+    string? PlanId = null,
+    string? PatchOp = null);
 
 /// <summary>Scope an <see cref="AgentExecutionEvent"/> belongs to.</summary>
 public static class AgentEventScope
@@ -53,4 +56,24 @@ public static class AgentEventKinds
 
     /// <summary>Session metadata: modes, config options, negotiated peer info.</summary>
     public const string SessionInfo = "session_info";
+
+    /// <summary>Terminal display updates (ACP v2 terminal_update / terminal_output_chunk).</summary>
+    public const string Terminal = "terminal";
+}
+
+/// <summary>
+/// Upsert merge hint carried by <see cref="AgentExecutionEvent.PatchOp"/>
+/// (SPEC-20260921-acp-v2-readiness RF-203). Null/absent behaves as
+/// <see cref="Append"/> — v1 never emits anything else.
+/// </summary>
+public static class AgentPatchOps
+{
+    /// <summary>New row / chunk append (also the implicit default).</summary>
+    public const string Append = "append";
+
+    /// <summary>Field-level merge into the entity keyed by ToolCallId/MessageId/PlanId.</summary>
+    public const string Replace = "replace";
+
+    /// <summary>Clears the keyed entity's content (explicit null/empty).</summary>
+    public const string Clear = "clear";
 }

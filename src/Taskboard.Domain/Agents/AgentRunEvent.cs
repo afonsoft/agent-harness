@@ -26,6 +26,15 @@ public sealed class AgentRunEvent : Entity<Guid>
 
     public string? ToolCallId { get; private set; }
 
+    /// <summary>ACP v2 message correlation id (message upserts).</summary>
+    public string? MessageId { get; private set; }
+
+    /// <summary>ACP v2 plan correlation id (plan_update).</summary>
+    public string? PlanId { get; private set; }
+
+    /// <summary>Upsert merge hint — append (default/null), replace or clear.</summary>
+    public string? PatchOp { get; private set; }
+
     public string? Title { get; private set; }
 
     public string? PayloadJson { get; private set; }
@@ -55,7 +64,10 @@ public sealed class AgentRunEvent : Entity<Guid>
         string? title = null,
         string? payloadJson = null,
         string? rawJson = null,
-        string stream = "system")
+        string stream = "system",
+        string? messageId = null,
+        string? planId = null,
+        string? patchOp = null)
         : base(id)
     {
         ScopeKind = scopeKind;
@@ -71,6 +83,9 @@ public sealed class AgentRunEvent : Entity<Guid>
         RawJson = rawJson;
         Stream = stream;
         TimestampUtc = timestampUtc;
+        MessageId = messageId;
+        PlanId = planId;
+        PatchOp = patchOp;
     }
 
     public static AgentRunEvent From(AgentExecutionEvent evt) => new(
@@ -87,7 +102,10 @@ public sealed class AgentRunEvent : Entity<Guid>
         evt.Title,
         evt.PayloadJson,
         evt.RawJson,
-        evt.Stream);
+        evt.Stream,
+        evt.MessageId,
+        evt.PlanId,
+        evt.PatchOp);
 
     public AgentExecutionEvent ToEvent() => new(
         Id.ToString("N"),
@@ -103,5 +121,8 @@ public sealed class AgentRunEvent : Entity<Guid>
         Title,
         PayloadJson,
         RawJson,
-        Stream);
+        Stream,
+        MessageId,
+        PlanId,
+        PatchOp);
 }

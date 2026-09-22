@@ -262,7 +262,10 @@ public sealed class AgentSessionManager : IAsyncDisposable
                         ToolCallId: e.ToolCallId,
                         Title: e.Content,
                         PayloadJson: e.PayloadJson,
-                        Stream: e.Kind == "error" ? "stderr" : "system"), CancellationToken.None).ConfigureAwait(false);
+                        Stream: e.Kind == "error" ? "stderr" : "system",
+                        MessageId: e.MessageId,
+                        PlanId: e.PlanId,
+                        PatchOp: e.PatchOp), CancellationToken.None).ConfigureAwait(false);
                 }
 
                 if (e.Kind == "permission" && !string.IsNullOrWhiteSpace(e.PayloadJson))
