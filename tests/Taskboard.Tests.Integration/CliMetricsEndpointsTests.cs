@@ -25,11 +25,8 @@ public class CliMetricsEndpointsTests : IClassFixture<TaskboardWebApplicationFac
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
-        var response = await client.PostAsync("/api/local/cli-metrics/sync", null);
+        var result = await SyncWhenIdleAsync(client);
 
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var result = await response.Content.ReadFromJsonAsync<CliMetricsSyncResultDto>();
-        result.ShouldNotBeNull();
         result.SourcesSynced.ShouldBeGreaterThan(0);
     }
 
@@ -37,7 +34,7 @@ public class CliMetricsEndpointsTests : IClassFixture<TaskboardWebApplicationFac
     public async Task Dado_SyncFeito_Quando_GetSources_Entao_ListaFontesComStatus()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        await client.PostAsync("/api/local/cli-metrics/sync", null);
+        await SyncWhenIdleAsync(client);
 
         var response = await client.GetAsync("/api/local/cli-metrics/sources");
 
@@ -84,5 +81,27 @@ public class CliMetricsEndpointsTests : IClassFixture<TaskboardWebApplicationFac
             .ShouldBeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Redirect);
         (await client.PostAsync("/api/local/cli-metrics/sync", null)).StatusCode
             .ShouldBeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Redirect);
+    }
+
+    // The hosted CliMetricsSyncService runs an initial pass on startup through
+    // the same single-flight coordinator — a manual POST that lands during it
+    // returns InFlight with zero sources. Retry on that real signal instead of
+    // racing the startup pass.
+    private static async Task<CliMetricsSyncResultDto> SyncWhenIdleAsync(HttpClient client)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
+        {
+            var response = await client.PostAsync("/api/local/cli-metrics/sync", null);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            var result = await response.Content.ReadFromJsonAsync<CliMetricsSyncResultDto>();
+            result.ShouldNotBeNull();
+            if (!result.InFlight || DateTime.UtcNow >= deadline)
+            {
+                return result;
+            }
+
+            await Task.Delay(100);
+        }
     }
 }
