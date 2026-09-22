@@ -1,7 +1,7 @@
 # Gap Analysis — 2026-09-22
 
 - Repository: `/home/ubuntu/repos/agent-harness` | Branch: `main` | Commit: `11404db` (post-merge PR #305 sidebar fix)
-- Phase reached: `gate` (aguardando aprovação)
+- Phase reached: `done` (aprovado → issues → orchestrator → merged + host migrado)
 - Mode: `full`
 
 ---
@@ -52,7 +52,12 @@ Todos os 4 CONFIRMADOS de 2026-09-20 entregues (issues #250–#253): pause/resum
 - `.specs/SPEC-20260922-flaky-integration-tests.md`
 - `.specs/SPEC-20260922-coverage-ratchet-bump-77.md`
 
-## 7. Ordem sugerida de execução
+## 7. Resultado
 
-1. `flaky-integration-tests` primeiro (estabiliza CI para o PR do ratchet).
-2. `coverage-ratchet-bump-77` depois (toca workflow — aprovação humana na implementação).
+- Gate: **aprovado** pelo usuário (2026-09-22).
+- Issues: Epic #306 + slices #307/#308/#309 — todos fechados.
+- PRs: #310 (specs+report), #311 (flaky fix, `PostMcpRemove` via `/api/mcp/status` + `SyncManual` retry on InFlight), #312 (threshold 73→77, baseline 77.85%), #313 (harness-home-rename).
+- #313 merged `2bd50ad`: HARNESS_* envs (fallback TASKBOARD_*), ~/.agent-harness, harness.sqlite (migração automática no startup), harness-server.service, install.sh --migrate, WithoutHarnessEnv, .harness-skills.json fallback.
+- **Host migrado em produção**: ~/.taskboard → ~/.agent-harness, unit harness-server.service active, /health 200, harness.sqlite migrado (wal/shm movidos).
+- Housekeeping: branch `feature/agent-pipe_*` deletada (worktree stale pruned).
+- Cobertura pós-merge: 77.85% ≥ threshold 77.
