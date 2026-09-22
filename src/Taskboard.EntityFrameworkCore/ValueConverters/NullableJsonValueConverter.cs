@@ -21,5 +21,22 @@ public sealed class NullableJsonValueConverter<T> : ValueConverter<T?, string?>
         => v => v == null ? null : JsonSerializer.Serialize(v, Options);
 
     private static Expression<Func<string?, T?>> FromProvider()
-        => v => v == null ? null : JsonSerializer.Deserialize<T>(v, Options);
+        => v => DeserializeOrNull(v);
+
+    private static T? DeserializeOrNull(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(value, Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }

@@ -9,7 +9,7 @@ public sealed class ReadOnlyListStringJsonValueConverter : ValueConverter<IReadO
     public ReadOnlyListStringJsonValueConverter()
         : base(
             v => JsonSerializer.Serialize(v, ListStringJsonValueConverter.Options),
-            v => (IReadOnlyList<string>)(JsonSerializer.Deserialize<List<string>>(v, ListStringJsonValueConverter.Options) ?? new List<string>()))
+            v => (IReadOnlyList<string>)ListStringJsonValueConverter.DeserializeOrEmpty(v))
     {
     }
 }

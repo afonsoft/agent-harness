@@ -16,7 +16,7 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                 type: "TEXT",
                 maxLength: 1024,
                 nullable: false,
-                defaultValue: "");
+                defaultValue: "[]");
         }
 
         /// <inheritdoc />

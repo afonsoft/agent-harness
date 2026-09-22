@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Taskboard.Dtos;
 using Xunit;
@@ -189,5 +191,31 @@ public class PipelineEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var cancelled = await response.Content.ReadFromJsonAsync<PipelineExecutionDto>();
         cancelled!.Status.ShouldBe("Cancelled");
+    }
+
+    [Fact]
+    public async Task Dado_TriedAgentsVazioLegado_Quando_Get_Entao_200SemJsonException()
+    {
+        // Regressão: AddPipelineStageTriedAgents criou a coluna com DEFAULT '',
+        // que quebrava o JsonSerializer ao materializar stages (HTTP 500).
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var created = await client.PostAsJsonAsync("/api/harness/pipelines/start", StartRequest());
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var dto = await created.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider
+                .GetRequiredService<Taskboard.EntityFrameworkCore.Data.TaskboardDbContext>();
+            await db.Database.ExecuteSqlRawAsync(
+                "UPDATE \"PipelineStageExecutions\" SET \"TriedAgents\" = '' WHERE \"ExecutionId\" = {0}",
+                dto!.PipelineExecutionId);
+        }
+
+        var fetched = await client.GetAsync($"/api/harness/pipelines/{dto!.PipelineExecutionId}");
+
+        fetched.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var fetchedDto = await fetched.Content.ReadFromJsonAsync<PipelineExecutionDto>();
+        fetchedDto!.Stages.ShouldAllBe(s => s.TriedAgents == null || s.TriedAgents.Count == 0);
     }
 }
