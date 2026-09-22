@@ -460,6 +460,40 @@ public class AiChatSseEndpointsTests : IClassFixture<AiChatSseEndpointsTests.Fas
     }
 
     [Fact]
+    public async Task Dado_RunConcluido_Quando_SseStreamAbre_Entao_ReplaysUltimoRun()
+    {
+        // Reconnects must self-heal: ai_chat.run transitions are transient, so
+        // the SSE backlog replays the latest persisted run state — otherwise a
+        // client that missed the terminal event keeps a stale "running" spinner.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var threadId = await CreateThreadAsync(client, "sse run replay");
+        (await client.PostAsJsonAsync($"/api/local/ai/threads/{threadId}/events", new
+        {
+            role = "user",
+            content = "oi"
+        })).EnsureSuccessStatusCode();
+        (await client.PostAsync($"/api/local/ai/threads/{threadId}/runs", content: null))
+            .StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var status = "running";
+        while (DateTime.UtcNow < deadline && status == "running")
+        {
+            var thread = await client.GetFromJsonAsync<JsonObject>($"/api/local/ai/threads/{threadId}");
+            status = (thread?["thread"] as JsonObject)?["status"]?.GetValue<string>() ?? "running";
+            if (status == "running")
+            {
+                await Task.Delay(250);
+            }
+        }
+
+        var collected = await ReadSseAsync(client, threadId, "\"status\":\"completed\"", TimeSpan.FromSeconds(10));
+
+        collected.ShouldContain("event: ai_chat.run");
+        collected.ShouldContain("\"status\":\"completed\"");
+    }
+
+    [Fact]
     public async Task Dado_ClienteDesconecta_Quando_SseStreamFecha_Entao_HandlerEncerraLimpo()
     {
         // RF-001: cancelar o request não pode propagar como erro de upstream —

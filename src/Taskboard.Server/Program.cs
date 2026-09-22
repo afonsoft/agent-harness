@@ -1257,7 +1257,7 @@ api.MapDelete("local/ai/threads/{id}", async (
     return Results.NoContent();
 });
 
-api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpResponse response, string id, AiChatService aiChatService, IRepository<AiChatEvent> eventRepo, IThreadEventStreamService threadEvents, IConfiguration config, CancellationToken ct) =>
+api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpResponse response, string id, AiChatService aiChatService, IRepository<AiChatEvent> eventRepo, IRepository<AiChatRun> runRepo, IThreadEventStreamService threadEvents, IConfiguration config, CancellationToken ct) =>
 {
     var threadId = AiChatThreadId.From(id);
 
@@ -1295,9 +1295,27 @@ api.MapGet("local/ai/threads/{id}/events", async (HttpRequest request, HttpRespo
             await response.WriteAsync($"data: {JsonSerializer.Serialize(ev, ApiJsonOptions.Default)}\n\n", ct);
         }
 
+        // ai_chat.run transitions are transient (not persisted as events) — a
+        // client that reconnects after the run finished would sit on a stale
+        // "running" spinner forever. Replaying the latest run state makes
+        // reconnects self-healing.
+        var lastRun = await runRepo.Query
+            .Where(r => r.ThreadId == threadId)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (lastRun is not null)
+        {
+            await response.WriteAsync("event: ai_chat.run\n", ct);
+            await response.WriteAsync($"data: {JsonSerializer.Serialize(lastRun.ToDto(), ApiJsonOptions.Default)}\n\n", ct);
+        }
+
         await response.Body.FlushAsync(ct);
 
-        await using var enumerator = threadEvents.SubscribeAsync(id, ct).GetAsyncEnumerator(ct);
+        // The enumerator returned by ChannelReader.ReadAllAsync throws
+        // NotSupportedException from DisposeAsync — it owns no resources, so
+        // it is intentionally left undisposed (await using would crash the
+        // handler after the response has already started).
+        var enumerator = threadEvents.SubscribeAsync(id, ct).GetAsyncEnumerator(ct);
         // The pending MoveNext must survive heartbeat iterations — a second
         // MoveNextAsync while one is in flight is illegal on IAsyncEnumerable.
         Task<bool>? moveNext = null;
