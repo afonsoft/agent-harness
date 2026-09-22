@@ -87,6 +87,7 @@
   - Arquivo sem patch (ex.: `Untracked`) mostra corpo informativo "arquivo novo não rastreado — sem diff".
   - Botões "Expandir todos"/"Recolher todos" no header do resumo; primeiro arquivo abre expandido por default.
   - Patch > 2MB mantém o comportamento atual (lista de arquivos, sem corpos).
+- **Fix 2026-09-22:** `Files` passa a ser a união de `git diff --name-status {base}` (mudanças commitadas + worktree) com `status --porcelain` (untracked e demais estados) — antes só o porcelain alimentava a lista, então arquivos já commitados na branch do run caíam todos no card "(outros)". `UnifiedDiffParser` ganhou fallback que resolve o path pelo header `diff --git a/<old> b/<new>` quando a seção não tem `---`/`+++` (binary, mode-only); seções não casadas exibem o path resolvido em vez de "(outros)".
 
 ---
 

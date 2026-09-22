@@ -163,7 +163,7 @@ else
         var others = sections.Where(s => !matched.Contains(s)).ToList();
         foreach (var other in others)
         {
-            cards.Add(new FileCard("(outros)", null, 0, 0, other.Body.Split('\n')));
+            cards.Add(new FileCard(other.Path ?? "(outros)", null, 0, 0, other.Body.Split('\n')));
         }
 
         return cards;

@@ -110,15 +110,30 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         EnsureSuccess(status, "git status");
 
         // Two-dot diff vs the base branch covers committed AND working-tree
-        // (pending) changes — RF-002 exige ambos.
+        // (pending) changes — RF-002 exige ambos. O status --porcelain sozinho
+        // não basta: mudanças já commitadas na branch do run saem do status mas
+        // continuam no patch, o que derrubava os arquivos no bucket "(outros)".
         var numstat = await _git.RunAsync(session.Path, ["diff", "--numstat", session.BaseBranch], GitTimeout, cancellationToken);
         EnsureSuccess(numstat, "git diff --numstat");
+
+        var nameStatus = await _git.RunAsync(session.Path, ["diff", "--name-status", session.BaseBranch], GitTimeout, cancellationToken);
+        EnsureSuccess(nameStatus, "git diff --name-status");
 
         var patch = await _git.RunAsync(session.Path, ["diff", session.BaseBranch], GitTimeout, cancellationToken);
         EnsureSuccess(patch, "git diff");
 
         var perFile = ParseNumstatPerFile(numstat.StandardOutput);
-        var files = ParseStatus(status.StandardOutput)
+        var files = ParseNameStatus(nameStatus.StandardOutput);
+        var known = new HashSet<string>(files.Select(f => f.Path), StringComparer.Ordinal);
+        foreach (var f in ParseStatus(status.StandardOutput))
+        {
+            if (known.Add(f.Path))
+            {
+                files.Add(f);
+            }
+        }
+
+        files = files
             .Select(f => perFile.TryGetValue(f.Path, out var counts)
                 ? f with { Insertions = counts.Insertions, Deletions = counts.Deletions }
                 : f)
@@ -377,6 +392,35 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         }
     }
 
+    /// <summary>--name-status vs base: tracked modificados/adicionados/deletados/renomeados
+    /// (commitados ou não). Renames resolvem para o path novo.</summary>
+    private static List<WorkspaceDiffFileDto> ParseNameStatus(string output)
+    {
+        var files = new List<WorkspaceDiffFileDto>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = line.Split('\t');
+            if (parts.Length < 2 || parts[0].Length == 0)
+            {
+                continue;
+            }
+
+            var status = parts[0][0] switch
+            {
+                'M' => "Modified",
+                'A' => "Added",
+                'D' => "Deleted",
+                'R' or 'C' => "Renamed",
+                'T' => "TypeChanged",
+                var other => other.ToString(),
+            };
+
+            files.Add(new WorkspaceDiffFileDto(parts[^1].Trim(), status));
+        }
+
+        return files;
+    }
+
     private static List<WorkspaceDiffFileDto> ParseStatus(string porcelain)
     {
         var files = new List<WorkspaceDiffFileDto>();
@@ -397,7 +441,14 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 var other => other,
             };
 
-            files.Add(new WorkspaceDiffFileDto(line[3..].Trim(), status));
+            var path = line[3..].Trim();
+            var arrow = path.IndexOf(" -> ", StringComparison.Ordinal);
+            if (arrow >= 0)
+            {
+                path = path[(arrow + 4)..];
+            }
+
+            files.Add(new WorkspaceDiffFileDto(path, status));
         }
 
         return files;

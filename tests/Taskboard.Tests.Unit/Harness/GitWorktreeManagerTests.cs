@@ -334,6 +334,43 @@ public class GitWorktreeManagerTests : IDisposable
         diff.Insertions.ShouldBeGreaterThanOrEqualTo(readme.Insertions);
     }
 
+    // Regression: mudança commitada na branch do run sai do `status --porcelain`
+    // mas continua no `git diff base` — Files deve uni-las (senão a UI agrupa
+    // tudo em "(outros)").
+    [Fact]
+    public async Task Dado_AlteracaoCommitada_Quando_GetDiff_Entao_ArquivoEmFiles()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_diff_commit", _repoPath, "main", "committed");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "comitado.cs"), "class C {}\n");
+        await _git.RunAsync(dto.Path, ["add", "-A"]);
+        (await _git.RunAsync(dto.Path, ["commit", "-m", "feat: add comitado"]))
+            .ExitCode.ShouldBe(0);
+
+        var diff = await _sut.GetDiffAsync("run_diff_commit");
+
+        var file = diff.Files.Single(f => f.Path == "comitado.cs");
+        file.Status.ShouldBe("Added");
+        file.Insertions.ShouldBe(1);
+        diff.Patch.ShouldContain("diff --git a/comitado.cs b/comitado.cs");
+    }
+
+    [Fact]
+    public async Task Dado_AlteracaoCommitadaEPendente_Quando_GetDiff_Entao_AmbasEmFiles()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_diff_mix", _repoPath, "main", "mixed");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "comitado.cs"), "class C {}\n");
+        await _git.RunAsync(dto.Path, ["add", "-A"]);
+        (await _git.RunAsync(dto.Path, ["commit", "-m", "feat: add comitado"]))
+            .ExitCode.ShouldBe(0);
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "README.md"), "changed\n");
+        await File.WriteAllTextAsync(Path.Combine(dto.Path, "solto.cs"), "class S {}\n");
+
+        var diff = await _sut.GetDiffAsync("run_diff_mix");
+
+        diff.Files.Select(f => f.Path).ShouldBe(["comitado.cs", "README.md", "solto.cs"], ignoreOrder: true);
+        diff.Files.Single(f => f.Path == "solto.cs").Status.ShouldBe("Untracked");
+    }
+
     private void InitRepo(string path, string branch = "main")
     {
         var git = new GitCommandRunner();
