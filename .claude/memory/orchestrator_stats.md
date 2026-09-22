@@ -6,12 +6,12 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-20 UTC` (sessão 3)
-- **fase_atual**: `Phase 8 — fluxo encerrado, zero issues abertas, main verde`
+- **iniciado_em**: `2026-09-22 UTC` (sessão 4 — reconciliação + desbloqueio PR #292)
+- **fase_atual**: `Phase 7 — verificação; aguardando CI dos PRs #292 e #303`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
-- **framework_update_check**: `up-to-date` (commit `dc353de` em `/home/ubuntu/repos/skills`)
+- **framework_update_check**: `up-to-date` (commit `19cb9c2` em `/home/ubuntu/repos/skills`)
 
 ### Epics em curso (fila sequencial — todos SPECs aprovados 2026-09-19)
 
@@ -569,3 +569,40 @@ As specs aprovadas nesta sessão foram registradas para execução:
 
 - Sessões de worktree guardam `Path` absoluto no DB — mudar o root só afeta **novas** sessões; as antigas continuam funcionando do local original (sem migração necessária).
 - Root compartilhado com clones exige guarda no stale-cleanup: distinguir worktree (`.git` file) de clone (`.git` dir) antes de qualquer delete recursivo.
+
+---
+
+## Execução da sessão 2026-09-22 (sessão 4 — reconciliação + desbloqueio PR #292)
+
+### Phase -1 / Phase 0
+
+- Framework `afonsoft/skills` @ `19cb9c2` up-to-date com origin (fetch OK, 0/0).
+- Git clean ✅ · `gh auth` ✅ (afonsoft) · remote `afonsoft/agent-harness` ✅ · dotnet 10.0.112 / node 24.16.0 ✅
+
+### Phase 1 — Reconciliação de issues abertas
+
+| Issue | SPEC | Resultado |
+|---|---|---|
+| #282 (ACP v2 readiness) | SPEC-20260921-acp-v2-readiness | PR #294 merged → **fechada** (comentário pt-BR) |
+| #289 (AI Code chat UX) | SPEC-20260921-ai-code-chat-ux | PR #293 merged → **fechada** (comentário pt-BR) |
+| #288 (AI Code thread config) | SPEC-20260921-ai-code-thread-config | PR #292 open — trabalho em curso |
+
+### Diagnóstico — CI vermelho no PR #292
+
+- Falha determinística (2 runs): `AgentRunEndpointsTests.Dado_TemplateMuitoLongo_Quando_Put_Entao_400` — esperava 400, recebia 204.
+- **Root cause**: teste hard-coded `new string('x', 9000)` ficou inválido quando `AgentPromptTemplate.MaxLength` subiu para 16384. Fix já existia em `main` via PR #295 (`ee3dfcc`, "derive length boundary from MaxLength") — a branch nasceu antes do merge-base `a5a9632` e não tinha o fix.
+- **Resolução**: merge `origin/main` → branch; 2 conflitos resolvidos (`TaskboardWebApplicationFactory.cs` — manteve `WorkspaceRoot` + `WebCliAgentEnabled`; `site.css` — prevaleceu PR #300, rail left-aligned). Teste verde local (9/9 `AgentRunEndpointsTests`). Push `6506877`.
+
+### Entregas
+
+| Entrega | Ref |
+|---|---|
+| Issues #282/#289 fechadas | comentários pt-BR com evidência |
+| PR #292 desbloqueado | merge `origin/main` push `6506877` |
+| SPEC status sync | PR #303 (acp-v2-readiness + ai-code-chat-ux → Done) |
+| Cleanup branches | 3 locais + 4 remotas deletadas (PRs merged); mantidas `feature/20260921-ai-code-thread-config` (PR #292) e `feature/agent-pipe_*` (worktree ativo) |
+
+### Pendente
+
+- CI do PR #292 (re-run após merge) e PR #303 — merge quando verdes.
+- Worktree `/tmp/ah-292` (descartável) e `~/.taskboard/worktrees/pipe_c6bc…` (sessão antiga, remoção manual pendente).
