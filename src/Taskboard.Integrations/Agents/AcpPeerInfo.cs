@@ -35,6 +35,8 @@ public sealed class AcpPeerInfo
     public bool AdditionalDirectories { get; set; }
     public bool McpHttp { get; set; }
     public bool McpSse { get; set; }
+    /// <summary>v2: <c>capabilities.session.mcp.stdio</c> (v1 assumes stdio unconditionally).</summary>
+    public bool McpStdio { get; set; }
     public bool PromptImage { get; set; }
     public bool PromptAudio { get; set; }
     public bool PromptEmbeddedContext { get; set; }
@@ -127,6 +129,93 @@ public sealed class AcpPeerInfo
             }
 
             info.AuthMethods = list;
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// ACP v2 <c>initialize</c> result (SPEC-20260921-acp-v2-readiness RF-205):
+    /// <c>info</c>/<c>capabilities</c> replace <c>agentInfo</c>/<c>agentCapabilities</c>;
+    /// <c>capabilities.session</c> presence enables the baseline
+    /// resume/close/list; auth methods carry <c>methodId</c> + required
+    /// <c>type</c> and imply both <c>auth/login</c> and <c>auth/logout</c>.
+    /// There is no <c>loadSession</c> in v2 — resume + replayFrom covers it.
+    /// </summary>
+    public static AcpPeerInfo FromInitializeV2(JsonElement result)
+    {
+        var info = new AcpPeerInfo { ProtocolVersion = 2 };
+
+        if (result.TryGetProperty("protocolVersion", out var pv) && pv.ValueKind == JsonValueKind.Number)
+        {
+            info.ProtocolVersion = pv.GetInt32();
+        }
+
+        if (result.TryGetProperty("info", out var ai) && ai.ValueKind == JsonValueKind.Object)
+        {
+            info.AgentName = ai.TryGetProperty("name", out var n) ? n.GetString() : null;
+            info.AgentVersion = ai.TryGetProperty("version", out var v) ? v.GetString() : null;
+        }
+
+        if (result.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Object
+            && caps.TryGetProperty("session", out var s) && s.ValueKind == JsonValueKind.Object)
+        {
+            // Baseline in v2 once the agent advertises the session group.
+            info.SessionResume = true;
+            info.SessionClose = true;
+            info.SessionList = true;
+            info.SessionDelete = HasObject(s, "delete");
+            info.AdditionalDirectories = HasObject(s, "additionalDirectories");
+
+            if (s.TryGetProperty("prompt", out var p) && p.ValueKind == JsonValueKind.Object)
+            {
+                info.PromptImage = HasObject(p, "image");
+                info.PromptAudio = HasObject(p, "audio");
+                info.PromptEmbeddedContext = HasObject(p, "embeddedContext");
+            }
+
+            if (s.TryGetProperty("mcp", out var m) && m.ValueKind == JsonValueKind.Object)
+            {
+                info.McpStdio = HasObject(m, "stdio");
+                info.McpHttp = HasObject(m, "http");
+            }
+        }
+
+        if (result.TryGetProperty("authMethods", out var methods) && methods.ValueKind == JsonValueKind.Array)
+        {
+            var list = new List<AcpAuthMethod>();
+            foreach (var m in methods.EnumerateArray())
+            {
+                if (m.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var id = m.TryGetProperty("methodId", out var idEl) ? idEl.GetString() : null;
+                if (id is null)
+                {
+                    continue;
+                }
+
+                var args = new List<string>();
+                if (m.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
+                {
+                    args.AddRange(argsEl.EnumerateArray()
+                        .Select(a => a.GetString())
+                        .Where(a => a is not null)!);
+                }
+
+                list.Add(new AcpAuthMethod(
+                    id,
+                    m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
+                    m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
+                    m.TryGetProperty("description", out var d) ? d.GetString() : null,
+                    args));
+            }
+
+            info.AuthMethods = list;
+            // v2: advertising methods requires both auth/login and auth/logout.
+            info.AuthLogout = list.Count > 0;
         }
 
         return info;
