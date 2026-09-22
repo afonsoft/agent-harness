@@ -132,7 +132,7 @@ Content-Type: application/json
 {
   "runId": "run_01j7abcde...",
   "status": "Queued",
-  "worktreePath": "~/.taskboard/worktrees/run_01j7abcde",
+  "worktreePath": "~/repos/run_01j7abcde",
   "branchName": "feature/agent-run_01j7abcde-coverage-gate-ratchet"
 }
 

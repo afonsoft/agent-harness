@@ -258,7 +258,8 @@ var homeDir = builder.Configuration["Taskboard:HomeDir"]
 builder.Services.AddScoped<IWorkspaceIsolationService>(sp => new GitWorktreeManager(
     sp.GetRequiredService<IGitCommandRunner>(),
     sp.GetRequiredService<IWorktreeSessionRepository>(),
-    WorktreePaths.ResolveRoot(homeDir),
+    // SPEC-20260919-harness-workspace-isolation: default ~/repos (Taskboard:WorktreeRoot).
+    WorktreePaths.ResolveRoot(builder.Configuration["Taskboard:WorktreeRoot"], homeDir),
     sp.GetRequiredService<ILogger<GitWorktreeManager>>()));
 builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
 builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
