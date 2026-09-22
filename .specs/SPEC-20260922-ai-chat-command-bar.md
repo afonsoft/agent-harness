@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260922-ai-chat-command-bar` |
 | Ticket | [#329](https://github.com/afonsoft/agent-harness/issues/329) |
-| Status | `Approved` |
+| Status | `Done — delivered in PR #332` |
 | Referência | SPEC-20260918-ai-chat-threads, SPEC-20260919-web-cli-agent, SPEC-20260921-ai-chat-cli-backend, SPEC-20260921-ai-code-chat-ux, SPEC-20260921-ai-code-thread-config |
 
 ## 1. User Story
