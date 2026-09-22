@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `fix/20260922-flaky-integration-tests` |
 | Ticket | [#307](https://github.com/afonsoft/agent-harness/issues/307) — GAP-tests-flaky-integration (epic #306) |
-| Status | `Approved` |
+| Status | `Done — delivered in PR #311` |
 
 ---
 

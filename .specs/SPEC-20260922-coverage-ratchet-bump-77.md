@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | — |
 | Ticket | [#308](https://github.com/afonsoft/agent-harness/issues/308) — GAP-automation-coverage-ratchet-bump (epic #306); ciclo anterior: #252 |
-| Status | `Approved` |
+| Status | `Done — delivered in PR #312` |
 
 ---
 
