@@ -43,7 +43,7 @@ public class GitWorktreeManagerTests : IDisposable
         head.StandardOutput.Trim().ShouldBe(dto.Branch);
     }
 
-    // Guardrail: runId nunca escapa de ~/.taskboard/worktrees
+    // Guardrail: runId nunca escapa do root de worktrees
     [Fact]
     public async Task Dado_RunIdComTraversal_Quando_CreateWorktree_Entao_PathConfinadoNoRoot()
     {
@@ -51,6 +51,36 @@ public class GitWorktreeManagerTests : IDisposable
 
         WorktreePaths.IsUnder(_worktreeRoot, dto.Path).ShouldBeTrue();
         dto.Path.ShouldBe(WorktreePaths.SessionDir(_worktreeRoot, "../evil/../escape"));
+    }
+
+    // Guardrail: com root compartilhado (~/repos) um dir que não é worktree
+    // nunca é apagado — stale cleanup só vale para .git-file ou dir vazio.
+    [Fact]
+    public async Task Dado_DirOcupadoPorClone_Quando_CreateWorktree_Entao_RecusaENaoApaga()
+    {
+        var path = WorktreePaths.SessionDir(_worktreeRoot, "run_clone");
+        Directory.CreateDirectory(Path.Combine(path, ".git")); // clone: .git é diretório
+        await File.WriteAllTextAsync(Path.Combine(path, "KEEP.txt"), "precious");
+
+        await Should.ThrowAsync<DomainException>(
+            () => _sut.CreateWorktreeAsync("run_clone", _repoPath, "main", "x"));
+
+        File.Exists(Path.Combine(path, "KEEP.txt")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_DirStaleDeWorktree_Quando_CreateWorktree_Entao_LimpaERecria()
+    {
+        var path = WorktreePaths.SessionDir(_worktreeRoot, "run_stale");
+        Directory.CreateDirectory(path);
+        await File.WriteAllTextAsync(Path.Combine(path, ".git"), "gitdir: /tmp/stale"); // worktree: .git é arquivo
+        await File.WriteAllTextAsync(Path.Combine(path, "junk.txt"), "old");
+
+        var dto = await _sut.CreateWorktreeAsync("run_stale", _repoPath, "main", "x");
+
+        dto.Path.ShouldBe(path);
+        File.Exists(Path.Combine(path, "junk.txt")).ShouldBeFalse();
+        File.Exists(Path.Combine(path, "README.md")).ShouldBeTrue();
     }
 
     // Covers RF-002 / AC-02: diff retorna arquivos + patch

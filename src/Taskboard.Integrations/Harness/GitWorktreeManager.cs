@@ -63,6 +63,16 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 
         if (Directory.Exists(path))
         {
+            // O root pode ser compartilhado com os clones (~/repos) — só uma
+            // worktree real (.git FILE, não dir) ou um diretório vazio é
+            // limpo; qualquer outra coisa aborta em vez de apagar um clone.
+            if (!IsWorktreeDir(path) && Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Worktree path '{path}' exists and is not a stale worktree; refusing to delete it.");
+            }
+
             _logger.LogInformation("Cleaning stale worktree directory {Path}.", path);
             Directory.Delete(path, recursive: true);
         }
@@ -438,6 +448,15 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 
     private static bool IsGitMetadata(FileSystemInfo info) =>
         string.Equals(info.Name, ".git", StringComparison.Ordinal);
+
+    /// <summary>
+    /// A real git worktree has <c>.git</c> as a <b>file</b> (gitfile pointing
+    /// to the main repo's <c>.git/worktrees/&lt;id&gt;</c>) — clones have a
+    /// <c>.git</c> <b>directory</b>. Used to tell stale worktrees apart from
+    /// real checkouts when the root is shared (~/repos).
+    /// </summary>
+    private static bool IsWorktreeDir(string path) =>
+        File.Exists(Path.Combine(path, ".git"));
 
     /// <summary>Symlinks apontando para fora do worktree são ocultados/negados (RF-003).</summary>
     private static bool EscapesViaLink(FileSystemInfo info, string root)

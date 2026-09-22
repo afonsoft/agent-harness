@@ -118,7 +118,7 @@ Content-Type: application/json
 {
   "toolName": "bash",
   "command": "rm -rf bin/ obj/",
-  "worktreePath": "/home/ubuntu/.taskboard/worktrees/run_01j7abcde",
+  "worktreePath": "/home/ubuntu/repos/run_01j7abcde",
   "policy": "Standard"
 }
 → 200 OK

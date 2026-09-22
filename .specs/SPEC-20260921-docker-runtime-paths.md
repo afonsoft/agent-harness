@@ -27,7 +27,7 @@
 5. **Sem healthcheck** — compose não sabe quando o app está pronto (`/health` já existe).
 6. **Sem documentação do `user:` para bind mount de `~/repos`**: rodando como root (default), arquivos criados pelos agentes no host ficam `root:root`; rodando como `user: $UID`, o named volume herdado do root da imagem não é gravável. A estratégia precisa ser explícita.
 
-**Paths confirmados corretos no código (não mexer):** `WorkspaceService`/`WorkspacePaths.ResolveRoot` → `$HOME/repos` (com `HOME=/data/home` → `/data/home/repos`); worktrees → `~/.taskboard/worktrees`; credenciais de CLIs → `$HOME/.claude`, `.codex`, `.config/*` — todos sob `/data` **desde que** `HOME` se mantenha e o volume seja montado.
+**Paths confirmados corretos no código (não mexer):** `WorkspaceService`/`WorkspacePaths.ResolveRoot` → `$HOME/repos` (com `HOME=/data/home` → `/data/home/repos`); worktrees → `$HOME/repos` (`Taskboard:WorktreeRoot`) — mesmo root dos clones; credenciais de CLIs → `$HOME/.claude`, `.codex`, `.config/*` — todos sob `/data` **desde que** `HOME` se mantenha e o volume seja montado.
 
 ## 2. Scope
 

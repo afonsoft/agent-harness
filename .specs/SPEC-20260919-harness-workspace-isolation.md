@@ -34,7 +34,7 @@ Isso gera três grandes riscos críticos:
 
 ### In scope
 
-- Criação e teardown automatizado de **Git Worktrees** por `AgentRun` em caminho padronizado: `~/.taskboard/worktrees/{runId}/`.
+- Criação e teardown automatizado de **Git Worktrees** por `AgentRun` em caminho padronizado: `{worktreeRoot}/{runId}/` — root configurável via `Taskboard:WorktreeRoot` (default `~/repos`, o mesmo workspace root dos clones; antes `~/.taskboard/worktrees`).
 - Criação automática de branch dedicada associada ao run: `feature/agent-{runId}-{task-slug}` a partir da branch base informada (default `main`).
 - Limpeza segura do worktree pós-execução (`git worktree remove --force`), com política de retenção configurável para inspeção humana em caso de falha.
 - Extração de Git Diffs estruturados (`git diff`, `git status --porcelain`) a qualquer momento da execução.
@@ -83,8 +83,8 @@ tests/Taskboard.Tests.Unit/Harness/GitWorktreeManagerTests.cs          [new]
 ## 4. Requirements
 
 ### RF-001: Provisão de Worktree
-- **Description:** Dado um `runId`, um `repoPath` e uma `baseBranch`, o serviço deve criar um novo Git Worktree em `~/.taskboard/worktrees/{runId}` com uma nova branch `feature/agent-{runId}-{slug}`.
-- **Rules:** O comando `git worktree add -b <new-branch> <target-path> <base-branch>` deve ser executado no contexto do repositório base. Se a pasta de destino já existir, deve ser limpa previamente ou lançar exceção específica.
+- **Description:** Dado um `runId`, um `repoPath` e uma `baseBranch`, o serviço deve criar um novo Git Worktree em `{worktreeRoot}/{runId}` (default `~/repos/{runId}`, configurável via `Taskboard:WorktreeRoot`) com uma nova branch `feature/agent-{runId}-{slug}`.
+- **Rules:** O comando `git worktree add -b <new-branch> <target-path> <base-branch>` deve ser executado no contexto do repositório base. Se a pasta de destino já existir, só pode ser limpa quando for uma worktree stale (`.git` **arquivo**) ou diretório vazio — qualquer outro conteúdo (ex.: um clone real, com `.git` **diretório**) lança exceção específica e nunca é apagado.
 - **Input → Output:** `CreateWorktreeAsync(runId, repoPath, baseBranch, slug)` → `WorktreeSession(Path, Branch, Status.Active)`.
 
 ### RF-002: Inspeção de Diffs e Status
@@ -116,7 +116,7 @@ Content-Type: application/json
 → 201 Created
 {
   "worktreeId": "wt_123",
-  "path": "/home/ubuntu/.taskboard/worktrees/run_01j7abcde",
+  "path": "/home/ubuntu/repos/run_01j7abcde",
   "branch": "feature/agent-run_01j7abcde-fix-login-error",
   "status": "Active"
 }
@@ -169,7 +169,7 @@ DELETE /api/harness/worktrees/{runId}?force=true
 ## 8. Organization Guardrails
 
 - Nunca executar comandos git com interpolação desprotegida de strings (prevenção contra command injection nos nomes de branch/slug).
-- Todos os caminhos de worktree devem estar contidos sob o diretório aprovado `~/.taskboard/worktrees/`.
+- Todos os caminhos de worktree devem estar contidos sob o diretório aprovado (`Taskboard:WorktreeRoot`, default `~/repos/`).
 - Sanitizar ambiente de execução com `WithoutTaskboardEnv`.
 
 ---
