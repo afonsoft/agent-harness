@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `fix/devin-20260923-terminal-tabs-keyed-render` |
 | Ticket | [#336](https://github.com/afonsoft/agent-harness/issues/336) |
-| Status | `Draft` |
+| Status | `Approved` |
 | Related | `SPEC-20260917-terminal-tabs`, `SPEC-20260920-terminal-pty-resize`, `SPEC-20260921-terminal-paste-dedup` |
 
 ## 1. User Story
@@ -104,11 +104,13 @@ tests/Taskboard.Tests.Unit/Taskboard.Tests.Unit.csproj    # MOD — pacote bunit
 - **Description:** Manter a heurística atual: ao fechar a aba ativa, ativa `min(index, count-1)` pós-remoção (a aba que a seguia, ou a última); ao fechar aba inativa, `_activeTab` não muda. Após a troca, `fitNow` + `focus` na aba ativa.
 - **Input → Output:** fechar aba ativa → vizinha ativada, refit + focus; fechar inativa → apenas remoção.
 
-### RF-005: Teste de regressão (bUnit)
+### RF-005: Teste de regressão (bUnit + source guard)
 
-- **Description:** Teste `Fechando_AbaDoMeio_Mantem_Nos_Dom_Das_Demais` (pt-BR, padrão do repo): renderiza `Terminal` com JSInterop em modo loose + `SelectedRepositoryService` stub + `AddBlazorBootstrap`; abre 3 abas via clique no `+`; captura referências `IElement` dos `.terminal-pane`/`.terminal-host`; clica no close da aba do meio; asserta que os hosts das abas 1 e 3 são **as mesmas instâncias** com os mesmos `id` (falha sem `@key` — o diff remenda `id` em nó diferente).
-- **Rules:** novo pacote `bunit` (versão estável ≥7 dias) justificado na descrição do PR (única forma automatizada de testar reconciliação de DOM; o repo não possui infraestrutura de teste de componentes hoje).
-- **Input → Output:** `dotnet test` → verde com `@key`; vermelho sem `@key`.
+- **Description:** Cobertura em duas camadas, em pt-BR no padrão do repo:
+  1. **Funcional (bUnit):** `TerminalTabsTests` renderiza `Terminal` com `JSRuntimeMode.Loose` + `SelectedRepositoryService` stub + `AddBlazorBootstrap`; abre 3 abas via `+` e valida: fechar aba do meio/esquerda preserva `elementId`s e títulos das sobreviventes na ordem; fechar a ativa promove a seguinte; fechar a última exibe o empty state.
+  2. **Source guard (`TerminalRazorSourceGuardTests`):** asserta que `Terminal.razor` declara `@key="tab"` no `<li class="nav-item">` da tabstrip e no `<div class="terminal-pane">`, e que `init`/`initReadOnly` do `terminal.js` chamam `dispose(elementId)` antes de recriar a instância. É o tripwire real da regressão — **descoberta durante a execução: o bUnit recria os nós DOM ao aplicar diffs estruturais, logo identidade de nó não é observável em teste de componente**; a manifestação do bug depende da sub-árvore criada pelo xterm.js, que não existe no DOM do bUnit.
+- **Rules:** novo pacote `bunit` 2.11.3 (publicado 2026-09-13, ≥7 dias) justificado na descrição do PR — única forma automatizada de exercitar o componente; o repo não possuía infraestrutura de teste de componentes.
+- **Input → Output:** `dotnet test` → verde com `@key`; removendo `@key`, os guards de source falham (RED verificado).
 
 ### RF-006: Sem regressão funcional
 

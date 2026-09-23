@@ -21,7 +21,7 @@
     <ul class="nav nav-tabs terminal-tabstrip flex-nowrap" role="tablist">
         @foreach (var tab in _tabs)
         {
-            <li class="nav-item">
+            <li class="nav-item" @key="tab">
                 <div class="nav-link terminal-tab @(tab == _activeTab ? "active" : "") state-@tab.State.ToString().ToLowerInvariant()"
                      role="tab" aria-selected="@(tab == _activeTab)" @onclick="() => ActivateTabAsync(tab)">
                     <span class="terminal-tab-dot"></span>
@@ -51,7 +51,7 @@
         <div class="terminal-body">
             @foreach (var tab in _tabs)
             {
-                <div class="terminal-pane @(tab == _activeTab ? "" : "d-none")">
+                <div class="terminal-pane @(tab == _activeTab ? "" : "d-none")" @key="tab">
                     @if (tab.State == TabState.Closed)
                     {
                         <Alert Color="AlertColor.Warning" Dismissable="false" class="py-1 mb-1 small">

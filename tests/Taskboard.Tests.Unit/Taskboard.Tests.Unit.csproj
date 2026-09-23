@@ -20,6 +20,7 @@
     <PackageReference Include="Shouldly" />
     <PackageReference Include="NSubstitute" />
     <PackageReference Include="Spectre.Console.Cli.Testing" />
+    <PackageReference Include="bunit" />
     <PackageReference Include="coverlet.collector" />
   </ItemGroup>
 </Project>
