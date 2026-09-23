@@ -67,6 +67,9 @@ window.taskboardTerminal = (() => {
         if (!el || typeof Terminal === 'undefined') {
             return false;
         }
+        // Idempotent re-init: a stale entry for this elementId would leak its
+        // xterm instance, ResizeObserver and paste listener onto the same host.
+        dispose(elementId);
 
         const term = new Terminal({
             cursorBlink: true,
@@ -106,6 +109,7 @@ window.taskboardTerminal = (() => {
         if (!el || typeof Terminal === 'undefined') {
             return false;
         }
+        dispose(elementId);
 
         const term = new Terminal({
             cursorBlink: false,
