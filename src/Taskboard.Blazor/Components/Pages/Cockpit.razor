@@ -8,7 +8,8 @@
 @inject SelectedRepositoryService SelectedRepo
 @inject NavigationManager Nav
 @inject ToastService ToastService
-@implements IDisposable
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Cockpit - Harness</PageTitle>
 
@@ -17,7 +18,17 @@
         <h1 class="h4 fw-bold mb-1">Cockpit</h1>
         <p class="small text-body-secondary mb-0">ADE runs — timeline ao vivo, HITL e diffs.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex align-items-center gap-2">
+        @* RF-003/RF-005: approvals pendentes sempre visíveis no header. *@
+        @if (PendingApprovals > 0)
+        {
+            <span class="badge text-bg-warning align-self-center">
+                <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />@PendingApprovals approval@(PendingApprovals > 1 ? "s" : "")
+            </span>
+        }
+        <span class="small text-body-secondary align-self-center" title="Cockpit hub">
+            <Icon Name="IconName.Broadcast" /> <span class="@(_hub?.State == HubConnectionState.Connected ? "text-success" : "text-warning")">@(_hub?.State.ToString() ?? "—")</span>
+        </span>
         <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
             <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
         </Button>
@@ -52,7 +63,14 @@ else if (_runs is not null)
                 @foreach (var run in _runs)
                 {
                     <tr role="button" style="cursor: pointer" @onclick="() => OpenRun(run.PipelineExecutionId)">
-                        <td><StatusBadge Status="@run.Status" /></td>
+                        <td>
+                            <StatusBadge Status="@run.Status" />
+                            @* RF-005: approval gates surface on the list, not only on the run page. *@
+                            @if (run.Status is "WaitingApproval")
+                            {
+                                <span class="badge text-bg-warning ms-1">Needs approval</span>
+                            }
+                        </td>
                         <td><code>@run.TemplateId</code></td>
                         <td>@run.RepositoryFullName</td>
                         <td class="small text-body-secondary">@run.CreatedAtUtc.ToLocalTime().ToString("dd/MM HH:mm")</td>
@@ -249,6 +267,11 @@ else if (_runs is not null)
     private readonly Dictionary<string, StageOption> _stageOptions = new(StringComparer.Ordinal);
     private bool _optionsOpen;
     private CancellationTokenSource _cts = new();
+    private HubConnection? _hub;
+    private CancellationTokenSource _rowRefreshCts = new();
+
+    /// <summary>RF-005: runs waiting on an approval gate — header chip + row badge.</summary>
+    private int PendingApprovals => _runs?.Count(r => r.Status is "WaitingApproval") ?? 0;
 
     private bool IsSingleAgent => _start.TemplateId == PipelineTemplateIds.SingleAgent;
 
@@ -265,6 +288,117 @@ else if (_runs is not null)
     {
         await RefreshAsync();
         _ = LoadPickersAsync();
+        _ = JS.InvokeVoidAsync("taskboardNotify.ensurePermission");
+        await ConnectHubAsync();
+    }
+
+    /// <summary>
+    /// SPEC-20260923-cockpit-run-hardening RF-003: the shared `runs` group
+    /// carries every cockpit event — the list refreshes the affected row
+    /// live (debounced) instead of needing F5.
+    /// </summary>
+    private async Task ConnectHubAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl(Nav.ToAbsoluteUri("/harness-cockpit-hub"))
+            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
+            .Build();
+
+        _hub.On<CockpitEventDto>("ReceiveCockpitEvent", evt =>
+        {
+            if (evt.Kind is "run_status" or "status" or "stage" or "verification" or "error" or "approval" or "lifecycle")
+            {
+                ScheduleRowRefresh(evt.RunId);
+            }
+
+            return InvokeAsync(StateHasChanged);
+        });
+
+        _hub.On<ApprovalRequestDto>("RequireApproval", request =>
+        {
+            ToastService.Notify(new ToastMessage(
+                ToastType.Warning, request.Summary ?? request.Description));
+            _ = JS.InvokeVoidAsync("taskboardNotify.notify",
+                request.Title,
+                request.Summary ?? request.Description,
+                Nav.ToAbsoluteUri($"/cockpit/runs/{request.RunId}").ToString());
+            ScheduleRowRefresh(request.RunId);
+            return InvokeAsync(StateHasChanged);
+        });
+
+        _hub.Reconnected += async _ =>
+        {
+            // Replay-safe: one list refresh reconciles anything missed offline.
+            await InvokeAsync(RefreshAsync);
+            await InvokeAsync(StateHasChanged);
+        };
+
+        try
+        {
+            await _hub.StartAsync();
+            await _hub.InvokeAsync("JoinRunsGroup");
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
+        }
+    }
+
+    /// <summary>
+    /// Collapses a burst of events for the same run into one GET — the last
+    /// event in a 400ms window triggers the fetch.
+    /// </summary>
+    private void ScheduleRowRefresh(string runId)
+    {
+        var previous = Interlocked.Exchange(ref _rowRefreshCts, new CancellationTokenSource());
+        try
+        {
+            previous.Cancel();
+            previous.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        var token = _rowRefreshCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(400, token);
+                var details = await Client.GetRunAsync(runId, token);
+                if (details is not null && _runs is not null)
+                {
+                    var rows = _runs.ToList();
+                    var index = rows.FindIndex(r => r.PipelineExecutionId == runId);
+                    if (index >= 0)
+                    {
+                        rows[index] = details.Execution;
+                    }
+                    else
+                    {
+                        rows.Insert(0, details.Execution);
+                    }
+
+                    _runs = rows;
+                }
+                else if (details is null)
+                {
+                    await RefreshAsync();
+                }
+
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex) when (ex is not JSDisconnectedException)
+            {
+                // A failed row refresh is harmless — the next event retries.
+                ToastService.Notify(new ToastMessage(ToastType.Warning, $"Refresh: {ex.Message}"));
+            }
+        });
     }
 
     private async Task RefreshAsync()
@@ -512,10 +646,34 @@ else if (_runs is not null)
     private static int CompletedStages(PipelineExecutionDto run) =>
         run.Stages.Count(s => s.Status is "Completed" or "Skipped");
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _cts.Cancel();
-        _cts.Dispose();
+        try
+        {
+            _rowRefreshCts.Cancel();
+            _rowRefreshCts.Dispose();
+            _cts.Cancel();
+            _cts.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        if (_hub is not null)
+        {
+            try
+            {
+                if (_hub.State == HubConnectionState.Connected)
+                {
+                    await _hub.InvokeAsync("LeaveRunsGroup");
+                }
+                await _hub.DisposeAsync();
+            }
+            catch
+            {
+                // Dispose is best-effort.
+            }
+        }
     }
 
     private sealed class RunStartForm

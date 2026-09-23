@@ -33,6 +33,16 @@ public sealed class PipelineStageExecution : Entity<PipelineStageExecutionId>
     /// </summary>
     public IReadOnlyList<string> TriedAgents { get; private set; } = [];
 
+    /// <summary>
+    /// Failures counted against the agent currently bound to the stage —
+    /// reset on rotation or manual retry (SPEC-20260923-cockpit-run-hardening
+    /// RF-002). Persisted so the schedule survives restarts.
+    /// </summary>
+    public int AutoRetryCount { get; private set; }
+
+    /// <summary>Next due auto-retry; null means the failure is not yet scheduled.</summary>
+    public DateTime? NextAutoRetryAtUtc { get; private set; }
+
     private PipelineStageExecution()
     {
     }
@@ -125,9 +135,68 @@ public sealed class PipelineStageExecution : Entity<PipelineStageExecutionId>
         LastError = null;
         StartedAtUtc = null;
         CompletedAtUtc = null;
-        // Manual retry re-opens the whole fallback chain
-        // (SPEC-20260922-cockpit-agent-selection-fallback §6).
+        // Manual retry re-opens the whole fallback chain and the auto-retry
+        // budget (SPEC-20260922 §6 + SPEC-20260923 RF-002).
         TriedAgents = [];
+        AutoRetryCount = 0;
+        NextAutoRetryAtUtc = null;
+    }
+
+    /// <summary>
+    /// Counts one more failure against the bound agent and schedules the next
+    /// auto-retry tick (RF-002). The stage stays Failed until the due time.
+    /// </summary>
+    internal void ScheduleAutoRetry(DateTime retryAtUtc)
+    {
+        if (Status is not StageStatus.Failed)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Stage '{StageKey}' cannot schedule an auto-retry from {Status}.");
+        }
+
+        AutoRetryCount++;
+        NextAutoRetryAtUtc = retryAtUtc;
+    }
+
+    /// <summary>
+    /// Rotates the stage to the next untried CLI after the current agent
+    /// exhausted its budget — the new agent's first retry is scheduled at
+    /// <paramref name="retryAtUtc"/> (RF-002).
+    /// </summary>
+    internal void RotateAgent(AgentType next, DateTime retryAtUtc)
+    {
+        if (Status is not StageStatus.Failed)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Stage '{StageKey}' cannot rotate agents from {Status}.");
+        }
+
+        Agent = next;
+        AutoRetryCount = 0;
+        NextAutoRetryAtUtc = retryAtUtc;
+    }
+
+    /// <summary>
+    /// Due auto-retry: back to Pending on the bound agent — the dispatch loop
+    /// picks it up in the same tick. <see cref="TriedAgents"/> is kept so the
+    /// rotation order is preserved (RF-002).
+    /// </summary>
+    internal void BeginAutoRetry()
+    {
+        if (Status is not StageStatus.Failed || NextAutoRetryAtUtc is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Stage '{StageKey}' has no scheduled auto-retry (status {Status}).");
+        }
+
+        Status = StageStatus.Pending;
+        NextAutoRetryAtUtc = null;
+        Attempts++;
+        StartedAtUtc = null;
+        CompletedAtUtc = null;
     }
 
     /// <summary>

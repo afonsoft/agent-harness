@@ -30,6 +30,7 @@ public sealed class PipelineEngine
     private readonly ISteerQueue? _steer;
     private readonly IAgentExecutionEventSink? _eventSink;
     private readonly ILogger<PipelineEngine> _logger;
+    private readonly PipelineAutoRetryOptions _autoRetry;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _runningStages = new();
     private readonly ConcurrentDictionary<Task, byte> _stageTasks = new();
     private readonly SemaphoreSlim _tick = new(1, 1);
@@ -41,7 +42,8 @@ public sealed class PipelineEngine
         ILogger<PipelineEngine> logger,
         ICockpitEventStream? cockpit = null,
         ISteerQueue? steer = null,
-        IAgentExecutionEventSink? eventSink = null)
+        IAgentExecutionEventSink? eventSink = null,
+        PipelineAutoRetryOptions? autoRetry = null)
     {
         _scopeFactory = scopeFactory;
         _acpClient = acpClient;
@@ -50,6 +52,7 @@ public sealed class PipelineEngine
         _cockpit = cockpit;
         _steer = steer;
         _eventSink = eventSink;
+        _autoRetry = autoRetry ?? new PipelineAutoRetryOptions();
     }
 
     /// <summary>Scans active executions and dispatches every eligible stage.</summary>
@@ -112,14 +115,20 @@ public sealed class PipelineEngine
             .Include(e => e.Stages)
             .Where(e => e.Status != PipelineStatus.Completed
                 && e.Status != PipelineStatus.Cancelled
-                && e.Status != PipelineStatus.Paused)
+                && e.Status != PipelineStatus.Paused
+                && e.Status != PipelineStatus.Failed)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var finOpsDispatch = scope.ServiceProvider.GetService<IFinOpsService>();
+        var eligibility = scope.ServiceProvider.GetService<IAgentEligibilityService>();
+        var eligibleAgents = _autoRetry.Enabled && eligibility is not null
+            ? await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false)
+            : null;
 
         foreach (var exec in active)
         {
+            var statusBefore = exec.Status;
             // E14 RF-003: nunca despacha estágios novos quando o custo
             // acumulado da execução já passou do teto.
             if (exec.BudgetCapUsd is { } cap && finOpsDispatch is not null)
@@ -132,6 +141,20 @@ public sealed class PipelineEngine
                         exec.Id.Value, cap, cumulative);
                     exec.Cancel(DateTime.UtcNow);
                     await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await PublishRunStatusAsync(exec).ConfigureAwait(false);
+                    continue;
+                }
+            }
+
+            // SPEC-20260923-cockpit-run-hardening RF-002: failed stages are
+            // retried on a persisted schedule — per-agent budget, then CLI
+            // rotation, then terminal Failed.
+            if (_autoRetry.Enabled && exec.Status is PipelineStatus.AwaitingRetry)
+            {
+                await SweepAutoRetriesAsync(exec, eligibleAgents, cancellationToken).ConfigureAwait(false);
+                await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                if (exec.Status is PipelineStatus.Failed)
+                {
                     continue;
                 }
             }
@@ -172,6 +195,12 @@ public sealed class PipelineEngine
                 await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            // RF-003: every execution-level transition streams to the cockpit.
+            if (exec.Status != statusBefore)
+            {
+                await PublishRunStatusAsync(exec).ConfigureAwait(false);
+            }
+
             // SPEC-20260919-ade-cockpit-hitl RF-001/RF-004: stage transitions
             // and approval gates stream to the run's cockpit group.
             foreach (var stage in approvals)
@@ -201,6 +230,153 @@ public sealed class PipelineEngine
         return dispatched;
     }
 
+    /// <summary>
+    /// RF-002: for each failed stage of an <c>AwaitingRetry</c> execution —
+    /// a fresh failure counts against the bound agent and either schedules the
+    /// next attempt (<see cref="PipelineAutoRetryOptions.Interval"/>), rotates
+    /// to the next untried eligible CLI when the per-agent budget is exhausted,
+    /// or fails the run terminally when nothing is left to try. A due schedule
+    /// returns the stage to Pending so this same tick dispatches it.
+    /// </summary>
+    private async Task SweepAutoRetriesAsync(
+        PipelineExecution exec,
+        IReadOnlySet<AgentType>? eligible,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var stage in exec.Stages.Where(s => s.Status is StageStatus.Failed).ToList())
+        {
+            if (exec.Status is not PipelineStatus.AwaitingRetry)
+            {
+                break;
+            }
+
+            if (stage.NextAutoRetryAtUtc is { } due)
+            {
+                if (due > now)
+                {
+                    continue;
+                }
+
+                exec.BeginStageAutoRetry(stage.StageKey, now);
+                await PublishAsync(exec, "stage",
+                    $"Stage '{stage.Name}' — auto-retry dispatched on {stage.Agent} (attempt {stage.Attempts})",
+                    stage.StageKey,
+                    new { stageKey = stage.StageKey, agent = stage.Agent?.ToString(), attempt = stage.Attempts })
+                    .ConfigureAwait(false);
+                continue;
+            }
+
+            // Fresh failure (nothing scheduled yet) — count it against the
+            // bound agent and decide: retry, rotate or fail the run.
+            var agentBound = stage.Kind is PipelineStageKind.AgentWork && stage.Agent is not null;
+            var nextCount = stage.AutoRetryCount + 1;
+            var budgetHit = nextCount >= _autoRetry.AttemptsPerAgent;
+            var agentIneligible = agentBound
+                && eligible is not null
+                && !eligible.Contains(stage.Agent!.Value);
+
+            if (agentBound && (budgetHit || agentIneligible))
+            {
+                var next = NextUntriedEligible(stage, eligible);
+                if (next is null)
+                {
+                    await FailExecutionAsync(exec, stage).ConfigureAwait(false);
+                    continue;
+                }
+
+                var previous = stage.Agent!.Value;
+                exec.RotateStageAgent(stage.StageKey, next.Value, now + _autoRetry.Interval);
+                await PublishAsync(exec, "stage",
+                    $"Stage '{stage.Name}' — {previous} exhausted {_autoRetry.AttemptsPerAgent} attempt(s) ({stage.LastError}); rotating to {next}",
+                    stage.StageKey,
+                    new
+                    {
+                        stageKey = stage.StageKey,
+                        previousAgent = previous.ToString(),
+                        agent = next.Value.ToString(),
+                        lastError = stage.LastError,
+                        triedAgents = stage.TriedAgents,
+                        retryAtUtc = stage.NextAutoRetryAtUtc,
+                    }).ConfigureAwait(false);
+                continue;
+            }
+
+            if (!agentBound && budgetHit)
+            {
+                await FailExecutionAsync(exec, stage).ConfigureAwait(false);
+                continue;
+            }
+
+            exec.ScheduleStageAutoRetry(stage.StageKey, now + _autoRetry.Interval);
+            await PublishAsync(exec, "stage",
+                $"Stage '{stage.Name}' — auto-retry scheduled (failure {stage.AutoRetryCount}/{_autoRetry.AttemptsPerAgent} on {stage.Agent?.ToString() ?? "step"})",
+                stage.StageKey,
+                new
+                {
+                    stageKey = stage.StageKey,
+                    agent = stage.Agent?.ToString(),
+                    failure = stage.AutoRetryCount,
+                    budget = _autoRetry.AttemptsPerAgent,
+                    retryAtUtc = stage.NextAutoRetryAtUtc,
+                }).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Terminal failure — every eligible CLI exhausted. The reason keeps the
+    /// stage key, the tried agents and the last error for the UI/logs.
+    /// </summary>
+    private async Task FailExecutionAsync(PipelineExecution exec, PipelineStageExecution stage)
+    {
+        var tried = string.Join(", ", stage.TriedAgents);
+        var reason = $"Stage '{stage.StageKey}' failed after {stage.Attempts} attempt(s) across agents [{tried}]. Last error: {stage.LastError}";
+        _logger.LogWarning("Pipeline {Id} failed: {Reason}", exec.Id.Value, reason);
+        exec.Fail(reason, DateTime.UtcNow);
+        EmitNormalized(exec, new AgentExecutionEvent(
+            string.Empty, AgentEventScope.Run, exec.Id.Value, 0, DateTimeOffset.UtcNow,
+            AgentEventKinds.Error, stage.StageKey,
+            Title: $"Run failed: {reason}",
+            PayloadJson: JsonSerializer.Serialize(
+                new
+                {
+                    stageKey = stage.StageKey,
+                    lastError = stage.LastError,
+                    triedAgents = stage.TriedAgents,
+                    attempts = stage.Attempts,
+                }, JsonOptions)));
+        await PublishRunStatusAsync(exec).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Next eligible CLI never tried by this stage, in enum order
+    /// (SPEC-20260923 RF-002). Null when eligibility is unknown or exhausted.
+    /// </summary>
+    private static AgentType? NextUntriedEligible(
+        PipelineStageExecution stage, IReadOnlySet<AgentType>? eligible)
+    {
+        if (eligible is null)
+        {
+            return null;
+        }
+
+        var tried = new HashSet<string>(stage.TriedAgents, StringComparer.Ordinal);
+        foreach (var type in Enum.GetValues<AgentType>())
+        {
+            if (eligible.Contains(type) && type != stage.Agent && !tried.Contains(type.ToString()))
+            {
+                return type;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>RF-003: cockpit <c>run_status</c> + normalized lifecycle mirror on transitions.</summary>
+    private Task PublishRunStatusAsync(PipelineExecution exec) =>
+        PublishAsync(exec, "run_status", $"Run {exec.Status}", null,
+            new { status = exec.Status.ToString(), completedAtUtc = exec.CompletedAtUtc });
+
     private async Task<bool> TryAttachWorktreeAsync(
         PipelineExecution exec,
         IRepository<PipelineExecution> repo,
@@ -214,6 +390,13 @@ public sealed class PipelineEngine
                 exec.TemplateId, retainOnFailure: true, cancellationToken).ConfigureAwait(false);
             exec.AttachWorktree(session.Path);
             await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            EmitNormalized(exec, new AgentExecutionEvent(
+                string.Empty, AgentEventScope.Run, exec.Id.Value, 0, DateTimeOffset.UtcNow,
+                AgentEventKinds.Lifecycle, null,
+                Title: $"Worktree attached at {session.Path}",
+                PayloadJson: JsonSerializer.Serialize(
+                    new { path = session.Path, branch = session.Branch, repositoryPath = session.RepositoryPath },
+                    JsonOptions)));
             return true;
         }
         catch (Exception ex)
@@ -232,6 +415,7 @@ public sealed class PipelineEngine
             var repo = scope.ServiceProvider.GetRequiredService<IRepository<PipelineExecution>>();
             var exec = await LoadAsync(repo, executionId, cts.Token).ConfigureAwait(false);
             var stage = exec.Stages.Single(s => s.StageKey == stageKey);
+            var statusBefore = exec.Status;
 
             // SPEC-20260919-ade-observability-finops RF-004: stage span.
             using var stageActivity = HarnessTelemetrySource.StartStageSpan(
@@ -249,6 +433,10 @@ public sealed class PipelineEngine
             }
 
             await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            if (exec.Status != statusBefore)
+            {
+                await PublishRunStatusAsync(exec).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -267,11 +455,11 @@ public sealed class PipelineEngine
     }
 
     /// <summary>
-    /// Runs an AgentWork stage through the CLI fallback chain
-    /// (SPEC-20260922-cockpit-agent-selection-fallback RF-003/RF-004): the
-    /// stage's bound CLI first, then every other eligible CLI not yet tried —
-    /// same synthesized prompt/context on each attempt, usage billed to the
-    /// CLI that actually ran. Exhaustion keeps the existing FailStage path.
+    /// Runs one dispatch of an AgentWork stage on the stage's bound CLI —
+    /// SPEC-20260923-cockpit-run-hardening RF-002 supersedes the same-tick
+    /// fallback sweep of SPEC-20260922 RF-003: rotation now happens through the
+    /// scheduled auto-retry sweep. The same-CLI model-flag retry of
+    /// SPEC-20260922 RF-004 is preserved inside the attempt.
     /// </summary>
     private async Task RunAgentStageAsync(
         PipelineExecution exec,
@@ -329,168 +517,173 @@ public sealed class PipelineEngine
             ? null
             : await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
 
-        string? lastError = null;
-        foreach (var candidate in FallbackCandidates(stage, eligible))
+        var candidate = stage.Agent ?? AgentType.Codex;
+
+        // Eligibility is dynamic — a CLI disabled mid-run fails the attempt;
+        // the auto-retry sweep rotates to an untried eligible CLI on the next tick.
+        if (eligible is not null && !eligible.Contains(candidate))
         {
-            if (stage.Agent != candidate)
-            {
-                var previous = stage.TriedAgents.LastOrDefault()
-                    ?? stage.Agent?.ToString()
-                    ?? "?";
-                exec.BeginStageFallback(stageKey, candidate);
-                await PublishAsync(exec, "stage",
-                    $"Stage '{stage.Name}' — {previous} failed ({lastError}); retrying with {candidate}",
-                    stageKey).ConfigureAwait(false);
-            }
-
-            // Eligibility is dynamic — a CLI disabled mid-run is skipped, never dispatched.
-            if (eligible is not null && !eligible.Contains(candidate))
-            {
-                lastError = $"Agent {candidate} is not eligible (disabled or CLI not authenticated).";
-                exec.RecordStageAttemptFailure(stageKey, lastError);
-                await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
-                continue;
-            }
-
-            var (model, omitFlag) = await ResolveStageModelAsync(
-                    candidate, stage.ModelTier, modelConfig, catalog,
-                    exec, stage.Name, stageKey, cancellationToken)
+            var error = $"Agent {candidate} is not eligible (disabled or CLI not authenticated).";
+            exec.RecordStageAttemptFailure(stageKey, error);
+            await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            exec.FailStage(stageKey, error, DateTime.UtcNow);
+            await EmitStageFailureAsync(exec, stage, candidate.ToString(), error, exitCode: null)
                 .ConfigureAwait(false);
+            return;
+        }
 
-            var retriedWithoutFlag = false;
-            while (true)
+        var (model, omitFlag) = await ResolveStageModelAsync(
+                candidate, stage.ModelTier, modelConfig, catalog,
+                exec, stage.Name, stageKey, cancellationToken)
+            .ConfigureAwait(false);
+
+        string? lastError = null;
+        int? lastExitCode = null;
+        var retriedWithoutFlag = false;
+        while (true)
+        {
+            var chunkOffset = chunks.Count;
+            var request = new AgentExecutionRequest(
+                IssueId: exec.IssueId ?? exec.Id.Value,
+                IssueNumber: 0,
+                RepositoryFullName: exec.RepositoryFullName,
+                RepoPath: exec.WorktreePath ?? exec.RepositoryPath,
+                Branch: null,
+                Scope: $"pipeline:{exec.TemplateId}/{stage.StageKey}",
+                Instructions: instructions,
+                AgentType: candidate,
+                ModelTier: stage.ModelTier,
+                ResolvedModelName: model,
+                OmitModelFlag: omitFlag);
+
+            AgentExecutionResult? result = null;
+            try
             {
-                var chunkOffset = chunks.Count;
-                var request = new AgentExecutionRequest(
-                    IssueId: exec.IssueId ?? exec.Id.Value,
-                    IssueNumber: 0,
-                    RepositoryFullName: exec.RepositoryFullName,
-                    RepoPath: exec.WorktreePath ?? exec.RepositoryPath,
-                    Branch: null,
-                    Scope: $"pipeline:{exec.TemplateId}/{stage.StageKey}",
-                    Instructions: instructions,
-                    AgentType: candidate,
-                    ModelTier: stage.ModelTier,
-                    ResolvedModelName: model,
-                    OmitModelFlag: omitFlag);
+                result = await _acpClient.ExecuteAsync(request, progress, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex.Message;
+            }
 
-                AgentExecutionResult? result = null;
-                try
-                {
-                    result = await _acpClient.ExecuteAsync(request, progress, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    lastError = ex.Message;
-                }
+            // SPEC-20260922 §8: every attempt bills under the CLI that ran
+            // it — usage from the result or scanned from the output tail.
+            var attemptUsage = result?.Usage ?? ScanUsage(chunks, chunkOffset);
+            if (attemptUsage is not null && finOps is not null)
+            {
+                var metric = await finOps.RecordUsageAsync(
+                    runId, candidate, result?.ModelUsed, attemptUsage,
+                    stageKey: stageKey, budgetCapUsd: exec.BudgetCapUsd,
+                    CancellationToken.None).ConfigureAwait(false);
+                HarnessTelemetrySource.RecordUsage(stageActivity, attemptUsage, metric.CostUsd);
 
-                // SPEC-20260922 §8: every attempt bills under the CLI that ran
-                // it — usage from the result or scanned from the output tail.
-                var attemptUsage = result?.Usage ?? ScanUsage(chunks, chunkOffset);
-                if (attemptUsage is not null && finOps is not null)
-                {
-                    var metric = await finOps.RecordUsageAsync(
-                        runId, candidate, result?.ModelUsed, attemptUsage,
-                        stageKey: stageKey, budgetCapUsd: exec.BudgetCapUsd,
-                        CancellationToken.None).ConfigureAwait(false);
-                    HarnessTelemetrySource.RecordUsage(stageActivity, attemptUsage, metric.CostUsd);
-
-                    // E14 RF-003: over-cap cancels the execution — no further
-                    // attempt or dependent stage is dispatched.
-                    if (exec.BudgetCapUsd is { } cap
-                        && exec.Status is not (PipelineStatus.Completed or PipelineStatus.Cancelled))
-                    {
-                        var cumulative = await finOps.GetCumulativeCostAsync(runId, CancellationToken.None)
-                            .ConfigureAwait(false);
-                        if (cumulative > cap)
+                // RF-004: billed attempts emit a metric event so the run's
+                // durable stream carries cost, not only output lines.
+                var cumulativeUsd = await finOps.GetCumulativeCostAsync(runId, CancellationToken.None)
+                    .ConfigureAwait(false);
+                EmitNormalized(exec, new AgentExecutionEvent(
+                    string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
+                    AgentEventKinds.Metric, stageKey,
+                    Title: $"{candidate} usage — ${metric.CostUsd:F4} (cumulative ${cumulativeUsd:F4})",
+                    PayloadJson: JsonSerializer.Serialize(
+                        new
                         {
-                            _logger.LogWarning(
-                                "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
-                                runId, cap, cumulative);
-                            exec.Cancel(DateTime.UtcNow);
-                            return;
-                        }
-                    }
-                }
+                            agent = candidate.ToString(),
+                            model = metric.ModelName,
+                            tokensIn = metric.InputTokens,
+                            tokensOut = metric.OutputTokens,
+                            costUsd = metric.CostUsd,
+                            cumulativeUsd,
+                            attempt = stage.Attempts,
+                        }, JsonOptions)));
 
-                if (result is null)
+                // E14 RF-003: over-cap cancels the execution — no further
+                // attempt or dependent stage is dispatched.
+                if (exec.BudgetCapUsd is { } cap
+                    && exec.Status is not (PipelineStatus.Completed or PipelineStatus.Cancelled)
+                    && cumulativeUsd > cap)
                 {
-                    break;
-                }
-
-                if (result.IsSuccess)
-                {
-                    exec.CompleteStage(
-                        stageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), DateTime.UtcNow);
-                    await PublishAsync(exec, "stage", $"Stage '{stage.Name}' completed", stageKey)
-                        .ConfigureAwait(false);
+                    _logger.LogWarning(
+                        "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
+                        runId, cap, cumulativeUsd);
+                    exec.Cancel(DateTime.UtcNow);
                     return;
                 }
+            }
 
-                lastError = $"Agent exited with code {result.ExitCode}";
-
-                // RF-004: a model-catalog rejection retries once on the same
-                // CLI without a model flag before consuming a fallback CLI.
-                if (!retriedWithoutFlag && !omitFlag && OutputSuggestsInvalidModel(chunks, chunkOffset))
-                {
-                    retriedWithoutFlag = true;
-                    omitFlag = true;
-                    model = null;
-                    await PublishAsync(exec, "stage",
-                        $"Stage '{stage.Name}' — {candidate} rejected the model; retrying with the CLI default",
-                        stageKey).ConfigureAwait(false);
-                    continue;
-                }
-
+            if (result is null)
+            {
                 break;
             }
 
-            exec.RecordStageAttemptFailure(stageKey, lastError ?? "agent failed");
-            await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            if (result.IsSuccess)
+            {
+                exec.CompleteStage(
+                    stageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), DateTime.UtcNow);
+                await PublishAsync(exec, "stage", $"Stage '{stage.Name}' completed", stageKey,
+                        new { stageKey, agent = candidate.ToString(), attempt = stage.Attempts })
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            lastError = $"Agent exited with code {result.ExitCode}";
+            lastExitCode = result.ExitCode;
+
+            // RF-004: a model-catalog rejection retries once on the same
+            // CLI without a model flag.
+            if (!retriedWithoutFlag && !omitFlag && OutputSuggestsInvalidModel(chunks, chunkOffset))
+            {
+                retriedWithoutFlag = true;
+                omitFlag = true;
+                model = null;
+                await PublishAsync(exec, "stage",
+                    $"Stage '{stage.Name}' — {candidate} rejected the model; retrying with the CLI default",
+                    stageKey).ConfigureAwait(false);
+                continue;
+            }
+
+            break;
         }
 
-        exec.FailStage(
-            stageKey,
-            lastError ?? "No eligible agent CLI could run the stage.",
-            DateTime.UtcNow);
-        await PublishAsync(exec, "stage", $"Stage '{stage.Name}' failed ({lastError})", stageKey)
+        exec.RecordStageAttemptFailure(stageKey, lastError ?? "agent failed");
+        await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+        exec.FailStage(stageKey, lastError ?? "Agent failed.", DateTime.UtcNow);
+        await EmitStageFailureAsync(exec, stage, candidate.ToString(), lastError, lastExitCode)
             .ConfigureAwait(false);
     }
 
     /// <summary>
-    /// CLI chain for a stage: the bound agent first (when untried), then the
-    /// remaining eligible CLIs in enum order — each tried at most once
-    /// (SPEC-20260922 RF-003). Without an eligibility service the chain is the
-    /// bound CLI only.
+    /// RF-004: a failed attempt emits a normalized <c>error</c> event (with
+    /// exit code and attempt) plus the stage cockpit row.
     /// </summary>
-    private static List<AgentType> FallbackCandidates(
-        PipelineStageExecution stage, IReadOnlySet<AgentType>? eligible)
+    private async Task EmitStageFailureAsync(
+        PipelineExecution exec,
+        PipelineStageExecution stage,
+        string? agent,
+        string? error,
+        int? exitCode)
     {
-        var tried = new HashSet<string>(stage.TriedAgents, StringComparer.Ordinal);
-        var current = stage.Agent ?? AgentType.Codex;
-        var candidates = new List<AgentType>();
-        if (!tried.Contains(current.ToString()))
-        {
-            candidates.Add(current);
-        }
-
-        if (eligible is not null)
-        {
-            foreach (var type in Enum.GetValues<AgentType>())
-            {
-                if (eligible.Contains(type) && type != current && !tried.Contains(type.ToString()))
+        EmitNormalized(exec, new AgentExecutionEvent(
+            string.Empty, AgentEventScope.Run, exec.Id.Value, 0, DateTimeOffset.UtcNow,
+            AgentEventKinds.Error, stage.StageKey,
+            Title: $"Stage '{stage.Name}' failed{(agent is null ? "" : $" on {agent}")}: {error}",
+            PayloadJson: JsonSerializer.Serialize(
+                new
                 {
-                    candidates.Add(type);
-                }
-            }
-        }
-
-        return candidates;
+                    stageKey = stage.StageKey,
+                    agent,
+                    attempt = stage.Attempts,
+                    exitCode,
+                    error,
+                }, JsonOptions)));
+        await PublishAsync(exec, "stage", $"Stage '{stage.Name}' failed ({error})", stage.StageKey,
+                new { stageKey = stage.StageKey, agent, attempt = stage.Attempts, exitCode, error })
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -585,9 +778,17 @@ public sealed class PipelineEngine
             : Directory.EnumerateFiles(worktree, "*.sln")
                 .Concat(Directory.EnumerateFiles(worktree, "*.slnx"))
                 .FirstOrDefault();
+        // SPEC-20260923-cockpit-run-hardening RF-004: the early-return path
+        // used to skip every event — a failed verification must be visible.
         if (solution is null)
         {
-            exec.FailStage(stage.StageKey, "No .sln/.slnx found in the run worktree.", now);
+            var error = "No .sln/.slnx found in the run worktree.";
+            exec.FailStage(stage.StageKey, error, now);
+            await PublishAsync(exec, "verification", $"Verification failed: {error}", stage.StageKey,
+                    new { stageKey = stage.StageKey, status = "failed", error })
+                .ConfigureAwait(false);
+            await EmitStageFailureAsync(exec, stage, agent: null, error, exitCode: null)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -611,7 +812,21 @@ public sealed class PipelineEngine
             report.IsSuccess
                 ? $"Verification passed — coverage {report.CoveragePercent}%"
                 : $"Verification failed: {report.Status}",
-            stage.StageKey).ConfigureAwait(false);
+            stage.StageKey,
+            new
+            {
+                stageKey = stage.StageKey,
+                status = report.Status,
+                coverage = report.CoveragePercent,
+                feedback = report.FeedbackPrompt,
+            }).ConfigureAwait(false);
+        if (!report.IsSuccess)
+        {
+            await EmitStageFailureAsync(
+                    exec, stage, agent: null,
+                    report.FeedbackPrompt ?? $"Verification failed: {report.Status}", exitCode: null)
+                .ConfigureAwait(false);
+        }
     }
 
     private async Task TryFailStageAsync(string executionId, string stageKey, string error)
@@ -621,8 +836,13 @@ public sealed class PipelineEngine
             await using var scope = _scopeFactory.CreateAsyncScope();
             var repo = scope.ServiceProvider.GetRequiredService<IRepository<PipelineExecution>>();
             var exec = await LoadAsync(repo, executionId, CancellationToken.None).ConfigureAwait(false);
+            var stage = exec.Stages.FirstOrDefault(s => s.StageKey == stageKey);
             exec.FailStage(stageKey, error, DateTime.UtcNow);
             await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            await EmitStageFailureAsync(exec, stage ?? exec.Stages.First(s => s.StageKey == stageKey),
+                    stage?.Agent?.ToString(), error, exitCode: null)
+                .ConfigureAwait(false);
+            await PublishRunStatusAsync(exec).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -674,15 +894,17 @@ public sealed class PipelineEngine
         }
     }
 
-    private async Task PublishAsync(PipelineExecution exec, string kind, string title, string? stageKey)
+    private async Task PublishAsync(
+        PipelineExecution exec, string kind, string title, string? stageKey, object? payload = null)
     {
         var runId = exec.Id.Value;
+        var payloadJson = payload is null ? null : JsonSerializer.Serialize(payload, JsonOptions);
 
         // SPEC-20260921-agent-execution-event-pipeline: cockpit kinds map to
         // the normalized taxonomy — the durable event goes out even without a cockpit.
         var normalizedKind = kind switch
         {
-            "stage" or "status" => AgentEventKinds.Lifecycle,
+            "stage" or "status" or "run_status" => AgentEventKinds.Lifecycle,
             "verification" => AgentEventKinds.Verification,
             "steer" => AgentEventKinds.Steer,
             "diff" => AgentEventKinds.Diff,
@@ -691,7 +913,7 @@ public sealed class PipelineEngine
         };
         EmitNormalized(exec, new AgentExecutionEvent(
             string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
-            normalizedKind, stageKey, Title: title));
+            normalizedKind, stageKey, Title: title, PayloadJson: payloadJson));
 
         if (_cockpit is null)
         {
@@ -700,7 +922,11 @@ public sealed class PipelineEngine
 
         try
         {
-            await _cockpit.PublishAsync(new CockpitEventDto(runId, DateTimeOffset.UtcNow, kind, title, stageKey))
+            // Cockpit keeps the legacy "PayloadJson carries stageKey" convention
+            // for stage-ish events; richer payloads (run_status, failures) land
+            // there directly (SPEC-20260923-cockpit-run-hardening RF-003/RF-004).
+            await _cockpit.PublishAsync(new CockpitEventDto(
+                    runId, DateTimeOffset.UtcNow, kind, title, payloadJson ?? stageKey))
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -713,13 +939,22 @@ public sealed class PipelineEngine
     {
         var runId = exec.Id.Value;
 
+        // RF-005: one-line digest for toasts/notifications — repo · run · stage · handoff.
+        var shortId = runId.Length > 12 ? runId[..12] : runId;
+        var summary = $"{exec.RepositoryFullName} · run {shortId} · stage '{stage.Name}'"
+            + (string.IsNullOrWhiteSpace(stage.HandoffSummary)
+                ? string.Empty
+                : $" — {stage.HandoffSummary}");
+
         // The `stage:` requestId prefix is how the approvals endpoint resolves
         // the reply back to the stage gate (SPEC-20260919-ade-cockpit-hitl §5).
         EmitNormalized(exec, new AgentExecutionEvent(
             string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
             AgentEventKinds.Approval, stage.StageKey,
             Title: $"Stage '{stage.Name}' awaits approval",
-            PayloadJson: JsonSerializer.Serialize(new { requestId = $"stage:{stage.StageKey}", options = new[] { "Allow", "Deny" } }, JsonOptions)));
+            PayloadJson: JsonSerializer.Serialize(
+                new { requestId = $"stage:{stage.StageKey}", options = new[] { "Allow", "Deny" }, summary },
+                JsonOptions)));
 
         if (_cockpit is null)
         {
@@ -733,7 +968,8 @@ public sealed class PipelineEngine
                 $"stage:{stage.StageKey}",
                 $"Stage '{stage.Name}' awaits approval",
                 $"Pipeline stage '{stage.Name}' ({stage.StageKey}) requires human approval to proceed.",
-                ["Allow", "Deny"])).ConfigureAwait(false);
+                ["Allow", "Deny"],
+                summary)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

@@ -26,4 +26,10 @@ public enum PipelineStatus
 
     /// <summary>Cancelled by the user; running stages were shut down safely.</summary>
     Cancelled,
+
+    /// <summary>
+    /// Terminal failure — the auto-retry budget was exhausted across every
+    /// eligible agent CLI (SPEC-20260923-cockpit-run-hardening RF-002).
+    /// </summary>
+    Failed,
 }

@@ -22,6 +22,14 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
     /// <summary>Budget cap in USD — cumulative stage cost above this cancels the execution (E14 RF-003).</summary>
     public decimal? BudgetCapUsd { get; private set; }
     public PipelineStatus Status { get; private set; }
+
+    /// <summary>
+    /// Why the run ended in <see cref="PipelineStatus.Failed"/> — stage key,
+    /// tried agents and the last error
+    /// (SPEC-20260923-cockpit-run-hardening RF-002).
+    /// </summary>
+    public string? FailureReason { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? CompletedAtUtc { get; private set; }
 
@@ -175,6 +183,48 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
     }
 
     /// <summary>
+    /// Schedules the next auto-retry of a failed stage — counts the failure
+    /// against the bound agent (SPEC-20260923-cockpit-run-hardening RF-002).
+    /// </summary>
+    public void ScheduleStageAutoRetry(string stageKey, DateTime retryAtUtc) =>
+        RequireStage(stageKey).ScheduleAutoRetry(retryAtUtc);
+
+    /// <summary>Rotates a failed stage to the next untried CLI and schedules its first retry.</summary>
+    public void RotateStageAgent(string stageKey, AgentType next, DateTime retryAtUtc) =>
+        RequireStage(stageKey).RotateAgent(next, retryAtUtc);
+
+    /// <summary>Fires a due auto-retry — the stage goes back to Pending for this tick's dispatch.</summary>
+    public void BeginStageAutoRetry(string stageKey, DateTime now)
+    {
+        RequireStage(stageKey).BeginAutoRetry();
+        RecomputeStatus(now);
+    }
+
+    /// <summary>
+    /// Terminal failure — the auto-retry budget was exhausted across every
+    /// eligible agent CLI (RF-002). Pending/waiting stages are skipped; the
+    /// failing stage keeps its <c>Failed</c> status and error detail.
+    /// </summary>
+    public void Fail(string reason, DateTime now)
+    {
+        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled or PipelineStatus.Failed)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineState,
+                $"Pipeline cannot fail from {Status}.");
+        }
+
+        foreach (var stage in _stages)
+        {
+            stage.Skip();
+        }
+
+        Status = PipelineStatus.Failed;
+        FailureReason = reason;
+        CompletedAtUtc = now;
+    }
+
+    /// <summary>
     /// Operator pause — freezes the DAG between stages: in-flight stages still
     /// complete, but nothing new is dispatched until <see cref="Resume"/>
     /// (SPEC-20260920-cockpit-pause-resume AC1).
@@ -207,7 +257,7 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
 
     public void Cancel(DateTime now)
     {
-        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled)
+        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled or PipelineStatus.Failed)
         {
             throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidValue,
@@ -230,7 +280,8 @@ public sealed class PipelineExecution : AggregateRoot<PipelineExecutionId>
 
     private void RecomputeStatus(DateTime? now = null)
     {
-        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled or PipelineStatus.Paused)
+        if (Status is PipelineStatus.Completed or PipelineStatus.Cancelled or PipelineStatus.Paused
+            or PipelineStatus.Failed)
         {
             return;
         }

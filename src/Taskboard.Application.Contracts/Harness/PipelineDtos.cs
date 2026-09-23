@@ -85,7 +85,11 @@ public sealed record PipelineStageDto(
     /// CLIs already attempted for this stage, in order — the fallback chain
     /// (SPEC-20260922 RF-003/RF-006). `Agent` is the effective/last pick.
     /// </summary>
-    IReadOnlyList<string>? TriedAgents = null);
+    IReadOnlyList<string>? TriedAgents = null,
+    /// <summary>Failures counted against the bound agent (SPEC-20260923 RF-002).</summary>
+    int AutoRetryCount = 0,
+    /// <summary>Next scheduled auto-retry, when the stage is waiting between attempts.</summary>
+    DateTime? NextAutoRetryAtUtc = null);
 
 /// <summary>Pipeline execution snapshot for status/list endpoints.</summary>
 public sealed record PipelineExecutionDto(
@@ -99,4 +103,8 @@ public sealed record PipelineExecutionDto(
     DateTime? CompletedAtUtc,
     IReadOnlyList<PipelineStageDto> Stages,
     /// <summary>Board issue this run was started for, when launched from the Kanban board.</summary>
-    string? IssueId = null);
+    string? IssueId = null,
+    /// <summary>Why the run ended in Failed — stage, tried agents, last error (SPEC-20260923 RF-002).</summary>
+    string? FailureReason = null,
+    /// <summary>Provisioned clone path the run worktree is cut from (SPEC-20260923 RF-001).</summary>
+    string? RepositoryPath = null);

@@ -92,10 +92,27 @@ public class CockpitEndpointsTests : IClassFixture<TaskboardWebApplicationFactor
 
         steer.StatusCode.ShouldBe(HttpStatusCode.Accepted);
 
-        var events = await client.GetFromJsonAsync<List<CockpitEventDto>>(
-            $"/api/harness/runs/{dto.PipelineExecutionId}/events");
-        events.ShouldNotBeNull();
-        events.ShouldContain(e => e.Kind == "steer" && e.PayloadJson == "priorize o refresh token");
+        // RF-004: /events serves the durable stream — poll until the persisted
+        // steer event appears (the sink write is fire-and-forget).
+        CockpitEventsPage? page = null;
+        for (var i = 0; i < 20; i++)
+        {
+            page = await client.GetFromJsonAsync<CockpitEventsPage>(
+                $"/api/harness/runs/{dto.PipelineExecutionId}/events");
+            if (page!.Events.Any(e => e.Kind == "steer"
+                    && e.PayloadJson != null
+                    && e.PayloadJson.Contains("priorize o refresh token")))
+            {
+                break;
+            }
+
+            await Task.Delay(200);
+        }
+
+        page.ShouldNotBeNull();
+        page.Events.ShouldContain(e => e.Kind == "steer"
+            && e.PayloadJson != null
+            && e.PayloadJson.Contains("priorize o refresh token"));
     }
 
     [Fact]

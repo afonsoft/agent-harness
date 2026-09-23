@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
@@ -26,6 +27,8 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
     private readonly ILogger<PipelineExecutionAppService> _logger;
     private readonly IAgentEligibilityService? _eligibility;
     private readonly ICockpitEventStream? _cockpit;
+    private readonly IRepositoryProvisioningService? _provisioning;
+    private readonly IAgentExecutionEventSink? _eventSink;
 
     public PipelineExecutionAppService(
         IRepository<PipelineExecution> executions,
@@ -34,7 +37,9 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         IGitHubService gitHub,
         ILogger<PipelineExecutionAppService> logger,
         IAgentEligibilityService? eligibility = null,
-        ICockpitEventStream? cockpit = null)
+        ICockpitEventStream? cockpit = null,
+        IRepositoryProvisioningService? provisioning = null,
+        IAgentExecutionEventSink? eventSink = null)
     {
         _executions = executions;
         _engine = engine;
@@ -43,6 +48,8 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         _logger = logger;
         _eligibility = eligibility;
         _cockpit = cockpit;
+        _provisioning = provisioning;
+        _eventSink = eventSink;
     }
 
     public Task<IReadOnlyList<PipelineTemplateDto>> ListTemplatesAsync(
@@ -104,13 +111,62 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         // AgentWork stage to an eligible CLI before the run is created.
         definition = await ApplyStageOverridesAsync(definition, request, cancellationToken).ConfigureAwait(false);
 
+        // SPEC-20260923-cockpit-run-hardening RF-001: the repository path the
+        // worktree is cut from always comes from the provisioning service —
+        // ~/repos/<repo-name> — never a client-supplied or root-fallback path.
+        var repositoryPath = _provisioning?.ResolveClonePath(request.RepositoryFullName)
+            ?? request.RepositoryPath;
+        if (_provisioning is not null
+            && !string.IsNullOrWhiteSpace(request.RepositoryPath)
+            && !string.Equals(request.RepositoryPath, repositoryPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Repository path override '{Requested}' ignored — run uses the provisioned clone '{Resolved}'.",
+                request.RepositoryPath, repositoryPath);
+        }
+
         var execution = PipelineExecution.Create(
-            definition, request.RepositoryFullName, request.RepositoryPath,
+            definition, request.RepositoryFullName, repositoryPath,
             request.BaseBranch, request.IssueId, request.InitialPrompt, DateTime.UtcNow,
             request.MaxBudgetUsd);
         await _executions.AddAsync(execution, cancellationToken).ConfigureAwait(false);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        if (_provisioning is not null)
+        {
+            EmitRunEvent(execution, AgentEventKinds.Lifecycle,
+                $"Provisioning repository clone for {request.RepositoryFullName}",
+                new { repository = request.RepositoryFullName, path = repositoryPath });
+            try
+            {
+                var clone = await _provisioning.EnsureCloneAsync(
+                        request.RepositoryFullName, cancellationToken)
+                    .ConfigureAwait(false);
+                EmitRunEvent(execution, AgentEventKinds.Lifecycle,
+                    clone.Cloned
+                        ? $"Repository cloned to {clone.Path} in {clone.ElapsedMs}ms"
+                        : $"Reusing repository clone at {clone.Path}",
+                    new { repository = request.RepositoryFullName, clone.Path, clone.Cloned, clone.ElapsedMs });
+            }
+            catch (Exception ex)
+            {
+                var message = $"Repository provisioning failed: {ex.Message}";
+                EmitRunEvent(execution, AgentEventKinds.Error, message,
+                    new { repository = request.RepositoryFullName, path = repositoryPath, error = ex.Message });
+                execution.Fail(message, DateTime.UtcNow);
+                await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                if (ex is DomainException)
+                {
+                    throw;
+                }
+
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.RepositoryProvisioningFailed, message);
+            }
+        }
+
+        await PublishStatusAsync(execution.Id.Value, "Run created", execution.Status)
+            .ConfigureAwait(false);
         await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(await LoadAsync(execution.Id.Value, cancellationToken).ConfigureAwait(false));
     }
@@ -141,6 +197,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         var execution = await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
         execution.ApproveStage(stageKey, comment, DateTime.UtcNow);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishRunStatusAsync(execution).ConfigureAwait(false);
         await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
     }
@@ -150,10 +207,14 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         CancellationToken cancellationToken = default)
     {
         var execution = await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
-        execution.FailStage(stageKey, $"Rejected by reviewer{(string.IsNullOrWhiteSpace(comment) ? "." : $": {comment}")}", DateTime.UtcNow);
+        var reason = $"Rejected by reviewer{(string.IsNullOrWhiteSpace(comment) ? "." : $": {comment}")}";
+        execution.FailStage(stageKey, reason, DateTime.UtcNow);
+        // RF-002 failure policy: rejecting a gate is a terminal decision —
+        // the run stops instead of looping the approval back through retries.
+        execution.Fail($"Stage '{stageKey}' {reason[..1].ToLowerInvariant()}{reason[1..]}", DateTime.UtcNow);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
-        return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
+        await PublishRunStatusAsync(execution).ConfigureAwait(false);
+        return ToDto(execution);
     }
 
     public async Task<PipelineExecutionDto> RetryStageAsync(
@@ -163,6 +224,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         var execution = await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
         execution.RetryStage(stageKey, adjustedPrompt, DateTime.UtcNow);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishRunStatusAsync(execution).ConfigureAwait(false);
         await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
     }
@@ -174,6 +236,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         var execution = await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
         execution.Cancel(DateTime.UtcNow);
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishRunStatusAsync(execution).ConfigureAwait(false);
         return ToDto(execution);
     }
 
@@ -188,7 +251,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
 
         execution.Pause();
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        await PublishStatusAsync(pipelineExecutionId, "Run paused").ConfigureAwait(false);
+        await PublishRunStatusAsync(execution).ConfigureAwait(false);
         return ToDto(execution);
     }
 
@@ -203,7 +266,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
 
         execution.Resume();
         await _executions.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        await PublishStatusAsync(pipelineExecutionId, "Run resumed").ConfigureAwait(false);
+        await PublishRunStatusAsync(execution).ConfigureAwait(false);
         await _engine.DispatchPendingAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(await LoadAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false));
     }
@@ -291,9 +354,42 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         }
     }
 
-    private Task PublishStatusAsync(string runId, string title) =>
-        _cockpit?.PublishAsync(new CockpitEventDto(runId, DateTimeOffset.UtcNow, "status", title, null))
+    private Task PublishStatusAsync(string runId, string title, PipelineStatus status) =>
+        _cockpit?.PublishAsync(new CockpitEventDto(
+            runId, DateTimeOffset.UtcNow, "run_status", title,
+            JsonSerializer.Serialize(new { status = status.ToString() }, JsonOptions)))
             ?? Task.CompletedTask;
+
+    /// <summary>RF-003: every execution transition streams <c>run_status</c> to the cockpit.</summary>
+    private Task PublishRunStatusAsync(PipelineExecution execution) =>
+        PublishStatusAsync(execution.Id.Value, $"Run {execution.Status}", execution.Status);
+
+    /// <summary>
+    /// RF-004: durable normalized event on the run scope — mirrored under the
+    /// bound issue scope so the Board task log sees provisioning outcomes too.
+    /// </summary>
+    private void EmitRunEvent(PipelineExecution execution, string kind, string title, object? payload = null)
+    {
+        if (_eventSink is null)
+        {
+            return;
+        }
+
+        var evt = new AgentExecutionEvent(
+            string.Empty, AgentEventScope.Run, execution.Id.Value, 0, DateTimeOffset.UtcNow,
+            kind, null,
+            Title: title,
+            PayloadJson: payload is null ? null : JsonSerializer.Serialize(payload, JsonOptions));
+        _ = _eventSink.EmitAsync(evt, CancellationToken.None);
+        if (!string.IsNullOrEmpty(execution.IssueId))
+        {
+            _ = _eventSink.EmitAsync(
+                evt with { ScopeKind = AgentEventScope.Issue, ScopeId = execution.IssueId },
+                CancellationToken.None);
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>
     /// SPEC-20260922-cockpit-agent-selection-fallback RF-001/RF-002 — binds
@@ -445,7 +541,11 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                     s.HandoffSummary,
                     s.LastError,
                     s.DependsOn,
-                    s.TriedAgents))
+                    s.TriedAgents,
+                    s.AutoRetryCount,
+                    s.NextAutoRetryAtUtc))
                 .ToList(),
-            execution.IssueId);
+            execution.IssueId,
+            execution.FailureReason,
+            execution.RepositoryPath);
 }

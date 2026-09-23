@@ -96,6 +96,13 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<IAgentCliInstallService>(new FakeAgentCliInstallService());
             services.RemoveAll<Taskboard.GitHub.IGitHubService>();
             services.AddSingleton<Taskboard.GitHub.IGitHubService>(new FakeGitHubService());
+            // Never git-clone real repos from tests — provisioning resolves the
+            // same <root>/<name> path, creates a plain dir (worktree creation
+            // still fails gracefully, as before) and refuses dirs marked with a
+            // `.foreign-repo` file (SPEC-20260923-cockpit-run-hardening RF-001).
+            services.RemoveAll<Taskboard.Application.Contracts.Harness.IRepositoryProvisioningService>();
+            services.AddSingleton<Taskboard.Application.Contracts.Harness.IRepositoryProvisioningService>(
+                new FakeRepositoryProvisioningService(WorkspaceRoot));
             // Never probe or spawn a real code-server from tests.
             services.RemoveAll<Taskboard.Application.Contracts.Vscode.IVscodeInstallService>();
             services.AddSingleton<Taskboard.Application.Contracts.Vscode.IVscodeInstallService>(
@@ -331,6 +338,32 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
 
         public Task<Taskboard.Application.Contracts.Vscode.VscodeStatus> RestartAsync(
             CancellationToken cancellationToken = default) => Task.FromResult(Status);
+    }
+
+    /// <summary>Deterministic provisioning stub — see the registration note above.</summary>
+    private sealed class FakeRepositoryProvisioningService(string workspaceRoot)
+        : Taskboard.Application.Contracts.Harness.IRepositoryProvisioningService
+    {
+        public string ResolveClonePath(string repositoryFullName) =>
+            Path.Combine(workspaceRoot,
+                Taskboard.Workspace.WorkspacePaths.SanitizeRepoName(repositoryFullName));
+
+        public Task<Taskboard.Application.Contracts.Harness.RepositoryCloneResult> EnsureCloneAsync(
+            string repositoryFullName, CancellationToken cancellationToken = default)
+        {
+            var path = ResolveClonePath(repositoryFullName);
+            if (File.Exists(Path.Combine(path, ".foreign-repo")))
+            {
+                throw new Taskboard.DomainException(
+                    Taskboard.TaskboardDomainErrorCodes.RepositoryProvisioningFailed,
+                    $"'{path}' is a clone of another repository — refusing to reuse it.");
+            }
+
+            var reused = Directory.Exists(path) && Directory.EnumerateFileSystemEntries(path).Any();
+            Directory.CreateDirectory(path);
+            return Task.FromResult(
+                new Taskboard.Application.Contracts.Harness.RepositoryCloneResult(path, !reused, 0));
+        }
     }
 
     /// <summary>Deterministic code-server install stub — never runs curl on the host.</summary>

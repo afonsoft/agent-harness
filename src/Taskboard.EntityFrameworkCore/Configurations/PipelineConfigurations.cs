@@ -25,6 +25,7 @@ public sealed class PipelineExecutionConfiguration : IEntityTypeConfiguration<Pi
         builder.Property(e => e.IssueId).HasMaxLength(64);
         builder.Property(e => e.InitialPrompt).IsRequired().HasMaxLength(16384);
         builder.Property(e => e.WorktreePath).HasMaxLength(1024);
+        builder.Property(e => e.FailureReason).HasMaxLength(2048);
         builder.Property(e => e.BudgetCapUsd).HasPrecision(18, 6);
 
         builder.Property(e => e.Status)
@@ -88,6 +89,8 @@ public sealed class PipelineStageExecutionConfiguration : IEntityTypeConfigurati
         builder.Property(s => s.LastError).HasMaxLength(2048);
 
         builder.Property(s => s.Attempts);
+        builder.Property(s => s.AutoRetryCount);
+        builder.Property(s => s.NextAutoRetryAtUtc);
         builder.Property(s => s.StartedAtUtc);
         builder.Property(s => s.CompletedAtUtc);
 
