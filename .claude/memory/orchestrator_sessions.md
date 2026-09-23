@@ -1,5 +1,13 @@
 # Orchestrator Sessions
 
+## Session — 2026-09-23 (SPEC-20260923 cockpit run hardening)
+
+**Scope**: Análise de `pipe_1a2e329b` (Completed) e `pipe_0bfefc2f` (AwaitingRetry preso) → spec aprovada → implementação end-to-end: provisioning de clone, auto-retry/rotação de CLI, realtime, aprovações com resumo, eventos duráveis, terminal PTY no run.
+**Decisions**: Provisioning server-side (`IRepositoryProvisioningService`) clona para `~/repos/<repo>` e valida `origin` — bug raiz era `~/repos` ser clone de `LangGraph-UI` e o fallback criar worktree do repo errado; auto-retry persistido (5×1min/CLI, `AutoRetryCount`/`NextAutoRetryAtUtc`) com rotação e `PipelineStatus.Failed`+`FailureReason` terminal; realtime via grupo SignalR `runs` + `run_status`; `/runs/{id}/events` retorna `CockpitEventsPage` (sink durável + buffer live); `TerminalHub.OpenForRun(runId)` resolve worktree server-side; `RepositoryProvisioningFailed`→422; `steer` passou a ir ao sink durável para aparecer no replay.
+**Delivered**: Spec merged na main (`f91d0ef`), implementação PR #334 merged (`a79b383`), migration `AddPipelineAutoRetryAndFailure`, docs en+pt-br, spec → Done. CI do PR todo verde (Build/Test, CodeQL, SonarCloud, GitGuardian). Unit 1121 · Integration 283.
+**Remaining**: Smoke manual pendente (run com repo ainda não clonado, gate de aprovação, aba Terminal); re-deploy do `harness-server` de main @`a79b383` pendente.
+**Lessons**: `~/repos` ser clone torna qualquer fallback ao root perigoso — validar `origin` sempre; factory de integração precisa fake do provisioner (senão `git clone` real); mudar endpoint de `List<>` para envelope quebra desserialização — atualizar client+testes juntos; `gh pr merge` direto funciona mesmo com checks pendentes quando proteção não bloqueia — confirmar `state=MERGED` depois.
+
 ## Session — 2026-09-22 (orchestrator run, sessão 4)
 
 **Scope**: Reconciliação de issues abertas, diagnóstico do CI vermelho no PR #292, sync de SPECs, cleanup de branches.
