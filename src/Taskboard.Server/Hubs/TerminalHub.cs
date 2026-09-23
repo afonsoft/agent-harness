@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Taskboard.Application.Contracts.Harness;
+using Taskboard.Harness;
 using Taskboard.Integrations.Terminal;
 using Taskboard.Integrations.Workspace;
 
@@ -18,19 +20,22 @@ public sealed class TerminalHub : Hub
     private readonly TerminalSessionManager _sessionManager;
     private readonly IHubContext<TerminalHub> _hubContext;
     private readonly WorkspaceService _workspace;
+    private readonly IWorktreeSessionRepository _worktreeSessions;
 
     public TerminalHub(
         IConfiguration configuration,
         ILogger<TerminalHub> logger,
         TerminalSessionManager sessionManager,
         IHubContext<TerminalHub> hubContext,
-        WorkspaceService workspace)
+        WorkspaceService workspace,
+        IWorktreeSessionRepository worktreeSessions)
     {
         _configuration = configuration;
         _logger = logger;
         _sessionManager = sessionManager;
         _hubContext = hubContext;
         _workspace = workspace;
+        _worktreeSessions = worktreeSessions;
     }
 
     public override async Task OnConnectedAsync()
@@ -62,10 +67,37 @@ public sealed class TerminalHub : Hub
     /// </summary>
     public async Task<string> Open(string? repo)
     {
-        var connectionId = Context.ConnectionId;
         var workdir = string.IsNullOrWhiteSpace(repo)
             ? null
             : _workspace.ResolveCardWorkdir(repo, out _);
+        return await OpenCoreAsync(workdir).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SPEC-20260923-cockpit-run-hardening RF-006: opens a PTY rooted at the
+    /// run's persisted worktree. The path is resolved server-side from the
+    /// worktree session and must stay under the configured worktree root —
+    /// client-supplied paths are never trusted.
+    /// </summary>
+    public async Task<string> OpenForRun(string runId)
+    {
+        var session = await _worktreeSessions.GetByRunIdAsync(runId, Context.ConnectionAborted)
+            .ConfigureAwait(false);
+        var worktreeRoot = WorktreePaths.ResolveRoot(
+            _configuration["Taskboard:WorktreeRoot"], _workspace.HomeDirectory);
+        if (session is null
+            || !Directory.Exists(session.Path)
+            || !WorktreePaths.IsUnder(worktreeRoot, session.Path))
+        {
+            throw new HubException("Run has no worktree");
+        }
+
+        return await OpenCoreAsync(session.Path).ConfigureAwait(false);
+    }
+
+    private async Task<string> OpenCoreAsync(string? workdir)
+    {
+        var connectionId = Context.ConnectionId;
 
         // Hub instances are transient per invocation — callbacks must use the
         // injected IHubContext with the captured connectionId.

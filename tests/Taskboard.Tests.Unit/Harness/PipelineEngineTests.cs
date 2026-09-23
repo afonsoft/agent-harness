@@ -53,15 +53,25 @@ public class PipelineEngineTests : IDisposable
         }
     }
 
-    private PipelineEngine CriarEngine(IAgentExecutionEventSink? eventSink = null) =>
+    /// <summary>Retry imediato (intervalo zero) com 2 falhas por CLI — usado pelos testes de rotação.</summary>
+    private static readonly PipelineAutoRetryOptions Imediato = new()
+    {
+        Enabled = true,
+        AttemptsPerAgent = 2,
+        Interval = TimeSpan.Zero,
+    };
+
+    private PipelineEngine CriarEngine(
+        IAgentExecutionEventSink? eventSink = null, PipelineAutoRetryOptions? autoRetry = null) =>
         new(_scopeFactory, _acp, _verification,
-            NullLogger<PipelineEngine>.Instance, eventSink: eventSink);
+            NullLogger<PipelineEngine>.Instance, eventSink: eventSink, autoRetry: autoRetry);
 
     /// <summary>
     /// Engine com <see cref="IAgentEligibilityService"/> no escopo — habilita a
-    /// cadeia de fallback de CLIs (SPEC-20260922 RF-003).
+    /// rotação de CLIs do auto-retry (SPEC-20260923-cockpit-run-hardening RF-002).
     /// </summary>
-    private PipelineEngine CriarEngineComElegiveis(IReadOnlySet<AgentType> elegiveis)
+    private PipelineEngine CriarEngineComElegiveis(
+        IReadOnlySet<AgentType> elegiveis, PipelineAutoRetryOptions? autoRetry = null)
     {
         var eligibility = Substitute.For<IAgentEligibilityService>();
         eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>()).Returns(elegiveis);
@@ -73,7 +83,27 @@ public class PipelineEngineTests : IDisposable
         services.AddScoped(_ => eligibility);
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
         return new PipelineEngine(
-            scopeFactory, _acp, _verification, NullLogger<PipelineEngine>.Instance);
+            scopeFactory, _acp, _verification, NullLogger<PipelineEngine>.Instance,
+            autoRetry: autoRetry);
+    }
+
+    /// <summary>
+    /// Ticks até a execução chegar num estado terminal (ou estourar o limite) —
+    /// com <see cref="PipelineAutoRetryOptions.Interval"/> zero cada varredura
+    /// agenda e dispara a próxima tentativa.
+    /// </summary>
+    private async Task RodarAteTerminal(PipelineEngine engine, PipelineExecutionId id, int maxTicks = 12)
+    {
+        for (var i = 0; i < maxTicks; i++)
+        {
+            await engine.DispatchPendingAsync();
+            await engine.DrainAsync();
+            var status = Recarregar(id).Status;
+            if (status is PipelineStatus.Completed or PipelineStatus.Failed or PipelineStatus.Cancelled)
+            {
+                return;
+            }
+        }
     }
 
     private PipelineExecution SalvarExecucao(PipelineDefinition def)
@@ -279,10 +309,10 @@ public class PipelineEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Dado_CliFalha_Quando_OutroElegivel_Entao_StageCompletaComFallback()
+    public async Task Dado_CliEsgotaTentativas_Quando_OutroElegivel_Entao_StageCompletaComRotacao()
     {
-        // SPEC-20260922 RF-003: falha do CLI vinculado → próximo elegível assume
-        // com o mesmo prompt; Agent/TriedAgents/Attempts registram a cadeia.
+        // SPEC-20260923 RF-002: o CLI vinculado retenta até o budget por agente;
+        // esgotado, a varredura rotaciona para o próximo elegível não-tentado.
         ConfigurarIsolacao();
         _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult(new AgentExecutionResult(
@@ -291,17 +321,17 @@ public class PipelineEngineTests : IDisposable
         _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
             .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
         var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
-        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+        var engine = CriarEngineComElegiveis(
+            new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode }, Imediato);
 
-        await engine.DispatchPendingAsync();
-        await engine.DrainAsync();
+        await RodarAteTerminal(engine, exec.Id);
 
         var final = Recarregar(exec.Id);
         final.Status.ShouldBe(PipelineStatus.Completed);
         var builder = final.Stages.Single(s => s.StageKey == "builder");
         builder.Status.ShouldBe(StageStatus.Completed);
         builder.Agent.ShouldBe(AgentType.OpenCode);
-        builder.Attempts.ShouldBe(2);
+        builder.Attempts.ShouldBe(3);
         builder.TriedAgents.ShouldBe([nameof(AgentType.Codex)]);
     }
 
@@ -347,42 +377,54 @@ public class PipelineEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Dado_TodosClisFalham_Quando_EsgotaCadeia_Entao_StageFailedComTriedAgents()
+    public async Task Dado_TodosClisFalham_Quando_EsgotaCadeia_Entao_RunFailedComMotivo()
     {
+        // SPEC-20260923 RF-002: sem CLI elegível restante a execução termina em
+        // Failed com o detalhe (stage, agents tentados, último erro).
         ConfigurarIsolacao();
         _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionResult(1, false));
         var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
-        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+        var engine = CriarEngineComElegiveis(
+            new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode },
+            new PipelineAutoRetryOptions
+            {
+                Enabled = true,
+                AttemptsPerAgent = 1,
+                Interval = TimeSpan.Zero,
+            });
 
-        await engine.DispatchPendingAsync();
-        await engine.DrainAsync();
+        await RodarAteTerminal(engine, exec.Id);
 
         var final = Recarregar(exec.Id);
-        final.Status.ShouldBe(PipelineStatus.AwaitingRetry);
+        final.Status.ShouldBe(PipelineStatus.Failed);
+        var reason = final.FailureReason.ShouldNotBeNull();
+        reason.ShouldContain("builder");
+        reason.ShouldContain("Codex");
+        reason.ShouldContain("OpenCode");
+        reason.ShouldContain("exited with code 1");
         var builder = final.Stages.Single(s => s.StageKey == "builder");
         builder.Status.ShouldBe(StageStatus.Failed);
         builder.TriedAgents.ShouldBe([nameof(AgentType.Codex), nameof(AgentType.OpenCode)]);
         builder.Attempts.ShouldBe(2);
         // O verifier nunca foi despachado — a DAG morreu no builder.
-        final.Stages.Single(s => s.StageKey == "verifier").Status.ShouldBe(StageStatus.Pending);
+        final.Stages.Single(s => s.StageKey == "verifier").Status.ShouldBe(StageStatus.Skipped);
     }
 
     [Fact]
-    public async Task Dado_CliInelegivelNoDispatch_Quando_Roda_Entao_PulaParaProximoElegivel()
+    public async Task Dado_CliInelegivelNoDispatch_Quando_Roda_Entao_RotacionaParaElegivel()
     {
-        // RF-002: elegibilidade é dinâmica — CLI desabilitado depois do start é
-        // pulado, não despachado.
+        // Elegibilidade é dinâmica — o CLI vinculado desabilitado falha a
+        // tentativa sem rodar e a varredura rotaciona para o elegível.
         ConfigurarIsolacao();
         _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
             .Returns(new AgentExecutionResult(0, true));
         _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
             .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
         var exec = SalvarExecucao(PipelineTemplates.QuickPatch); // builder → Codex
-        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.OpenCode });
+        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.OpenCode }, Imediato);
 
-        await engine.DispatchPendingAsync();
-        await engine.DrainAsync();
+        await RodarAteTerminal(engine, exec.Id);
 
         var final = Recarregar(exec.Id);
         final.Status.ShouldBe(PipelineStatus.Completed);
@@ -393,7 +435,7 @@ public class PipelineEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task Dado_SpawnLancaExcecao_Quando_ExecuteFalha_Entao_FallbackParaProximoCli()
+    public async Task Dado_SpawnLancaExcecao_Quando_EsgotaTentativas_Entao_RotacionaParaProximoCli()
     {
         ConfigurarIsolacao();
         _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
@@ -403,18 +445,20 @@ public class PipelineEngineTests : IDisposable
         _verification.RunAsync(Arg.Any<VerificationRunRequestDto>(), Arg.Any<CancellationToken>())
             .Returns(new VerificationReportDto(true, "Passed", [], null, 80, null));
         var exec = SalvarExecucao(PipelineTemplates.QuickPatch);
-        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+        var engine = CriarEngineComElegiveis(
+            new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode }, Imediato);
 
-        await engine.DispatchPendingAsync();
-        await engine.DrainAsync();
+        await RodarAteTerminal(engine, exec.Id);
 
         var final = Recarregar(exec.Id);
         final.Status.ShouldBe(PipelineStatus.Completed);
-        final.Stages.Single(s => s.StageKey == "builder").Agent.ShouldBe(AgentType.OpenCode);
+        var builder = final.Stages.Single(s => s.StageKey == "builder");
+        builder.Agent.ShouldBe(AgentType.OpenCode);
+        builder.LastError.ShouldBeNull();
     }
 
     [Fact]
-    public async Task Dado_RetryManual_Quando_AposEsgotar_Entao_TriedAgentsResetam()
+    public async Task Dado_RetryManual_Quando_AposFalha_Entao_TriedAgentsEAutoRetryResetam()
     {
         ConfigurarIsolacao();
         _acp.ExecuteAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(), Arg.Any<CancellationToken>())
@@ -425,18 +469,24 @@ public class PipelineEngineTests : IDisposable
                 AgentRole.Builder, AgentType.Codex, AgentModelTier.Normal, []),
         ]);
         var exec = SalvarExecucao(def);
-        var engine = CriarEngineComElegiveis(new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode });
+        var engine = CriarEngineComElegiveis(
+            new HashSet<AgentType> { AgentType.Codex, AgentType.OpenCode }, Imediato);
         await engine.DispatchPendingAsync();
         await engine.DrainAsync();
 
         var falho = Recarregar(exec.Id);
-        falho.Stages.Single(s => s.StageKey == "builder")
-            .TriedAgents.ShouldBe([nameof(AgentType.Codex), nameof(AgentType.OpenCode)]);
+        var builder = falho.Stages.Single(s => s.StageKey == "builder");
+        builder.TriedAgents.ShouldBe([nameof(AgentType.Codex)]);
+        builder.AutoRetryCount.ShouldBe(1);
+        builder.NextAutoRetryAtUtc.ShouldNotBeNull();
 
         falho.RetryStage("builder", null, DateTime.UtcNow);
         _context.SaveChanges();
 
-        Recarregar(exec.Id).Stages.Single(s => s.StageKey == "builder").TriedAgents.ShouldBeEmpty();
+        var reset = Recarregar(exec.Id).Stages.Single(s => s.StageKey == "builder");
+        reset.TriedAgents.ShouldBeEmpty();
+        reset.AutoRetryCount.ShouldBe(0);
+        reset.NextAutoRetryAtUtc.ShouldBeNull();
     }
 
     [Fact]

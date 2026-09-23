@@ -9,7 +9,7 @@
 | Stack | `Blazor WASM / .NET 10 / ABP / EF Core SQLite / SignalR / xterm.js` |
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260923-cockpit-run-hardening` |
-| Status | `Draft` |
+| Status | `Done` |
 | Referência | SPEC-20260919-ade-multi-agent-orchestration, SPEC-20260919-ade-cockpit-hitl, SPEC-20260919-harness-workspace-isolation, SPEC-20260920-cockpit-pause-resume, SPEC-20260921-agent-execution-event-pipeline, SPEC-20260921-cockpit-live-logs-explorer-diff, SPEC-20260922-cockpit-agent-selection-fallback, SPEC-20260917-terminal-tabs |
 | Evidence | `pipe_0bfefc2f06fb41a0a7b33259f34dca9c` (AwaitingRetry), `pipe_1a2e329b0b814bd5b01e3c3cf71002cc` (Completed) |
 

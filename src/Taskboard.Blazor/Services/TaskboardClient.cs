@@ -600,10 +600,14 @@ public sealed class TaskboardClient
         return await response.Content.ReadFromJsonAsync<RunDetailsDto>(cancellationToken);
     }
 
-    /// <summary>Eventos buffered do run (replay para reconexão/join tardio).</summary>
+    /// <summary>
+    /// Eventos do run (replay para reconexão/join tardio) — SPEC-20260923
+    /// RF-004: o endpoint serve o stream persistido + chunks live-only no
+    /// envelope <see cref="CockpitEventsPage"/>.
+    /// </summary>
     public async Task<IReadOnlyList<CockpitEventDto>> GetRunEventsAsync(string runId, CancellationToken cancellationToken = default) =>
-        await _httpClient.GetFromJsonAsync<List<CockpitEventDto>>(
-            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/events", cancellationToken) ?? [];
+        (await _httpClient.GetFromJsonAsync<CockpitEventsPage>(
+            $"/api/harness/runs/{Uri.EscapeDataString(runId)}/events", cancellationToken))?.Events ?? [];
 
     /// <summary>
     /// Eventos normalizados de um escopo (run/thread/issue) —

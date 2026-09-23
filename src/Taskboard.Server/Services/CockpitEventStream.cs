@@ -40,7 +40,9 @@ public sealed class CockpitEventStream : ICockpitEventStream
 
         try
         {
-            await _hub.Clients.Group(evt.RunId)
+            // RF-003: every event reaches the run group and the shared `runs`
+            // group — the list page updates without polling.
+            await _hub.Clients.Groups(evt.RunId, HarnessCockpitHub.RunsGroup)
                 .SendAsync("ReceiveCockpitEvent", evt, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -63,7 +65,7 @@ public sealed class CockpitEventStream : ICockpitEventStream
 
         try
         {
-            await _hub.Clients.Group(request.RunId)
+            await _hub.Clients.Groups(request.RunId, HarnessCockpitHub.RunsGroup)
                 .SendAsync("RequireApproval", request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)

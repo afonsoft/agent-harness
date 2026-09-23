@@ -73,12 +73,24 @@
         <button class="nav-link @(_tab == "terminal" ? "active" : "")" @onclick='() => SetTab("terminal")'>Logs</button>
     </li>
     <li class="nav-item">
+        @* SPEC-20260923-cockpit-run-hardening RF-006: PTY interativo no worktree do run. *@
+        <button class="nav-link @(_tab == "shell" ? "active" : "")" @onclick='() => SetTab("shell")'>Terminal</button>
+    </li>
+    <li class="nav-item">
         <button class="nav-link @(_tab == "files" ? "active" : "")" @onclick='() => SetTab("files")'>Arquivos</button>
     </li>
     <li class="nav-item">
         <button class="nav-link @(_tab == "diff" ? "active" : "")" @onclick="LoadDiffTabAsync">Diff</button>
     </li>
 </ul>
+
+@* RF-002: terminal failure keeps the detailed reason visible. *@
+@if (_details?.Execution is { Status: "Failed", FailureReason: { Length: > 0 } reason })
+{
+    <Alert Color="AlertColor.Danger" Dismissable="false" class="py-2 mb-2 small">
+        <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />@reason
+    </Alert>
+}
 
 <div class="border border-top-0 rounded-bottom p-2 cockpit-panel" style="min-height: 320px;">
     @if (_tab == "timeline")
@@ -94,6 +106,10 @@
     else if (_tab == "terminal")
     {
         <RunTerminal Events="_events" IsLive="IsRunLive" />
+    }
+    else if (_tab == "shell")
+    {
+        <RunShell @key="RunId" RunId="@RunId" />
     }
     else if (_tab == "files")
     {
@@ -138,6 +154,7 @@
     private bool _diffLoaded;
     private string? _prUrl;
     private ApprovalRequestDto? _pendingApproval;
+    private CancellationTokenSource _refreshCts = new();
 
     private string ShortId => RunId.Length > 8 ? RunId[..8] : RunId;
 
@@ -172,6 +189,7 @@
         }
 
         _events.AddRange(await Client.GetRunEventsAsync(RunId));
+        _ = JS.InvokeVoidAsync("taskboardNotify.ensurePermission");
         await ConnectHubAsync();
     }
 
@@ -197,10 +215,12 @@
                 _diff = await Client.GetWorktreeDiffAsync(RunId);
             }
 
-            // Pause/resume status events refresh the execution snapshot (badge/buttons).
-            if (evt.Kind == "status")
+            // SPEC-20260923-cockpit-run-hardening RF-003: every transition
+            // refreshes the execution snapshot — debounced so an event burst
+            // collapses into one fetch (agent_output is per-line, skipped).
+            if (evt.Kind is "run_status" or "status" or "stage" or "verification" or "error" or "approval" or "lifecycle")
             {
-                _details = await Client.GetRunAsync(RunId);
+                ScheduleDetailsRefresh();
             }
 
             await InvokeAsync(StateHasChanged);
@@ -209,6 +229,14 @@
         _hub.On<ApprovalRequestDto>("RequireApproval", async request =>
         {
             _pendingApproval = request;
+            // RF-005: toast + browser notification além do modal — o resumo
+            // chega mesmo com a página fora de foco.
+            ToastService.Notify(new ToastMessage(
+                ToastType.Warning, request.Summary ?? request.Description));
+            _ = JS.InvokeVoidAsync("taskboardNotify.notify",
+                request.Title,
+                request.Summary ?? request.Description,
+                NavigationManager.ToAbsoluteUri($"/cockpit/runs/{request.RunId}").ToString());
             await InvokeAsync(() => _approvalModal.ShowAsync(request));
         });
 
@@ -249,6 +277,41 @@
     }
 
     private void SetTab(string tab) => _tab = tab;
+
+    /// <summary>
+    /// RF-003: collapses a burst of transition events into one details fetch —
+    /// each call resets the 300ms window, so the last event wins.
+    /// </summary>
+    private void ScheduleDetailsRefresh()
+    {
+        var previous = Interlocked.Exchange(ref _refreshCts, new CancellationTokenSource());
+        try
+        {
+            previous.Cancel();
+            previous.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        var token = _refreshCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(300, token);
+                _details = await Client.GetRunAsync(RunId, token);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                ToastService.Notify(new ToastMessage(ToastType.Warning, $"Refresh: {ex.Message}"));
+            }
+        });
+    }
 
     /// <summary>Reply de permissão vindo da timeline normalizada (RF-004).</summary>
     private async Task ReplyAgentPermissionAsync(AgentExecutionEvent evt, string optionId)
@@ -411,6 +474,15 @@
 
     public async ValueTask DisposeAsync()
     {
+        try
+        {
+            _refreshCts.Cancel();
+            _refreshCts.Dispose();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
         if (_hub is not null)
         {
             try

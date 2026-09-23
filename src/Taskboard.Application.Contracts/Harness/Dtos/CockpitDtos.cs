@@ -20,13 +20,17 @@ public sealed record CockpitEventDto(
 /// <summary>
 /// Interactive approval request pushed as `RequireApproval` — the client
 /// answers via `POST /api/harness/runs/{runId}/approvals/{requestId}`.
+/// `Summary` (SPEC-20260923-cockpit-run-hardening RF-005) is a one-line
+/// digest — repo, run short id, stage and handoff — used by toasts and
+/// browser notifications so the operator can decide without opening the run.
 /// </summary>
 public sealed record ApprovalRequestDto(
     string RunId,
     string RequestId,
     string Title,
     string Description,
-    IReadOnlyList<string> Options);
+    IReadOnlyList<string> Options,
+    string? Summary = null);
 
 /// <summary>Body for `POST /api/harness/runs` — starts a pipeline execution (a "run").</summary>
 public sealed record RunStartRequest(
@@ -69,3 +73,13 @@ public sealed record RunDetailsDto(
     PipelineExecutionDto Execution,
     RunTelemetryDto? Telemetry,
     WorktreeSessionDto? Worktree);
+
+/// <summary>
+/// `GET /api/harness/runs/{id}/events` envelope (SPEC-20260923 RF-004): a
+/// page of cockpit events over the durable normalized stream, plus the
+/// cursor for the next poll (`after = nextAfter`).
+/// </summary>
+public sealed record CockpitEventsPage(
+    IReadOnlyList<CockpitEventDto> Events,
+    long NextAfter,
+    bool HasMore);

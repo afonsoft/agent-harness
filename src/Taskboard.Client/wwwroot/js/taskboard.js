@@ -75,6 +75,47 @@ window.taskboard = {
     }
 };
 
+// SPEC-20260923-cockpit-run-hardening RF-005: browser Notification API for
+// approval gates — permission is requested lazily on the first cockpit visit;
+// every failure path degrades to the in-app toast/modal silently.
+window.taskboardNotify = {
+    ensurePermission: function () {
+        try {
+            if (!('Notification' in window)) {
+                return Promise.resolve('unsupported');
+            }
+            if (Notification.permission !== 'default') {
+                return Promise.resolve(Notification.permission);
+            }
+            return Notification.requestPermission();
+        } catch (e) {
+            return Promise.resolve('denied');
+        }
+    },
+
+    // Returns true when a notification was actually shown.
+    notify: function (title, body, url) {
+        try {
+            if (!('Notification' in window) || Notification.permission !== 'granted') {
+                return false;
+            }
+            var n = new Notification(title, { body: body || '', tag: 'harness-approval' });
+            n.onclick = function () {
+                try {
+                    window.focus();
+                    if (url) {
+                        window.location.href = url;
+                    }
+                } catch (e) { /* navigation best-effort */ }
+                n.close();
+            };
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+};
+
 // SSE bridge (SPEC-20260918-ai-chat-threads): wraps EventSource and forwards
 // named events to a .NET DotNetObjectReference. EventSource auto-reconnects;
 // the server replays the backlog on reconnect, so consumers must dedupe.

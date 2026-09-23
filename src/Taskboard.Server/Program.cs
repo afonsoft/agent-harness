@@ -369,6 +369,10 @@ builder.Services.AddHostedService<CliMetricsSyncService>();
 
 // SPEC-20260919-ade-multi-agent-orchestration: DAG de agentes especializados
 // sobre worktree compartilhado do run.
+// SPEC-20260923-cockpit-run-hardening RF-002: Taskboard:Pipelines:AutoRetry
+// (Enabled / AttemptsPerAgent / Interval).
+builder.Services.AddSingleton(builder.Configuration
+    .GetSection("Taskboard:Pipelines:AutoRetry").Get<PipelineAutoRetryOptions>() ?? new PipelineAutoRetryOptions());
 builder.Services.AddSingleton<PipelineEngine>();
 builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>();
 builder.Services.AddHostedService<PipelineEngineService>();
@@ -474,6 +478,13 @@ builder.Services.AddSingleton(sp =>
 });
 builder.Services.AddSingleton<Taskboard.Application.Contracts.Workspace.IWorkspacePathResolver>(
     sp => sp.GetRequiredService<WorkspaceService>());
+
+// SPEC-20260923-cockpit-run-hardening RF-001: clone/reuse de ~/repos/<name>
+// antes do run — o worktree nunca é cortado do root do workspace.
+builder.Services.AddSingleton<IRepositoryProvisioningService>(sp => new RepositoryProvisioningService(
+    sp.GetRequiredService<IGitCommandRunner>(),
+    sp.GetRequiredService<WorkspaceService>(),
+    sp.GetRequiredService<ILogger<RepositoryProvisioningService>>()));
 
 builder.Services.AddSingleton<IVscodeInstallService>(sp => new VscodeInstallService(
     homeDir,
@@ -884,13 +895,12 @@ runs.MapGet("", async (
 runs.MapPost("", async (
         RunStartRequest request,
         IPipelineOrchestrator orchestrator,
-        WorkspaceService workspace,
         IRepository<IssueHistoryEvent> history,
         CancellationToken ct) =>
 {
-    // The client sends only owner/repo — the repo path resolves server-side
-    // and stays confined to the workspace root.
-    var repositoryPath = workspace.ResolveCardWorkdir(request.RepositoryFullName, out _);
+    // SPEC-20260923-cockpit-run-hardening RF-001: the client sends only
+    // owner/repo — the clone is provisioned server-side under ~/repos/<name>
+    // and the worktree is always cut from that clone, never the root.
     var prompt = string.IsNullOrWhiteSpace(request.SpecPath)
         ? request.Prompt
         : $"{request.Prompt}\n\nSpec: `{request.SpecPath}`";
@@ -898,7 +908,7 @@ runs.MapPost("", async (
         new PipelineStartRequest(
             request.TemplateId,
             request.RepositoryFullName,
-            repositoryPath,
+            string.Empty,
             request.BaseBranch,
             request.IssueId,
             prompt,
@@ -945,15 +955,50 @@ runs.MapGet("{id}", async (
             await finOps.GetRunTelemetryAsync(id, ct),
             await isolation.GetAsync(id, ct)))
         : Results.NotFound());
-runs.MapGet("{id}/events", (
+runs.MapGet("{id}/events", async (
         string id,
-        ICockpitEventStream stream) =>
-    Results.Ok(stream.GetBuffered(id)));
+        long? after,
+        int? take,
+        IAgentExecutionEventSink sink,
+        ICockpitEventStream stream,
+        CancellationToken ct) =>
+{
+    // SPEC-20260923-cockpit-run-hardening RF-004: the endpoint serves the
+    // durable normalized stream — events survive restarts — merged with
+    // live-only agent_output chunks the volatile buffer still holds.
+    var pageSize = Math.Clamp(take ?? 1000, 1, 5000);
+    var persisted = await sink.GetEventsAsync(AgentEventScope.Run, id, after ?? 0, pageSize + 1, ct);
+    var hasMore = persisted.Count > pageSize;
+    var page = persisted.Take(pageSize).ToList();
+    var nextAfter = page.Count > 0 ? page[^1].Sequence : after ?? 0;
+
+    var events = page.Select(ToCockpitEvent).ToList();
+    var covered = new HashSet<string>(
+        page.Where(e => e.Kind is AgentEventKinds.Output)
+            .Select(e => $"{e.TimestampUtc:O}|{e.StageId}|{ExtractOutputLine(e)}"),
+        StringComparer.Ordinal);
+    foreach (var evt in stream.GetBuffered(id))
+    {
+        if (evt.Kind is not "agent_output")
+        {
+            continue;
+        }
+
+        if (covered.Add($"{evt.TimestampUtc:O}|{evt.Title}|{ExtractBufferedOutput(evt)}"))
+        {
+            events.Add(evt);
+        }
+    }
+
+    events.Sort(static (a, b) => a.TimestampUtc.CompareTo(b.TimestampUtc));
+    return Results.Ok(new CockpitEventsPage(events, nextAfter, hasMore));
+});
 runs.MapPost("{id}/steer", async (
         string id,
         SteerRequest request,
         ISteerQueue steer,
         ICockpitEventStream stream,
+        IAgentExecutionEventSink sink,
         CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.Instruction))
@@ -961,9 +1006,18 @@ runs.MapPost("{id}/steer", async (
         return Results.BadRequest(new { error = "Instruction cannot be empty." });
     }
 
-    steer.Enqueue(id, request.Instruction.Trim());
+    var instruction = request.Instruction.Trim();
+    steer.Enqueue(id, instruction);
+    // RF-004: the steer also lands on the durable stream — the events endpoint
+    // reads persisted events, not only the volatile cockpit buffer.
+    _ = sink.EmitAsync(new AgentExecutionEvent(
+        string.Empty, AgentEventScope.Run, id, 0, DateTimeOffset.UtcNow,
+        AgentEventKinds.Steer, null,
+        Title: "Steer queued",
+        PayloadJson: JsonSerializer.Serialize(new { instruction }, ApiJsonOptions.Default)),
+        CancellationToken.None);
     await stream.PublishAsync(
-        new CockpitEventDto(id, DateTimeOffset.UtcNow, "steer", "Steer queued", request.Instruction.Trim()),
+        new CockpitEventDto(id, DateTimeOffset.UtcNow, "steer", "Steer queued", instruction),
         ct);
     return Results.Accepted();
 });
@@ -2589,3 +2643,58 @@ static async System.Threading.Tasks.Task RecordIssueHistoryByIdAsync(
 static bool IsGitHubRepoFullName(string? value) =>
     value is not null
     && System.Text.RegularExpressions.Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");
+
+// SPEC-20260923-cockpit-run-hardening RF-004: durable normalized events map
+// back to the cockpit shapes — `output` becomes an agent_output line so the
+// RunTerminal/RunTimeline replay exactly what the live stream showed.
+static CockpitEventDto ToCockpitEvent(AgentExecutionEvent e) => e.Kind switch
+{
+    AgentEventKinds.Output => new CockpitEventDto(
+        e.ScopeId, e.TimestampUtc, "agent_output", e.StageId ?? string.Empty,
+        JsonSerializer.Serialize(
+            new { stream = e.Stream == "stderr" ? "StdErr" : "StdOut", content = ExtractOutputLine(e) },
+            ApiJsonOptions.Default)),
+    _ => new CockpitEventDto(e.ScopeId, e.TimestampUtc, e.Kind, e.Title ?? e.Kind, e.PayloadJson),
+};
+
+static string ExtractOutputLine(AgentExecutionEvent e)
+{
+    if (e.PayloadJson is { } json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("line", out var line)
+                && line.ValueKind == JsonValueKind.String)
+            {
+                return line.GetString() ?? string.Empty;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+    }
+
+    return e.RawJson ?? e.Title ?? string.Empty;
+}
+
+static string ExtractBufferedOutput(CockpitEventDto e)
+{
+    if (e.PayloadJson is { } json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("content", out var content)
+                && content.ValueKind == JsonValueKind.String)
+            {
+                return content.GetString() ?? string.Empty;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+    }
+
+    return e.Title;
+}

@@ -13,4 +13,5 @@ public static class TaskboardDomainErrorCodes
     public const string InvalidSpecStatus = "Taskboard:00033";
     public const string InvalidPipelineState = "Taskboard:00034";
     public const string AgentNotEligible = "Taskboard:00035";
+    public const string RepositoryProvisioningFailed = "Taskboard:00036";
 }

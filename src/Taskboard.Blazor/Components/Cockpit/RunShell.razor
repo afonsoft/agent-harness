@@ -1,0 +1,205 @@
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@* SPEC-20260923-cockpit-run-hardening RF-006: interactive PTY rooted at the
+   run's worktree (TerminalHub.OpenForRun resolves the path server-side).
+   Reuses the same xterm.js plumbing as /terminal — a closed shell can be
+   reopened while the run is live. *@
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">
+        <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />@_error
+        @if (_canRetry)
+        {
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="OpenSessionAsync">Reopen</Button>
+        }
+    </Alert>
+}
+<div id="@ElementId" class="terminal-host run-shell-host" @onclick="FocusAsync"></div>
+
+@code {
+    /// <summary>Pipeline execution id — the worktree is resolved server-side.</summary>
+    [Parameter, EditorRequired] public string RunId { get; set; } = string.Empty;
+
+    private const string SessionKey = "run-shell";
+    private string ElementId => $"run-shell-{RunId}";
+
+    private HubConnection? _hub;
+    private DotNetObjectReference<RunShell>? _selfRef;
+    private string? _sessionId;
+    private string? _error;
+    private bool _canRetry;
+    private bool _started;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _started)
+        {
+            return;
+        }
+
+        _started = true;
+        _selfRef = DotNetObjectReference.Create(this);
+        await ConnectHubAsync();
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/terminal-hub"))
+            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
+            .Build();
+
+        _hub.On<string, string>("output", (sessionId, data) =>
+            sessionId == _sessionId
+                ? JS.InvokeVoidAsync("taskboardTerminal.write", ElementId, data).AsTask()
+                : Task.CompletedTask);
+
+        _hub.On<string, string>("closed", (sessionId, reason) =>
+        {
+            if (sessionId != _sessionId)
+            {
+                return Task.CompletedTask;
+            }
+
+            _sessionId = null;
+            _error = $"Session ended: {reason}";
+            _canRetry = true;
+            return InvokeAsync(StateHasChanged);
+        });
+
+        _hub.Reconnected += async _ =>
+        {
+            if (_sessionId is null)
+            {
+                return;
+            }
+
+            var reattached = false;
+            try
+            {
+                reattached = await _hub.InvokeAsync<bool>("Reattach", _sessionId);
+            }
+            catch
+            {
+                // Fall through — the operator can Reopen.
+            }
+
+            if (reattached)
+            {
+                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", ElementId);
+            }
+            else
+            {
+                _sessionId = null;
+                _error = "Connection lost — the shell was reaped.";
+                _canRetry = true;
+                await InvokeAsync(StateHasChanged);
+            }
+        };
+
+        try
+        {
+            await _hub.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Terminal unavailable: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        var initialized = await JS.InvokeAsync<bool>(
+            "taskboardTerminal.init", ElementId, _selfRef, SessionKey);
+        if (!initialized)
+        {
+            _error = "Terminal emulator failed to initialize.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        await OpenSessionAsync();
+    }
+
+    private async Task OpenSessionAsync()
+    {
+        if (_hub is not { State: HubConnectionState.Connected })
+        {
+            _error = "No connection to the server.";
+            return;
+        }
+
+        try
+        {
+            _error = null;
+            _canRetry = false;
+            _sessionId = await _hub.InvokeAsync<string>("OpenForRun", RunId);
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
+        }
+        catch (Exception ex)
+        {
+            // HubException("Run has no worktree") lands here — the run may not
+            // have attached its worktree yet; offer a retry.
+            _error = ex.Message;
+            _canRetry = true;
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task FocusAsync() =>
+        await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
+
+    [JSInvokable]
+    public async Task OnTerminalData(string tabKey, string data)
+    {
+        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
+        {
+            await _hub.InvokeAsync("Input", _sessionId, data);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalResize(string tabKey, int cols, int rows)
+    {
+        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
+        {
+            await _hub.InvokeAsync("Resize", _sessionId, cols, rows);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            try
+            {
+                if (_sessionId is not null && _hub.State == HubConnectionState.Connected)
+                {
+                    await _hub.InvokeAsync("Close", _sessionId);
+                }
+                await _hub.DisposeAsync();
+            }
+            catch
+            {
+                // Dispose is best-effort.
+            }
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.dispose", ElementId);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop unavailable during teardown.
+        }
+
+        _selfRef?.Dispose();
+    }
+}
