@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `fix/devin-20260923-terminal-tabs-keyed-render` |
 | Ticket | [#336](https://github.com/afonsoft/agent-harness/issues/336) |
-| Status | `Approved` |
+| Status | `Implemented` — entregue via [PR #337](https://github.com/afonsoft/agent-harness/pull/337) (aguardando merge) |
 | Related | `SPEC-20260917-terminal-tabs`, `SPEC-20260920-terminal-pty-resize`, `SPEC-20260921-terminal-paste-dedup` |
 
 ## 1. User Story
