@@ -30,7 +30,7 @@ Key capabilities:
 - **CLI Agents admin** — install/authenticate CLIs from the UI with terminal-style install logs; enable/disable per agent.
 - **Skills & MCP/RAG settings** — install the `afonsoft/skills` catalog from the UI and provision a RAG MCP server (URL + key) into every supported agent config.
 - **VS Code Web** — managed code-server at `/vscode/` (readiness-gated proxy, port forwarding via `VSCODE_PROXY_URI`), plus an "Open in VS Code" deep link per issue.
-- **Terminal** — multiple interactive bash PTY tabs over SignalR.
+- **Terminal** — multiple interactive bash PTY tabs over SignalR, with **focus mode** (expand/restore hides the top bar and page chrome for a full-viewport shell, keeping a compact tab strip) and a **virtual keybar** shown only on touch devices in focus mode (arrows, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, one-shot sticky Ctrl, and dedicated clipboard paste).
 
 ## Tech Stack
 
@@ -70,8 +70,8 @@ src/
   Taskboard.Client/                 # Blazor WebAssembly host (WASM boot, loading UI)
   Taskboard.Blazor/                 # Shared Blazor UI components (RCL)
 tests/
-  Taskboard.Tests.Unit/             # 821 unit tests
-  Taskboard.Tests.Integration/      # 214 integration tests
+  Taskboard.Tests.Unit/             # 1,100+ unit tests
+  Taskboard.Tests.Integration/      # 290+ integration tests
 ```
 
 ## Quick Start
@@ -101,7 +101,7 @@ See [`install-cli.sh`](install-cli.sh) and [`docs/installation.md`](docs/install
 
 GitHub Actions provide:
 
-- Build and test in Release mode, format verification, a line-coverage gate (currently 65%, ratcheting up to the 80% target), and vulnerable-package checks.
+- Build and test in Release mode, format verification, a line-coverage gate (currently 77%, ratcheting up to the 80% target), and vulnerable-package checks.
 - SonarCloud analysis when the `SONAR_TOKEN` secret is configured.
 - CodeQL analysis for C# and GitHub Actions.
 - Weekly NuGet and GitHub Actions updates through Dependabot.
@@ -125,6 +125,7 @@ Open the **Board** (`/`) to view GitHub issues as a Kanban board. Drag an issue 
 - Unified issue history: board mutations + agent runs in one timeline.
 - VS Code Web (managed code-server) with per-issue deep links and port forwarding.
 - Multi-tab PTY terminal and CLI Agents admin page with install logs.
+- Terminal mobile UX (E23): focus mode expands the shell to the full viewport (top bar and page chrome hidden, compact tab strip kept) and a touch-only virtual keybar provides Esc, arrows, Tab/Shift+Tab, Home/End/PgUp/PgDn, sticky Ctrl and paste for phone keyboards.
 
 ## Build Order
 

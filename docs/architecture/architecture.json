@@ -1,333 +1,333 @@
 {
-  "schema_version": 1,
-  "diagram_type": "architecture",
-  "meta": {
-    "title": "agent-harness System Architecture",
-    "output": "architecture.html",
-    "quality_profile": "showcase"
+ "schema_version": 1,
+ "diagram_type": "architecture",
+ "meta": {
+  "title": "agent-harness System Architecture",
+  "output": "architecture.html",
+  "quality_profile": "showcase"
+ },
+ "components": [
+  {
+   "id": "users",
+   "type": "external",
+   "label": "Users",
+   "sublabel": "Humans / AI Agents",
+   "pos": [
+    20,
+    210
+   ],
+   "size": [
+    120,
+    60
+   ]
   },
-  "components": [
-    {
-      "id": "users",
-      "type": "external",
-      "label": "Users",
-      "sublabel": "Humans / AI Agents",
-      "pos": [
-        20,
-        210
-      ],
-      "size": [
-        120,
-        60
-      ]
-    },
-    {
-      "id": "cli",
-      "type": "backend",
-      "label": "taskctl CLI",
-      "sublabel": "Spectre.Console.Cli",
-      "pos": [
-        180,
-        80
-      ],
-      "size": [
-        130,
-        60
-      ]
-    },
-    {
-      "id": "mcp",
-      "type": "backend",
-      "label": "MCP Server",
-      "sublabel": "ModelContextProtocol SDK",
-      "pos": [
-        180,
-        205
-      ],
-      "size": [
-        130,
-        60
-      ]
-    },
-    {
-      "id": "ui",
-      "type": "frontend",
-      "label": "Blazor WASM",
-      "sublabel": "Board \u00b7 Cockpit \u00b7 Specs",
-      "pos": [
-        180,
-        300
-      ],
-      "size": [
-        130,
-        70
-      ]
-    },
-    {
-      "id": "server",
-      "type": "backend",
-      "label": "Taskboard.Server",
-      "sublabel": "Minimal APIs + SignalR + SSE",
-      "pos": [
-        360,
-        190
-      ],
-      "size": [
-        160,
-        90
-      ]
-    },
-    {
-      "id": "app",
-      "type": "backend",
-      "label": "Application",
-      "sublabel": "MediatR use cases",
-      "pos": [
-        570,
-        200
-      ],
-      "size": [
-        150,
-        60
-      ]
-    },
-    {
-      "id": "harness",
-      "type": "backend",
-      "label": "Harness Engine",
-      "sublabel": "PipelineEngine / FinOps / Memory",
-      "pos": [
-        565,
-        60
-      ],
-      "size": [
-        160,
-        70
-      ]
-    },
-    {
-      "id": "security",
-      "type": "backend",
-      "label": "Security + Verify",
-      "sublabel": "Gateway / VerificationLoop",
-      "pos": [
-        770,
-        60
-      ],
-      "size": [
-        150,
-        70
-      ]
-    },
-    {
-      "id": "domain",
-      "type": "backend",
-      "label": "Domain",
-      "sublabel": "DDD entities + invariants",
-      "pos": [
-        575,
-        310
-      ],
-      "size": [
-        140,
-        60
-      ]
-    },
-    {
-      "id": "db",
-      "type": "database",
-      "label": "SQLite",
-      "sublabel": "EF Core + ~/.agent-harness",
-      "pos": [
-        570,
-        420
-      ],
-      "size": [
-        150,
-        60
-      ]
-    },
-    {
-      "id": "integrations",
-      "type": "backend",
-      "label": "Integrations",
-      "sublabel": "Worktrees \u00b7 PTY \u00b7 VS Code",
-      "pos": [
-        770,
-        195
-      ],
-      "size": [
-        150,
-        70
-      ]
-    },
-    {
-      "id": "github",
-      "type": "external",
-      "label": "GitHub API",
-      "sublabel": "Octokit",
-      "pos": [
-        960,
-        60
-      ],
-      "size": [
-        110,
-        60
-      ]
-    },
-    {
-      "id": "agents",
-      "type": "external",
-      "label": "Agent CLIs",
-      "sublabel": "Codex \u00b7 Claude \u00b7 Gemini",
-      "pos": [
-        960,
-        300
-      ],
-      "size": [
-        110,
-        60
-      ]
-    }
-  ],
-  "connections": [
-    {
-      "id": "users-to-cli",
-      "from": "users",
-      "to": "cli"
-    },
-    {
-      "id": "users-to-mcp",
-      "from": "users",
-      "to": "mcp"
-    },
-    {
-      "id": "users-to-ui",
-      "from": "users",
-      "to": "ui"
-    },
-    {
-      "id": "cli-to-server",
-      "from": "cli",
-      "to": "server"
-    },
-    {
-      "id": "mcp-to-server",
-      "from": "mcp",
-      "to": "server"
-    },
-    {
-      "id": "ui-to-server",
-      "from": "ui",
-      "to": "server"
-    },
-    {
-      "id": "server-to-app",
-      "from": "server",
-      "to": "app"
-    },
-    {
-      "id": "app-to-harness",
-      "from": "app",
-      "to": "harness",
-      "fromSide": "top",
-      "toSide": "bottom"
-    },
-    {
-      "id": "harness-to-security",
-      "from": "harness",
-      "to": "security",
-      "fromSide": "right",
-      "toSide": "left"
-    },
-    {
-      "id": "security-to-integrations",
-      "from": "security",
-      "to": "integrations",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "app-to-domain",
-      "from": "app",
-      "to": "domain",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "domain-to-db",
-      "from": "domain",
-      "to": "db",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "app-to-integrations",
-      "from": "app",
-      "to": "integrations",
-      "fromSide": "right",
-      "toSide": "left"
-    },
-    {
-      "id": "integrations-to-github",
-      "from": "integrations",
-      "to": "github",
-      "fromSide": "right",
-      "toSide": "left"
-    },
-    {
-      "id": "integrations-to-agents",
-      "from": "integrations",
-      "to": "agents",
-      "fromSide": "right",
-      "toSide": "left"
-    }
-  ],
-  "cards": [
-    {
-      "dot": "cyan",
-      "title": "Presentation",
-      "items": [
-        "Blazor WASM pages: Board, Gantt, Workflow, Specs, VS Code, Terminal, Cockpit",
-        "taskctl CLI + MCP server for agent access",
-        "Global repo selector drives repo-scoped pages"
-      ]
-    },
-    {
-      "dot": "emerald",
-      "title": "Realtime",
-      "items": [
-        "SignalR hubs: /harness-cockpit-hub, /terminal-hub, agent logs",
-        "SSE /api/events for board updates",
-        "Structured pipeline events replayed to late joiners"
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "Harness (ADE)",
-      "items": [
-        "PipelineEngine: multi-agent DAG stages with approval gates",
-        "Steer queue + HITL cockpit, Create-PR on success",
-        "FinOps: per-run token/cost metrics; project memory + context synthesis"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "Security & Verification",
-      "items": [
-        "PermissionGateway: command risk classification, path jail, secret scrubbing",
-        "VerificationLoop: build/test/coverage evidence per stage",
-        "Git worktrees isolate every pipeline run"
-      ]
-    },
-    {
-      "dot": "rose",
-      "title": "Local-first boundary",
-      "items": [
-        "All state in ~/.agent-harness SQLite \u2014 no required cloud",
-        "Outbound only: GitHub API, optional Jira/Cloud companion",
-        "code-server + PTY terminal hosted on the server"
-      ]
-    }
-  ]
+  {
+   "id": "cli",
+   "type": "backend",
+   "label": "taskctl CLI",
+   "sublabel": "Spectre.Console.Cli",
+   "pos": [
+    180,
+    80
+   ],
+   "size": [
+    130,
+    60
+   ]
+  },
+  {
+   "id": "mcp",
+   "type": "backend",
+   "label": "MCP Server",
+   "sublabel": "ModelContextProtocol SDK",
+   "pos": [
+    180,
+    205
+   ],
+   "size": [
+    130,
+    60
+   ]
+  },
+  {
+   "id": "ui",
+   "type": "frontend",
+   "label": "Blazor WASM",
+   "sublabel": "Board · Cockpit · Terminal",
+   "pos": [
+    180,
+    300
+   ],
+   "size": [
+    130,
+    70
+   ]
+  },
+  {
+   "id": "server",
+   "type": "backend",
+   "label": "Taskboard.Server",
+   "sublabel": "Minimal APIs + SignalR + SSE",
+   "pos": [
+    360,
+    190
+   ],
+   "size": [
+    160,
+    90
+   ]
+  },
+  {
+   "id": "app",
+   "type": "backend",
+   "label": "Application",
+   "sublabel": "MediatR use cases",
+   "pos": [
+    570,
+    200
+   ],
+   "size": [
+    150,
+    60
+   ]
+  },
+  {
+   "id": "harness",
+   "type": "backend",
+   "label": "Harness Engine",
+   "sublabel": "PipelineEngine / FinOps / Memory",
+   "pos": [
+    565,
+    60
+   ],
+   "size": [
+    160,
+    70
+   ]
+  },
+  {
+   "id": "security",
+   "type": "backend",
+   "label": "Security + Verify",
+   "sublabel": "Gateway / VerificationLoop",
+   "pos": [
+    770,
+    60
+   ],
+   "size": [
+    150,
+    70
+   ]
+  },
+  {
+   "id": "domain",
+   "type": "backend",
+   "label": "Domain",
+   "sublabel": "DDD entities + invariants",
+   "pos": [
+    575,
+    310
+   ],
+   "size": [
+    140,
+    60
+   ]
+  },
+  {
+   "id": "db",
+   "type": "database",
+   "label": "SQLite",
+   "sublabel": "EF Core + ~/.agent-harness",
+   "pos": [
+    570,
+    420
+   ],
+   "size": [
+    150,
+    60
+   ]
+  },
+  {
+   "id": "integrations",
+   "type": "backend",
+   "label": "Integrations",
+   "sublabel": "Worktrees · PTY · VS Code",
+   "pos": [
+    770,
+    195
+   ],
+   "size": [
+    150,
+    70
+   ]
+  },
+  {
+   "id": "github",
+   "type": "external",
+   "label": "GitHub API",
+   "sublabel": "Octokit",
+   "pos": [
+    960,
+    60
+   ],
+   "size": [
+    110,
+    60
+   ]
+  },
+  {
+   "id": "agents",
+   "type": "external",
+   "label": "Agent CLIs",
+   "sublabel": "Codex · Claude · Gemini",
+   "pos": [
+    960,
+    300
+   ],
+   "size": [
+    110,
+    60
+   ]
+  }
+ ],
+ "connections": [
+  {
+   "id": "users-to-cli",
+   "from": "users",
+   "to": "cli"
+  },
+  {
+   "id": "users-to-mcp",
+   "from": "users",
+   "to": "mcp"
+  },
+  {
+   "id": "users-to-ui",
+   "from": "users",
+   "to": "ui"
+  },
+  {
+   "id": "cli-to-server",
+   "from": "cli",
+   "to": "server"
+  },
+  {
+   "id": "mcp-to-server",
+   "from": "mcp",
+   "to": "server"
+  },
+  {
+   "id": "ui-to-server",
+   "from": "ui",
+   "to": "server"
+  },
+  {
+   "id": "server-to-app",
+   "from": "server",
+   "to": "app"
+  },
+  {
+   "id": "app-to-harness",
+   "from": "app",
+   "to": "harness",
+   "fromSide": "top",
+   "toSide": "bottom"
+  },
+  {
+   "id": "harness-to-security",
+   "from": "harness",
+   "to": "security",
+   "fromSide": "right",
+   "toSide": "left"
+  },
+  {
+   "id": "security-to-integrations",
+   "from": "security",
+   "to": "integrations",
+   "fromSide": "bottom",
+   "toSide": "top"
+  },
+  {
+   "id": "app-to-domain",
+   "from": "app",
+   "to": "domain",
+   "fromSide": "bottom",
+   "toSide": "top"
+  },
+  {
+   "id": "domain-to-db",
+   "from": "domain",
+   "to": "db",
+   "fromSide": "bottom",
+   "toSide": "top"
+  },
+  {
+   "id": "app-to-integrations",
+   "from": "app",
+   "to": "integrations",
+   "fromSide": "right",
+   "toSide": "left"
+  },
+  {
+   "id": "integrations-to-github",
+   "from": "integrations",
+   "to": "github",
+   "fromSide": "right",
+   "toSide": "left"
+  },
+  {
+   "id": "integrations-to-agents",
+   "from": "integrations",
+   "to": "agents",
+   "fromSide": "right",
+   "toSide": "left"
+  }
+ ],
+ "cards": [
+  {
+   "dot": "cyan",
+   "title": "Presentation",
+   "items": [
+    "Blazor WASM pages: Board, Gantt, Workflow, Specs, VS Code, Terminal, Cockpit",
+    "taskctl CLI + MCP server for agent access",
+    "Global repo selector drives repo-scoped pages"
+   ]
+  },
+  {
+   "dot": "emerald",
+   "title": "Realtime",
+   "items": [
+    "SignalR hubs: /harness-cockpit-hub, /terminal-hub, agent logs",
+    "SSE /api/events for board updates",
+    "Structured pipeline events replayed to late joiners"
+   ]
+  },
+  {
+   "dot": "violet",
+   "title": "Harness (ADE)",
+   "items": [
+    "PipelineEngine: multi-agent DAG stages with approval gates",
+    "Steer queue + HITL cockpit, Create-PR on success",
+    "FinOps: per-run token/cost metrics; project memory + context synthesis"
+   ]
+  },
+  {
+   "dot": "amber",
+   "title": "Security & Verification",
+   "items": [
+    "PermissionGateway: command risk classification, path jail, secret scrubbing",
+    "VerificationLoop: build/test/coverage evidence per stage",
+    "Git worktrees isolate every pipeline run"
+   ]
+  },
+  {
+   "dot": "rose",
+   "title": "Local-first boundary",
+   "items": [
+    "All state in ~/.agent-harness SQLite — no required cloud",
+    "Outbound only: GitHub API, optional Jira/Cloud companion",
+    "code-server + PTY terminal hosted on the server"
+   ]
+  }
+ ]
 }
