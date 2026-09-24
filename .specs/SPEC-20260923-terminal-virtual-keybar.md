@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260923-terminal-virtual-keybar` |
 | Ticket | [#340](https://github.com/afonsoft/agent-harness/issues/340) (Epic [#338](https://github.com/afonsoft/agent-harness/issues/338)) |
-| Status | `In implementation` |
+| Status | `Implemented` — entregue via [PR #342](https://github.com/afonsoft/agent-harness/pull/342) (aguardando merge) |
 | Gap | `GAP-frontend-terminal-virtual-keybar` (gap-analysis-20260923) |
 | Depends on | `SPEC-20260923-terminal-focus-mode` (a keybar só existe dentro do modo focus) |
 | Related | `SPEC-20260917-terminal-tabs`, `SPEC-20260921-terminal-paste-dedup`, `SPEC-20260918-touch-targets` |

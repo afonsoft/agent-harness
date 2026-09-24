@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260923-terminal-focus-mode` |
 | Ticket | [#339](https://github.com/afonsoft/agent-harness/issues/339) (Epic [#338](https://github.com/afonsoft/agent-harness/issues/338)) |
-| Status | `In implementation` |
+| Status | `Implemented` — entregue via [PR #341](https://github.com/afonsoft/agent-harness/pull/341) (aguardando merge) |
 | Gap | `GAP-frontend-terminal-focus-mode` (gap-analysis-20260923) |
 | Related | `SPEC-20260917-terminal-tabs`, `SPEC-20260920-terminal-pty-resize`, `SPEC-20260918-touch-targets`, `SPEC-20260918-sidebar-icon-rail` |
 
