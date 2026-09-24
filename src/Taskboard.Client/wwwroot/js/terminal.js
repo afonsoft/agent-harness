@@ -226,6 +226,33 @@ window.taskboardTerminal = (() => {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    // SPEC-20260923-terminal-virtual-keybar RF-004: virtual Paste key — the
+    // button tap is the user gesture the Clipboard API requires. Unavailable
+    // or denied readText (non-secure context, permission) falls back to an
+    // in-terminal hint instead of surfacing an exception, mirroring the
+    // keyboard fallback from SPEC-20260917-terminal-tabs RF-004.
+    async function pasteClipboard(elementId) {
+        const e = terms.get(elementId);
+        if (!e) {
+            return false;
+        }
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            e.term.write('\r\n\x1b[33m[paste unavailable — use the browser context menu]\x1b[0m\r\n');
+            return false;
+        }
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                e.term.paste(text);
+                return true;
+            }
+            return false;
+        } catch {
+            e.term.write('\r\n\x1b[33m[paste denied — use the browser context menu]\x1b[0m\r\n');
+            return false;
+        }
+    }
+
     function focus(elementId) {
         const e = terms.get(elementId);
         if (e) {
@@ -276,6 +303,7 @@ window.taskboardTerminal = (() => {
 
     return {
         init, initReadOnly, write, focus, fitNow, reset, dispose, disposeAll,
-        watchScroll, isAtBottom, scrollToBottom, getText, downloadText
+        watchScroll, isAtBottom, scrollToBottom, getText, downloadText,
+        pasteClipboard
     };
 })();
