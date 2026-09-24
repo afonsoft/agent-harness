@@ -1,7 +1,7 @@
 # Gap Analysis — 2026-09-23
 
 - Repository: `/home/ubuntu/repos/agent-harness` | Branch: `fix/devin-20260923-terminal-tabs-keyed-render` | Tree: clean
-- Phase reached: `done` (aprovado → issues → implementado → PRs abertos)
+- Phase reached: `delivered` (aprovado → issues → implementado → PRs mergeados → deploy)
 - Mode: `focused` (terminal/mobile UX — pedido explícito do usuário) + sweep leve do restante
 
 ---
@@ -68,6 +68,14 @@
 - Issues #339/#340 → `in_pullrequest`; epic atualizada com links dos PRs.
 - Verificação: `dotnet build` 0 warn/0 err; unit 1128/1128. Manual touch/desktop pendente (não há harness de UI — evidência manual nos test plans dos PRs).
 - SPEC statuses: `Implemented` (aguardando merge) em ambas as branches.
+
+### Fechamento (2026-09-24)
+
+- **PRs mergeados:** #341 (focus, squash `31ba2c4`), #342 (keybar, squash `de7bc4b` — conflito pós-merge resolvido com ours=superset). #337 já estava mergeado.
+- **Issues:** #339/#340 fechadas com label `done`; Epic #338 → `done`.
+- **Docs:** README (+pt-br), CHANGELOG e `docs/architecture/` sincronizados; archify re-entregue (showcase 9/9). PR de docs: #343.
+- **Deploy:** `dotnet publish -c Release` → `~/.agent-harness/publish` (com limpeza de `_framework`), `harness-server.service` reiniciado. Saúde: `/api/meta` 200, `/` 200, `/api/agent-clis` 401, `/terminal-hub/negotiate` 401. Bundle contém `terminal-keybar`/`setTerminalFocus`/`pasteClipboard`.
+- Manual touch validation continua pendente (sem harness de UI no repo).
 
 ## 8. Pendências não-spec (housekeeping)
 
