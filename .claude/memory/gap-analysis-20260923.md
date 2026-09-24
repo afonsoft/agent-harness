@@ -1,7 +1,7 @@
 # Gap Analysis — 2026-09-23
 
 - Repository: `/home/ubuntu/repos/agent-harness` | Branch: `fix/devin-20260923-terminal-tabs-keyed-render` | Tree: clean
-- Phase reached: `specs-written` (aguardando gate de aprovação)
+- Phase reached: `done` (aprovado → issues → implementado → PRs abertos)
 - Mode: `focused` (terminal/mobile UX — pedido explícito do usuário) + sweep leve do restante
 
 ---
@@ -58,7 +58,18 @@
 - `.specs/SPEC-20260923-terminal-focus-mode.md`
 - `.specs/SPEC-20260923-terminal-virtual-keybar.md` (depende do anterior)
 
-## 7. Pendências não-spec (housekeeping)
+## 7. Resultado
+
+- Gate: **aprovado** pelo usuário (2026-09-23) — SPECs `Approved`.
+- Issues: Epic **#338** (`epic`,`todo`) + slices **#339** (focus-mode) e **#340** (keybar, dependência registrada no body — `gh` local não suporta `--add-linked-issue`).
+- Implementação:
+  - `feature/devin-20260923-terminal-focus-mode` → **PR #341** (base main): overlay CSS `html[data-terminal-focus]`, topbar off, tab strip compacta, floating restore, hack `100dvh` removido, refit via `fitNow`, `Esc` não interceptado, cleanup no dispose.
+  - `feature/devin-20260923-terminal-virtual-keybar` → **PR #342** (empilhado em #341): `.terminal-keybar` só em focus + `(pointer:coarse),(hover:none)`; sequências ANSI via hub `Input`; Ctrl sticky one-shot (`ch & 0x1f`, `v`→paste); Paste dedicado `navigator.clipboard.readText`→`term.paste` + hint fallback; refocus após toque; desarma na troca de aba.
+- Issues #339/#340 → `in_pullrequest`; epic atualizada com links dos PRs.
+- Verificação: `dotnet build` 0 warn/0 err; unit 1128/1128. Manual touch/desktop pendente (não há harness de UI — evidência manual nos test plans dos PRs).
+- SPEC statuses: `Implemented` (aguardando merge) em ambas as branches.
+
+## 8. Pendências não-spec (housekeeping)
 
 - `followups.md`: ADR da escolha Spectre.Console.Cli e revisão de UX-diff da CLI ainda abertos (não bloqueantes).
 - SPEC-20260923-terminal-tabs-keyed-render marcado `Implemented` (PR #337) — branch atual; nenhum PR aberto no gh (provável já mergeado; verificar no próximo ciclo).
