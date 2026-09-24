@@ -1128,6 +1128,58 @@ html[data-terminal-focus] .terminal-focus-exit {
         background: #21262d;
     }
 
+/* Virtual keybar (SPEC-20260923-terminal-virtual-keybar) — rendered by the
+   page always, but only ever visible in focus mode on coarse-pointer devices.
+   It sits in the overlay's flex flow (after .terminal-body), so it shrinks the
+   host instead of covering the last terminal row. */
+.terminal-keybar {
+    display: none;
+}
+
+@media (pointer: coarse), (hover: none) {
+    html[data-terminal-focus] .terminal-keybar {
+        display: flex;
+        gap: 0.375rem;
+        padding: 0.375rem 0.125rem 0.5rem;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: thin;
+        flex-shrink: 0;
+    }
+}
+
+.keybar-key {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 0.75rem;
+    border: 1px solid #30363d;
+    border-radius: 0.5rem;
+    background: #161b22;
+    color: #e6edf3;
+    font-size: 0.85rem;
+    font-family: inherit;
+    flex-shrink: 0;
+    white-space: nowrap;
+    touch-action: manipulation;
+    cursor: pointer;
+}
+
+    .keybar-key:active {
+        background: #21262d;
+    }
+
+    .keybar-key:disabled {
+        opacity: 0.4;
+        cursor: default;
+    }
+
+.keybar-ctrl.armed,
+.keybar-ctrl.armed:active {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: #fff;
+}
+
 /* Agent badges on kanban cards (SPEC-20260917-agent-eligibility-task-badge) */
 .task-card-header {
     display: flex;

@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260923-terminal-virtual-keybar` |
 | Ticket | [#340](https://github.com/afonsoft/agent-harness/issues/340) (Epic [#338](https://github.com/afonsoft/agent-harness/issues/338)) |
-| Status | `Approved` |
+| Status | `In implementation` |
 | Gap | `GAP-frontend-terminal-virtual-keybar` (gap-analysis-20260923) |
 | Depends on | `SPEC-20260923-terminal-focus-mode` (a keybar só existe dentro do modo focus) |
 | Related | `SPEC-20260917-terminal-tabs`, `SPEC-20260921-terminal-paste-dedup`, `SPEC-20260918-touch-targets` |
@@ -140,12 +140,12 @@ Não se aplica — reutiliza `Input(sessionId, data)` do `terminal-hub` (SPEC-20
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** reler `Terminal.razor` pós-focus-mode e `terminal.js`; confirmar mapa de sequências contra xterm/bash.
-- [ ] **T2 — JS:** `pasteClipboard(elementId)` em `terminal.js` (readText → term.paste; fallback hint; retorna bool).
-- [ ] **T3 — Razor:** markup `.terminal-keybar` + `SendVirtualKeyAsync` + guarda de sessão + `_ctrlArmed` + refocus.
-- [ ] **T4 — CSS:** barra no overlay focus (fluxo, não sobreposta), media query `(pointer: coarse),(hover: none)`, alvos ≥44px, estado `Ctrl` armado.
-- [ ] **T5 — Docs:** `docs/features(.pt-br).md`.
-- [ ] **T6 — Validation:** `dotnet build`; suíte sem regressão; evidência manual em device/emulação touch: visibilidade, sequências, Ctrl+C, Ctrl+V, fallback de paste.
+- [x] **T1 — Discovery:** reler `Terminal.razor` pós-focus-mode e `terminal.js`; confirmar mapa de sequências contra xterm/bash.
+- [x] **T2 — JS:** `pasteClipboard(elementId)` em `terminal.js` (readText → term.paste; fallback hint; retorna bool).
+- [x] **T3 — Razor:** markup `.terminal-keybar` + `SendVirtualKeyAsync` + guarda de sessão + `_ctrlArmed` + refocus.
+- [x] **T4 — CSS:** barra no overlay focus (fluxo, não sobreposta), media query `(pointer: coarse),(hover: none)`, alvos ≥44px, estado `Ctrl` armado.
+- [x] **T5 — Docs:** `docs/features(.pt-br).md`.
+- [x] **T6 — Validation:** `dotnet build`; suíte sem regressão; evidência manual em device/emulação touch: visibilidade, sequências, Ctrl+C, Ctrl+V, fallback de paste.
 
 **7.1 Validation:** .NET — suíte existente sem regressão (mudança frontend); lógica de byte de controle (`ch & 0x1f`) e mapeamento de teclas são unit-testáveis se extraídos para um helper estático — preferível para cobrir RF-002/RF-003 sem device.
 

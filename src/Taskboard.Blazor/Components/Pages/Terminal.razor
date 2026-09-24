@@ -82,6 +82,25 @@
         </div>
     }
 
+    @* SPEC-20260923-terminal-virtual-keybar: virtual keys for touch devices —
+       visible only in focus mode + coarse pointer (pure CSS media query). *@
+    <div class="terminal-keybar" role="toolbar" aria-label="Terminal virtual keys">
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b")'>Esc</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\t")'>Tab</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[Z")' aria-label="Shift Tab">⇧Tab</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[D")' aria-label="Arrow left">←</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[A")' aria-label="Arrow up">↑</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[B")' aria-label="Arrow down">↓</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[C")' aria-label="Arrow right">→</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[H")'>Home</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[F")'>End</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[5~")'>PgUp</button>
+        <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[6~")'>PgDn</button>
+        <button type="button" class="keybar-key keybar-ctrl @(_ctrlArmed ? "armed" : "")" disabled="@(!KeybarEnabled)"
+                aria-pressed="@_ctrlArmed" title="Sticky Ctrl — tap, then the next key" @onclick="ToggleCtrlAsync">Ctrl</button>
+        <button type="button" class="keybar-key" disabled="@(_activeTab is null)" @onclick="PasteClipboardAsync">Paste</button>
+    </div>
+
     @* SPEC-20260923-terminal-focus-mode RF-003: floating restore — the topbar
        (and the mobile hamburger) is hidden in focus mode, so the way out must
        live inside the overlay itself. *@
@@ -119,6 +138,10 @@
     private int _tabCounter;
     private bool _cmdConsumed;
     private bool _focusMode;
+    private bool _ctrlArmed;
+
+    /// <summary>Virtual keys only make sense on a live session (SPEC-20260923-terminal-virtual-keybar RF-002).</summary>
+    private bool KeybarEnabled => _activeTab is { State: TabState.Open, SessionId: not null };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -297,6 +320,7 @@
 
     private async Task ActivateTabAsync(TerminalTab tab)
     {
+        _ctrlArmed = false; // sticky Ctrl never survives a tab switch
         _activeTab = tab;
         StateHasChanged();
         await Task.Yield();
@@ -368,14 +392,85 @@
         }
     }
 
-    [JSInvokable]
-    public async Task OnTerminalData(string tabKey, string data)
+    // SPEC-20260923-terminal-virtual-keybar RF-002/RF-005: keybar sequences go
+    // through the same hub Input path as real keystrokes; every tap refocuses
+    // the xterm so the button doesn't keep the focus (and the OSK can reopen).
+    private async Task SendVirtualKeyAsync(string data)
     {
-        var tab = _tabs.FirstOrDefault(t => t.Key == tabKey);
+        _ctrlArmed = false; // keybar keys never combine with Ctrl — tapping disarms
+        await SendInputAsync(data);
+    }
+
+    private async Task SendInputAsync(string data)
+    {
+        var tab = _activeTab;
         if (tab?.SessionId is not null && _hub is { State: HubConnectionState.Connected })
         {
             await _hub.InvokeAsync("Input", tab.SessionId, data);
         }
+        if (tab is not null)
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
+        }
+    }
+
+    // RF-003: one-shot Ctrl — arms for exactly the next key; a second tap
+    // disarms without sending anything.
+    private async Task ToggleCtrlAsync()
+    {
+        _ctrlArmed = !_ctrlArmed;
+        if (_activeTab is not null)
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", _activeTab.ElementId);
+        }
+    }
+
+    // RF-004: dedicated Paste — the tap is the user gesture readText requires.
+    private async Task PasteClipboardAsync()
+    {
+        _ctrlArmed = false;
+        var tab = _activeTab;
+        if (tab is null)
+        {
+            return;
+        }
+        await JS.InvokeVoidAsync("taskboardTerminal.pasteClipboard", tab.ElementId);
+        await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalData(string tabKey, string data)
+    {
+        var tab = _tabs.FirstOrDefault(t => t.Key == tabKey);
+        if (tab?.SessionId is null || _hub is not { State: HubConnectionState.Connected })
+        {
+            return;
+        }
+
+        // SPEC-20260923-terminal-virtual-keybar RF-003: sticky Ctrl consumes
+        // exactly one keystroke — a letter/digit becomes its control byte
+        // (c → \x03), 'v' runs the paste path (Ctrl+V = paste per the page
+        // hint), anything else goes through unmodified and still disarms.
+        if (_ctrlArmed)
+        {
+            _ctrlArmed = false;
+            _ = InvokeAsync(StateHasChanged);
+            if (data.Length == 1)
+            {
+                var ch = data[0];
+                if (ch is 'v' or 'V')
+                {
+                    await PasteClipboardAsync();
+                    return;
+                }
+                if (ch is >= ' ' and <= '~')
+                {
+                    data = ((char)(ch & 0x1f)).ToString();
+                }
+            }
+        }
+
+        await _hub.InvokeAsync("Input", tab.SessionId, data);
     }
 
     [JSInvokable]
