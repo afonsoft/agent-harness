@@ -1059,6 +1059,75 @@ body {
     text-align: center;
 }
 
+/* Terminal focus mode (SPEC-20260923-terminal-focus-mode) — CSS-only overlay.
+   taskboard.setTerminalFocus flips html[data-terminal-focus]; everything below
+   is presentation. z-index 1030 keeps the app usable (Bootstrap modals 1055,
+   offcanvas 1045 still layer above — e.g. the mobile nav drawer). */
+html[data-terminal-focus] .app-topbar {
+    display: none;
+}
+
+html[data-terminal-focus] .terminal-page {
+    position: fixed;
+    inset: 0;
+    z-index: 1030;
+    background: #0d1117;
+    padding: 0.5rem;
+    overflow: hidden;
+}
+
+html[data-terminal-focus] .terminal-page > h1,
+html[data-terminal-focus] .terminal-page > p {
+    display: none;
+}
+
+/* Compact tab strip in focus mode — still needed to switch tabs on mobile.
+   The right padding clears the floating restore button. */
+html[data-terminal-focus] .terminal-tabstrip {
+    margin-bottom: 0.375rem;
+    padding-right: 3.5rem;
+}
+
+    html[data-terminal-focus] .terminal-tabstrip .nav-link {
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
+
+html[data-terminal-focus] .terminal-host {
+    border: 0;
+    border-radius: 0;
+    min-height: 0;
+}
+
+/* Floating restore — only exists visually in focus mode (the tab-strip toggle
+   still works, but this corner button is the always-reachable way out while
+   the topbar/hamburger is hidden). */
+.terminal-focus-exit {
+    display: none;
+}
+
+html[data-terminal-focus] .terminal-focus-exit {
+    position: fixed;
+    top: 0.5rem;
+    right: 0.75rem;
+    z-index: 1040;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid #30363d;
+    border-radius: 0.5rem;
+    background: rgba(13, 17, 23, 0.85);
+    color: #e6edf3;
+    cursor: pointer;
+}
+
+    html[data-terminal-focus] .terminal-focus-exit:hover {
+        background: #21262d;
+    }
+
 /* Agent badges on kanban cards (SPEC-20260917-agent-eligibility-task-badge) */
 .task-card-header {
     display: flex;
@@ -1186,13 +1255,6 @@ body {
 
     .setting-row .form-check.form-switch {
         align-self: flex-start;
-    }
-
-    .terminal-host {
-        height: 100dvh;
-        min-height: 240px;
-        border-radius: 0;
-        margin-inline: -0.75rem;
     }
 }
 

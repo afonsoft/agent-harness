@@ -54,6 +54,18 @@ window.taskboard = {
         }
     },
 
+    // SPEC-20260923-terminal-focus-mode RF-001/RF-002: CSS-only focus overlay —
+    // the html[data-terminal-focus] attribute drives all focus-mode CSS (topbar
+    // hidden, .terminal-page as a fixed viewport overlay). Session-only state:
+    // nothing is persisted, and Terminal.razor clears it on dispose.
+    setTerminalFocus: function (focused) {
+        if (focused) {
+            document.documentElement.dataset.terminalFocus = 'true';
+        } else {
+            delete document.documentElement.dataset.terminalFocus;
+        }
+    },
+
     // SPEC-20260920-global-repo-selector RF-001: the shared repo selection is
     // per-browser; storage failures degrade to session-only state.
     getSelectedRepo: function () {

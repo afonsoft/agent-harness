@@ -37,6 +37,13 @@
                 <Icon Name="IconName.Plus" />
             </button>
         </li>
+        <li class="nav-item ms-auto">
+            <button type="button" class="nav-link terminal-tab-new" title="@(_focusMode ? "Restore terminal" : "Expand terminal")"
+                    aria-pressed="@_focusMode" aria-label="@(_focusMode ? "Restore terminal" : "Expand terminal")"
+                    @onclick="ToggleFocusModeAsync">
+                <Icon Name="@(_focusMode ? IconName.FullscreenExit : IconName.Fullscreen)" />
+            </button>
+        </li>
     </ul>
 
     @if (_tabs.Count == 0)
@@ -74,6 +81,14 @@
             }
         </div>
     }
+
+    @* SPEC-20260923-terminal-focus-mode RF-003: floating restore — the topbar
+       (and the mobile hamburger) is hidden in focus mode, so the way out must
+       live inside the overlay itself. *@
+    <button type="button" class="terminal-focus-exit" title="Restore terminal" aria-label="Restore terminal"
+            @onclick="ToggleFocusModeAsync">
+        <Icon Name="IconName.FullscreenExit" />
+    </button>
 </div>
 
 @code {
@@ -103,6 +118,7 @@
     private string? _error;
     private int _tabCounter;
     private bool _cmdConsumed;
+    private bool _focusMode;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -326,6 +342,32 @@
         await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
     }
 
+    // SPEC-20260923-terminal-focus-mode RF-001/RF-004: CSS-driven overlay —
+    // JS only flips html[data-terminal-focus]; after the transition the active
+    // xterm refits so the ResizeObserver pushes real cols/rows to the PTY.
+    private async Task ToggleFocusModeAsync()
+    {
+        _focusMode = !_focusMode;
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setTerminalFocus", _focusMode);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop unavailable — keep the flag in sync with the attribute.
+            _focusMode = false;
+            return;
+        }
+
+        StateHasChanged();
+        await Task.Yield();
+        if (_activeTab is not null)
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.fitNow", _activeTab.ElementId);
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", _activeTab.ElementId);
+        }
+    }
+
     [JSInvokable]
     public async Task OnTerminalData(string tabKey, string data)
     {
@@ -362,6 +404,7 @@
 
         try
         {
+            await JS.InvokeVoidAsync("taskboard.setTerminalFocus", false);
             await JS.InvokeVoidAsync("taskboardTerminal.disposeAll");
         }
         catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
