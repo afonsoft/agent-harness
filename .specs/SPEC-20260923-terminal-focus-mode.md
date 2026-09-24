@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260923-terminal-focus-mode` |
 | Ticket | [#339](https://github.com/afonsoft/agent-harness/issues/339) (Epic [#338](https://github.com/afonsoft/agent-harness/issues/338)) |
-| Status | `Approved` |
+| Status | `In implementation` |
 | Gap | `GAP-frontend-terminal-focus-mode` (gap-analysis-20260923) |
 | Related | `SPEC-20260917-terminal-tabs`, `SPEC-20260920-terminal-pty-resize`, `SPEC-20260918-touch-targets`, `SPEC-20260918-sidebar-icon-rail` |
 
@@ -125,12 +125,12 @@ Não se aplica — nenhum endpoint/contrato novo. Reutiliza `Input`/`Resize`/`ou
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** ler arquivos da seção 3; confirmar que `reportResize`/`fitNow` já cobrem a propagação de tamanho.
-- [ ] **T2 — JS helper:** `taskboard.setTerminalFocus(bool)` em `taskboard.js` setando `document.documentElement.dataset.terminalFocus`.
-- [ ] **T3 — Razor:** flag `_focusMode`, botão toggle na tab strip, botão flutuante de sair, chamadas `fitNow`+`focus` pós-transição, remoção do atributo no `DisposeAsync`.
-- [ ] **T4 — CSS:** regras `html[data-terminal-focus]` (topbar off, overlay `.terminal-page`, tab strip compacta, host full) + remover o hack `@media ≤575.98px`.
-- [ ] **T5 — Docs:** `docs/features(.pt-br).md`.
-- [ ] **T6 — Validation:** `dotnet build` (warnings as errors); testes existentes passam; evidência manual: mobile ≤576px (expandir → tela cheia real, sem scroll de página) e desktop.
+- [x] **T1 — Discovery:** ler arquivos da seção 3; confirmar que `reportResize`/`fitNow` já cobrem a propagação de tamanho.
+- [x] **T2 — JS helper:** `taskboard.setTerminalFocus(bool)` em `taskboard.js` setando `document.documentElement.dataset.terminalFocus`.
+- [x] **T3 — Razor:** flag `_focusMode`, botão toggle na tab strip, botão flutuante de sair, chamadas `fitNow`+`focus` pós-transição, remoção do atributo no `DisposeAsync`.
+- [x] **T4 — CSS:** regras `html[data-terminal-focus]` (topbar off, overlay `.terminal-page`, tab strip compacta, host full) + remover o hack `@media ≤575.98px`.
+- [x] **T5 — Docs:** `docs/features(.pt-br).md`.
+- [x] **T6 — Validation:** `dotnet build` (warnings as errors); testes existentes passam; evidência manual: mobile ≤576px (expandir → tela cheia real, sem scroll de página) e desktop.
 
 **7.1 Validation:** .NET — suíte existente deve passar sem regressão (mudança frontend/JS; não há harness de teste de UI — evidência manual documentada nos critérios); `dotnet build` limpo.
 
