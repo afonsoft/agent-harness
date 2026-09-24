@@ -30,7 +30,7 @@ Capacidades principais:
 - **Admin de CLIs de agentes** — instale/autentique CLIs pela UI com logs de instalação estilo terminal; ative/desative por agente.
 - **Settings de Skills & MCP/RAG** — instale o catálogo `afonsoft/skills` pela UI e provisione um servidor MCP de RAG (URL + key) em todos os configs de agentes suportados.
 - **VS Code Web** — code-server gerenciado em `/vscode/` (proxy com espera de readiness, encaminhamento de portas via `VSCODE_PROXY_URI`), mais link "Open in VS Code" por issue.
-- **Terminal** — múltiplas abas bash PTY interativas via SignalR.
+- **Terminal** — múltiplas abas bash PTY interativas via SignalR, com **modo foco** (expandir/restaurar oculta a barra superior e o chrome da página para um shell em viewport completo, mantendo uma tab strip compacta) e uma **barra de teclas virtual** exibida apenas em dispositivos touch no modo foco (setas, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, Ctrl sticky de um toque e colar dedicado via clipboard).
 
 ## Stack Tecnológico
 
@@ -69,8 +69,8 @@ src/
   Taskboard.Maui/                   # Desktop Blazor Hybrid (opcional)
   Taskboard.Blazor/                 # UI web Blazor WebAssembly
 tests/
-  Taskboard.Tests.Unit/             # 821 testes unitários
-  Taskboard.Tests.Integration/      # 214 testes de integração
+  Taskboard.Tests.Unit/             # 1.100+ testes unitários
+  Taskboard.Tests.Integration/      # 290+ testes de integração
 ```
 
 ## Início Rápido
@@ -100,7 +100,7 @@ Veja [`install-cli.sh`](install-cli.sh) e [`docs/installation.pt-br.md`](docs/in
 
 O GitHub Actions fornece:
 
-- Build e testes em Release, verificação de formatação, gate de cobertura de linhas (atualmente 65%, subindo gradualmente até a meta de 80%) e verificação de pacotes vulneráveis.
+- Build e testes em Release, verificação de formatação, gate de cobertura de linhas (atualmente 77%, subindo gradualmente até a meta de 80%) e verificação de pacotes vulneráveis.
 - Análise SonarCloud quando o secret `SONAR_TOKEN` está configurado.
 - Análise CodeQL para C# e GitHub Actions.
 - Atualizações semanais de pacotes NuGet e GitHub Actions através do Dependabot.
@@ -124,6 +124,7 @@ Abra o **Board** (`/`) para visualizar as issues do GitHub como um board Kanban.
 - Histórico unificado da issue: mutações do board + execuções de agente numa única timeline.
 - VS Code Web (code-server gerenciado) com deep links por issue e encaminhamento de portas.
 - Terminal PTY multi-abas e página de admin de CLIs com logs de instalação.
+- UX mobile do terminal (E23): modo foco expande o shell para o viewport completo (barra superior e chrome da página ocultos, tab strip compacta mantida) e uma barra de teclas virtual só em dispositivos touch oferece Esc, setas, Tab/Shift+Tab, Home/End/PgUp/PgDn, Ctrl sticky e colar para teclados de celular.
 
 ## Ordem de Build
 

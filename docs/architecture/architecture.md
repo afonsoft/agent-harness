@@ -43,7 +43,7 @@ flowchart LR
 
 ### 1. Presentation Layer
 
-- **Blazor WASM (`Taskboard.Blazor`)** — SPA served by the Server as static files. Pages: Board, Gantt, Workflow (read-only GitHub Actions monitor), Specs, VS Code, Terminal, Cockpit (`/cockpit` + `/cockpit/runs/{id}`), AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts. The **global repository selector** (`SelectedRepositoryService`, persisted in `localStorage` as `harness.selectedRepo`) feeds every repo-scoped page and new terminal sessions / VS Code workdir.
+- **Blazor WASM (`Taskboard.Blazor`)** — SPA served by the Server as static files. Pages: Board, Gantt, Workflow (read-only GitHub Actions monitor), Specs, VS Code, Terminal, Cockpit (`/cockpit` + `/cockpit/runs/{id}`), AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts. The **global repository selector** (`SelectedRepositoryService`, persisted in `localStorage` as `harness.selectedRepo`) feeds every repo-scoped page and new terminal sessions / VS Code workdir. The **Terminal page** supports a session-scoped **focus mode** — `html[data-terminal-focus]` hides the top bar and page chrome so the shell fills the viewport (compact tab strip + floating restore kept) — and a **virtual keybar**, rendered only on coarse-pointer/no-hover devices while in focus mode, that emits ANSI sequences and control bytes through the existing `TerminalHub.Input` channel (sticky one-shot Ctrl, arrows, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, clipboard paste via `navigator.clipboard` → `term.paste`).
 - **`taskctl` (`Taskboard.Cli`)** — automation/CLI surface.
 - **MCP Server (`Taskboard.Mcp`)** — exposes taskboard capabilities as tools to LLM clients.
 - **`Taskboard.Maui`** — phase-2 shell (not part of the deployed server).
