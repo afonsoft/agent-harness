@@ -5,7 +5,7 @@ namespace Taskboard.Integrations.Agents;
 /// <summary>
 /// Localiza executáveis no PATH do sistema operacional.
 /// </summary>
-internal static class PathSearch
+public static class PathSearch
 {
     public static string? FindExecutable(string executable)
     {

@@ -10,4 +10,6 @@ public sealed record AgentInfo(
     AgentStatus Status,
     string? Version,
     string? Description,
-    bool SupportsInteractiveSession = false);
+    bool SupportsInteractiveSession = false,
+    /// <summary>SPEC-20260928-ai-code-generic-cli RF-001: native transport — "acp" (structured) or "pty" (terminal).</summary>
+    string Transport = "acp");

@@ -147,6 +147,149 @@
     </div>
 </div>
 
+@* SPEC-20260928-ai-code-generic-cli RF-002: user-declared CLIs persisted via
+   /api/agents/custom — usable as AI Code threads (chat when acp, terminal
+   otherwise). *@
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+            <h2 class="h6 fw-semibold mb-0">Custom CLIs</h2>
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="() => EditCustomCli(null)">
+                <Icon Name="IconName.PlusSquare" class="me-1" /> Add CLI
+            </Button>
+        </div>
+        <p class="small text-body-secondary">
+            Declare any agent CLI installed on this host — it appears in the AI Code picker.
+            <code>{model}</code> in the args template is replaced by the thread model.
+        </p>
+        @if (_customDefs.Count == 0)
+        {
+            <p class="small text-body-secondary mb-0">No custom CLIs yet.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Executable</th>
+                            <th>Args</th>
+                            <th>Transport</th>
+                            <th>On PATH</th>
+                            <th>Enabled</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var def in _customDefs)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@def.DisplayName</td>
+                                <td><code>@def.Executable</code></td>
+                                <td class="small"><code>@def.ArgsTemplate</code></td>
+                                <td><Badge Color="BadgeColor.Secondary">@def.Transport</Badge></td>
+                                <td>
+                                    @if (def.Resolved)
+                                    {
+                                        <Badge Color="BadgeColor.Success">found</Badge>
+                                    }
+                                    else
+                                    {
+                                        <Badge Color="BadgeColor.Warning">not found</Badge>
+                                    }
+                                </td>
+                                <td>
+                                    @if (def.Enabled)
+                                    {
+                                        <Badge Color="BadgeColor.Success">on</Badge>
+                                    }
+                                    else
+                                    {
+                                        <Badge Color="BadgeColor.Secondary">off</Badge>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <div class="d-inline-flex gap-1">
+                                        <button class="btn btn-sm btn-outline-secondary" title="Edit"
+                                                @onclick="() => EditCustomCli(def)">
+                                            <Icon Name="IconName.PencilSquare" />
+                                        </button>
+                                        @if (_deleteDefId == def.Id)
+                                        {
+                                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteCustomCliAsync(def)">Delete</button>
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _deleteDefId = null">Cancel</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-link text-danger" title="Delete"
+                                                    @onclick="() => _deleteDefId = def.Id">
+                                                <Icon Name="IconName.Trash" />
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<Modal @ref="_customCliModal" Title="@(_editingDef is null ? "Add custom CLI" : $"Edit {_editingDef.DisplayName}")">
+    <BodyTemplate>
+        <div class="mb-2">
+            <label class="form-label small mb-1">Display name</label>
+            <input class="form-control form-control-sm" @bind="_defFormName" placeholder="My agent CLI" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label small mb-1">Executable (binary name or absolute path)</label>
+            <input class="form-control form-control-sm font-monospace" @bind="_defFormExecutable" placeholder="mycli" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label small mb-1">Args template <span class="text-body-secondary">(tokens: {model}, {prompt})</span></label>
+            <input class="form-control form-control-sm font-monospace" @bind="_defFormArgs" placeholder="--acp {model}" />
+        </div>
+        <div class="row g-2 mb-2">
+            <div class="col-6">
+                <label class="form-label small mb-1">Transport</label>
+                <select class="form-select form-select-sm" @bind="_defFormTransport">
+                    <option value="pty">pty (raw terminal)</option>
+                    <option value="acp">acp (structured — CLI must implement ACP)</option>
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small mb-1">Model flag <span class="text-body-secondary">(optional)</span></label>
+                <input class="form-control form-control-sm font-monospace" @bind="_defFormModelFlag" placeholder="--model" />
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label small mb-1">Version args</label>
+            <input class="form-control form-control-sm font-monospace" @bind="_defFormVersionArgs" placeholder="--version" />
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="def-enabled" @bind="_defFormEnabled" />
+            <label class="form-check-label small" for="def-enabled">Enabled — visible in the AI Code picker</label>
+        </div>
+        @if (!string.IsNullOrEmpty(_defFormError))
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mt-2 small">@_defFormError</Alert>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="() => _customCliModal.HideAsync()">Cancel</Button>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SaveCustomCliAsync" Disabled="_defSaving">
+            @if (_defSaving)
+            {
+                <Spinner Size="SpinnerSize.Small" Class="me-1" />
+            }
+            Save
+        </Button>
+    </FooterTemplate>
+</Modal>
+
 <div class="card mt-4">
     <div class="card-body">
         <h2 class="h6 fw-semibold mb-1">Default agent prompt</h2>
@@ -190,6 +333,21 @@
     private bool _refreshingProbes;
     private string? _error;
 
+    // SPEC-20260928-ai-code-generic-cli RF-002: custom CLI CRUD state.
+    private IReadOnlyList<AgentCliDefinitionDto> _customDefs = [];
+    private Modal _customCliModal = default!;
+    private AgentCliDefinitionDto? _editingDef;
+    private string? _deleteDefId;
+    private string _defFormName = string.Empty;
+    private string _defFormExecutable = string.Empty;
+    private string _defFormArgs = string.Empty;
+    private string _defFormTransport = "pty";
+    private string _defFormModelFlag = string.Empty;
+    private string _defFormVersionArgs = "--version";
+    private bool _defFormEnabled = true;
+    private string? _defFormError;
+    private bool _defSaving;
+
     private string _template = string.Empty;
     private string _builtinTemplate = string.Empty;
     private bool _templateLoading;
@@ -198,7 +356,84 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await Task.WhenAll(RefreshAsync(), LoadTemplateAsync());
+        await Task.WhenAll(RefreshAsync(), LoadTemplateAsync(), LoadCustomDefsAsync());
+    }
+
+    private async Task LoadCustomDefsAsync()
+    {
+        try
+        {
+            _customDefs = await Client.GetCustomAgentClisAsync();
+        }
+        catch
+        {
+            _customDefs = [];
+        }
+    }
+
+    private async Task EditCustomCli(AgentCliDefinitionDto? def)
+    {
+        _editingDef = def;
+        _defFormName = def?.DisplayName ?? string.Empty;
+        _defFormExecutable = def?.Executable ?? string.Empty;
+        _defFormArgs = def?.ArgsTemplate ?? string.Empty;
+        _defFormTransport = def?.Transport ?? "pty";
+        _defFormModelFlag = def?.ModelFlag ?? string.Empty;
+        _defFormVersionArgs = def?.VersionArgs ?? "--version";
+        _defFormEnabled = def?.Enabled ?? true;
+        _defFormError = null;
+        await _customCliModal.ShowAsync();
+    }
+
+    private async Task SaveCustomCliAsync()
+    {
+        _defFormError = null;
+        _defSaving = true;
+        try
+        {
+            var request = new UpsertAgentCliDefinitionRequest(
+                _defFormName.Trim(),
+                _defFormExecutable.Trim(),
+                string.IsNullOrWhiteSpace(_defFormArgs) ? null : _defFormArgs.Trim(),
+                _defFormTransport,
+                string.IsNullOrWhiteSpace(_defFormModelFlag) ? null : _defFormModelFlag.Trim(),
+                string.IsNullOrWhiteSpace(_defFormVersionArgs) ? null : _defFormVersionArgs.Trim(),
+                _defFormEnabled);
+
+            var (saved, error) = _editingDef is null
+                ? await Client.CreateCustomAgentCliAsync(request)
+                : await Client.UpdateCustomAgentCliAsync(_editingDef.Id, request);
+
+            if (saved is null)
+            {
+                _defFormError = error ?? "Save failed.";
+                return;
+            }
+
+            await _customCliModal.HideAsync();
+            await LoadCustomDefsAsync();
+            ToastService.Notify(new(ToastType.Success,
+                _editingDef is null ? $"CLI '{saved.DisplayName}' added." : $"CLI '{saved.DisplayName}' updated."));
+        }
+        finally
+        {
+            _defSaving = false;
+        }
+    }
+
+    private async Task DeleteCustomCliAsync(AgentCliDefinitionDto def)
+    {
+        _deleteDefId = null;
+        if (await Client.DeleteCustomAgentCliAsync(def.Id))
+        {
+            ToastService.Notify(new(ToastType.Success, $"CLI '{def.DisplayName}' removed."));
+        }
+        else
+        {
+            ToastService.Notify(new(ToastType.Warning, "Custom CLI not found — it may already be gone."));
+        }
+
+        await LoadCustomDefsAsync();
     }
 
     private async Task LoadTemplateAsync()

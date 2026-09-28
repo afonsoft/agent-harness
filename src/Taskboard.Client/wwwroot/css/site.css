@@ -1748,11 +1748,18 @@ html[data-terminal-focus] .terminal-focus-exit {
     background: var(--bs-tertiary-bg);
 }
 
-/* Terminal-transport thread pane (stub until generic-cli spec lands). */
+/* Terminal-transport thread pane (SPEC-20260928-ai-code-generic-cli RF-003). */
 .ai-chat-pty-pane {
     flex: 1;
     min-height: 240px;
-    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    background: #0d1117;
+}
+
+.ai-chat-pty-pane .ai-chat-pty-host {
+    flex: 1;
+    min-height: 0;
 }
 
 /* AI Chat — command-bar layout (SPEC-20260922-ai-chat-command-bar RF-005) */

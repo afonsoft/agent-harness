@@ -21,7 +21,17 @@ public static class DomainMappingExtensions
             thread.WorkspacePath,
             thread.RepositoryFullName,
             thread.ModelTier,
-            thread.ModelSource);
+            thread.ModelSource)
+        {
+            // SPEC-20260928-ai-code-generic-cli RF-003: "pty" renders the
+            // terminal pane; everything else stays the structured chat.
+            Kind = string.Equals(thread.Transport, "pty", StringComparison.OrdinalIgnoreCase)
+                ? "terminal"
+                : "chat",
+            Transport = thread.Transport,
+            ContainerContext = thread.ContainerContext,
+            AgentCliId = thread.AgentCliId,
+        };
 
     public static AiChatRunDto ToDto(this AiChatRun run)
         => new(

@@ -134,6 +134,8 @@ GET  /api/agents/{agentType}/models/available   → reuso (probe, já existe)
 
 **Expected errors:** `400` validação · `401` auth · `404` thread/flag off · `409` conflito de estado · `422` agente inelegível/sem suporte a modelo.
 
+> **Amendment (SPEC-20260928-ai-code-generic-cli):** `CreateAiChatThreadRequest` ganhou `Transport` (`acp|pty`), `ContainerContext` (container docker) e `AgentCliId` (def customizada `custom-*` — substitui `AgentType`). `AiChatThreadDto` ganhou `Kind` (`chat|terminal`), `Transport`, `ContainerContext`, `AgentCliId`. Regra de elegibilidade por transporte: `acp` exige elegível (instalado+autenticado+habilitado); `pty` exige apenas o binário no PATH (auth dentro do terminal). Threads `pty` renderizam o pane xterm (`TerminalHub.OpenForThread` → sessão `t-<threadId>` reattachable), não o fluxo de eventos/runs ACP.
+
 ## 6. Acceptance Criteria
 
 - [ ] **Given** OpenCode elegível **when** abro "New thread" **then** o dropdown Model lista os modelos reportados por `opencode models` + curado (não gpt-4o hardcoded).

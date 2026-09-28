@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-ai-code-generic-cli` |
 | Ticket | [#346](https://github.com/afonsoft/agent-harness/issues/346) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260921-ai-chat-cli-backend`, `SPEC-20260921-ai-code-chat-ux`, `SPEC-20260921-docker-runtime-paths`, `SPEC-20260928-ai-code-ux-simplify` |
 
 ## 1. User Story
@@ -110,9 +110,9 @@ tests/Taskboard.Tests.Integration/AgentCliDefinitionEndpointsTests.cs       # ne
 
 ### RF-001: Descoberta completa + custom CLIs
 
-- **Description:** `GET /api/agents` retorna todos os `AgentType` cujo executável resolve no PATH (mapeando os 14 valores do enum) mais cada `AgentCliDefinition` habilitada e resolvível.
-- **Rules:** Executável ausente → `AgentStatus.Unavailable` (hoje: omitido/Unavailable parcial); defs customizadas inválidas (executable vazio) são rejeitadas no CRUD com 400.
-- **Input → Output:** `GET /api/agents` → lista unificada com `transport` e `source` (`builtin`|`custom`) por agente.
+- **Description:** O catálogo de agentes cobre os 14 `AgentType` (via `AgentCliMap`, OpenHands inline) e as defs customizadas. `GET /api/agents` permanece filtrado por elegibilidade (alimenta a orquestração de issues); **`GET /api/agents/installed`** retorna todo builtin cujo executável resolve no PATH — sem filtro de auth/enabled — e **`GET /api/agents/custom`** retorna as defs persistidas. O picker do AI Code compõe as três fontes (eligible→chat, installed→terminal, custom→transporte da def).
+- **Rules:** Executável ausente → `AgentStatus.Unavailable` na descoberta; defs com executável não resolvido aparecem desabilitadas no picker (`resolved:false`); defs inválidas (executable/displayName vazio, transporte fora de `acp|pty`) são rejeitadas no CRUD com 400.
+- **Input → Output:** `GET /api/agents/installed` → `{ agents: [{ name, type, transport, ... }] }`; `GET /api/agents/custom` → `[{ id, displayName, executable, transport, enabled, resolved }]`.
 
 ### RF-002: CRUD de CLI customizada
 
@@ -145,7 +145,7 @@ tests/Taskboard.Tests.Integration/AgentCliDefinitionEndpointsTests.cs       # ne
 
 ## 5. API Contract
 
-**Endpoint:** `GET /api/agents/custom` · `POST /api/agents/custom` · `PUT /api/agents/custom/{id}` · `DELETE /api/agents/custom/{id}`
+**Endpoint:** `GET /api/agents/installed` → `{ agents: [AgentInfo…] }` — builtins cujo executável resolve no PATH (sem filtro de auth; inclui `openhands`). **Endpoint:** `GET /api/agents/custom` · `POST /api/agents/custom` · `PUT /api/agents/custom/{id}` · `DELETE /api/agents/custom/{id}`
 **Auth:** sessão admin existente (mesmo esquema dos demais endpoints `/api/agents/*`).
 
 **Request (POST/PUT):**
@@ -172,12 +172,12 @@ tests/Taskboard.Tests.Integration/AgentCliDefinitionEndpointsTests.cs       # ne
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** uma CLI do enum sem mapeamento hoje (ex.: `aider` instalado) **when** `GET /api/agents` **then** ela aparece com `transport` adequado e status real.
-- [ ] **Given** uma def custom `transport=pty` salva **when** crio uma thread dela no AI Code **when** envio texto **then** o output ANSI da CLI aparece no pane xterm da thread.
-- [ ] **Given** uma thread pty aberta **when** dou refresh no browser **then** a sessão reattacha e o scrollback reaparece.
-- [ ] **Given** Docker rodando com um container `dev` contendo `claude` **when** crio thread com `containerContext=dev` **then** a CLI executa dentro do container.
-- [ ] **Given** daemon Docker ausente **when** abro o seletor de contexto **then** só "host" aparece, sem erro.
-- [ ] **Given** thread ACP existente **when** reabro **then** comportamento idêntico ao de hoje (regressão zero).
+- [x] **Given** uma CLI do enum sem mapeamento hoje (ex.: `aider` instalado) **when** `GET /api/agents/installed` **then** ela aparece com `transport` adequado e status real.
+- [x] **Given** uma def custom `transport=pty` salva **when** crio uma thread dela no AI Code **when** envio texto **then** o output ANSI da CLI aparece no pane xterm da thread.
+- [x] **Given** uma thread pty aberta **when** dou refresh no browser **then** a sessão reattacha e o scrollback reaparece.
+- [x] **Given** Docker rodando com um container `dev` contendo `claude` **when** crio thread com `containerContext=dev` **then** a CLI executa dentro do container.
+- [x] **Given** daemon Docker ausente **when** abro o seletor de contexto **then** só "host" aparece, sem erro.
+- [x] **Given** thread ACP existente **when** reabro **then** comportamento idêntico ao de hoje (regressão zero).
 
 **Edge cases:**
 
@@ -191,13 +191,13 @@ tests/Taskboard.Tests.Integration/AgentCliDefinitionEndpointsTests.cs       # ne
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** ler arquivos da seção 3 (incl. referências em `/tmp/cli-ux-analysis/`) e mapear pontos de injeção de spawn.
-- [ ] **T2 — Model + discovery:** `CliTransport`, `AgentCliDefinition`, enum mapping completo, merge custom no `AgentDiscoveryService` + endpoints CRUD.
-- [ ] **T3 — PTY transport:** `PtySession` com comando arbitrário, `AgentSessionManager` routing, hub/reattach, `PtyThreadPane.razor`.
-- [ ] **T4 — Docker context:** `DockerCliDiscovery`, `DockerCliSpawner`, seletor de contexto.
-- [ ] **T5 — Verification:** testes unitários (discovery merge, args build, docker cmd construction) + integração (endpoints); bUnit para o pane; `dotnet build` + `dotnet test` completos.
-- [ ] **T6 — Validation:** DoD (section 9); smoke manual documentado (thread pty com `bash` como custom CLI é o teste de fumaça mínimo — funciona sem depender de CLI real de agente).
-- [ ] **T7 — Done + PR:** `Status = Done`, PR na branch `feature/devin-20260928-ai-code-generic-cli`.
+- [x] **T1 — Discovery:** ler arquivos da seção 3 (incl. referências em `/tmp/cli-ux-analysis/`) e mapear pontos de injeção de spawn.
+- [x] **T2 — Model + discovery:** `CliTransport`, `AgentCliDefinition`, enum mapping completo, merge custom no `AgentDiscoveryService` + endpoints CRUD.
+- [x] **T3 — PTY transport:** `PtySession` com comando arbitrário, `AgentSessionManager` routing, hub/reattach, `PtyThreadPane.razor`.
+- [x] **T4 — Docker context:** `DockerCliDiscovery`, `DockerCliSpawner`, seletor de contexto.
+- [x] **T5 — Verification:** testes unitários (discovery merge, args build, docker cmd construction) + integração (endpoints); bUnit para o pane; `dotnet build` + `dotnet test` completos.
+- [x] **T6 — Validation:** DoD (section 9); smoke manual documentado (thread pty com `bash` como custom CLI é o teste de fumaça mínimo — funciona sem depender de CLI real de agente).
+- [x] **T7 — Done + PR:** `Status = Done`, PR na branch `feature/devin-20260928-ai-code-generic-cli`.
 
 **7.1 Validation strategy**
 
@@ -214,12 +214,12 @@ tests/Taskboard.Tests.Integration/AgentCliDefinitionEndpointsTests.cs       # ne
 
 ## 9. Definition of Done
 
-- [ ] RF-001 a RF-005 implementados.
-- [ ] Acceptance criteria cobertos por testes/evidência.
-- [ ] Edge cases tratados.
-- [ ] `dotnet build` limpo, `dotnet test` verde, coverage ≥ gate.
-- [ ] Guardrails respeitados; logs sem segredos.
-- [ ] SPEC-20260921-ai-chat-cli-backend atualizada se contratos de thread mudarem.
+- [x] RF-001 a RF-005 implementados.
+- [x] Acceptance criteria cobertos por testes/evidência.
+- [x] Edge cases tratados.
+- [x] `dotnet build` limpo, `dotnet test` verde, coverage ≥ gate.
+- [x] Guardrails respeitados; logs sem segredos.
+- [x] SPEC-20260921-ai-chat-cli-backend atualizada se contratos de thread mudarem.
 
 **Next action after DoD is complete:** set `Status = Done` in section 0 and open the PR on branch `feature/devin-20260928-ai-code-generic-cli`.
 

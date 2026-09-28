@@ -24,15 +24,21 @@ public class AgentDiscoveryServiceTests
 
             var agents = await new AgentDiscoveryService().DiscoverAsync();
 
-            agents.Count.ShouldBe(6);
+            // SPEC-20260928-ai-code-generic-cli RF-001: all 14 AgentType are
+            // discovered — not only the 6 originally mapped.
+            agents.Count.ShouldBe(Enum.GetValues<AgentType>().Length);
             var claude = agents.Single(agent => agent.Type == AgentType.Claude);
             claude.Status.ShouldBe(AgentStatus.Available);
-            claude.Version.ShouldBe("claude 1.2.3");
             claude.ExecutablePath.ShouldBe(executablePath);
+            // Versions come from the probe snapshot — none here.
+            claude.Version.ShouldBeNull();
+            claude.Transport.ShouldBe("acp");
 
             agents
                 .Where(agent => agent.Type != AgentType.Claude)
                 .ShouldAllBe(agent => agent.Status == AgentStatus.Unavailable && agent.ExecutablePath == string.Empty);
+            // Non-ACP builtins advertise the pty transport.
+            agents.Single(a => a.Type == AgentType.Aider).Transport.ShouldBe("pty");
         }
         finally
         {

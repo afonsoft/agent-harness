@@ -32,6 +32,8 @@ public sealed class AiChatService
     private readonly IWorkspacePathResolver _workspace;
     private readonly IAgentModelConfigService _modelConfig;
     private readonly IAgentModelCatalogService _modelCatalog;
+    private readonly IAgentCliDefinitionRepository _cliDefinitions;
+    private readonly IAgentDiscoveryService _discovery;
 
     public AiChatService(
         IRepository<AiChatThread> threadRepo,
@@ -46,7 +48,9 @@ public sealed class AiChatService
         ILogger<AiChatService> logger,
         IWorkspacePathResolver workspace,
         IAgentModelConfigService modelConfig,
-        IAgentModelCatalogService modelCatalog)
+        IAgentModelCatalogService modelCatalog,
+        IAgentCliDefinitionRepository cliDefinitions,
+        IAgentDiscoveryService discovery)
     {
         _threadRepo = threadRepo;
         _runRepo = runRepo;
@@ -61,6 +65,8 @@ public sealed class AiChatService
         _workspace = workspace;
         _modelConfig = modelConfig;
         _modelCatalog = modelCatalog;
+        _cliDefinitions = cliDefinitions;
+        _discovery = discovery;
     }
 
     public async Task<AiChatThreadDto> CreateThreadAsync(
@@ -68,20 +74,75 @@ public sealed class AiChatService
         Actor actor,
         CancellationToken ct = default)
     {
-        // SPEC-20260921-ai-chat-cli-backend RF-002: every thread is backed by an
-        // eligible agent CLI — there is no direct-LLM provider in the server.
-        if (string.IsNullOrWhiteSpace(request.AgentType) ||
-            !Enum.TryParse<AgentType>(request.AgentType, true, out var agentType))
+        // SPEC-20260928-ai-code-generic-cli RF-002: a custom CLI definition
+        // (AgentCliId) is a valid backing CLI — its def IS the eligibility
+        // record (enabled + executable declared); no AgentType gate applies.
+        AgentType? agentType = null;
+        string? agentCliId = null;
+        string transport;
+        if (!string.IsNullOrWhiteSpace(request.AgentCliId))
         {
-            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
+            var def = await _cliDefinitions.GetAsync(request.AgentCliId.Trim(), ct);
+            if (def is null)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Custom CLI '{request.AgentCliId}' does not exist.");
+            }
+
+            if (!def.Enabled)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Custom CLI '{def.DisplayName}' is disabled.");
+            }
+
+            agentCliId = def.Id;
+            // The declared transport is the def's; an explicit request value
+            // wins so ACP-capable defs can still open a terminal view (Q3).
+            transport = string.IsNullOrWhiteSpace(request.Transport)
+                ? def.Transport
+                : request.Transport.Trim().ToLowerInvariant();
+        }
+        else
+        {
+            // SPEC-20260921-ai-chat-cli-backend RF-002: every thread is backed
+            // by an eligible agent CLI — there is no direct-LLM provider.
+            if (string.IsNullOrWhiteSpace(request.AgentType) ||
+                !Enum.TryParse<AgentType>(request.AgentType, true, out var parsedType))
+            {
+                throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
+            }
+
+            agentType = parsedType;
+            transport = string.IsNullOrWhiteSpace(request.Transport)
+                ? "acp"
+                : request.Transport.Trim().ToLowerInvariant();
+            if (transport is "acp")
+            {
+                var eligible = await _eligibility.GetEligibleTypesAsync(ct);
+                if (!eligible.Contains(parsedType))
+                {
+                    throw new DomainException(
+                        TaskboardDomainErrorCodes.AgentNotEligible,
+                        $"Agent '{parsedType}' is not eligible — the CLI must be installed, authenticated and enabled.");
+                }
+            }
+            else if (_discovery.ResolveExecutablePath(parsedType) is null)
+            {
+                // PTY threads only need the binary on PATH — authentication
+                // happens inside the terminal itself.
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"CLI for agent '{parsedType}' is not installed — cannot open a terminal thread.");
+            }
         }
 
-        var eligible = await _eligibility.GetEligibleTypesAsync(ct);
-        if (!eligible.Contains(agentType))
+        if (transport is not ("acp" or "pty"))
         {
             throw new DomainException(
-                TaskboardDomainErrorCodes.AgentNotEligible,
-                $"Agent '{agentType}' is not eligible — the CLI must be installed, authenticated and enabled.");
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Invalid transport '{request.Transport}' — expected 'acp' or 'pty'.");
         }
 
         // SPEC-20260921-ai-code-thread-config RF-004: modelo explícito vence;
@@ -106,11 +167,13 @@ public sealed class AiChatService
         if (!string.IsNullOrWhiteSpace(request.Model))
         {
             modelName = request.Model.Trim();
-            modelSource = await ResolveModelSourceAsync(agentType, modelName, ct);
+            modelSource = agentType is { } modelType
+                ? await ResolveModelSourceAsync(modelType, modelName, ct)
+                : "custom";
         }
-        else if (tier is not null)
+        else if (tier is not null && agentType is { } configType)
         {
-            var config = await _modelConfig.GetConfigAsync(agentType, ct);
+            var config = await _modelConfig.GetConfigAsync(configType, ct);
             var resolved = tier switch
             {
                 AgentModelTier.Lite => config.Lite,
@@ -124,6 +187,7 @@ public sealed class AiChatService
         }
         else
         {
+            // Tier without a builtin agent (custom CLI) → CLI default.
             modelName = "default";
         }
 
@@ -173,6 +237,9 @@ public sealed class AiChatService
                 repositoryFullName: request.RepositoryFullName);
         }
 
+        // SPEC-20260928-ai-code-generic-cli: transport/container/custom-CLI
+        // binding — immutable after creation (ConfigureCli is creation-time).
+        thread.ConfigureCli(transport, request.ContainerContext, agentCliId);
         thread.SetModelChoice(tier?.ToString(), modelSource);
 
         await _threadRepo.AddAsync(thread, ct);
@@ -245,6 +312,15 @@ public sealed class AiChatService
         if (thread is null)
         {
             throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Thread '{threadId.Value}' not found.");
+        }
+
+        // SPEC-20260928-ai-code-generic-cli: terminal (pty) threads talk to
+        // the CLI through the PTY pane — there is no structured run flow.
+        if (string.Equals(thread.Transport, "pty", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "Terminal threads have no agent runs — interact through the terminal pane.");
         }
 
         // SPEC-20260921-ai-chat-cli-backend RF-005: legacy assistant threads

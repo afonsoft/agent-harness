@@ -25,4 +25,13 @@ public sealed record AiChatThreadDto(
     /// by SPEC-20260928-ai-code-generic-cli). Defaults to <c>"chat"</c>.
     /// </summary>
     public string Kind { get; init; } = "chat";
+
+    /// <summary>SPEC-20260928 RF-003: "acp" | "pty" — immutable after creation.</summary>
+    public string Transport { get; init; } = "acp";
+
+    /// <summary>SPEC-20260928 RF-004: container name for docker exec; null → host.</summary>
+    public string? ContainerContext { get; init; }
+
+    /// <summary>SPEC-20260928 RF-002: custom CLI definition id (custom-*); null → builtin AgentType.</summary>
+    public string? AgentCliId { get; init; }
 }

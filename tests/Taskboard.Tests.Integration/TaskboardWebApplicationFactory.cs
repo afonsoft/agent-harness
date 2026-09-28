@@ -39,6 +39,12 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool WebCliAgentEnabled { get; protected set; }
 
+    /// <summary>
+    /// Locator used by <see cref="Taskboard.Integrations.Agents.DockerCliDiscovery"/>
+    /// — null → "docker" never resolves, daemon reported unavailable (503).
+    /// </summary>
+    protected virtual Func<string, string?> DockerLocator => _ => null;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Fresh data dir per factory: admin.json persists the password hash, so a
@@ -103,6 +109,13 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<Taskboard.Application.Contracts.Harness.IRepositoryProvisioningService>();
             services.AddSingleton<Taskboard.Application.Contracts.Harness.IRepositoryProvisioningService>(
                 new FakeRepositoryProvisioningService(WorkspaceRoot));
+            // Docker daemon probing must not depend on the test host.
+            services.RemoveAll<Taskboard.Integrations.Agents.DockerCliDiscovery>();
+            services.AddSingleton(new Taskboard.Integrations.Agents.DockerCliDiscovery(
+                homeDir,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Agents.DockerCliDiscovery>.Instance,
+                executableLocator: DockerLocator));
+
             // Never probe or spawn a real code-server from tests.
             services.RemoveAll<Taskboard.Application.Contracts.Vscode.IVscodeInstallService>();
             services.AddSingleton<Taskboard.Application.Contracts.Vscode.IVscodeInstallService>(
@@ -279,7 +292,8 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
                     Version: "itest",
                     Description: null,
                     SupportsInteractiveSession: type is AgentType.OpenCode or AgentType.Claude
-                        or AgentType.Codex or AgentType.Devin))
+                        or AgentType.Codex or AgentType.Devin,
+                    Transport: Taskboard.Integrations.Agents.AgentDiscoveryService.TransportFor(type)))
                 .ToList());
 
         public string? ResolveExecutablePath(AgentType agentType)

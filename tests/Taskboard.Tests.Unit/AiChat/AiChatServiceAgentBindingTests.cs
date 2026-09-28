@@ -74,9 +74,134 @@ public class AiChatServiceAgentBindingTests
         await threadRepo.Received().UpdateAsync(thread, Arg.Any<CancellationToken>());
     }
 
+    // SPEC-20260928-ai-code-generic-cli RF-002/RF-003: custom defs e transport pty.
+
+    [Fact]
+    public async Task Dado_CustomCliHabilitada_Quando_CriarThread_Entao_AgentCliIdETransportPty()
+    {
+        var defs = Substitute.For<IAgentCliDefinitionRepository>();
+        var def = new Taskboard.Dtos.AgentCliDefinitionDto(
+            "custom-minha", "Minha CLI", "minha-cli", "", "pty", null, "--version", true, true);
+        defs.GetAsync("custom-minha", Arg.Any<CancellationToken>()).Returns(def);
+
+        var sut = CriarServico(eligible: [], cliDefinitions: defs);
+
+        var dto = await sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only", AgentCliId: "custom-minha"),
+            Actor.LocalUser());
+
+        dto.AgentCliId.ShouldBe("custom-minha");
+        dto.Transport.ShouldBe("pty");
+        dto.Kind.ShouldBe("terminal");
+        dto.AgentType.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_CustomCliDesabilitada_Quando_CriarThread_Entao_InvalidValue()
+    {
+        var defs = Substitute.For<IAgentCliDefinitionRepository>();
+        var def = new Taskboard.Dtos.AgentCliDefinitionDto(
+            "custom-off", "Off", "off-cli", "", "pty", null, "--version", false, true);
+        defs.GetAsync("custom-off", Arg.Any<CancellationToken>()).Returns(def);
+
+        var sut = CriarServico(eligible: [], cliDefinitions: defs);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only", AgentCliId: "custom-off"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public async Task Dado_CustomCliInexistente_Quando_CriarThread_Entao_InvalidValue()
+    {
+        var defs = Substitute.For<IAgentCliDefinitionRepository>();
+        defs.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((Taskboard.Dtos.AgentCliDefinitionDto?)null);
+
+        var sut = CriarServico(eligible: [], cliDefinitions: defs);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only", AgentCliId: "custom-nope"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public async Task Dado_BuiltinInstaladoSemElegivel_Quando_CriarThreadPty_Entao_TerminalSemChecarAuth()
+    {
+        // PTY threads skip the authenticated-eligibility gate — only the
+        // binary must resolve (auth happens inside the terminal).
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        discovery.ResolveExecutablePath(AgentType.Aider).Returns("/usr/bin/aider");
+
+        var sut = CriarServico(eligible: [], discovery: discovery);
+
+        var dto = await sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Aider", Transport: "pty"),
+            Actor.LocalUser());
+
+        dto.Transport.ShouldBe("pty");
+        dto.Kind.ShouldBe("terminal");
+        dto.AgentType.ShouldBe("Aider");
+    }
+
+    [Fact]
+    public async Task Dado_BuiltinNaoInstalado_Quando_CriarThreadPty_Entao_InvalidValue()
+    {
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns((string?)null);
+
+        var sut = CriarServico(eligible: [], discovery: discovery);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Aider", Transport: "pty"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public async Task Dado_TransporteInvalido_Quando_CriarThread_Entao_InvalidValue()
+    {
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+
+        var sut = CriarServico(eligible: [AgentType.Claude], discovery: discovery);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Claude", Transport: "websocket"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public async Task Dado_ContextoDocker_Quando_CriarThreadPty_Entao_ContainerContextPersistido()
+    {
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+
+        var sut = CriarServico(eligible: [], discovery: discovery);
+
+        var dto = await sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Claude", Transport: "pty", ContainerContext: "dev"),
+            Actor.LocalUser());
+
+        dto.ContainerContext.ShouldBe("dev");
+    }
+
     private static AiChatService CriarServico(
         AgentType[] eligible,
-        IRepository<AiChatThread>? threadRepo = null)
+        IRepository<AiChatThread>? threadRepo = null,
+        IAgentCliDefinitionRepository? cliDefinitions = null,
+        IAgentDiscoveryService? discovery = null)
     {
         var eligibility = Substitute.For<IAgentEligibilityService>();
         eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
@@ -95,6 +220,8 @@ public class AiChatServiceAgentBindingTests
             Substitute.For<Microsoft.Extensions.Logging.ILogger<AiChatService>>(),
             Substitute.For<Taskboard.Application.Contracts.Workspace.IWorkspacePathResolver>(),
             Substitute.For<IAgentModelConfigService>(),
-            Substitute.For<IAgentModelCatalogService>());
+            Substitute.For<IAgentModelCatalogService>(),
+            cliDefinitions ?? Substitute.For<IAgentCliDefinitionRepository>(),
+            discovery ?? Substitute.For<IAgentDiscoveryService>());
     }
 }

@@ -116,3 +116,19 @@ public class PtySessionTests : IDisposable
         session.LastActivityUtc.ShouldBeGreaterThan(before);
     }
 }
+
+/// <summary>
+/// SPEC-20260928-ai-code-generic-cli RF-005: arbitrary argv runs inside the
+/// PTY through single-quote escaping only — never interpolated.
+/// </summary>
+public class PtySessionShellQuoteTests
+{
+    [Theory]
+    [InlineData("claude", "'claude'")]
+    [InlineData("--model gpt", "'--model gpt'")]
+    [InlineData("a;b", "'a;b'")]
+    [InlineData("$(id)", "'$(id)'")]
+    [InlineData("it's", "'it'\"'\"'s'")]
+    public void Dado_Argumento_Quando_ShellQuote_Entao_SingleQuoteSeguro(string arg, string expected) =>
+        PtySession.ShellQuote(arg).ShouldBe(expected);
+}
