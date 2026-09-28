@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using Microsoft.Extensions.Logging;
 
 namespace Taskboard.Integrations.Terminal;
@@ -30,10 +31,15 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         public required Func<string, string, Task> OnOutput { get; set; }
         public required Func<string, string, Task> OnClosed { get; set; }
         public DateTimeOffset? OrphanedAtUtc { get; set; }
+        /// <summary>Bounded output scrollback replayed on reattach (SPEC-20260928 RF-003).</summary>
+        public StringBuilder Scrollback { get; } = new();
     }
 
+    /// <summary>Scrollback cap per session — oldest output is dropped beyond it.</summary>
+    internal const int ScrollbackLimit = 200_000;
+
     private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
-    private readonly Func<string?, IPtySession> _sessionFactory;
+    private readonly Func<string?, IReadOnlyList<string>?, IPtySession> _sessionFactory;
     private readonly ILogger<TerminalSessionManager> _logger;
     private readonly TimeSpan _idleTimeout;
     private readonly TimeSpan _orphanTimeout;
@@ -42,12 +48,12 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     private readonly object _gate = new();
 
     public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger)
-        : this(workdir => sessionFactory.Create(workdir), logger)
+        : this((workdir, command) => sessionFactory.Create(workdir, command: command), logger)
     {
     }
 
     internal TerminalSessionManager(
-        Func<string?, IPtySession> sessionFactory,
+        Func<string?, IReadOnlyList<string>?, IPtySession> sessionFactory,
         ILogger<TerminalSessionManager> logger,
         TimeSpan? idleTimeout = null,
         TimeSpan? sweepInterval = null,
@@ -67,16 +73,48 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     /// </summary>
     /// <param name="workdir">Optional cwd for the new session (SPEC-20260920
     /// RF-006 — resolved server-side, confined to the workspace root).</param>
+    /// <param name="command">Arbitrary argv for the PTY (SPEC-20260928 —
+    /// agent CLIs / docker exec); null → login bash.</param>
+    /// <param name="requestedSessionId">Deterministic session id (e.g.
+    /// "t-&lt;threadId&gt;" for AI Code terminal threads); when a live session
+    /// already owns it, the open becomes a rebind — same id back. Max 64
+    /// chars, [a-zA-Z0-9:_-].</param>
     /// <exception cref="InvalidOperationException">Session cap reached or the PTY failed to start.</exception>
     public Task<string> OpenAsync(
         string userKey,
         string connectionId,
         Func<string, string, Task> onOutput,
         Func<string, string, Task> onClosed,
-        string? workdir = null)
+        string? workdir = null,
+        IReadOnlyList<string>? command = null,
+        string? requestedSessionId = null)
     {
         lock (_gate)
         {
+            var sessionId = NormalizeSessionId(requestedSessionId)
+                ?? Guid.NewGuid().ToString("N")[..8];
+
+            // Deterministic id already live → rebind to this connection and
+            // return the same session (idempotent open for thread tabs). The
+            // buffered scrollback replays through the new output delegate so a
+            // fresh xterm shows the backlog (SPEC-20260928-ai-code-generic-cli
+            // RF-003 — browser refresh must not lose visible output).
+            if (_sessions.TryGetValue(sessionId, out var bound)
+                && bound.Session.IsRunning)
+            {
+                bound.ConnectionId = connectionId;
+                bound.OrphanedAtUtc = null;
+                bound.OnOutput = onOutput;
+                bound.OnClosed = onClosed;
+                var replay = bound.Scrollback.ToString();
+                if (replay.Length > 0)
+                {
+                    _ = bound.OnOutput(sessionId, replay);
+                }
+
+                return Task.FromResult(sessionId);
+            }
+
             var count = 0;
             foreach (var existing in _sessions.Values)
             {
@@ -92,8 +130,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                     $"Maximum of {MaxSessionsPerUser} terminal sessions per user.");
             }
 
-            var sessionId = Guid.NewGuid().ToString("N")[..8];
-            var session = _sessionFactory(workdir);
+            var session = _sessionFactory(workdir, command);
             var entry = new SessionEntry
             {
                 Session = session,
@@ -103,7 +140,11 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 OnClosed = onClosed
             };
 
-            session.OutputReceived += chunk => { _ = entry.OnOutput(sessionId, chunk); };
+            session.OutputReceived += chunk =>
+            {
+                AppendScrollback(entry, chunk);
+                _ = entry.OnOutput(sessionId, chunk);
+            };
             session.Exited += code => { _ = NotifyClosedAsync(sessionId, "exited"); };
 
             session.Start();
@@ -113,6 +154,44 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 "Terminal session {SessionId} started for {User} (connection {ConnectionId}).",
                 sessionId, userKey, connectionId);
             return Task.FromResult(sessionId);
+        }
+    }
+
+    private static string? NormalizeSessionId(string? requested)
+    {
+        if (string.IsNullOrWhiteSpace(requested) || requested.Length > 64)
+        {
+            return null;
+        }
+
+        foreach (var c in requested)
+        {
+            if (!char.IsLetterOrDigit(c) && c is not '-' and not '_' and not ':')
+            {
+                return null;
+            }
+        }
+
+        return requested;
+    }
+
+    private static void AppendScrollback(SessionEntry entry, string chunk)
+    {
+        entry.Scrollback.Append(chunk);
+        if (entry.Scrollback.Length > ScrollbackLimit)
+        {
+            entry.Scrollback.Remove(0, entry.Scrollback.Length - ScrollbackLimit);
+        }
+    }
+
+    /// <summary>Current buffered scrollback for a session — replay on reattach.</summary>
+    public string GetScrollback(string sessionId)
+    {
+        lock (_gate)
+        {
+            return _sessions.TryGetValue(sessionId, out var entry)
+                ? entry.Scrollback.ToString()
+                : string.Empty;
         }
     }
 

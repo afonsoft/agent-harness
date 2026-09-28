@@ -295,6 +295,8 @@ public class AiChatThreadModelChoiceTests
             Substitute.For<Microsoft.Extensions.Logging.ILogger<AiChatService>>(),
             ws,
             config,
-            modelProbe);
+            modelProbe,
+            Substitute.For<IAgentCliDefinitionRepository>(),
+            Substitute.For<IAgentDiscoveryService>());
     }
 }

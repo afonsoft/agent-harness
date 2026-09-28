@@ -24,6 +24,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<AgentRunEvent> AgentRunEvents => Set<AgentRunEvent>();
     public DbSet<IssueHistoryEvent> IssueHistoryEvents => Set<IssueHistoryEvent>();
     public DbSet<ConfigurationOverride> ConfigurationOverrides => Set<ConfigurationOverride>();
+    public DbSet<AgentCliDefinition> AgentCliDefinitions => Set<AgentCliDefinition>();
     public DbSet<WorktreeSession> WorktreeSessions => Set<WorktreeSession>();
     public DbSet<ProjectMemoryItem> ProjectMemoryItems => Set<ProjectMemoryItem>();
     public DbSet<VerificationReport> VerificationReports => Set<VerificationReport>();

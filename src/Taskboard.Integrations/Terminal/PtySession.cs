@@ -19,6 +19,7 @@ public sealed class PtySession : IPtySession
     private readonly Func<string, string?> _locator;
     private readonly int _cols;
     private readonly int _rows;
+    private readonly IReadOnlyList<string>? _command;
 
     private Process? _process;
     private Task? _pumpTask;
@@ -29,8 +30,14 @@ public sealed class PtySession : IPtySession
     private string? _ptySlavePath;
     private bool _ptyPathResolved;
 
+    /// <param name="command">
+    /// SPEC-20260928-ai-code-generic-cli RF-003: arbitrary argv to run inside
+    /// the PTY (e.g. <c>claude --acp</c>, <c>docker exec -it dev bash</c>) —
+    /// each argument is single-quoted, never interpolated. Null → login bash.
+    /// </param>
     public PtySession(string homeDirectory, ILogger logger, int cols = 120, int rows = 30,
-        Func<string, string?>? executableLocator = null, string? workingDirectory = null)
+        Func<string, string?>? executableLocator = null, string? workingDirectory = null,
+        IReadOnlyList<string>? command = null)
     {
         _homeDirectory = homeDirectory;
         // SPEC-20260920 RF-006: explicit workdir (repo clone) only for new
@@ -41,6 +48,7 @@ public sealed class PtySession : IPtySession
         _cols = cols;
         _rows = rows;
         _locator = executableLocator ?? Agents.PathSearch.FindExecutable;
+        _command = command;
         _lastCols = cols;
         _lastRows = rows;
         LastActivityUtc = DateTimeOffset.UtcNow;
@@ -101,7 +109,7 @@ public sealed class PtySession : IPtySession
         startInfo.ArgumentList.Add("-q");
         startInfo.ArgumentList.Add("-f");
         startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add($"stty cols {_cols} rows {_rows} 2>/dev/null; exec bash -l");
+        startInfo.ArgumentList.Add($"stty cols {_cols} rows {_rows} 2>/dev/null; exec {InnerCommand()}");
         startInfo.ArgumentList.Add("/dev/null");
         startInfo.Environment["TERM"] = "xterm-256color";
         startInfo.Environment["HOME"] = _homeDirectory;
@@ -111,6 +119,21 @@ public sealed class PtySession : IPtySession
         _pumpCts = new CancellationTokenSource();
         _pumpTask = Task.Run(() => PumpAsync(_pumpCts.Token));
     }
+
+    /// <summary>
+    /// The command line executed inside the PTY — login bash by default, or
+    /// the caller's argv with every element single-quoted
+    /// (SPEC-20260928-ai-code-generic-cli RF-005: no shell interpolation of
+    /// untrusted values — quoting is the only escaping applied).
+    /// </summary>
+    private string InnerCommand() =>
+        _command is { Count: > 0 }
+            ? string.Join(' ', _command.Select(ShellQuote))
+            : "bash -l";
+
+    /// <summary>POSIX single-quote escaping: 'a'b' → 'a'"'"'b'.</summary>
+    internal static string ShellQuote(string arg) =>
+        "'" + arg.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 
     /// <summary>Writes raw input to the shell (keys, paste, control chars).</summary>
     public async Task WriteAsync(string data)

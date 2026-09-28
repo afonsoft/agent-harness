@@ -50,9 +50,17 @@ else
                 <div class="text-truncate">
                     <strong>@_activeThread.Title</strong>
                     <span class="text-body-secondary small ms-2">@_activeThread.Model</span>
-                    @if (!string.IsNullOrWhiteSpace(_activeThread.AgentType))
+                    @if (CliBadge(_activeThread) is { } cliName)
                     {
-                        <span class="badge text-bg-primary ms-2">agent: @_activeThread.AgentType</span>
+                        <span class="badge text-bg-primary ms-2">agent: @cliName</span>
+                    }
+                    @if (_activeThread.Kind == "terminal")
+                    {
+                        <span class="badge text-bg-dark ms-1">terminal</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_activeThread.ContainerContext))
+                    {
+                        <span class="badge text-bg-info ms-1">⬢ @_activeThread.ContainerContext</span>
                     }
                 </div>
                 @if (_running)
@@ -212,16 +220,36 @@ else
                     <label class="d-flex align-items-center gap-1 mb-0">
                         <span class="text-body-secondary">Agent CLI</span>
                         <select class="form-select form-select-sm ai-chat-quickselect"
-                                value="@_cfgAgentType" @onchange="OnCfgAgentChanged">
-                            @foreach (var agent in _agents ?? [])
+                                value="@_cfgCli" @onchange="OnCfgCliChanged">
+                            @foreach (var opt in _cliOptions)
                             {
-                                <option value="@agent.Type"
-                                        disabled="@(agent.Status != AgentStatus.Available)">
-                                    @agent.Name
-                                </option>
+                                <option value="@opt.Value" disabled="@(!opt.Selectable)">@opt.Label</option>
                             }
                         </select>
                     </label>
+                    <label class="d-flex align-items-center gap-1 mb-0"
+                           title="Structured chat (ACP) or raw terminal (PTY)">
+                        <span class="text-body-secondary">View</span>
+                        <select class="form-select form-select-sm ai-chat-quickselect"
+                                value="@_cfgView" @onchange="OnCfgViewChanged">
+                            <option value="chat" disabled="@(!SelectedCliSupportsChat)">Chat</option>
+                            <option value="terminal">Terminal</option>
+                        </select>
+                    </label>
+                    @if (_dockerContainers?.Count > 0)
+                    {
+                        <label class="d-flex align-items-center gap-1 mb-0"
+                               title="Run the CLI on this host or inside a running container">
+                            <span class="text-body-secondary">In</span>
+                            <select class="form-select form-select-sm ai-chat-quickselect" @bind="_cfgContext">
+                                <option value="">host</option>
+                                @foreach (var container in _dockerContainers)
+                                {
+                                    <option value="@container.Name">⬢ @container.Name</option>
+                                }
+                            </select>
+                        </label>
+                    }
                     <button type="button" class="btn btn-sm btn-outline-secondary"
                             title="Repository (optional — resolves to ~/repos/<name>)"
                             @onclick="ShowRepoModalAsync">
@@ -244,7 +272,7 @@ else
                             <span class="ms-1">@_cfgSandbox</span>
                         </button>
                     }
-                    @if (_agents is not null && !_agents.Any(a => a.Status == AgentStatus.Available))
+                    @if (_agents is not null && !_cliOptions.Any(o => o.Selectable))
                     {
                         <span class="text-warning">
                             No enabled CLI —
@@ -255,9 +283,17 @@ else
                 else
                 {
                     <span class="badge text-bg-secondary">@_activeThread.Mode</span>
-                    @if (!string.IsNullOrWhiteSpace(_activeThread.AgentType))
+                    @if (CliBadge(_activeThread) is { } cliName)
                     {
-                        <span class="badge text-bg-primary">@_activeThread.AgentType</span>
+                        <span class="badge text-bg-primary">@cliName</span>
+                    }
+                    @if (_activeThread.Kind == "terminal")
+                    {
+                        <span class="badge text-bg-dark">terminal</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_activeThread.ContainerContext))
+                    {
+                        <span class="badge text-bg-info">⬢ @_activeThread.ContainerContext</span>
                     }
                     @if (_modes.Count > 0)
                     {
@@ -356,7 +392,8 @@ else
                     @* SPEC-20260928 RF-004: Send is the permanent primary action;
                        Stop/Retry surface only when they apply. *@
                     <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
-                            Disabled="@((_running && !IsAgentMode) || _sending || string.IsNullOrWhiteSpace(_composer))"
+                            Disabled="@((_running && !IsAgentMode) || _sending
+                                || (string.IsNullOrWhiteSpace(_composer) && !(_activeThreadId is null && _cfgView == "terminal")))"
                             @onclick="SendMessageAsync">Send</Button>
                     @if (IsAgentMode && _activeThread is not null)
                     {
@@ -503,18 +540,48 @@ else
     private IReadOnlyList<AiChatModelDto> _catalog = [];
     private IReadOnlyList<string> _repoNames = [];
     private string _cfgMode = "assistant";
-    private string _cfgAgentType = string.Empty;
     private string _cfgRepo = string.Empty;
     private string _cfgModelTier = string.Empty;
     private string _cfgModelId = string.Empty;
     private string _cfgSandbox = "read-only";
+
+    // SPEC-20260928-ai-code-generic-cli: the CLI picker unifies eligible
+    // builtins (chat), installed builtins (terminal — auth inside the PTY)
+    // and persisted custom defs; _cfgCli is the option value ("agent:<type>"
+    // or "custom:<id>"), _cfgView the thread kind, _cfgContext the docker
+    // target ("" = host).
+    private IReadOnlyList<AgentCliDefinitionDto> _customDefs = [];
+    private IReadOnlyList<AgentCliStatus> _cliStatuses = [];
+    private IReadOnlyList<DockerContainerDto>? _dockerContainers;
+    private IReadOnlyList<CliOption> _cliOptions = [];
+    private string _cfgCli = string.Empty;
+    private string _cfgView = "chat";
+    private string _cfgContext = string.Empty;
+
+    /// <summary>Uma entrada do seletor "Agent CLI" — builtin ou def customizada.</summary>
+    private sealed record CliOption(
+        string Value,
+        string Label,
+        AgentType? AgentType,
+        string? AgentCliId,
+        bool SupportsChat,
+        bool Selectable)
+    {
+        public bool IsCustom => AgentCliId is not null;
+    }
+
+    private CliOption? SelectedCli =>
+        _cliOptions.FirstOrDefault(o => o.Value == _cfgCli);
+
+    /// <summary>Chat estruturado (ACP) exige CLI elegível/autenticada ou def acp resolvida.</summary>
+    private bool SelectedCliSupportsChat => SelectedCli?.SupportsChat == true;
 
     private bool IsAgentMode =>
         (_activeThread?.Mode ?? _cfgMode) == "agent";
 
     /// <summary>SPEC-20260928 RF-002: gates the rail's one-click New button.</summary>
     private bool HasEligibleAgent =>
-        _agents?.Any(a => a.Status == AgentStatus.Available) == true;
+        _cliOptions.Any(o => o.Selectable);
 
     private string ComposerPlaceholder =>
         _running && !IsAgentMode ? "Waiting for the assistant…"
@@ -527,7 +594,64 @@ else
         : "model";
 
     private IReadOnlyList<AiChatModelDto> ConfigAgentModels =>
-        _catalog.Where(m => string.Equals(m.AgentType, _cfgAgentType, StringComparison.OrdinalIgnoreCase)).ToList();
+        _catalog.Where(m => string.Equals(
+            m.AgentType, SelectedCli?.AgentType?.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+    /// <summary>
+    /// Builds the unified CLI picker: eligible builtins (chat+terminal),
+    /// installed-but-not-eligible builtins (terminal only) and enabled custom
+    /// defs. Order: chat-capable first, then terminal-only, then custom.
+    /// </summary>
+    private void BuildCliOptions()
+    {
+        var options = new List<CliOption>();
+        var covered = new HashSet<AgentType>();
+
+        foreach (var agent in _agents ?? [])
+        {
+            if (agent.Status != AgentStatus.Available || !covered.Add(agent.Type))
+            {
+                continue;
+            }
+
+            options.Add(new CliOption(
+                $"agent:{agent.Type}", agent.Name, agent.Type, null,
+                SupportsChat: true, Selectable: true));
+        }
+
+        // Installed but not eligible (no auth / disabled) — terminal threads
+        // still work: authentication happens inside the PTY.
+        foreach (var status in _cliStatuses)
+        {
+            if (!status.Installed || AgentCliMap.AgentTypeFor(status.Agent) is not { } type
+                || covered.Contains(type))
+            {
+                continue;
+            }
+
+            covered.Add(type);
+            options.Add(new CliOption(
+                $"agent:{type}", status.DisplayName, type, null,
+                SupportsChat: false, Selectable: true));
+        }
+
+        foreach (var def in _customDefs.Where(d => d.Enabled))
+        {
+            var label = def.Resolved ? def.DisplayName : $"{def.DisplayName} (not on PATH)";
+            options.Add(new CliOption(
+                $"custom:{def.Id}", label, null, def.Id,
+                SupportsChat: def.Transport == "acp" && def.Resolved,
+                Selectable: def.Resolved));
+        }
+
+        _cliOptions = options;
+    }
+
+    /// <summary>Display name for the CLI backing a thread (builtin type or custom def).</summary>
+    private string? CliBadge(AiChatThreadDto thread) =>
+        !string.IsNullOrWhiteSpace(thread.AgentCliId)
+            ? _customDefs.FirstOrDefault(d => d.Id == thread.AgentCliId)?.DisplayName ?? thread.AgentCliId
+            : thread.AgentType;
 
     private IEnumerable<AiChatThreadDto> OrderedThreads =>
         _threads?.OrderByDescending(t => t.UpdatedAt) ?? Enumerable.Empty<AiChatThreadDto>();
@@ -640,13 +764,27 @@ else
 
             _agents = await OrchestrationService.GetAvailableAgentsAsync();
             _catalog = await Client.GetAiChatCatalogAsync();
-            var eligible = _agents.Where(a => a.Status == AgentStatus.Available).ToList();
-            var first = (lastAgent is null ? null : eligible.FirstOrDefault(
-                             a => string.Equals(a.Type.ToString(), lastAgent, StringComparison.OrdinalIgnoreCase)))
-                        ?? eligible.FirstOrDefault();
+
+            // SPEC-20260928-ai-code-generic-cli: the picker unifies eligible
+            // builtins (chat), installed builtins (terminal) and custom defs;
+            // docker containers are best-effort (503 → host only, no error).
+            try { _cliStatuses = await Client.GetAgentClisAsync(); } catch { _cliStatuses = []; }
+            try { _customDefs = await Client.GetCustomAgentClisAsync(); } catch { _customDefs = []; }
+            try { _dockerContainers = await Client.GetDockerContainersAsync(); } catch { _dockerContainers = null; }
+            BuildCliOptions();
+
+            // lastAgent stores the option value ("agent:X"/"custom:y"); legacy
+            // values are bare AgentType names → normalize to "agent:<name>".
+            var lastOption = lastAgent is null
+                ? null
+                : lastAgent.Contains(':', StringComparison.Ordinal) ? lastAgent : $"agent:{lastAgent}";
+            var first = (lastOption is null ? null : _cliOptions.FirstOrDefault(
+                             o => o.Selectable && string.Equals(o.Value, lastOption, StringComparison.OrdinalIgnoreCase)))
+                        ?? _cliOptions.FirstOrDefault(o => o.Selectable);
             if (first is not null)
             {
-                _cfgAgentType = first.Type.ToString();
+                _cfgCli = first.Value;
+                _cfgView = first.SupportsChat ? "chat" : "terminal";
             }
         }
         catch
@@ -715,18 +853,30 @@ else
 
     private async Task ShowSandboxModalAsync() => await _sandboxModal.ShowAsync();
 
-    private async Task OnCfgAgentChanged(ChangeEventArgs e)
+    private async Task OnCfgCliChanged(ChangeEventArgs e)
     {
-        _cfgAgentType = e.Value?.ToString() ?? string.Empty;
+        _cfgCli = e.Value?.ToString() ?? string.Empty;
         _cfgModelId = string.Empty; // reset to CLI default when switching agents
+        // A CLI without chat support forces the terminal view.
+        if (!SelectedCliSupportsChat)
+        {
+            _cfgView = "terminal";
+        }
+
         try
         {
-            await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgAgentType);
+            await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
         }
         catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
         {
             // Storage/JS unavailable — session-only default.
         }
+    }
+
+    private void OnCfgViewChanged(ChangeEventArgs e)
+    {
+        var view = e.Value?.ToString() ?? "chat";
+        _cfgView = view == "chat" && !SelectedCliSupportsChat ? "terminal" : view;
     }
 
     private static string ModelOptionLabel(AiChatModelDto model) =>
@@ -752,12 +902,17 @@ else
 
         // Keep the bar defaults in sync so "New" starts from this config.
         _cfgMode = thread.Mode;
-        if (!string.IsNullOrWhiteSpace(thread.AgentType))
+        var cliOption = !string.IsNullOrWhiteSpace(thread.AgentCliId)
+            ? $"custom:{thread.AgentCliId}"
+            : !string.IsNullOrWhiteSpace(thread.AgentType) ? $"agent:{thread.AgentType}" : null;
+        if (cliOption is not null)
         {
-            _cfgAgentType = thread.AgentType;
+            _cfgCli = cliOption;
+            _cfgView = thread.Transport == "pty" ? "terminal" : "chat";
+            _cfgContext = thread.ContainerContext ?? string.Empty;
             try
             {
-                await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgAgentType);
+                await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
             }
             catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
             {
@@ -948,7 +1103,8 @@ else
     private async Task SendMessageAsync()
     {
         var content = _composer.Trim();
-        if (content.Length == 0)
+        // Terminal threads may be created empty — input goes through the xterm.
+        if (content.Length == 0 && !(_activeThreadId is null && _cfgView == "terminal"))
         {
             return;
         }
@@ -960,16 +1116,23 @@ else
             // with the command-bar config and an auto-derived title.
             if (_activeThreadId is null)
             {
+                var cli = SelectedCli;
                 var request = new CreateAiChatThreadRequest(
                     AiChatThreadTitle.Derive(content),
                     _cfgModelId, // empty → tier/CLI default
                     "none",
                     _cfgMode == "agent" ? _cfgSandbox : "read-only",
                     Mode: _cfgMode,
-                    AgentType: _cfgAgentType,
+                    AgentType: cli?.AgentType?.ToString(),
                     WorkspacePath: null, // fixed ~/repos — repo resolves server-side
                     RepositoryFullName: string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim(),
-                    ModelTier: _cfgModelTier.Length == 0 ? null : _cfgModelTier);
+                    ModelTier: _cfgModelTier.Length == 0 ? null : _cfgModelTier,
+                    // SPEC-20260928-ai-code-generic-cli: view/context/custom —
+                    // "chat" sends null so builtin→acp and the def's declared
+                    // transport apply; "terminal" always sends pty.
+                    Transport: _cfgView == "terminal" ? "pty" : null,
+                    ContainerContext: string.IsNullOrWhiteSpace(_cfgContext) ? null : _cfgContext,
+                    AgentCliId: cli?.AgentCliId);
 
                 var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
                 if (thread is null)
@@ -981,6 +1144,14 @@ else
 
                 _threads = (_threads ?? []).Concat([thread]).ToList();
                 await SelectThreadAsync(thread);
+
+                if (thread.Kind == "terminal")
+                {
+                    // PTY threads have no structured prompt flow — the xterm
+                    // pane owns input. The composer text stays so nothing is
+                    // lost; the user pastes/retypes inside the terminal.
+                    return;
+                }
             }
 
             var threadId = _activeThreadId!;

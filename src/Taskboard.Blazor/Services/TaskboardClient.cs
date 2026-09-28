@@ -399,6 +399,72 @@ public sealed class TaskboardClient
         return response.IsSuccessStatusCode;
     }
 
+    /// <summary>
+    /// Builtins cujo executável resolve no PATH — sem filtro de auth/enabled
+    /// (SPEC-20260928-ai-code-generic-cli RF-001; PTY threads só exigem o binário).
+    /// </summary>
+    public async Task<IReadOnlyList<AgentInfo>> GetInstalledAgentsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<InstalledAgentsResponse>(
+            "/api/agents/installed", cancellationToken);
+        return response?.Agents ?? [];
+    }
+
+    /// <summary>Defs de CLI customizadas (SPEC-20260928-ai-code-generic-cli RF-002).</summary>
+    public async Task<IReadOnlyList<AgentCliDefinitionDto>> GetCustomAgentClisAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentCliDefinitionDto>>(
+            "/api/agents/custom", cancellationToken) ?? [];
+
+    /// <summary>Cria uma def customizada — retorna (def, erro) com o detail do payload.</summary>
+    public async Task<(AgentCliDefinitionDto? Def, string? Error)> CreateCustomAgentCliAsync(
+        UpsertAgentCliDefinitionRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/agents/custom", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return (null, await ReadErrorAsync(response, cancellationToken));
+        }
+
+        return (await response.Content.ReadFromJsonAsync<AgentCliDefinitionDto>(cancellationToken), null);
+    }
+
+    /// <summary>Atualiza uma def customizada — retorna (def, erro); erro "not-found" em 404.</summary>
+    public async Task<(AgentCliDefinitionDto? Def, string? Error)> UpdateCustomAgentCliAsync(
+        string id, UpsertAgentCliDefinitionRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            $"/api/agents/custom/{Uri.EscapeDataString(id)}", request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return (null, await ReadErrorAsync(response, cancellationToken));
+        }
+
+        return (await response.Content.ReadFromJsonAsync<AgentCliDefinitionDto>(cancellationToken), null);
+    }
+
+    /// <summary>Remove uma def customizada (204); false quando inexistente.</summary>
+    public async Task<bool> DeleteCustomAgentCliAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"/api/agents/custom/{Uri.EscapeDataString(id)}", cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// Containers Docker em execução + CLIs detectadas dentro (SPEC-20260928
+    /// RF-004). Null quando o daemon está indisponível (503) — o chamador
+    /// degrada para "host only" sem erro.
+    /// </summary>
+    public async Task<IReadOnlyList<DockerContainerDto>?> GetDockerContainersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync("/api/agents/docker/containers", cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<IReadOnlyList<DockerContainerDto>>(cancellationToken)
+            : null;
+    }
+
     /// <summary>Métricas compactas por CLI (sessions/tokens no período) — SPEC-20260919-cli-metrics.</summary>
     public async Task<CliMetricsSummaryDto?> GetCliMetricsSummaryAsync(
         string period = "7d", CancellationToken cancellationToken = default) =>
@@ -770,6 +836,8 @@ public sealed class TaskboardClient
     }
 
     private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);
+
+    private sealed record InstalledAgentsResponse(List<AgentInfo> Agents);
 
     private sealed record AiChatThreadListResponse(List<AiChatThreadDto> Threads);
     private sealed record AiChatThreadResponse(AiChatThreadDto Thread);

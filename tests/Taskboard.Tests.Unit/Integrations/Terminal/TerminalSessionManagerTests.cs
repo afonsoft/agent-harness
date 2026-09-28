@@ -36,6 +36,7 @@ public class TerminalSessionManagerTests
     {
         public List<FakePtySession> Sessions { get; } = new();
         public List<string?> RequestedWorkdirs { get; } = new();
+        public List<IReadOnlyList<string>?> RequestedCommands { get; } = new();
         public List<(string SessionId, string Chunk)> Outputs { get; } = new();
         public List<(string SessionId, string Reason)> Closed { get; } = new();
         public TerminalSessionManager Manager { get; }
@@ -43,11 +44,12 @@ public class TerminalSessionManagerTests
         public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null)
         {
             Manager = new TerminalSessionManager(
-                workdir =>
+                (workdir, command) =>
                 {
                     var s = new FakePtySession();
                     Sessions.Add(s);
                     RequestedWorkdirs.Add(workdir);
+                    RequestedCommands.Add(command);
                     return s;
                 },
                 NullLogger<TerminalSessionManager>.Instance,
@@ -74,6 +76,62 @@ public class TerminalSessionManagerTests
 
         id.ShouldNotBeNullOrEmpty();
         h.Sessions.ShouldHaveSingleItem().Started.ShouldBeTrue();
+    }
+
+    // SPEC-20260928-ai-code-generic-cli RF-003: deterministic session ids +
+    // scrollback replay back AI Code terminal threads.
+
+    [Fact]
+    public async Task Dado_RequestedSessionId_Quando_Open_Entao_UsaIdSolicitado()
+    {
+        await using var h = new Harness();
+
+        var id = await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "t-thread-1");
+
+        id.ShouldBe("t-thread-1");
+    }
+
+    [Fact]
+    public async Task Dado_SessaoViva_Quando_OpenMesmoId_Entao_RebindSemNovaSessaoEReplayScrollback()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+        h.Sessions[0].EmitOutput("hello");
+        h.Outputs.Clear();
+
+        var second = await h.Manager.OpenAsync(
+            "u1", "conn2", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+
+        second.ShouldBe(id);
+        h.Sessions.ShouldHaveSingleItem();
+        // The rebind replays buffered scrollback through the new delegate.
+        h.Outputs.ShouldContain(o => o.SessionId == "t-abc" && o.Chunk.Contains("hello"));
+    }
+
+    [Fact]
+    public async Task Dado_RequestedSessionIdInvalido_Quando_Open_Entao_IdGerado()
+    {
+        await using var h = new Harness();
+
+        var id = await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "../../evil");
+
+        id.ShouldNotBe("../../evil");
+        id.ShouldNotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_OutputEmitido_Quando_GetScrollback_Entao_RetornaBuffer()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+
+        h.Sessions[0].EmitOutput("chunk-a");
+        h.Sessions[0].EmitOutput("chunk-b");
+
+        h.Manager.GetScrollback(id).ShouldBe("chunk-achunk-b");
     }
 
     // SPEC-20260920-global-repo-selector RF-006 — cwd do repo só para sessões novas.

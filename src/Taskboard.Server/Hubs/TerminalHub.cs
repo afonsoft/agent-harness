@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Harness;
 using Taskboard.Integrations.Terminal;
 using Taskboard.Integrations.Workspace;
+using Taskboard.Server.Services;
 
 namespace Taskboard.Server.Hubs;
 
@@ -21,6 +23,7 @@ public sealed class TerminalHub : Hub
     private readonly IHubContext<TerminalHub> _hubContext;
     private readonly WorkspaceService _workspace;
     private readonly IWorktreeSessionRepository _worktreeSessions;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public TerminalHub(
         IConfiguration configuration,
@@ -28,7 +31,8 @@ public sealed class TerminalHub : Hub
         TerminalSessionManager sessionManager,
         IHubContext<TerminalHub> hubContext,
         WorkspaceService workspace,
-        IWorktreeSessionRepository worktreeSessions)
+        IWorktreeSessionRepository worktreeSessions,
+        IServiceScopeFactory scopeFactory)
     {
         _configuration = configuration;
         _logger = logger;
@@ -36,6 +40,7 @@ public sealed class TerminalHub : Hub
         _hubContext = hubContext;
         _workspace = workspace;
         _worktreeSessions = worktreeSessions;
+        _scopeFactory = scopeFactory;
     }
 
     public override async Task OnConnectedAsync()
@@ -95,7 +100,32 @@ public sealed class TerminalHub : Hub
         return await OpenCoreAsync(session.Path).ConfigureAwait(false);
     }
 
-    private async Task<string> OpenCoreAsync(string? workdir)
+    /// <summary>
+    /// SPEC-20260928-ai-code-generic-cli RF-003: opens (or rebinds to) the
+    /// PTY session backing an AI Code "terminal" thread — the CLI and workdir
+    /// are resolved server-side from the thread; the session id is
+    /// deterministic (<c>t-&lt;threadId&gt;</c>) so a browser refresh reattaches
+    /// to the same PTY.
+    /// </summary>
+    public async Task<string> OpenForThread(string threadId)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var resolver = scope.ServiceProvider.GetRequiredService<ThreadPtyResolver>();
+        var (resolution, error) = await resolver.ResolveAsync(threadId, Context.ConnectionAborted)
+            .ConfigureAwait(false);
+        if (resolution is null)
+        {
+            throw new HubException(error ?? "Cannot resolve thread CLI.");
+        }
+
+        return await OpenCoreAsync(
+            resolution.WorkingDirectory,
+            resolution.Command,
+            ThreadPtyResolver.SessionIdFor(threadId)).ConfigureAwait(false);
+    }
+
+    private async Task<string> OpenCoreAsync(
+        string? workdir, IReadOnlyList<string>? command = null, string? sessionId = null)
     {
         var connectionId = Context.ConnectionId;
 
@@ -110,7 +140,9 @@ public sealed class TerminalHub : Hub
                     .SendAsync("output", sessionId, chunk, CancellationToken.None),
                 (sessionId, reason) => _hubContext.Clients.Client(connectionId)
                     .SendAsync("closed", sessionId, reason, CancellationToken.None),
-                workdir).ConfigureAwait(false);
+                workdir,
+                command,
+                sessionId).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
@@ -135,18 +167,34 @@ public sealed class TerminalHub : Hub
     /// <summary>
     /// Rebinds an orphaned session to this connection after a reconnect;
     /// returns false when the session is gone (reaped, exited, foreign).
+    /// On success the buffered scrollback is replayed as a normal "output"
+    /// event before live chunks (SPEC-20260928-ai-code-generic-cli RF-003).
     /// </summary>
-    public Task<bool> Reattach(string sessionId)
+    public async Task<bool> Reattach(string sessionId)
     {
         var connectionId = Context.ConnectionId;
-        return _sessionManager.ReattachAsync(
+        var ok = await _sessionManager.ReattachAsync(
             UserKey,
             connectionId,
             sessionId,
             (id, chunk) => _hubContext.Clients.Client(connectionId)
                 .SendAsync("output", id, chunk, CancellationToken.None),
             (id, reason) => _hubContext.Clients.Client(connectionId)
-                .SendAsync("closed", id, reason, CancellationToken.None));
+                .SendAsync("closed", id, reason, CancellationToken.None)).ConfigureAwait(false);
+        if (!ok)
+        {
+            return false;
+        }
+
+        var scrollback = _sessionManager.GetScrollback(sessionId);
+        if (scrollback.Length > 0)
+        {
+            await _hubContext.Clients.Client(connectionId)
+                .SendAsync("output", sessionId, scrollback, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
+        return true;
     }
 
     /// <summary>Closes a session (tab closed by the user).</summary>

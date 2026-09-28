@@ -22,6 +22,12 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
     public string? ModelTier { get; private set; }
     /// <summary>SPEC-20260921-ai-code-thread-config RF-006: catálogo que serviu o modelo efetivo (acp|probe|curated|custom).</summary>
     public string? ModelSource { get; private set; }
+    /// <summary>SPEC-20260928-ai-code-generic-cli RF-003: "acp" (structured session) | "pty" (raw terminal). Immutable.</summary>
+    public string Transport { get; private set; } = "acp";
+    /// <summary>SPEC-20260928-ai-code-generic-cli RF-004: container name when the CLI runs via docker exec; null → host.</summary>
+    public string? ContainerContext { get; private set; }
+    /// <summary>SPEC-20260928-ai-code-generic-cli RF-002: custom CLI definition id (custom-*) — exclusive with <see cref="AgentType"/>.</summary>
+    public string? AgentCliId { get; private set; }
     public IReadOnlyCollection<AiChatRun> Runs => _runs.AsReadOnly();
     public IReadOnlyCollection<AiChatEvent> Events => _events.AsReadOnly();
     public DateTime CreatedAt { get; private set; }
@@ -80,13 +86,18 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
             agentType: agentType,
             repositoryFullName: repositoryFullName);
 
+    /// <summary>
+    /// SPEC-20260928: <paramref name="agentType"/> is nullable — terminal
+    /// threads bound to a custom CLI definition carry <c>AgentCliId</c>
+    /// instead of a builtin <see cref="Taskboard.Agents.AgentType"/>.
+    /// </summary>
     public static AiChatThread CreateAgentThread(
         AiChatThreadId id,
         string title,
         ModelRef model,
         string reasoningEffort,
         Sandbox sandbox,
-        AgentType agentType,
+        AgentType? agentType,
         string? workspacePath = null,
         string? repositoryFullName = null,
         DateTime? now = null)
@@ -144,6 +155,26 @@ public sealed class AiChatThread : AggregateRoot<AiChatThreadId>
         }
         UpdatedAt = now ?? DateTime.UtcNow;
         IncrementVersion();
+    }
+
+    /// <summary>
+    /// SPEC-20260928-ai-code-generic-cli: sets the CLI binding extras — transport
+    /// (<c>"acp"</c>|<c>"pty"</c>), docker container context and custom CLI id.
+    /// Called once at creation; transport is immutable afterwards.
+    /// </summary>
+    public void ConfigureCli(string? transport, string? containerContext, string? agentCliId, DateTime? now = null)
+    {
+        if (!string.IsNullOrWhiteSpace(transport))
+        {
+            Transport = string.Equals(transport, "pty", StringComparison.OrdinalIgnoreCase) ? "pty" : "acp";
+        }
+
+        ContainerContext = string.IsNullOrWhiteSpace(containerContext)
+            || string.Equals(containerContext, "host", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : containerContext.Trim();
+        AgentCliId = string.IsNullOrWhiteSpace(agentCliId) ? null : agentCliId.Trim();
+        UpdatedAt = now ?? DateTime.UtcNow;
     }
 
     /// <summary>

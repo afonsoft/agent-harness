@@ -278,6 +278,8 @@ else
     builder.Services.AddSingleton<IAgentExecutionEventSink, NullAgentExecutionEventSink>();
 }
 builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
+builder.Services.AddScoped<IAgentCliDefinitionRepository, EfCoreAgentCliDefinitionRepository>();
+builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
 builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
 builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
 builder.Services.AddScoped<IAgentModelConfigService, AgentModelConfigService>();
@@ -474,6 +476,12 @@ builder.Services.AddSingleton<IAgentModelCatalogService>(sp => new AgentModelCat
 builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstallService(
     homeDir,
     sp.GetRequiredService<ILogger<AgentCliInstallService>>()));
+
+// SPEC-20260928-ai-code-generic-cli RF-004: running containers + per-container
+// CLI probes (cached, daemon-absence degrades to empty lists).
+builder.Services.AddSingleton(sp => new DockerCliDiscovery(
+    homeDir,
+    sp.GetRequiredService<ILogger<DockerCliDiscovery>>()));
 
 builder.Services.AddSingleton(sp => new PtySessionFactory(
     homeDir,
@@ -2137,6 +2145,15 @@ agents.MapGet("", async (IAgentOrchestrationService orchestration, CancellationT
     return Results.Ok(new { agents = available });
 });
 
+// SPEC-20260928-ai-code-generic-cli RF-001: every builtin CLI whose binary
+// resolves on PATH — unfiltered by auth/enabled so the AI Code picker can
+// offer PTY terminal threads (authentication happens inside the terminal).
+agents.MapGet("installed", async (IAgentDiscoveryService discovery, CancellationToken ct) =>
+{
+    var discovered = await discovery.DiscoverAsync(ct);
+    return Results.Ok(new { agents = discovered.Where(a => a.Status == AgentStatus.Available) });
+});
+
 agents.MapPost("executions", async (
     AgentExecutionRequest request,
     IAgentOrchestrationService orchestration,
@@ -2391,6 +2408,86 @@ api.MapPost("agent-clis/refresh", (CliProbeSnapshotService probes) =>
     probes.EnsureRefreshing()
         ? Results.Accepted(value: new { running = true })
         : Results.Ok(new { running = true }))
+    .RequireAuthorization();
+
+// SPEC-20260928-ai-code-generic-cli RF-002: CRUD for user-declared agent CLIs.
+// "resolved" is computed per-request (PATH lookup is ~ms).
+api.MapGet("agents/custom", async (IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+{
+    var list = await defs.ListAsync(ct);
+    return Results.Ok(list.Select(d => d with
+    {
+        Resolved = PathSearch.FindExecutable(d.Executable) is not null,
+    }));
+})
+    .RequireAuthorization();
+
+api.MapPost("agents/custom", async (UpsertAgentCliDefinitionRequest request, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+{
+    if (await defs.DisplayNameExistsAsync(request.DisplayName ?? string.Empty, ct))
+    {
+        return Results.Conflict(new { error = "duplicate-display-name" });
+    }
+
+    try
+    {
+        var def = await defs.AddAsync(request, ct);
+        return Results.Created($"/api/agents/custom/{def.Id}", def with
+        {
+            Resolved = PathSearch.FindExecutable(def.Executable) is not null,
+        });
+    }
+    catch (DomainException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+    .RequireAuthorization();
+
+api.MapPut("agents/custom/{id}", async (string id, UpsertAgentCliDefinitionRequest request, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+{
+    var existing = await defs.GetAsync(id, ct);
+    if (existing is null)
+    {
+        return Results.NotFound(new { error = "custom-cli-not-found" });
+    }
+
+    // Renaming onto another definition's display name conflicts.
+    if (!string.Equals(existing.DisplayName, request.DisplayName?.Trim(), StringComparison.OrdinalIgnoreCase)
+        && await defs.DisplayNameExistsAsync(request.DisplayName ?? string.Empty, ct))
+    {
+        return Results.Conflict(new { error = "duplicate-display-name" });
+    }
+
+    try
+    {
+        var def = await defs.UpdateAsync(id, request, ct);
+        return def is null
+            ? Results.NotFound(new { error = "custom-cli-not-found" })
+            : Results.Ok(def with
+            {
+                Resolved = PathSearch.FindExecutable(def.Executable) is not null,
+            });
+    }
+    catch (DomainException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+    .RequireAuthorization();
+
+api.MapDelete("agents/custom/{id}", async (string id, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+    await defs.DeleteAsync(id, ct)
+        ? Results.NoContent()
+        : Results.NotFound(new { error = "custom-cli-not-found" }))
+    .RequireAuthorization();
+
+// SPEC-20260928-ai-code-generic-cli RF-004: running containers + per-container
+// CLI probes; 503 when the daemon is unreachable.
+api.MapGet("agents/docker/containers", async (DockerCliDiscovery docker, CancellationToken ct) =>
+    !await docker.IsAvailableAsync(ct)
+        ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
+        : Results.Ok(await docker.ListContainersAsync(ct)))
     .RequireAuthorization();
 
 // SPEC-20260918-cli-agents-expansion RF-004/RF-005: managed install runs.

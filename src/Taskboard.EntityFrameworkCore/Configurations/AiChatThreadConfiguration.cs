@@ -62,6 +62,17 @@ public sealed class AiChatThreadConfiguration : IEntityTypeConfiguration<AiChatT
         builder.Property(t => t.ModelSource)
             .HasMaxLength(32);
 
+        builder.Property(t => t.Transport)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasDefaultValue("acp");
+
+        builder.Property(t => t.ContainerContext)
+            .HasMaxLength(128);
+
+        builder.Property(t => t.AgentCliId)
+            .HasMaxLength(96);
+
         builder.Property(t => t.CreatedAt);
         builder.Property(t => t.UpdatedAt);
 

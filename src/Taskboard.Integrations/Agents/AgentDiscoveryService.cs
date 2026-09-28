@@ -1,33 +1,50 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Taskboard.Agents;
 
 namespace Taskboard.Integrations.Agents;
 
 /// <summary>
 /// Descobre agentes CLI instalados no servidor a partir do PATH.
+/// SPEC-20260928-ai-code-generic-cli RF-001: todos os <see cref="AgentType"/>
+/// mapeados via <see cref="AgentCliMap"/> (OpenHands é o único sem
+/// <see cref="AgentCliKind"/> — binário declarado inline). Versões vêm do
+/// <see cref="CliProbeSnapshotService"/> — nunca bloqueia em subprocesso.
 /// </summary>
 public sealed class AgentDiscoveryService : IAgentDiscoveryService
 {
-    private static readonly Dictionary<AgentType, string> KnownAgents = new()
-    {
-        [AgentType.Devin] = "devin",
-        [AgentType.Claude] = "claude",
-        [AgentType.Codex] = "codex",
-        [AgentType.OpenCode] = "opencode",
-        [AgentType.OpenHands] = "openhands",
-        [AgentType.Antigravity] = "agy"
-    };
+    /// <summary>CLIs com sessão ACP estruturada; as demais usam transporte PTY.</summary>
+    private static readonly HashSet<AgentType> AcpCapable = [AgentType.OpenCode, AgentType.Claude, AgentType.Codex, AgentType.Devin];
 
-    private static readonly Dictionary<AgentType, string> KnownDescriptions = new()
+    private static readonly IReadOnlyDictionary<AgentType, string> KnownAgents = BuildKnownAgents();
+
+    private static readonly IReadOnlyDictionary<AgentType, string> KnownDescriptions =
+        new Dictionary<AgentType, string>
+        {
+            [AgentType.Devin] = "Devin CLI for agentic coding",
+            [AgentType.Claude] = "Claude Code integration",
+            [AgentType.Codex] = "OpenAI Codex CLI for code generation",
+            [AgentType.OpenCode] = "OpenCode agentic IDE",
+            [AgentType.OpenHands] = "OpenHands autonomous software engineer",
+            [AgentType.Antigravity] = "Google Antigravity CLI (agy)",
+            [AgentType.Kimi] = "Kimi Code agentic CLI",
+            [AgentType.Grok] = "Grok (x.ai) CLI",
+            [AgentType.Aider] = "Aider pair-programming CLI",
+            [AgentType.Cline] = "Cline autonomous coding agent",
+            [AgentType.Continue] = "Continue.dev CLI (cn)",
+            [AgentType.Copilot] = "GitHub Copilot CLI",
+            [AgentType.Qwen] = "Qwen Code agentic CLI",
+            [AgentType.Kiro] = "Kiro agentic CLI",
+        };
+
+    private readonly CliProbeSnapshotService? _snapshot;
+    private readonly Func<string, string?> _locator;
+
+    public AgentDiscoveryService(
+        CliProbeSnapshotService? snapshot = null,
+        Func<string, string?>? executableLocator = null)
     {
-        [AgentType.Devin] = "Devin CLI for agentic coding",
-        [AgentType.Claude] = "Claude Code integration",
-        [AgentType.Codex] = "OpenAI Codex CLI for code generation",
-        [AgentType.OpenCode] = "OpenCode agentic IDE",
-        [AgentType.OpenHands] = "OpenHands autonomous software engineer",
-        [AgentType.Antigravity] = "Google Antigravity CLI (agy)"
-    };
+        _snapshot = snapshot;
+        _locator = executableLocator ?? PathSearch.FindExecutable;
+    }
 
     public Task<IReadOnlyList<AgentInfo>> DiscoverAsync(CancellationToken cancellationToken = default)
     {
@@ -35,17 +52,29 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
 
         foreach (var (type, name) in KnownAgents)
         {
-            var executablePath = PathSearch.FindExecutable(name);
+            var executablePath = _locator(name);
             KnownDescriptions.TryGetValue(type, out var description);
-            var supportsSession = type is AgentType.OpenCode or AgentType.Claude or AgentType.Codex or AgentType.Devin;
+            // ACP-capable CLIs keep the structured session flag; every
+            // resolvable CLI can still open a PTY terminal thread (RF-003).
+            var supportsSession = AcpCapable.Contains(type);
+            var transport = supportsSession ? "acp" : "pty";
             if (executablePath is null)
             {
-                agents.Add(new AgentInfo(name, string.Empty, type, AgentStatus.Unavailable, null, description, supportsSession));
+                agents.Add(new AgentInfo(
+                    name, string.Empty, type, AgentStatus.Unavailable, null, description,
+                    supportsSession, Transport: transport));
                 continue;
             }
 
-            var version = TryGetVersion(executablePath, cancellationToken);
-            agents.Add(new AgentInfo(name, executablePath, type, AgentStatus.Available, version, description, supportsSession));
+            // Version comes from the probe snapshot (SPEC-20260928) — the
+            // synchronous `--version` subprocess was removed by RF-004.
+            // OpenHands has no AgentCliKind → no version probe.
+            var version = AgentCliMap.CliKindFor(type) is { } kind
+                ? _snapshot?.GetVersion(kind)
+                : null;
+            agents.Add(new AgentInfo(
+                name, executablePath, type, AgentStatus.Available, version, description,
+                supportsSession, Transport: transport));
         }
 
         return Task.FromResult<IReadOnlyList<AgentInfo>>(agents.AsReadOnly());
@@ -58,53 +87,30 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
             return null;
         }
 
-        return PathSearch.FindExecutable(name);
+        return _locator(name);
     }
 
-    private static string? TryGetVersion(string executablePath, CancellationToken cancellationToken)
+    /// <summary>
+    /// Native transport of an <see cref="AgentType"/> — ACP-capable CLIs keep
+    /// "acp"; every other known type talks over PTY.
+    /// </summary>
+    public static string TransportFor(AgentType type) =>
+        AcpCapable.Contains(type) ? "acp" : "pty";
+
+    private static IReadOnlyDictionary<AgentType, string> BuildKnownAgents()
     {
-        try
+        var map = new Dictionary<AgentType, string>();
+        foreach (var type in Enum.GetValues<AgentType>())
         {
-            using var process = Process.Start(new ProcessStartInfo(executablePath, "--version")
+            if (AgentCliMap.CliKindFor(type) is { } kind
+                && AgentCliMap.GetSpec(kind) is { } spec)
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-
-            if (process is null)
-            {
-                return null;
+                map[type] = spec.Binary;
             }
-
-            process.WaitForExit(2000);
-            if (!process.HasExited)
-            {
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch
-                {
-                    // Ignora falhas ao encerrar processo de versão.
-                }
-
-                return null;
-            }
-
-            var output = process.StandardOutput.ReadToEnd().Trim();
-            if (!string.IsNullOrWhiteSpace(output))
-            {
-                var firstLine = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-                return firstLine;
-            }
-
-            return null;
         }
-        catch
-        {
-            return null;
-        }
+
+        // OpenHands is the only AgentType without an AgentCliKind entry.
+        map[AgentType.OpenHands] = "openhands";
+        return map;
     }
 }
