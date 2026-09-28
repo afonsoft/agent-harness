@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-agent-cli-probe-background` |
 | Ticket | [#348](https://github.com/afonsoft/agent-harness/issues/348) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260917-cli-agents-terminal`, `SPEC-20260918-cli-agents-expansion`, `SPEC-20260921-ai-chat-cli-backend` |
 
 ## 1. User Story
@@ -145,13 +145,13 @@ tests/Taskboard.Tests.Integration/AgentCliRefreshEndpointsTests.cs  # new
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** o server recém-iniciado com snapshot persistido **when** `GET /api/agent-clis` **then** responde <200ms com versões do snapshot e `installed`/`auth` frescos.
-- [ ] **Given** snapshot expirado (TTL) **when** `GET /api/agent-clis` **then** responde o snapshot stale imediato **e** um refresh background é disparado (observável via `GET /refresh`).
-- [ ] **Given** 14 CLIs com 6 instaladas **when** refresh roda **then** completa em ~5s (paralelo), não ~30s sequenciais — `lastDurationMs` confirma.
-- [ ] **Given** `/agents` carregando **when** o refresh está em curso **then** a página mostra cards imediatamente + indicador "updating", e atualiza sozinha ao fim.
-- [ ] **Given** `models/available` cold (pós-restart) **when** abro o dialog de modelos **then** retorna instantâneo (cache/[]) e o background warm-up preenche; segunda abertura já tem modelos.
-- [ ] **Given** um CLI que trava no `--version` **when** probe estoura 5s **then** demais CLIs completam normalmente (isolamento).
-- [ ] **Given** AI Code/NewThreadDialog **when** lista agentes elegíveis **then** sem bloqueio perceptível (eligibility no fast path).
+- [x] **Given** o server recém-iniciado com snapshot persistido **when** `GET /api/agent-clis` **then** responde <200ms com versões do snapshot e `installed`/`auth` frescos.
+- [x] **Given** snapshot expirado (TTL) **when** `GET /api/agent-clis` **then** responde o snapshot stale imediato **e** um refresh background é disparado (observável via `GET /refresh`).
+- [x] **Given** 14 CLIs com 6 instaladas **when** refresh roda **then** completa em ~5s (paralelo), não ~30s sequenciais — `lastDurationMs` confirma.
+- [x] **Given** `/agents` carregando **when** o refresh está em curso **then** a página mostra cards imediatamente + indicador "updating", e atualiza sozinha ao fim.
+- [x] **Given** `models/available` cold (pós-restart) **when** abro o dialog de modelos **then** retorna instantâneo (cache/[]) e o background warm-up preenche; segunda abertura já tem modelos.
+- [x] **Given** um CLI que trava no `--version` **when** probe estoura 5s **then** demais CLIs completam normalmente (isolamento).
+- [x] **Given** AI Code/NewThreadDialog **when** lista agentes elegíveis **then** sem bloqueio perceptível (eligibility no fast path).
 
 **Edge cases:**
 
@@ -165,13 +165,13 @@ tests/Taskboard.Tests.Integration/AgentCliRefreshEndpointsTests.cs  # new
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** ler arquivos da seção 3; confirmar pontos de bloqueio e contratos do frontend.
-- [ ] **T2 — Snapshot service:** `CliProbeSnapshotService` (memória + JSON atômico + RefreshAsync paralelo single-flight) + hosted service de startup.
-- [ ] **T3 — Fast path:** `AgentCliStatusService` e `AgentModelCatalogService` no snapshot; endpoints `refresh` + DI.
-- [ ] **T4 — UI:** indicador/poll em `Agents.razor`, retry no `AgentModelConfigDialog`, `TaskboardClient` novos métodos.
-- [ ] **T5 — Verification:** unit tests (single-flight, paralelismo com fakes de runner, snapshot corrupt), integração (endpoints, TTL), `dotnet build` + `dotnet test`.
-- [ ] **T6 — Validation:** DoD; evidência de latência no PR (antes/depois com `lastDurationMs` e tempo de resposta do endpoint).
-- [ ] **T7 — Done + PR:** `Status = Done`, PR na branch `feature/devin-20260928-agent-cli-probe-background`.
+- [x] **T1 — Discovery:** ler arquivos da seção 3; confirmar pontos de bloqueio e contratos do frontend.
+- [x] **T2 — Snapshot service:** `CliProbeSnapshotService` (memória + JSON atômico + RefreshAsync paralelo single-flight) + hosted service de startup.
+- [x] **T3 — Fast path:** `AgentCliStatusService` e `AgentModelCatalogService` no snapshot; endpoints `refresh` + DI.
+- [x] **T4 — UI:** indicador/poll em `Agents.razor`, retry no `AgentModelConfigDialog`, `TaskboardClient` novos métodos.
+- [x] **T5 — Verification:** unit tests (single-flight, paralelismo com fakes de runner, snapshot corrupt), integração (endpoints, TTL), `dotnet build` + `dotnet test`.
+- [x] **T6 — Validation:** DoD; evidência de latência no PR (antes/depois com `lastDurationMs` e tempo de resposta do endpoint).
+- [x] **T7 — Done + PR:** `Status = Done`, PR na branch `feature/devin-20260928-agent-cli-probe-background`.
 
 **7.1 Validation strategy**
 
@@ -188,10 +188,10 @@ tests/Taskboard.Tests.Integration/AgentCliRefreshEndpointsTests.cs  # new
 
 ## 9. Definition of Done
 
-- [ ] RF-001 a RF-006 implementados.
-- [ ] Acceptance criteria cobertos; latência medida e documentada.
-- [ ] Edge cases tratados (single-flight, corrupt snapshot, primeiro boot).
-- [ ] `dotnet build` limpo, `dotnet test` verde, coverage ≥ gate.
-- [ ] Guardrails respeitados; logs sem segredos.
+- [x] RF-001 a RF-006 implementados.
+- [x] Acceptance criteria cobertos; latência medida e documentada.
+- [x] Edge cases tratados (single-flight, corrupt snapshot, primeiro boot).
+- [x] `dotnet build` limpo, `dotnet test` verde, coverage ≥ gate.
+- [x] Guardrails respeitados; logs sem segredos.
 
 **Next action after DoD is complete:** set `Status = Done` in section 0 and open the PR on branch `feature/devin-20260928-agent-cli-probe-background`.

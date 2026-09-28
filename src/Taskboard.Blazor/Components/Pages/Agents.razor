@@ -14,7 +14,13 @@
 
 <div class="card">
     <div class="card-body">
-        <div class="d-flex justify-content-end gap-2 mb-3">
+        <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
+            @if (_refreshingProbes)
+            {
+                <span class="small text-body-secondary d-inline-flex align-items-center me-auto">
+                    <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" class="me-1" /> Updating CLI info…
+                </span>
+            }
             <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="SyncMetricsAsync" Disabled="_syncing">
                 @if (_syncing)
                 {
@@ -26,7 +32,7 @@
                 }
                 Sync now
             </Button>
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAllAsync" Disabled="_loading">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
         </div>
@@ -181,6 +187,7 @@
     private IReadOnlyList<CliMetricSourceDto> _sources = [];
     private bool _loading = true;
     private bool _syncing;
+    private bool _refreshingProbes;
     private string? _error;
 
     private string _template = string.Empty;
@@ -269,6 +276,11 @@
             _loading = false;
         }
 
+        // SPEC-20260928: the status payload is a fast snapshot — when the
+        // server is re-probing versions/models in background, show the
+        // indicator and re-fetch once it completes.
+        _ = TrackProbeRefreshAsync();
+
         // Compact metrics are best-effort — never block or break the page.
         try
         {
@@ -282,6 +294,60 @@
         {
             _metrics = null;
             _sources = [];
+        }
+    }
+
+    /// <summary>Refresh button: kicks the background probes then reloads the page data.</summary>
+    private async Task RefreshAllAsync()
+    {
+        await Client.RefreshAgentClisAsync();
+        await RefreshAsync();
+    }
+
+    /// <summary>
+    /// SPEC-20260928-agent-cli-probe-background: while the server-side probe
+    /// refresh is running, poll its status (~1.5s) and refetch the statuses
+    /// once when it completes — the page never blocks on subprocess probes.
+    /// </summary>
+    private async Task TrackProbeRefreshAsync()
+    {
+        if (_refreshingProbes)
+        {
+            return;
+        }
+
+        try
+        {
+            var status = await Client.GetAgentCliRefreshStatusAsync();
+            if (status is not { Running: true })
+            {
+                return;
+            }
+
+            _refreshingProbes = true;
+            await InvokeAsync(StateHasChanged);
+
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(1500);
+                status = await Client.GetAgentCliRefreshStatusAsync();
+                if (status is not { Running: true })
+                {
+                    break;
+                }
+            }
+
+            _agents = await Client.GetAgentClisAsync();
+        }
+        catch
+        {
+            // Probe tracking is best-effort — the snapshot is already on screen.
+        }
+        finally
+        {
+            _refreshingProbes = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

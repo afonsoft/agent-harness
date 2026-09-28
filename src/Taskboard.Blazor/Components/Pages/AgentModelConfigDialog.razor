@@ -169,10 +169,36 @@ else
             _available = await ModelCatalog.ListAvailableAsync(AgentType, forceRefresh);
             _suggestions = BuildSuggestions();
             await InvokeAsync(StateHasChanged);
+
+            // SPEC-20260928: on a cold snapshot the server answers instantly
+            // with [] and warms the model probe in background — retry once
+            // shortly so the dropdown gains the CLI-reported ids.
+            if (!forceRefresh && _available.Count == 0 && !_warmRetryScheduled)
+            {
+                _warmRetryScheduled = true;
+                _ = RetryAvailableSoonAsync();
+            }
         }
         catch
         {
             _available = [];
+        }
+    }
+
+    private bool _warmRetryScheduled;
+
+    private async Task RetryAvailableSoonAsync()
+    {
+        try
+        {
+            await Task.Delay(2500);
+            _available = await ModelCatalog.ListAvailableAsync(AgentType);
+            _suggestions = BuildSuggestions();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Best-effort warm-up — the curated catalog remains available.
         }
     }
 

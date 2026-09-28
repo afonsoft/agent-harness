@@ -29,14 +29,26 @@ public class AgentModelCatalogServiceTests
         }
     }
 
-    private AgentModelCatalogService CreateService(
+    private CliProbeSnapshotService CreateSnapshot(
         Func<string, string?>? locator = null,
         FakeRunner? runner = null) =>
+        new(
+            Path.Join(Path.GetTempPath(), $"tb-models-snap-{Guid.NewGuid()}.json"),
+            _homeDir,
+            NullLogger<CliProbeSnapshotService>.Instance,
+            executableLocator: locator ?? (_ => null),
+            runner: runner ?? new FakeRunner());
+
+    private AgentModelCatalogService CreateService(
+        Func<string, string?>? locator = null,
+        FakeRunner? runner = null,
+        CliProbeSnapshotService? snapshot = null) =>
         new(
             _homeDir,
             NullLogger<AgentModelCatalogService>.Instance,
             executableLocator: locator ?? (_ => null),
-            runner: runner ?? new FakeRunner());
+            runner: runner ?? new FakeRunner(),
+            snapshot: snapshot);
 
     [Fact]
     public async Task Dado_CliSemProbe_Quando_ListAvailable_Entao_VazioSemExecutarProcesso()
@@ -64,7 +76,7 @@ public class AgentModelCatalogServiceTests
     }
 
     [Fact]
-    public async Task Dado_OpenCodeInstalado_Quando_ListAvailable_Entao_RodaModelsEParsa()
+    public async Task Dado_OpenCodeInstalado_Quando_ForceRefresh_Entao_RodaModelsEParsa()
     {
         var runner = new FakeRunner
         {
@@ -76,22 +88,26 @@ public class AgentModelCatalogServiceTests
         };
         var service = CreateService(locator: name => name == "opencode" ? "/usr/bin/opencode" : null, runner: runner);
 
-        var models = await service.ListAvailableAsync(AgentType.OpenCode);
+        var models = await service.ListAvailableAsync(AgentType.OpenCode, forceRefresh: true);
 
         models.ShouldBe(["opencode/big-pickle", "opencode/claude-sonnet-5"]);
         runner.Calls.ShouldBe(1);
     }
 
     [Fact]
-    public async Task Dado_SegundaChamada_Quando_ListAvailable_Entao_UsaCache()
+    public async Task Dado_SnapshotPopulado_Quando_ListAvailable_Entao_UsaSnapshotSemReexecutar()
     {
         var runner = new FakeRunner
         {
             Handler = (_, _) => new CommandResult(0, "opencode/m1\n", string.Empty),
         };
-        var service = CreateService(locator: _ => "/usr/bin/opencode", runner: runner);
+        Func<string, string?> locator = _ => "/usr/bin/opencode";
+        var snapshot = CreateSnapshot(locator, runner);
+        var service = CreateService(locator: locator, runner: runner, snapshot: snapshot);
 
-        await service.ListAvailableAsync(AgentType.OpenCode);
+        // Forced probe populates the snapshot…
+        await service.ListAvailableAsync(AgentType.OpenCode, forceRefresh: true);
+        // …the non-forced read is served instantly from it.
         var models = await service.ListAvailableAsync(AgentType.OpenCode);
 
         models.ShouldBe(["opencode/m1"]);
@@ -99,22 +115,40 @@ public class AgentModelCatalogServiceTests
     }
 
     [Fact]
-    public async Task Dado_ForceRefresh_Quando_ListAvailable_Entao_IgnoraCacheEReexecuta()
+    public async Task Dado_SnapshotVazio_Quando_ListAvailable_Entao_RetornaInstantaneoEDisparaWarmup()
+    {
+        var snapshot = CreateSnapshot(locator: _ => "/usr/bin/opencode", runner: new FakeRunner
+        {
+            Handler = (_, _) => new CommandResult(0, "opencode/m1\n", string.Empty),
+        });
+        var service = CreateService(locator: _ => "/usr/bin/opencode", snapshot: snapshot);
+
+        var models = await service.ListAvailableAsync(AgentType.OpenCode);
+
+        // SPEC-20260928: cold snapshot → instant empty answer + background warm.
+        models.ShouldBeEmpty();
+        await snapshot.RefreshAsync();
+        (await service.ListAvailableAsync(AgentType.OpenCode)).ShouldBe(["opencode/m1"]);
+    }
+
+    [Fact]
+    public async Task Dado_ForceRefresh_Quando_ListAvailable_Entao_IgnoraSnapshotEReexecuta()
     {
         var runner = new FakeRunner
         {
             Handler = (_, _) => new CommandResult(0, "opencode/m1\n", string.Empty),
         };
-        var service = CreateService(locator: _ => "/usr/bin/opencode", runner: runner);
+        Func<string, string?> locator = _ => "/usr/bin/opencode";
+        var service = CreateService(locator: locator, runner: runner, snapshot: CreateSnapshot(locator, runner));
 
-        await service.ListAvailableAsync(AgentType.OpenCode);
+        await service.ListAvailableAsync(AgentType.OpenCode, forceRefresh: true);
         await service.ListAvailableAsync(AgentType.OpenCode, forceRefresh: true);
 
         runner.Calls.ShouldBe(2);
     }
 
     [Fact]
-    public async Task Dado_ProbeFalha_Quando_ListAvailable_Entao_VazioSemLancar()
+    public async Task Dado_ProbeFalha_Quando_ForceRefresh_Entao_VazioSemLancar()
     {
         var runner = new FakeRunner
         {
@@ -122,7 +156,7 @@ public class AgentModelCatalogServiceTests
         };
         var service = CreateService(locator: _ => "/usr/bin/agy", runner: runner);
 
-        var models = await service.ListAvailableAsync(AgentType.Antigravity);
+        var models = await service.ListAvailableAsync(AgentType.Antigravity, forceRefresh: true);
 
         models.ShouldBeEmpty();
     }
