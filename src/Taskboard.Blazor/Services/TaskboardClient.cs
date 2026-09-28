@@ -388,6 +388,17 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentCliStatus>>("/api/agent-clis", cancellationToken)
         ?? [];
 
+    /// <summary>Estado do refresh em background das sondas de CLI — SPEC-20260928.</summary>
+    public async Task<AgentCliRefreshStatusDto?> GetAgentCliRefreshStatusAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentCliRefreshStatusDto>("/api/agent-clis/refresh", cancellationToken);
+
+    /// <summary>Dispara o refresh em background das sondas de CLI — SPEC-20260928.</summary>
+    public async Task<bool> RefreshAgentClisAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/agent-clis/refresh", content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     /// <summary>Métricas compactas por CLI (sessions/tokens no período) — SPEC-20260919-cli-metrics.</summary>
     public async Task<CliMetricsSummaryDto?> GetCliMetricsSummaryAsync(
         string period = "7d", CancellationToken cancellationToken = default) =>

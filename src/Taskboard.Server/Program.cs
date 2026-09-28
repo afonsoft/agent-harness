@@ -447,13 +447,29 @@ builder.Services.AddSingleton<IMcpProvisioningService>(sp => new McpProvisioning
     async ct => await ResolveEnabledAgentsAsync(sp, ct),
     sp.GetRequiredService<McpOperationLog>()));
 
+// SPEC-20260928-agent-cli-probe-background: persisted snapshot of the slow
+// CLI probes (--version, models) + background refresh; reads stay instant.
+builder.Services.AddSingleton(sp => new CliProbeSnapshotService(
+    Path.Combine(dataDir, "agent-probe-snapshot.json"),
+    homeDir,
+    sp.GetRequiredService<ILogger<CliProbeSnapshotService>>()));
+builder.Services.AddHostedService(sp => new CliProbeRefreshHostedService(
+    sp.GetRequiredService<CliProbeSnapshotService>(),
+    sp.GetRequiredService<ILogger<CliProbeRefreshHostedService>>()));
+
+var agentCliProbeTtl = TimeSpan.FromSeconds(
+    builder.Configuration.GetValue("Taskboard:AgentCliProbe:TtlSeconds", 120));
+
 builder.Services.AddSingleton<IAgentCliStatusService>(sp => new AgentCliStatusService(
     homeDir,
-    sp.GetRequiredService<ILogger<AgentCliStatusService>>()));
+    sp.GetRequiredService<ILogger<AgentCliStatusService>>(),
+    snapshot: sp.GetRequiredService<CliProbeSnapshotService>(),
+    refreshTtl: agentCliProbeTtl));
 
 builder.Services.AddSingleton<IAgentModelCatalogService>(sp => new AgentModelCatalogService(
     homeDir,
-    sp.GetRequiredService<ILogger<AgentModelCatalogService>>()));
+    sp.GetRequiredService<ILogger<AgentModelCatalogService>>(),
+    snapshot: sp.GetRequiredService<CliProbeSnapshotService>()));
 
 builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstallService(
     homeDir,
@@ -2359,6 +2375,22 @@ api.MapGet("skills/log", (SkillsOperationLog log) =>
 
 api.MapGet("agent-clis", async (IAgentCliStatusService agentClis, CancellationToken ct) =>
     Results.Ok(await agentClis.GetStatusAsync(ct)))
+    .RequireAuthorization();
+
+// SPEC-20260928-agent-cli-probe-background: refresh trigger + status for the
+// background CLI probes (versions + model lists). GET reports state; POST
+// kicks a single-flight refresh — 202 when started, 200 when already running.
+api.MapGet("agent-clis/refresh", (CliProbeSnapshotService probes) =>
+    Results.Ok(new AgentCliRefreshStatusDto(
+        probes.Refreshing,
+        probes.LastCompletedAt == DateTimeOffset.MinValue ? null : probes.LastCompletedAt,
+        probes.LastDuration == TimeSpan.Zero ? null : (long)probes.LastDuration.TotalMilliseconds)))
+    .RequireAuthorization();
+
+api.MapPost("agent-clis/refresh", (CliProbeSnapshotService probes) =>
+    probes.EnsureRefreshing()
+        ? Results.Accepted(value: new { running = true })
+        : Results.Ok(new { running = true }))
     .RequireAuthorization();
 
 // SPEC-20260918-cli-agents-expansion RF-004/RF-005: managed install runs.

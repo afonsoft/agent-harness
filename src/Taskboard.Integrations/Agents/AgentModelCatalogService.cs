@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
@@ -8,32 +7,38 @@ namespace Taskboard.Integrations.Agents;
 
 /// <summary>
 /// Probes installed CLIs for their own model list (<c>opencode models</c>,
-/// <c>devin models list</c>, <c>agy models</c>) with a bounded timeout and a
-/// short in-memory cache. Feeds the editable model dropdown in the CLI
-/// Agents screen; failures degrade to an empty list so the curated
+/// <c>devin models list</c>, <c>agy models</c>). Feeds the editable model dropdown
+/// in the CLI Agents screen; failures degrade to an empty list so the curated
 /// <see cref="AgentCliModels"/> catalog still shows.
+/// <para>
+/// SPEC-20260928-agent-cli-probe-background: non-forced reads return the
+/// <see cref="CliProbeSnapshotService"/> snapshot instantly and schedule a
+/// background warm-up on miss — the 10s probe never blocks the dialog.
+/// <paramref name="forceRefresh"/> keeps the bounded synchronous probe.
+/// </para>
 /// </summary>
 public sealed class AgentModelCatalogService : IAgentModelCatalogService
 {
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
 
-    private readonly ConcurrentDictionary<AgentType, (DateTimeOffset ExpiresAt, IReadOnlyList<string> Models)> _cache = new();
     private readonly string _homeDirectory;
     private readonly ILogger<AgentModelCatalogService> _logger;
     private readonly Func<string, string?> _locator;
     private readonly ISkillsInstallRunner _runner;
+    private readonly CliProbeSnapshotService? _snapshot;
 
     public AgentModelCatalogService(
         string homeDirectory,
         ILogger<AgentModelCatalogService> logger,
         Func<string, string?>? executableLocator = null,
-        ISkillsInstallRunner? runner = null)
+        ISkillsInstallRunner? runner = null,
+        CliProbeSnapshotService? snapshot = null)
     {
         _homeDirectory = homeDirectory;
         _logger = logger;
         _locator = executableLocator ?? PathSearch.FindExecutable;
         _runner = runner ?? ProcessSkillsInstallRunner.Instance;
+        _snapshot = snapshot;
     }
 
     public async Task<IReadOnlyList<string>> ListAvailableAsync(
@@ -48,30 +53,42 @@ public sealed class AgentModelCatalogService : IAgentModelCatalogService
             return [];
         }
 
-        if (!forceRefresh && _cache.TryGetValue(agentType, out var hit) && hit.ExpiresAt > DateTimeOffset.UtcNow)
+        // Fast path: serve the last-known snapshot and schedule a background
+        // warm-up when the CLI was never probed (first call after restart).
+        if (!forceRefresh)
         {
-            return hit.Models;
+            if (_snapshot?.GetModels(agentType) is { } cached)
+            {
+                return cached;
+            }
+
+            _snapshot?.EnsureRefreshing();
+            return [];
         }
 
-        IReadOnlyList<string> models;
+        var models = await ProbeAsync(agentType, path, probe, cancellationToken).ConfigureAwait(false);
+        _snapshot?.SetModels(agentType, models);
+        return models;
+    }
+
+    private async Task<IReadOnlyList<string>> ProbeAsync(
+        AgentType agentType, string binaryPath, AgentModelListProbe probe, CancellationToken cancellationToken)
+    {
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(ProbeTimeout);
             var result = await _runner
-                .RunAsync(path, _homeDirectory, probe.Arguments, timeout.Token)
+                .RunAsync(binaryPath, _homeDirectory, probe.Arguments, timeout.Token)
                 .ConfigureAwait(false);
 
             var output = string.IsNullOrWhiteSpace(result.StdOut) ? result.StdErr : result.StdOut;
-            models = AgentModelListParser.Parse(probe.Format, output);
+            return AgentModelListParser.Parse(probe.Format, output);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Model-list probe failed for {AgentType} ({Binary}).", agentType, binary);
-            models = [];
+            _logger.LogDebug(ex, "Model-list probe failed for {AgentType} ({Binary}).", agentType, binaryPath);
+            return [];
         }
-
-        _cache[agentType] = (DateTimeOffset.UtcNow.Add(CacheTtl), models);
-        return models;
     }
 }

@@ -36,15 +36,28 @@ public class AgentCliStatusServiceTests : IDisposable
                 ?? new CommandResult(0, string.Empty, string.Empty));
     }
 
+    private CliProbeSnapshotService CreateSnapshot(
+        Func<string, string?>? locator = null,
+        FakeRunner? runner = null) =>
+        new(
+            Path.Join(_root, $"snapshot-{Guid.NewGuid()}.json"),
+            _homeDir,
+            NullLogger<CliProbeSnapshotService>.Instance,
+            executableLocator: locator ?? (_ => null),
+            runner: runner ?? new FakeRunner());
+
     private AgentCliStatusService CreateService(
         Func<string, string?>? locator = null,
         FakeRunner? runner = null,
+        CliProbeSnapshotService? snapshot = null,
         string? homeDir = null) =>
         new(
             homeDir ?? _homeDir,
             NullLogger<AgentCliStatusService>.Instance,
             executableLocator: locator ?? (_ => null),
-            runner: runner ?? new FakeRunner());
+            runner: runner ?? new FakeRunner(),
+            snapshot: snapshot,
+            refreshTtl: TimeSpan.Zero);
 
     [Fact]
     public async Task Dado_NenhumCliInstalado_Quando_GetStatus_Entao_TodosNaoInstalados()
@@ -65,13 +78,16 @@ public class AgentCliStatusServiceTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(credentialPath)!);
         File.WriteAllText(credentialPath, "{}");
 
+        Func<string, string?> locator = name => name == "claude" ? "/usr/bin/claude" : null;
         var runner = new FakeRunner
         {
             Handler = (_, _) => new CommandResult(0, "claude 1.2.3 (build)\n", string.Empty)
         };
-        var service = CreateService(
-            locator: name => name == "claude" ? "/usr/bin/claude" : null,
-            runner: runner);
+        // SPEC-20260928: versions live in the snapshot — refresh it first so
+        // the status read stays instant and version comes pre-populated.
+        var snapshot = CreateSnapshot(locator, runner);
+        await snapshot.RefreshAsync();
+        var service = CreateService(locator: locator, runner: runner, snapshot: snapshot);
 
         var statuses = await service.GetStatusAsync();
         var claude = statuses.Single(s => s.Agent == AgentCliKind.Claude);
@@ -80,6 +96,20 @@ public class AgentCliStatusServiceTests : IDisposable
         claude.Version.ShouldBe("1.2.3");
         claude.AuthStatus.ShouldBe(AgentCliAuthStatus.Authenticated);
         claude.LoginCommand.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Dado_SnapshotNaoRefreshed_Quando_GetStatus_Entao_VersaoNulaERespostaInstantanea()
+    {
+        var service = CreateService(locator: name => name == "claude" ? "/usr/bin/claude" : null);
+
+        var statuses = await service.GetStatusAsync();
+        var claude = statuses.Single(s => s.Agent == AgentCliKind.Claude);
+
+        // Fast path: installed/auth are live; version waits for the snapshot.
+        claude.Installed.ShouldBeTrue();
+        claude.Version.ShouldBeNull();
+        claude.AuthStatus.ShouldBe(AgentCliAuthStatus.NotAuthenticated);
     }
 
     [Fact]
@@ -97,13 +127,14 @@ public class AgentCliStatusServiceTests : IDisposable
     [Fact]
     public async Task Dado_ProbeDeVersaoFalha_Quando_GetStatus_Entao_VersaoNulaSemErro()
     {
+        Func<string, string?> locator = name => name == "devin" ? "/usr/bin/devin" : null;
         var runner = new FakeRunner
         {
             Handler = (_, _) => throw new InvalidOperationException("boom")
         };
-        var service = CreateService(
-            locator: name => name == "devin" ? "/usr/bin/devin" : null,
-            runner: runner);
+        var snapshot = CreateSnapshot(locator, runner);
+        await snapshot.RefreshAsync();
+        var service = CreateService(locator: locator, runner: runner, snapshot: snapshot);
 
         var statuses = await service.GetStatusAsync();
         var devin = statuses.Single(s => s.Agent == AgentCliKind.Devin);
@@ -115,13 +146,14 @@ public class AgentCliStatusServiceTests : IDisposable
     [Fact]
     public async Task Dado_SaidaDeVersaoInvalida_Quando_GetStatus_Entao_UsaPrimeiraLinhaLimitada()
     {
+        Func<string, string?> locator = name => name == "agy" ? "/usr/bin/agy" : null;
         var runner = new FakeRunner
         {
             Handler = (_, _) => new CommandResult(0, new string('x', 100) + "\n", string.Empty)
         };
-        var service = CreateService(
-            locator: name => name == "agy" ? "/usr/bin/agy" : null,
-            runner: runner);
+        var snapshot = CreateSnapshot(locator, runner);
+        await snapshot.RefreshAsync();
+        var service = CreateService(locator: locator, runner: runner, snapshot: snapshot);
 
         var statuses = await service.GetStatusAsync();
         var agy = statuses.Single(s => s.Agent == AgentCliKind.Antigravity);
