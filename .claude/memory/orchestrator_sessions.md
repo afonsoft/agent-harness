@@ -4,8 +4,8 @@
 
 **Scope**: Phase -1/0 OK (skills @`9958c42` up-to-date, git clean, gh OK, dotnet 10.0.112/node 24.16.0). Reconciliação de issues abertas, sync de status de SPECs, Phase 7 completa.
 **Decisions**: #338 (E23 terminal mobile) — slices #339/#340 merged via PRs #341/#342 em 2026-09-24 → épico fechado; #318 (gap-analysis spec-drift epic) — único slice #319 closed, SPEC Done → épico fechado; SPECs terminal-focus-mode/terminal-virtual-keybar `Implemented (aguardando merge)` → `Done` via PR #354.
-**Delivered**: Issues #338 e #318 fechadas (comentários pt-BR com evidência); PR #354 aberto (spec status sync, CLEAN); `check-spec-status.sh` → "OK: no spec status drift"; build Release 0w/0e; testes 1207 unit + 296 integration — tudo verde.
-**Remaining**: Merges pendentes de confirmação — PR #354 (spec sync) e PR #344 (dependabot test-tooling, CLEAN). Cleanup: 8 branches locais + 8 remotas merged (squad) candidatas a delete. Re-deploy `harness-server` de main pendente (desde 09-23 + merges posteriores).
+**Delivered**: Issues #338 e #318 fechadas (comentários pt-BR com evidência); PR #354 merged (spec status sync, `3e7626f`); PR #344 merged (dependabot test-tooling, `2e0e3d9`); `check-spec-status.sh` → "OK: no spec status drift"; build Release 0w/0e; testes 1207 unit + 296 integration verde; 9 branches locais + 8 remotas merged deletadas; re-deploy `harness-server` de main @`3e7626f` (publish c/ `_framework` limpo, health 200, `/api/meta` OK).
+**Remaining**: Nenhum gap pendente. Branch `feature/agent-pipe_1a2e329b…` mantida (worktree ativo).
 **Lessons**: `check-spec-status.sh` é a fonte mecânica anti-drift — rodar antes de fechar épicos de status-sync; branches squash-merged não aparecem em `git branch --merged` — cruzar com `gh pr list --head`.
 
 ## Session — 2026-09-23 (SPEC-20260923 cockpit run hardening)
