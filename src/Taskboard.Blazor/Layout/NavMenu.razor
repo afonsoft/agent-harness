@@ -33,6 +33,14 @@
         <Icon Name="IconName.Kanban" />
         <span class="nav-label">Board</span>
     </NavLink>
+    <NavLink class="nav-link" href="ai-chat" aria-label="AI Code" data-label="AI Code" title='@RailTitle("AI Code")' @onclick="CloseSidebarAsync">
+        <Icon Name="IconName.ChatDots" />
+        <span class="nav-label">AI Code</span>
+    </NavLink>
+    <NavLink class="nav-link" href="terminal" aria-label="Terminal" data-label="Terminal" title='@RailTitle("Terminal")' @onclick="CloseSidebarAsync">
+        <Icon Name="IconName.Terminal" />
+        <span class="nav-label">Terminal</span>
+    </NavLink>
     <NavLink class="nav-link" href="gantt" aria-label="Gantt" data-label="Gantt" title='@RailTitle("Gantt")' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.BarChart" />
         <span class="nav-label">Gantt</span>
@@ -49,18 +57,10 @@
         <Icon Name="IconName.CodeSlash" />
         <span class="nav-label">VS Code</span>
     </NavLink>
-    <NavLink class="nav-link" href="terminal" aria-label="Terminal" data-label="Terminal" title='@RailTitle("Terminal")' @onclick="CloseSidebarAsync">
-        <Icon Name="IconName.Terminal" />
-        <span class="nav-label">Terminal</span>
-    </NavLink>
     <hr class="app-sidebar-divider" />
     <NavLink class="nav-link" href="cockpit" aria-label="Cockpit" data-label="Cockpit" title='@RailTitle("Cockpit")' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Speedometer2" />
         <span class="nav-label">Cockpit</span>
-    </NavLink>
-    <NavLink class="nav-link" href="ai-chat" aria-label="AI Code" data-label="AI Code" title='@RailTitle("AI Code")' @onclick="CloseSidebarAsync">
-        <Icon Name="IconName.ChatDots" />
-        <span class="nav-label">AI Code</span>
     </NavLink>
     <NavLink class="nav-link" href="agents" aria-label="CLI Agents" data-label="CLI Agents" title='@RailTitle("CLI Agents")' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Robot" />
