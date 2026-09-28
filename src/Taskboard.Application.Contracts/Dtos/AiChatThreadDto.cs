@@ -17,4 +17,12 @@ public sealed record AiChatThreadDto(
     /// <summary>SPEC-20260921-ai-code-thread-config RF-006: tier usado na escolha do modelo.</summary>
     string? ModelTier = null,
     /// <summary>SPEC-20260921-ai-code-thread-config RF-006: origem do modelo efetivo (acp|probe|curated|custom).</summary>
-    string? ModelSource = null);
+    string? ModelSource = null)
+{
+    /// <summary>
+    /// SPEC-20260928-ai-code-ux-simplify RF-005: thread kind — <c>"chat"</c>
+    /// (structured ACP events) or <c>"terminal"</c> (raw PTY session; populated
+    /// by SPEC-20260928-ai-code-generic-cli). Defaults to <c>"chat"</c>.
+    /// </summary>
+    public string Kind { get; init; } = "chat";
+}

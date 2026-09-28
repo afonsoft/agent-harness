@@ -1,0 +1,19 @@
+@using Taskboard.Dtos
+
+@*
+    SPEC-20260928-ai-code-ux-simplify RF-005: slot for terminal-transport
+    threads inside the AI Code pane. The real xterm.js surface lands with
+    SPEC-20260928-ai-code-generic-cli (PtySession bound to the thread id) —
+    until then this pane only renders for threads that advertise
+    Kind == "terminal" (none can exist yet).
+*@
+
+<div class="ai-chat-pty-pane d-flex flex-column align-items-center justify-content-center text-body-secondary gap-2">
+    <Icon Name="IconName.Terminal" class="fs-3" />
+    <div><strong>@Thread?.Title</strong></div>
+    <div class="small">Terminal session — PTY transport arrives with the generic-CLI spec.</div>
+</div>
+
+@code {
+    [Parameter] public AiChatThreadDto? Thread { get; set; }
+}
