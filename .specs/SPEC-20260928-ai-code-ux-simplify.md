@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-ai-code-ux-simplify` |
 | Ticket | [#347](https://github.com/afonsoft/agent-harness/issues/347) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260921-ai-code-chat-ux`, `SPEC-20260922-ai-chat-command-bar`, `SPEC-20260928-ai-code-generic-cli`, `SPEC-20260928-nav-menu-order` |
 
 ## 1. User Story
@@ -117,14 +117,14 @@ tests/Taskboard.Tests.Unit/AiChat/*                           # new bUnit — ra
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a página AI Code **when** carrego com threads existentes **then** o rail mostra todas ordenadas sem abrir modal, e selecionar uma troca o chat em 1 clique.
-- [ ] **Given** ao menos um agent CLI elegível **when** clico `+` **then** uma thread agent é criada com defaults e o composer fica focado — nenhum diálogo.
-- [ ] **Given** nenhuma CLI elegível **when** vejo o rail **then** `+` está desabilitado com tooltip para Settings → Agents.
-- [ ] **Given** uma thread ativa **when** observo a context bar **then** só chips relevantes aparecem e cada um abre seu popup (repo/model/sandbox).
-- [ ] **Given** run ativo **when** olho o composer **then** Stop visível; sem run → Stop ausente; há prompt anterior → Retry visível.
-- [ ] **Given** viewport 375px **when** abro o rail **then** ele aparece como drawer overlay com scrim, e fecha ao selecionar thread.
-- [ ] **Given** refresh da página **when** retorno **then** estado do rail e último agent usado persistem.
-- [ ] **Given** suíte `dotnet test` **when** executada **then** verde, com bUnit cobrindo rail e one-click-new.
+- [x] **Given** a página AI Code **when** carrego com threads existentes **then** o rail mostra todas ordenadas sem abrir modal, e selecionar uma troca o chat em 1 clique.
+- [x] **Given** ao menos um agent CLI elegível **when** clico `+` **then** uma thread agent é criada com defaults e o composer fica focado — nenhum diálogo.
+- [x] **Given** nenhuma CLI elegível **when** vejo o rail **then** `+` está desabilitado com tooltip para Settings → Agents.
+- [x] **Given** uma thread ativa **when** observo a context bar **then** só chips relevantes aparecem e cada um abre seu popup (repo/model/sandbox).
+- [x] **Given** run ativo **when** olho o composer **then** Stop visível; sem run → Stop ausente; há prompt anterior → Retry visível.
+- [x] **Given** viewport 375px **when** abro o rail **then** ele aparece como drawer overlay com scrim, e fecha ao selecionar thread.
+- [x] **Given** refresh da página **when** retorno **then** estado do rail e último agent usado persistem.
+- [x] **Given** suíte `dotnet test` **when** executada **then** verde, com bUnit cobrindo rail e one-click-new.
 
 **Edge cases:**
 
@@ -137,13 +137,13 @@ tests/Taskboard.Tests.Unit/AiChat/*                           # new bUnit — ra
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** ler arquivos da seção 3; mapear o que extrair de `AiChat.razor`.
-- [ ] **T2 — Layout + ThreadRail:** wrapper rail/main, extrair lista do modal para componente compartilhado, drawer mobile, collapse persistido.
-- [ ] **T3 — One-click new:** defaults + `lastAgent` storage + fallback `NewThreadDialog`.
-- [ ] **T4 — Context bar + composer:** chips→modais existentes, popover `⋯`, visibilidade contextual de botões.
-- [ ] **T5 — Pty slot + polish:** `PtyThreadPane` stub, badge `terminal`, CSS, a11y (aria, focus).
-- [ ] **T6 — Verification:** bUnit (rail, defaults, visibilidade de botões), `dotnet build` + `dotnet test`, smoke manual documentado (desktop expandido/colapsado, mobile drawer).
-- [ ] **T7 — Done + PR:** `Status = Done`, PR na branch `feature/devin-20260928-ai-code-ux-simplify`.
+- [x] **T1 — Discovery:** ler arquivos da seção 3; mapear o que extrair de `AiChat.razor`.
+- [x] **T2 — Layout + ThreadRail:** wrapper rail/main, extrair lista do modal para componente compartilhado, drawer mobile, collapse persistido.
+- [x] **T3 — One-click new:** defaults + `lastAgent` storage + fallback `NewThreadDialog`.
+- [x] **T4 — Context bar + composer:** chips→modais existentes, popover `⋯`, visibilidade contextual de botões.
+- [x] **T5 — Pty slot + polish:** `PtyThreadPane` stub, badge `terminal`, CSS, a11y (aria, focus).
+- [x] **T6 — Verification:** bUnit (rail, defaults, visibilidade de botões), `dotnet build` + `dotnet test`, smoke manual documentado (desktop expandido/colapsado, mobile drawer).
+- [x] **T7 — Done + PR:** `Status = Done`, PR na branch `feature/devin-20260928-ai-code-ux-simplify`.
 
 **7.1 Validation strategy**
 
@@ -160,11 +160,11 @@ tests/Taskboard.Tests.Unit/AiChat/*                           # new bUnit — ra
 
 ## 9. Definition of Done
 
-- [ ] RF-001 a RF-005 implementados.
-- [ ] Acceptance criteria verificados; nenhuma feature existente regredida.
-- [ ] bUnit novos verdes; `dotnet build` limpo; suíte completa verde.
-- [ ] Guardrails respeitados.
-- [ ] `docs/features.md` + `.pt-br` atualizados com o novo layout.
+- [x] RF-001 a RF-005 implementados.
+- [x] Acceptance criteria verificados; nenhuma feature existente regredida.
+- [x] bUnit novos verdes; `dotnet build` limpo; suíte completa verde.
+- [x] Guardrails respeitados.
+- [x] `docs/features.md` + `.pt-br` atualizados com o novo layout.
 
 **Next action after DoD is complete:** set `Status = Done` in section 0 and open the PR on branch `feature/devin-20260928-ai-code-ux-simplify`.
 

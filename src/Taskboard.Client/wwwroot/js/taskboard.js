@@ -84,6 +84,40 @@ window.taskboard = {
                 localStorage.removeItem('harness.selectedRepo');
             }
         } catch (e) { /* storage unavailable — session-only state */ }
+    },
+
+    // SPEC-20260928-ai-code-ux-simplify RF-001/RF-002: AI Code rail collapse
+    // and the last-used agent CLI — per-browser, session-only fallback.
+    getAiChatRailCollapsed: function () {
+        try {
+            return localStorage.getItem('harness.aichat.rail.collapsed') === 'true';
+        } catch (e) {
+            return false;
+        }
+    },
+
+    setAiChatRailCollapsed: function (collapsed) {
+        try {
+            localStorage.setItem('harness.aichat.rail.collapsed', collapsed ? 'true' : 'false');
+        } catch (e) { /* storage unavailable — session-only state */ }
+    },
+
+    getAiChatLastAgent: function () {
+        try {
+            return localStorage.getItem('harness.aichat.lastAgent');
+        } catch (e) {
+            return null;
+        }
+    },
+
+    setAiChatLastAgent: function (agent) {
+        try {
+            if (agent) {
+                localStorage.setItem('harness.aichat.lastAgent', agent);
+            } else {
+                localStorage.removeItem('harness.aichat.lastAgent');
+            }
+        } catch (e) { /* storage unavailable — session-only state */ }
     }
 };
 

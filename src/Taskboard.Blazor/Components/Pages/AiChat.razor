@@ -11,16 +11,13 @@
 <PageTitle>AI Code - Harness</PageTitle>
 
 <div class="d-flex align-items-center gap-2 mb-3">
+    @* Mobile (<768px): the rail becomes an overlay drawer toggled from here. *@
+    <button type="button" class="btn btn-sm btn-outline-secondary d-md-none" title="Threads"
+            aria-label="Open thread list"
+            @onclick="() => _railDrawerOpen = true">
+        <Icon Name="IconName.List" />
+    </button>
     <h1 class="h4 fw-bold mb-0">AI Code</h1>
-    @* RF-005: history + New live behind icons next to the title. *@
-    <button type="button" class="btn btn-sm btn-outline-secondary" title="Threads"
-            @onclick="ShowHistoryAsync">
-        <Icon Name="IconName.ClockHistory" />
-    </button>
-    <button type="button" class="btn btn-sm btn-outline-primary" title="New conversation"
-            @onclick="NewConversationAsync">
-        <Icon Name="IconName.PlusSquare" />
-    </button>
     <span class="small text-body-secondary ms-1">Chat threads and agent sub-tasks</span>
 </div>
 
@@ -30,6 +27,22 @@
 }
 else
 {
+<div class="ai-chat-layout @(_railDrawerOpen ? "rail-open" : "")">
+    @if (_railDrawerOpen)
+    {
+        <div class="ai-chat-rail-scrim d-md-none" @onclick="() => _railDrawerOpen = false"></div>
+    }
+    <div class="ai-chat-rail-wrap @(_railDrawerOpen ? "drawer-open" : "")">
+        <ThreadRail Threads="OrderedThreads"
+                    ActiveThreadId="_activeThreadId"
+                    Collapsed="_railCollapsed"
+                    HasEligibleAgent="HasEligibleAgent"
+                    OnToggleCollapsed="ToggleRailCollapsedAsync"
+                    OnNew="NewConversationAsync"
+                    OnSelect="SelectThreadFromRailAsync"
+                    OnDelete="DeleteThreadAsync" />
+    </div>
+
     <section class="ai-chat-main card">
         @if (_activeThread is not null)
         {
@@ -60,6 +73,15 @@ else
             </div>
         }
 
+        @* SPEC-20260928-ai-code-ux-simplify RF-005: terminal-transport threads
+           render the PTY pane instead of bubbles/composer (the pane owns its
+           own input via xterm once SPEC-20260928-ai-code-generic-cli lands). *@
+        @if (_activeThread?.Kind == "terminal")
+        {
+            <PtyThreadPane Thread="_activeThread" />
+        }
+        else
+        {
         <div class="ai-chat-messages card-body" @ref="_messagesRef">
             @if (_events.Count == 0 && !_running)
             {
@@ -286,6 +308,27 @@ else
                             <Icon Name="IconName.ShieldLock" /> @_activeThread.Sandbox
                         </span>
                     }
+                    @if (_activeThread.Mode != "agent")
+                    {
+                        @* SPEC-20260928 RF-004: secondary actions live under ⋯ —
+                           the composer keeps only Send/Retry/Stop. *@
+                        <span class="ai-chat-overflow">
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    title="More actions" aria-label="More actions"
+                                    @onclick="() => _overflowOpen = !_overflowOpen">
+                                <Icon Name="IconName.ThreeDots" />
+                            </button>
+                            @if (_overflowOpen)
+                            {
+                                <div class="ai-chat-overflow-menu">
+                                    <button type="button" class="ai-chat-overflow-item"
+                                            @onclick="ShowRunAgentFromOverflowAsync">
+                                        <Icon Name="IconName.Robot" class="me-1" /> Run agent on this thread
+                                    </button>
+                                </div>
+                            }
+                        </span>
+                    }
                 }
                 @if (Usage is { } usage)
                 {
@@ -310,83 +353,32 @@ else
                           @bind:event="oninput"
                           @onkeydown="OnComposerKeyDownAsync"></textarea>
                 <div class="d-flex flex-column gap-2">
+                    @* SPEC-20260928 RF-004: Send is the permanent primary action;
+                       Stop/Retry surface only when they apply. *@
                     <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
                             Disabled="@((_running && !IsAgentMode) || _sending || string.IsNullOrWhiteSpace(_composer))"
                             @onclick="SendMessageAsync">Send</Button>
-                    @if (IsAgentMode)
+                    @if (IsAgentMode && _activeThread is not null)
                     {
-                        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                Disabled="@(_sending || _activeThread is null)"
-                                title="Resend the last user prompt"
-                                @onclick="RetryAgentAsync">Retry</Button>
                         @if (_running)
                         {
                             <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="StopAgentAsync">Stop</Button>
                         }
-                    }
-                    else
-                    {
-                        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                Disabled="@(_running || _sending || _activeThread is null)"
-                                title="Queue a CLI agent run on this conversation"
-                                @onclick="ShowRunAgentAsync">Run agent</Button>
+                        else
+                        {
+                            <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                                    Disabled="@_sending"
+                                    title="Resend the last user prompt"
+                                    @onclick="RetryAgentAsync">Retry</Button>
+                        }
                     }
                 </div>
             </div>
         </div>
-    </section>
-}
-
-@* RF-008: every thread lives behind the history icon — newest first, with
-   inline-confirm delete; picking one loads it and locks the bar. *@
-<Modal @ref="_historyModal" Title="Threads" IsScrollable="true">
-    <BodyTemplate>
-        @if ((_threads?.Count ?? 0) == 0)
-        {
-            <div class="text-body-secondary small p-2">No threads yet.</div>
         }
-        <ul class="ai-chat-thread-list list-unstyled mb-0">
-            @foreach (var thread in OrderedThreads)
-            {
-                var isActive = thread.Id == _activeThreadId;
-                <li class="ai-chat-thread-item @(isActive ? "active" : null)">
-                    <button type="button" class="ai-chat-thread-btn" @onclick="() => SelectThreadFromHistoryAsync(thread)">
-                        <span class="ai-chat-thread-title text-truncate">@thread.Title</span>
-                        <span class="ai-chat-thread-meta">
-                            <span class="badge text-bg-secondary">@thread.Model</span>
-                            <span class="text-body-secondary">@RelativeTime(thread.UpdatedAt)</span>
-                            @if (thread.Status == "running")
-                            {
-                                <span class="badge text-bg-warning ai-chat-badge-live">running</span>
-                            }
-                            else if (thread.Status == "failed")
-                            {
-                                <span class="badge text-bg-danger">failed</span>
-                            }
-                        </span>
-                    </button>
-                    @if (_deleteConfirmId == thread.Id)
-                    {
-                        <span class="ai-chat-thread-confirm">
-                            <button type="button" class="btn btn-sm btn-danger" @onclick="() => DeleteThreadAsync(thread)">Delete</button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _deleteConfirmId = null">Cancel</button>
-                        </span>
-                    }
-                    else
-                    {
-                        <button type="button" class="btn btn-sm btn-link text-danger ai-chat-thread-delete"
-                                title="Delete thread" @onclick="() => _deleteConfirmId = thread.Id">
-                            <Icon Name="IconName.Trash" />
-                        </button>
-                    }
-                </li>
-            }
-        </ul>
-    </BodyTemplate>
-    <FooterTemplate>
-        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => HideModalAsync(_historyModal)">Close</Button>
-    </FooterTemplate>
-</Modal>
+    </section>
+</div>
+}
 
 @* RF-006: repo picker popup — free text or the shared repository combobox. *@
 <Modal @ref="_repoModal" Title="Repository" Size="ModalSize.Small" IsVerticallyCentered="true">
@@ -492,10 +484,12 @@ else
     private bool _sending;
     private bool _sseError;
     private bool _scrollPending;
-    private string? _deleteConfirmId;
+    // SPEC-20260928: rail state — collapsed (desktop icon rail), drawer (mobile overlay).
+    private bool _railCollapsed;
+    private bool _railDrawerOpen;
+    private bool _overflowOpen;
     private ElementReference _messagesRef;
     private ElementReference _composerRef;
-    private Modal _historyModal = default!;
     private Modal _repoModal = default!;
     private Modal _modelModal = default!;
     private Modal _sandboxModal = default!;
@@ -517,6 +511,10 @@ else
 
     private bool IsAgentMode =>
         (_activeThread?.Mode ?? _cfgMode) == "agent";
+
+    /// <summary>SPEC-20260928 RF-002: gates the rail's one-click New button.</summary>
+    private bool HasEligibleAgent =>
+        _agents?.Any(a => a.Status == AgentStatus.Available) == true;
 
     private string ComposerPlaceholder =>
         _running && !IsAgentMode ? "Waiting for the assistant…"
@@ -569,15 +567,6 @@ else
         }
 
         return tip;
-    }
-
-    private static string RelativeTime(DateTime updatedAt)
-    {
-        var span = DateTime.UtcNow - updatedAt;
-        return span.TotalMinutes < 1 ? "now"
-            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m"
-            : span.TotalDays < 1 ? $"{(int)span.TotalHours}h"
-            : $"{(int)span.TotalDays}d";
     }
 
     // Consecutive user/assistant events render as one bubble — the server stores
@@ -634,11 +623,27 @@ else
 
         // Command-bar data — same sources the create dialog used. GitHub repo
         // list is best-effort (missing token must not break the page).
+        // SPEC-20260928 RF-002: the one-click default prefers the last agent
+        // used (localStorage) when still eligible, else the first eligible.
         try
         {
+            string? lastAgent = null;
+            try
+            {
+                _railCollapsed = await JS.InvokeAsync<bool>("taskboard.getAiChatRailCollapsed");
+                lastAgent = await JS.InvokeAsync<string?>("taskboard.getAiChatLastAgent");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+            {
+                // JS interop unavailable (prerender) — defaults apply.
+            }
+
             _agents = await OrchestrationService.GetAvailableAgentsAsync();
             _catalog = await Client.GetAiChatCatalogAsync();
-            var first = _agents.FirstOrDefault(a => a.Status == AgentStatus.Available);
+            var eligible = _agents.Where(a => a.Status == AgentStatus.Available).ToList();
+            var first = (lastAgent is null ? null : eligible.FirstOrDefault(
+                             a => string.Equals(a.Type.ToString(), lastAgent, StringComparison.OrdinalIgnoreCase)))
+                        ?? eligible.FirstOrDefault();
             if (first is not null)
             {
                 _cfgAgentType = first.Type.ToString();
@@ -677,20 +682,31 @@ else
         await modal.HideAsync();
     }
 
-    private async Task ShowHistoryAsync()
+    /// <summary>SPEC-20260928 RF-001: rail collapse persists per-browser.</summary>
+    private async Task ToggleRailCollapsedAsync()
     {
-        // Refresh on open so deletes from other tabs show up.
+        _railCollapsed = !_railCollapsed;
         try
         {
-            _threads = await Client.GetAiChatThreadsAsync();
+            await JS.InvokeVoidAsync("taskboard.setAiChatRailCollapsed", _railCollapsed);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
+            // Storage/JS unavailable — session-only state.
         }
+    }
 
-        _deleteConfirmId = null;
-        await _historyModal.ShowAsync();
+    /// <summary>Rail selection also closes the mobile drawer.</summary>
+    private async Task SelectThreadFromRailAsync(AiChatThreadDto thread)
+    {
+        _railDrawerOpen = false;
+        await SelectThreadAsync(thread);
+    }
+
+    private async Task ShowRunAgentFromOverflowAsync()
+    {
+        _overflowOpen = false;
+        await ShowRunAgentAsync();
     }
 
     private async Task ShowRepoModalAsync() => await _repoModal.ShowAsync();
@@ -699,22 +715,24 @@ else
 
     private async Task ShowSandboxModalAsync() => await _sandboxModal.ShowAsync();
 
-    private void OnCfgAgentChanged(ChangeEventArgs e)
+    private async Task OnCfgAgentChanged(ChangeEventArgs e)
     {
         _cfgAgentType = e.Value?.ToString() ?? string.Empty;
         _cfgModelId = string.Empty; // reset to CLI default when switching agents
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgAgentType);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // Storage/JS unavailable — session-only default.
+        }
     }
 
     private static string ModelOptionLabel(AiChatModelDto model) =>
         model.Source == "acp"
             ? $"{model.Name} (reported by agent)"
             : model.Name;
-
-    private async Task SelectThreadFromHistoryAsync(AiChatThreadDto thread)
-    {
-        await HideModalAsync(_historyModal);
-        await SelectThreadAsync(thread);
-    }
 
     private async Task SelectThreadAsync(AiChatThreadDto thread)
     {
@@ -737,6 +755,13 @@ else
         if (!string.IsNullOrWhiteSpace(thread.AgentType))
         {
             _cfgAgentType = thread.AgentType;
+            try
+            {
+                await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgAgentType);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+            {
+            }
         }
         _cfgRepo = thread.RepositoryFullName ?? string.Empty;
         _cfgModelTier = thread.ModelTier ?? string.Empty;
@@ -1140,7 +1165,6 @@ else
 
     private async Task DeleteThreadAsync(AiChatThreadDto thread)
     {
-        _deleteConfirmId = null;
         var deleted = await Client.DeleteAiChatThreadAsync(thread.Id);
         if (!deleted)
         {

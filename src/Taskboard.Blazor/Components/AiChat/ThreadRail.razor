@@ -1,0 +1,137 @@
+@using Taskboard.Dtos
+
+@*
+    SPEC-20260928-ai-code-ux-simplify RF-001/RF-002: persistent thread rail —
+    the list that used to live behind the "Threads" modal now stays visible.
+    Collapses to an icon rail (tooltips carry the title); on narrow screens it
+    is rendered as an overlay drawer by the parent page.
+*@
+
+<aside class="ai-chat-rail @(Collapsed ? "is-collapsed" : "")" aria-label="Threads">
+    <div class="ai-chat-rail-header">
+        <button type="button" class="btn btn-sm btn-link text-body-secondary ai-chat-rail-toggle"
+                title="@(Collapsed ? "Expand threads" : "Collapse threads")"
+                aria-label="@(Collapsed ? "Expand thread list" : "Collapse thread list")"
+                @onclick="OnToggleCollapsed">
+            <Icon Name="@(Collapsed ? IconName.ChevronRight : IconName.ChevronLeft)" />
+        </button>
+        @if (!Collapsed)
+        {
+            <span class="small text-body-secondary">Threads</span>
+        }
+        <button type="button" class="btn btn-sm btn-primary ai-chat-rail-new ms-auto"
+                title="@(HasEligibleAgent ? "New conversation (last used config)" : "No enabled CLI — see Settings → Agents")"
+                aria-label="New conversation"
+                disabled="@(!HasEligibleAgent)"
+                @onclick="OnNew">
+            <Icon Name="IconName.PlusSquare" />
+            @if (!Collapsed)
+            {
+                <span class="ms-1">New</span>
+            }
+        </button>
+    </div>
+
+    <div class="ai-chat-rail-list">
+        @if (!Threads.Any())
+        {
+            if (!Collapsed)
+            {
+                <div class="text-body-secondary small p-2">No threads yet.</div>
+            }
+        }
+        else
+        {
+            <ul class="ai-chat-thread-list list-unstyled mb-0">
+                @foreach (var thread in Threads)
+                {
+                    var isActive = thread.Id == ActiveThreadId;
+                    <li class="ai-chat-thread-item @(isActive ? "active" : null)" @key="thread.Id">
+                        @if (Collapsed)
+                        {
+                            <button type="button" class="ai-chat-thread-btn ai-chat-rail-iconbtn"
+                                    title="@thread.Title"
+                                    aria-label="@thread.Title"
+                                    @onclick="() => OnSelect.InvokeAsync(thread)">
+                                <Icon Name="IconName.ChatDots" />
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="ai-chat-thread-btn" @onclick="() => OnSelect.InvokeAsync(thread)">
+                                <span class="ai-chat-thread-title text-truncate">@thread.Title</span>
+                                <span class="ai-chat-thread-meta">
+                                    <span class="badge text-bg-secondary">@thread.Model</span>
+                                    @if (thread.Kind == "terminal")
+                                    {
+                                        <span class="badge text-bg-dark">term</span>
+                                    }
+                                    <span class="text-body-secondary">@RelativeTime(thread.UpdatedAt)</span>
+                                    @if (thread.Status == "running")
+                                    {
+                                        <span class="badge text-bg-warning ai-chat-badge-live">running</span>
+                                    }
+                                    else if (thread.Status == "failed")
+                                    {
+                                        <span class="badge text-bg-danger">failed</span>
+                                    }
+                                </span>
+                            </button>
+                            @if (_deleteConfirmId == thread.Id)
+                            {
+                                <span class="ai-chat-thread-confirm">
+                                    <button type="button" class="btn btn-sm btn-danger" @onclick="() => ConfirmDeleteAsync(thread)">Delete</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _deleteConfirmId = null">Cancel</button>
+                                </span>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-link text-danger ai-chat-thread-delete"
+                                        title="Delete thread" aria-label="Delete @thread.Title"
+                                        @onclick="() => _deleteConfirmId = thread.Id">
+                                    <Icon Name="IconName.Trash" />
+                                </button>
+                            }
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+</aside>
+
+@code {
+    /// <summary>Threads to list — already sorted (newest first).</summary>
+    [Parameter] public IEnumerable<AiChatThreadDto> Threads { get; set; } = [];
+
+    /// <summary>Currently open thread id — rendered with the active state.</summary>
+    [Parameter] public string? ActiveThreadId { get; set; }
+
+    /// <summary>Icon-rail mode — items render as icon buttons with title tooltips.</summary>
+    [Parameter] public bool Collapsed { get; set; }
+
+    /// <summary>False when no agent CLI is eligible — disables the New button.</summary>
+    [Parameter] public bool HasEligibleAgent { get; set; } = true;
+
+    [Parameter] public EventCallback OnToggleCollapsed { get; set; }
+    [Parameter] public EventCallback OnNew { get; set; }
+    [Parameter] public EventCallback<AiChatThreadDto> OnSelect { get; set; }
+    [Parameter] public EventCallback<AiChatThreadDto> OnDelete { get; set; }
+
+    private string? _deleteConfirmId;
+
+    private async Task ConfirmDeleteAsync(AiChatThreadDto thread)
+    {
+        _deleteConfirmId = null;
+        await OnDelete.InvokeAsync(thread);
+    }
+
+    private static string RelativeTime(DateTime updatedAt)
+    {
+        var span = DateTime.UtcNow - updatedAt;
+        return span.TotalMinutes < 1 ? "now"
+            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m"
+            : span.TotalDays < 1 ? $"{(int)span.TotalHours}h"
+            : $"{(int)span.TotalDays}d";
+    }
+}
