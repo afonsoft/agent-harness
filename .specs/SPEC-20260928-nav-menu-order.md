@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-nav-menu-order` |
 | Ticket | [#345](https://github.com/afonsoft/agent-harness/issues/345) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260921-ai-code-chat-ux`, `SPEC-20260922-harness-home-rename` |
 
 ## 1. User Story
