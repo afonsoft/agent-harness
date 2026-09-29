@@ -19,7 +19,8 @@ public sealed class CliChatRunner(IAgentAcpClient acpClient, WorkspaceService wo
         string? modelName,
         string prompt,
         IProgress<AgentLogMessage> progress,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? containerContext = null)
     {
         var request = new AgentExecutionRequest(
             IssueId: threadId,
@@ -33,7 +34,10 @@ public sealed class CliChatRunner(IAgentAcpClient acpClient, WorkspaceService wo
             ResolvedModelName: modelName,
             // "default" arrives as null: the CLI decides the model — without this
             // the invocation template would inject the curated Normal model.
-            OmitModelFlag: modelName is null);
+            OmitModelFlag: modelName is null,
+            // SPEC-20260929-docker-cli-context RF-003: assistant runs honor the
+            // thread's container — the one-shot exec lands inside docker.
+            ContainerContext: containerContext);
 
         return acpClient.ExecuteAsync(request, progress, cancellationToken);
     }

@@ -469,6 +469,8 @@ builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstall
 builder.Services.AddSingleton(sp => new DockerCliDiscovery(
     homeDir,
     sp.GetRequiredService<ILogger<DockerCliDiscovery>>()));
+builder.Services.AddSingleton<Taskboard.Agents.IContainerCliDiscovery>(
+    sp => sp.GetRequiredService<DockerCliDiscovery>());
 
 builder.Services.AddSingleton(sp => new PtySessionFactory(
     homeDir,

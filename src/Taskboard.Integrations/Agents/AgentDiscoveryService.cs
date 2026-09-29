@@ -12,7 +12,7 @@ namespace Taskboard.Integrations.Agents;
 public sealed class AgentDiscoveryService : IAgentDiscoveryService
 {
     /// <summary>CLIs com sessão ACP estruturada; as demais usam transporte PTY.</summary>
-    private static readonly HashSet<AgentType> AcpCapable = [AgentType.OpenCode, AgentType.Claude, AgentType.Codex, AgentType.Devin];
+    private static bool AcpCapable(AgentType type) => AgentCliMap.SupportsAcp(type);
 
     private static readonly IReadOnlyDictionary<AgentType, string> KnownAgents = BuildKnownAgents();
 
@@ -56,7 +56,7 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
             KnownDescriptions.TryGetValue(type, out var description);
             // ACP-capable CLIs keep the structured session flag; every
             // resolvable CLI can still open a PTY terminal thread (RF-003).
-            var supportsSession = AcpCapable.Contains(type);
+            var supportsSession = AcpCapable(type);
             var transport = supportsSession ? "acp" : "pty";
             if (executablePath is null)
             {
@@ -95,7 +95,7 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
     /// "acp"; every other known type talks over PTY.
     /// </summary>
     public static string TransportFor(AgentType type) =>
-        AcpCapable.Contains(type) ? "acp" : "pty";
+        AcpCapable(type) ? "acp" : "pty";
 
     private static IReadOnlyDictionary<AgentType, string> BuildKnownAgents()
     {

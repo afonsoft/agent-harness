@@ -106,7 +106,8 @@ public sealed class AgentSessionManager : IAsyncDisposable
             workdir,
             thread.Sandbox,
             sessionModel,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            thread.ContainerContext).ConfigureAwait(false);
 
         if (started)
         {

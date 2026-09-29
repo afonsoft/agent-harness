@@ -21,4 +21,6 @@ public sealed record AgentExecutionRequest(
     double? VerifyMinCoverage = null,
     int? VerifyMaxAttempts = null,
     /// <summary>Budget cap in USD — the run is interrupted with state BudgetExceeded when exceeded (SPEC-20260919-ade-observability-finops RF-003).</summary>
-    decimal? MaxBudgetUsd = null);
+    decimal? MaxBudgetUsd = null,
+    /// <summary>Running Docker container to exec the CLI into (SPEC-20260929-docker-cli-context); null = host.</summary>
+    string? ContainerContext = null);

@@ -297,6 +297,7 @@ public class AiChatThreadModelChoiceTests
             config,
             modelProbe,
             Substitute.For<IAgentCliDefinitionRepository>(),
-            Substitute.For<IAgentDiscoveryService>());
+            Substitute.For<IAgentDiscoveryService>(),
+            Substitute.For<IContainerCliDiscovery>());
     }
 }

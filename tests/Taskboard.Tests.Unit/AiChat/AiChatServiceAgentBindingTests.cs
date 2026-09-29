@@ -184,10 +184,18 @@ public class AiChatServiceAgentBindingTests
     [Fact]
     public async Task Dado_ContextoDocker_Quando_CriarThreadPty_Entao_ContainerContextPersistido()
     {
+        // SPEC-20260929-docker-cli-context RF-002: com container, a CLI é
+        // validada contra a descoberta do contêiner — não o PATH do host.
         var discovery = Substitute.For<IAgentDiscoveryService>();
-        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns((string?)null);
+        var containers = Substitute.For<IContainerCliDiscovery>();
+        containers.ListContainersAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<Taskboard.Dtos.DockerContainerDto>
+            {
+                new("dev", "ubuntu:24.04", ["claude"]),
+            });
 
-        var sut = CriarServico(eligible: [], discovery: discovery);
+        var sut = CriarServico(eligible: [], discovery: discovery, containerDiscovery: containers);
 
         var dto = await sut.CreateThreadAsync(
             new CreateAiChatThreadRequest("t", "m", "none", "read-only",
@@ -197,11 +205,119 @@ public class AiChatServiceAgentBindingTests
         dto.ContainerContext.ShouldBe("dev");
     }
 
+    [Fact]
+    public async Task Dado_CliSoNoContainer_Quando_CriarThreadPty_Entao_AceitaSemInstalacaoNoHost()
+    {
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns((string?)null);
+        var containers = Substitute.For<IContainerCliDiscovery>();
+        containers.ListContainersAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<Taskboard.Dtos.DockerContainerDto>
+            {
+                new("dev", "img", ["aider"]),
+            });
+
+        var sut = CriarServico(eligible: [], discovery: discovery, containerDiscovery: containers);
+
+        var dto = await sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Aider", Transport: "pty", ContainerContext: "dev"),
+            Actor.LocalUser());
+
+        dto.Transport.ShouldBe("pty");
+        dto.ContainerContext.ShouldBe("dev");
+    }
+
+    [Fact]
+    public async Task Dado_CliAusenteNoContainer_Quando_CriarThreadPty_Entao_InvalidValue()
+    {
+        var containers = Substitute.For<IContainerCliDiscovery>();
+        containers.ListContainersAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<Taskboard.Dtos.DockerContainerDto>
+            {
+                new("dev", "img", ["claude"]),
+            });
+
+        var sut = CriarServico(eligible: [], containerDiscovery: containers);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Aider", Transport: "pty", ContainerContext: "dev"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public async Task Dado_ContainerDesconhecido_Quando_CriarThreadPty_Entao_InvalidValue()
+    {
+        var containers = Substitute.For<IContainerCliDiscovery>();
+        containers.ListContainersAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<Taskboard.Dtos.DockerContainerDto>
+            {
+                new("dev", "img", ["claude"]),
+            });
+
+        var sut = CriarServico(eligible: [], containerDiscovery: containers);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Claude", Transport: "pty", ContainerContext: "ghost"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public async Task Dado_ChatEmContainerComCliSemAcp_Quando_CriarThread_Entao_InvalidValue()
+    {
+        // Aider é PTY-only: mesmo dentro do contêiner não serve Chat (ACP).
+        var containers = Substitute.For<IContainerCliDiscovery>();
+        containers.ListContainersAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<Taskboard.Dtos.DockerContainerDto>
+            {
+                new("dev", "img", ["aider"]),
+            });
+
+        var sut = CriarServico(eligible: [], containerDiscovery: containers);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Aider", Transport: "acp", ContainerContext: "dev"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+        ex.Message.ShouldContain("ACP");
+    }
+
+    [Fact]
+    public async Task Dado_ChatEmContainerComCliAcp_Quando_CriarThread_Entao_AceitaSemElegibilidadeHost()
+    {
+        // Claude dentro do contêiner: Chat (ACP) vale mesmo sem CLI elegível no host.
+        var containers = Substitute.For<IContainerCliDiscovery>();
+        containers.ListContainersAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<Taskboard.Dtos.DockerContainerDto>
+            {
+                new("dev", "img", ["claude"]),
+            });
+
+        var sut = CriarServico(eligible: [], containerDiscovery: containers);
+
+        var dto = await sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Claude", Transport: "acp", ContainerContext: "dev"),
+            Actor.LocalUser());
+
+        dto.ContainerContext.ShouldBe("dev");
+        dto.AgentType.ShouldBe("Claude");
+    }
+
     private static AiChatService CriarServico(
         AgentType[] eligible,
         IRepository<AiChatThread>? threadRepo = null,
         IAgentCliDefinitionRepository? cliDefinitions = null,
-        IAgentDiscoveryService? discovery = null)
+        IAgentDiscoveryService? discovery = null,
+        IContainerCliDiscovery? containerDiscovery = null)
     {
         var eligibility = Substitute.For<IAgentEligibilityService>();
         eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
@@ -222,6 +338,7 @@ public class AiChatServiceAgentBindingTests
             Substitute.For<IAgentModelConfigService>(),
             Substitute.For<IAgentModelCatalogService>(),
             cliDefinitions ?? Substitute.For<IAgentCliDefinitionRepository>(),
-            discovery ?? Substitute.For<IAgentDiscoveryService>());
+            discovery ?? Substitute.For<IAgentDiscoveryService>(),
+            containerDiscovery ?? Substitute.For<IContainerCliDiscovery>());
     }
 }

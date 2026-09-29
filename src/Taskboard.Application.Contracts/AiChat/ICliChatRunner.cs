@@ -20,5 +20,6 @@ public interface ICliChatRunner
         string? modelName,
         string prompt,
         IProgress<AgentLogMessage> progress,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? containerContext = null);
 }
