@@ -98,8 +98,12 @@ public class CliProbeSnapshotServiceTests : IDisposable
         snapshot.EnsureRefreshing().ShouldBeFalse();
         snapshot.Refreshing.ShouldBeTrue();
 
+        // Junta a execução em voo ANTES de liberar o gate — senão o primeiro
+        // refresh pode completar entre SetResult e RefreshAsync, disparando
+        // um segundo (runner.Calls = 2, flake).
+        var join = snapshot.RefreshAsync();
         started.SetResult();
-        await snapshot.RefreshAsync();
+        await join;
 
         snapshot.Refreshing.ShouldBeFalse();
         runner.Calls.ShouldBe(1);

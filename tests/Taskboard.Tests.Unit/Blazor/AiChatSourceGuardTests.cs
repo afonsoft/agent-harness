@@ -23,14 +23,17 @@ public class AiChatSourceGuardTests
     }
 
     [Fact]
-    public void Dado_AiChatRazor_Quando_LeFonte_Entao_RailPersistentePresente()
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_RailOverlayPresente()
     {
-        // Covers RF-001 — ThreadRail montado dentro do .ai-chat-layout.
+        // SPEC-20260929-ai-chat-rail-overlay RF-001 — ThreadRail dentro do
+        // overlay (não mais rail persistente com toggle de colapso).
         var source = File.ReadAllText(AiChatRazorPath());
 
         source.ShouldContain("ai-chat-layout");
         source.ShouldContain("<ThreadRail");
-        source.ShouldContain("OnToggleCollapsed");
+        source.ShouldContain("ai-chat-rail-wrap");
+        source.ShouldNotContain("OnToggleCollapsed");
+        source.ShouldNotContain("_railCollapsed");
     }
 
     [Fact]
@@ -131,5 +134,44 @@ public class AiChatSourceGuardTests
         source.ShouldContain("OpenRailDrawerAsync");
         source.ShouldContain("RefreshThreadsAsync");
         source.ShouldContain("!HasUserPrompt");
+    }
+
+    // SPEC-20260929-ai-chat-rail-overlay.
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_BotoesHistoryENewNoTopoDireito()
+    {
+        // RF-002 — History + New no topo-direito sobre o painel de chat.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var msAuto = source.IndexOf("ms-auto", StringComparison.Ordinal);
+        var history = source.IndexOf("OpenRailDrawerAsync", msAuto, StringComparison.Ordinal);
+        var newChat = source.IndexOf("NewConversationAsync", msAuto, StringComparison.Ordinal);
+
+        msAuto.ShouldBeGreaterThanOrEqualTo(0, "grupo ms-auto com os botões não encontrado");
+        history.ShouldBeGreaterThan(msAuto, "botão History deve estar no grupo ms-auto");
+        newChat.ShouldBeGreaterThan(msAuto, "botão New deve estar no grupo ms-auto");
+    }
+
+    [Fact]
+    public void Dado_SiteCss_Quando_LeFonte_Entao_RailWrapNaoEhFlexItem()
+    {
+        // RF-001 — .ai-chat-rail-wrap é overlay fixed, não flex item do layout.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Join(dir.FullName, "Taskboard.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        var css = File.ReadAllText(
+            Path.Join(dir!.FullName, "src", "Taskboard.Client", "wwwroot", "css", "site.css"));
+
+        var wrap = css.IndexOf(".ai-chat-rail-wrap {", StringComparison.Ordinal);
+        wrap.ShouldBeGreaterThanOrEqualTo(0);
+        css[wrap..(wrap + 60)].ShouldContain("display: none");
+
+        var open = css.IndexOf(".ai-chat-rail-wrap.drawer-open {", StringComparison.Ordinal);
+        open.ShouldBeGreaterThanOrEqualTo(0);
+        css[open..(open + 200)].ShouldContain("position: fixed");
     }
 }

@@ -9,12 +9,6 @@
 
 <aside class="ai-chat-rail @(Collapsed ? "is-collapsed" : "")" aria-label="Threads">
     <div class="ai-chat-rail-header">
-        <button type="button" class="btn btn-sm btn-link text-body-secondary ai-chat-rail-toggle"
-                title="@(Collapsed ? "Expand threads" : "Collapse threads")"
-                aria-label="@(Collapsed ? "Expand thread list" : "Collapse thread list")"
-                @onclick="OnToggleCollapsed">
-            <Icon Name="@(Collapsed ? IconName.ChevronRight : IconName.ChevronLeft)" />
-        </button>
         @if (!Collapsed)
         {
             <span class="small text-body-secondary">Threads</span>
@@ -113,7 +107,6 @@
     /// <summary>False when no agent CLI is eligible — disables the New button.</summary>
     [Parameter] public bool HasEligibleAgent { get; set; } = true;
 
-    [Parameter] public EventCallback OnToggleCollapsed { get; set; }
     [Parameter] public EventCallback OnNew { get; set; }
     [Parameter] public EventCallback<AiChatThreadDto> OnSelect { get; set; }
     [Parameter] public EventCallback<AiChatThreadDto> OnDelete { get; set; }

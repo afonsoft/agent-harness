@@ -1630,8 +1630,34 @@ html[data-terminal-focus] .terminal-focus-exit {
     align-items: stretch;
 }
 
+/* SPEC-20260929-ai-chat-rail-overlay RF-001: o rail não é flex item — fica
+   oculto e aparece como overlay em todas as larguras sob demanda (History). */
 .ai-chat-rail-wrap {
-    flex: 0 0 auto;
+    display: none;
+}
+
+.ai-chat-rail-wrap.drawer-open {
+    display: block;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 1045;
+    padding: 0.5rem;
+    background: var(--bs-body-bg);
+    box-shadow: var(--bs-box-shadow-lg);
+    overflow-y: auto;
+}
+
+.ai-chat-rail-wrap.drawer-open .ai-chat-rail {
+    width: 280px;
+    height: 100%;
+    min-height: 0;
+}
+
+.ai-chat-rail-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+    background: rgba(0, 0, 0, 0.45);
 }
 
 .ai-chat-layout .ai-chat-main {
@@ -1694,35 +1720,6 @@ html[data-terminal-focus] .terminal-focus-exit {
     display: flex;
     justify-content: center;
     width: 100%;
-}
-
-/* Mobile: rail slides in as an overlay drawer over the chat surface. */
-@media (max-width: 767.98px) {
-    .ai-chat-rail-wrap {
-        display: none;
-    }
-
-    .ai-chat-rail-wrap.drawer-open {
-        display: block;
-        position: fixed;
-        inset: 0 auto 0 0;
-        z-index: 1045;
-        padding: 0.5rem;
-        background: var(--bs-body-bg);
-    }
-
-    .ai-chat-rail-wrap.drawer-open .ai-chat-rail {
-        width: 280px;
-        height: 100%;
-        min-height: 0;
-    }
-
-    .ai-chat-rail-scrim {
-        position: fixed;
-        inset: 0;
-        z-index: 1040;
-        background: rgba(0, 0, 0, 0.45);
-    }
 }
 
 /* Overflow (⋯) menu in the session command bar — secondary actions. */
