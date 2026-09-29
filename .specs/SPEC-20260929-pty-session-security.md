@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-pty-session-security` |
 | Ticket | [#367](https://github.com/afonsoft/agent-harness/issues/367) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260928-ai-code-generic-cli` (PR #353 — origem dos achados) |
 
 ## 1. User Story
