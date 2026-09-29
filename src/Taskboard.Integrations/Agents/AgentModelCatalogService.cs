@@ -27,18 +27,22 @@ public sealed class AgentModelCatalogService : IAgentModelCatalogService
     private readonly ISkillsInstallRunner _runner;
     private readonly CliProbeSnapshotService? _snapshot;
 
+    private readonly TimeSpan _refreshTtl;
+
     public AgentModelCatalogService(
         string homeDirectory,
         ILogger<AgentModelCatalogService> logger,
         Func<string, string?>? executableLocator = null,
         ISkillsInstallRunner? runner = null,
-        CliProbeSnapshotService? snapshot = null)
+        CliProbeSnapshotService? snapshot = null,
+        TimeSpan? refreshTtl = null)
     {
         _homeDirectory = homeDirectory;
         _logger = logger;
         _locator = executableLocator ?? PathSearch.FindExecutable;
         _runner = runner ?? ProcessSkillsInstallRunner.Instance;
         _snapshot = snapshot;
+        _refreshTtl = refreshTtl ?? TimeSpan.FromSeconds(120);
     }
 
     public async Task<IReadOnlyList<string>> ListAvailableAsync(
@@ -55,8 +59,12 @@ public sealed class AgentModelCatalogService : IAgentModelCatalogService
 
         // Fast path: serve the last-known snapshot and schedule a background
         // warm-up when the CLI was never probed (first call after restart).
+        // Stale snapshots trigger a background refresh too — without this a
+        // catalog read path that never touches CLI statuses could serve a
+        // model list forever (SPEC-20260929-cli-probe-hardening RF-001).
         if (!forceRefresh)
         {
+            _snapshot?.EnsureFresh(_refreshTtl);
             if (_snapshot?.GetModels(agentType) is { } cached)
             {
                 return cached;
