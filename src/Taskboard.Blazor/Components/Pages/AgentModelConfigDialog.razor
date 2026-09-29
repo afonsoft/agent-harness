@@ -189,7 +189,11 @@ else
     private bool _warmRetryScheduled;
     private readonly CancellationTokenSource _warmCts = new();
 
-    public void Dispose() => _warmCts.Cancel();
+    public void Dispose()
+    {
+        _warmCts.Cancel();
+        _warmCts.Dispose();
+    }
 
     private async Task RetryAvailableSoonAsync()
     {

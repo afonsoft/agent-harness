@@ -544,7 +544,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Warning,
+            await ToastService.NotifyAsync(new(ToastType.Warning,
                 $"Could not schedule a CLI probe refresh: {ex.Message}"));
         }
 
