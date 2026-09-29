@@ -1,5 +1,13 @@
 # Orchestrator Sessions
 
+## Session — 2026-09-28 (gap-analysis sweep completo)
+
+**Scope**: Sweep pós-fechamento — 11 candidatos → 5 CONFIRMADOS (3 spec-worthy) / 6 REJEITADOS. Relatório em `.claude/memory/gap-analysis-20260928.md`.
+**Decisions**: EF value comparers (3 props IReadOnlyList<string> sem comparer → warnings EF + change tracking quebrado); terminal focus/keybar sem cobertura automatizada (padrão source-guard existe); `TASKBOARD_*` fallback deferido 1 ciclo → remoção agora é breaking spec.
+**Delivered**: SPECs Draft→Approved (`ef-value-comparers`, `terminal-focus-keybar-coverage`, `taskboard-env-fallback-removal`) via PR #360; Epic #356 + slices #357/#358/#359; worktree stale pruned + branch merged deletada; cruft `~/.agent-harness` limpo (exceto `skills-cache.root-stale` — root-owned, precisa sudo).
+**Remaining**: Slices #357–#359 na fila `todo` aguardando execução (orchestrator Phase 4). Pendente usuário: `sudo rm -rf ~/.agent-harness/data/skills-cache.root-stale`; decisão CI wiring de `check-spec-status.sh` (workflows protegidos); validação manual touch do keybar.
+**Lessons**: `git worktree list` marca `prunable` quando o dir some — cruzar com `git log main..branch` antes de deletar; quarentena `*.inaccessible-*`/`*.root-stale` do skills-cache indica arquivos root-owned de provisioning antigo.
+
 ## Session — 2026-09-28 (orchestrator run — reconciliação + verificação)
 
 **Scope**: Phase -1/0 OK (skills @`9958c42` up-to-date, git clean, gh OK, dotnet 10.0.112/node 24.16.0). Reconciliação de issues abertas, sync de status de SPECs, Phase 7 completa.
