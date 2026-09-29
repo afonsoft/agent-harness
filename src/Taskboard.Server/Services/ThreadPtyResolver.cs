@@ -3,6 +3,7 @@ using Taskboard.Application.Contracts.Agents;
 using Taskboard.Agents;
 using Taskboard.Dtos;
 using Taskboard.Integrations.Agents;
+using Taskboard.Integrations.Workspace;
 using Taskboard.ValueObjects;
 
 namespace Taskboard.Server.Services;
@@ -17,7 +18,9 @@ namespace Taskboard.Server.Services;
 public sealed class ThreadPtyResolver(
     AiChatService aiChatService,
     IAgentCliDefinitionRepository cliDefinitions,
-    IAgentDiscoveryService discovery)
+    IAgentDiscoveryService discovery,
+    DockerCliDiscovery dockerDiscovery,
+    WorkspaceService workspace)
 {
     /// <summary>Deterministic TerminalHub session id for a thread (reattach key).</summary>
     public static string SessionIdFor(string threadId) => $"t-{threadId}";
@@ -42,9 +45,14 @@ public sealed class ThreadPtyResolver(
             return (null, "Thread is not a terminal (pty) thread.");
         }
 
+        // Same workdir rule as AgentSessionManager.EnsureSessionAsync
+        // (SPEC-20260929-pty-session-security RF-006): explicit workspace →
+        // repo card dir → workspace root — never the bare user profile.
         var workdir = !string.IsNullOrWhiteSpace(thread.WorkspacePath)
             ? thread.WorkspacePath
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            : !string.IsNullOrWhiteSpace(thread.RepositoryFullName)
+                ? workspace.ResolveCardWorkdir(thread.RepositoryFullName, out _)
+                : workspace.EnsureRoot();
 
         // Command: custom definition or builtin binary.
         List<string> argv;
@@ -86,12 +94,22 @@ public sealed class ThreadPtyResolver(
             return (null, "Thread has no CLI binding.");
         }
 
-        // Docker context: wrap argv in `docker exec -it <container>`.
+        // Docker context: wrap argv in `docker exec -it <container>` — but
+        // only for containers the discovery actually sees running. A persisted
+        // name passing only syntax validation would let a caller exec into any
+        // container the daemon can reach (SPEC-20260929-pty-session-security
+        // RF-002).
         if (!string.IsNullOrWhiteSpace(thread.ContainerContext))
         {
             if (!DockerCliSpawner.IsValidContainerName(thread.ContainerContext))
             {
                 return (null, $"Invalid container name '{thread.ContainerContext}'.");
+            }
+
+            var containers = await dockerDiscovery.ListContainersAsync(ct).ConfigureAwait(false);
+            if (containers.All(c => !string.Equals(c.Name, thread.ContainerContext, StringComparison.Ordinal)))
+            {
+                return (null, $"Container '{thread.ContainerContext}' is not running or not allowed.");
             }
 
             argv = ["docker", .. DockerCliSpawner.BuildExecArgs(thread.ContainerContext, argv, interactive: true)];

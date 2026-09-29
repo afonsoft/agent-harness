@@ -86,7 +86,11 @@ else
            own input via xterm once SPEC-20260928-ai-code-generic-cli lands). *@
         @if (_activeThread?.Kind == "terminal")
         {
-            <PtyThreadPane Thread="_activeThread" />
+            @* @key forces a fresh pane per thread — without it Blazor reuses
+               the instance and a second ConnectHubAsync stacks hub handlers
+               and leaves the previous xterm undisposed
+               (SPEC-20260929-pty-session-security RF-003). *@
+            <PtyThreadPane Thread="_activeThread" @key="_activeThread.Id" />
         }
         else
         {

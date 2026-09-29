@@ -110,6 +110,54 @@ public class TerminalSessionManagerTests
         h.Outputs.ShouldContain(o => o.SessionId == "t-abc" && o.Chunk.Contains("hello"));
     }
 
+    // SPEC-20260929-pty-session-security RF-001: rebind é exclusivo do dono —
+    // um id determinístico de outro usuário não pode ser reassociado.
+
+    [Fact]
+    public async Task Dado_SessaoDeOutroUsuario_Quando_OpenMesmoId_Entao_Recusa()
+    {
+        await using var h = new Harness();
+        await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+
+        var act = () => h.Manager.OpenAsync(
+            "u2", "conn2", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+
+        (await act.ShouldThrowAsync<InvalidOperationException>())
+            .Message.ShouldContain("already in use");
+        h.Sessions.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Dado_SessaoOrfaDeOutroUsuario_Quando_OpenMesmoId_Entao_Recusa()
+    {
+        await using var h = new Harness();
+        await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+
+        var act = () => h.Manager.OpenAsync(
+            "u2", "conn2", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+
+        await act.ShouldThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Dado_SessaoMortaComMesmoId_Quando_Open_Entao_IdReutilizadoComNovaSessao()
+    {
+        await using var h = new Harness();
+        var first = await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+        await h.Sessions[0].DisposeAsync();
+
+        var second = await h.Manager.OpenAsync(
+            "u1", "conn2", h.OnOutput, h.OnClosed, requestedSessionId: "t-abc");
+
+        second.ShouldBe(first);
+        h.Sessions.Count.ShouldBe(2);
+        h.Sessions[1].Started.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task Dado_RequestedSessionIdInvalido_Quando_Open_Entao_IdGerado()
     {

@@ -147,14 +147,18 @@
         {
             _error = null;
             _canRetry = false;
-            // Deterministic session id on the server — a second OpenForThread
-            // rebinds to the live PTY and replays scrollback.
+            // Deterministic session id known upfront (t-<threadId>): set it
+            // BEFORE invoking so the scrollback replay — emitted by the server
+            // during OpenAsync, before this call returns — passes the output
+            // filter instead of being discarded (SPEC-20260929 RF-004).
+            _sessionId = $"t-{Thread.Id}";
             _sessionId = await _hub.InvokeAsync<string>("OpenForThread", Thread.Id);
             await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
         }
         catch (Exception ex)
         {
             // HubException lands here — thread deleted, CLI disabled, etc.
+            _sessionId = null;
             _error = ex.Message;
             _canRetry = true;
         }

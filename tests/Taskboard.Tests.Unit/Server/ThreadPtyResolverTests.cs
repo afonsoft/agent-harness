@@ -31,9 +31,30 @@ public class ThreadPtyResolverTests
         return thread;
     }
 
+    /// <summary>Runner fake que simula `docker info`/`ps`/`exec which`.</summary>
+    private sealed class FakeRunner : Taskboard.Integrations.Skills.ISkillsInstallRunner
+    {
+        public string PsOutput { get; set; } = string.Empty;
+
+        public Task<Taskboard.Integrations.Skills.CommandResult> RunAsync(
+            string executable,
+            string workingDirectory,
+            IReadOnlyList<string> arguments,
+            CancellationToken cancellationToken)
+        {
+            var result = arguments switch
+            {
+                _ when arguments.Contains("info") => new Taskboard.Integrations.Skills.CommandResult(0, "27.0", string.Empty),
+                _ when arguments.Contains("ps") => new Taskboard.Integrations.Skills.CommandResult(0, PsOutput, string.Empty),
+                _ => new Taskboard.Integrations.Skills.CommandResult(0, "/usr/bin/cli", string.Empty),
+            };
+            return Task.FromResult(result);
+        }
+    }
+
     private static (ThreadPtyResolver Resolver, IRepository<AiChatThread> Threads,
         IAgentCliDefinitionRepository Defs, IAgentDiscoveryService Discovery) Create(
-            AiChatThread? thread = null)
+            AiChatThread? thread = null, string dockerPsOutput = "dev|ubuntu:24.04\n")
     {
         var threadRepo = Substitute.For<IRepository<AiChatThread>>();
         threadRepo.GetAsync(Arg.Any<AiChatThreadId>(), Arg.Any<CancellationToken>())
@@ -62,7 +83,18 @@ public class ThreadPtyResolverTests
             defs,
             discovery);
 
-        return (new ThreadPtyResolver(service, defs, discovery), threadRepo, defs, discovery);
+        var docker = new Taskboard.Integrations.Agents.DockerCliDiscovery(
+            Path.GetTempPath(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Agents.DockerCliDiscovery>.Instance,
+            executableLocator: _ => "/usr/bin/docker",
+            runner: new FakeRunner { PsOutput = dockerPsOutput });
+        var workspaceRoot = Path.Combine(Path.GetTempPath(), "resolver-ws");
+        var workspace = new Taskboard.Integrations.Workspace.WorkspaceService(
+            workspaceRoot,
+            Path.GetTempPath(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Workspace.WorkspaceService>.Instance);
+
+        return (new ThreadPtyResolver(service, defs, discovery, docker, workspace), threadRepo, defs, discovery);
     }
 
     [Fact]
@@ -167,6 +199,54 @@ public class ThreadPtyResolverTests
 
         result.ShouldBeNull();
         (error ?? string.Empty).ShouldContain("Invalid container name");
+    }
+
+    // SPEC-20260929-pty-session-security RF-002: o nome persistido só vale
+    // contra contêineres que a descoberta vê rodando — default deny.
+
+    [Fact]
+    public async Task Dado_ContainerForaDaDescoberta_Quando_Resolve_Entao_Erro()
+    {
+        var thread = PtyThread("/work", AgentType.Claude, container: "ghost");
+        var (sut, _, _, discovery) = Create(thread, dockerPsOutput: "dev|ubuntu:24.04\n");
+        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+
+        var (result, error) = await sut.ResolveAsync(thread.Id.Value);
+
+        result.ShouldBeNull();
+        (error ?? string.Empty).ShouldContain("not running or not allowed");
+    }
+
+    [Fact]
+    public async Task Dado_DockerIndisponivel_Quando_ResolveComContainer_Entao_Erro()
+    {
+        var thread = PtyThread("/work", AgentType.Claude, container: "dev");
+        var (sut, _, _, discovery) = Create(thread, dockerPsOutput: string.Empty);
+        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+
+        var (result, error) = await sut.ResolveAsync(thread.Id.Value);
+
+        result.ShouldBeNull();
+        (error ?? string.Empty).ShouldContain("not running or not allowed");
+    }
+
+    // SPEC-20260929-pty-session-security RF-006: sem workspace explícito o
+    // workdir vem do workspace root — nunca do profile do usuário.
+
+    [Fact]
+    public async Task Dado_ThreadSemWorkspace_Quando_Resolve_Entao_WorkdirDoWorkspaceRoot()
+    {
+        var thread = PtyThread("", AgentType.Claude);
+        var (sut, _, _, discovery) = Create(thread);
+        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+
+        var (result, error) = await sut.ResolveAsync(thread.Id.Value);
+
+        error.ShouldBeNull();
+        result!.WorkingDirectory.ShouldBe(
+            Path.Combine(Path.GetTempPath(), "resolver-ws"));
+        result.WorkingDirectory.ShouldNotBe(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
     }
 
     [Fact]
