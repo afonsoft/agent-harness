@@ -68,3 +68,18 @@
 - **Lição**: `sed -i` em symlink (`AGENTS.md→CLAUDE.md`) substitui o link por arquivo — usar `sed` só no alvo real.
 - **Lição**: `WithoutTaskboardEnv` renomeado p/ `WithoutHarnessEnv` — scrub cobre os dois prefixos.
 - Estado final: main @`2bd50ad`, 0 issues, 0 PRs, branches só `main`. Unit 1023 · Integration 263.
+
+## Sessão 2026-09-29 — Epic #366 (bot-review dos últimos 20 PRs)
+
+- **Origem**: análise de 75 comentários de `devin-ai-integration[bot]`, `github-advanced-security[bot]`, `sonarqubecloud[bot]` nos últimos 20 PRs → 6 SPECs Draft aprovados.
+- **Entregas** (1 PR por SPEC, squash → main):
+  - #367/PR #374 `ca84f7d` — PTY security: rebind por `UserKey`, allowlist de contêiner via `DockerCliDiscovery`, `@key` no pane, sessionId antes do OpenForThread, lock no scrollback, workdir coerente.
+  - #368/PR #375 `cf280ed` — `docker exec` com nome do binário (não path do host), `IContainerCliDiscovery`, Chat/ACP honra `ContainerContext`, `AgentCliMap.SupportsAcp` promovido.
+  - #369/PR #376 `592ce7e` — `SupportsChat`=ACP real, custom acp recusado na criação, fork preserva Transport/AgentCliId/ContainerContext.
+  - #370/PR #377 `bb81bf5` — New cria thread + repo global + fecha drawer; rail refresh em drawer/expand; Retry/Run-agent condicionados; rail colapsado 52px.
+  - #371/PR #378 `7af9a09` — TTL no catálogo de modelos, `SetModels` persiste (lock `_saveGate`), diálogo re-polla 12s c/ cancel, POST refresh com catch, Sonar S6444/S8970/S6667/S4487.
+  - #372/PR #379 `131e14b` — cast CodeQL removido, guards estruturais (export object, media block, focus handler), `NavMenuOrderTests`, metadados de SPECs, nota de migração custom `HARNESS_DATA_DIR`.
+- **Epic #366 fechado**; 0 issues abertas; `check-spec-status.sh` OK; unit 1244 · integration 296.
+- **Deploy**: `harness-server` republicado de main @`7af9a09` (publish em dir novo + swap — `publish.new`→`publish`); active, `/health` 200, `/api/meta` OK, protegido 401.
+- **Lições**: `dotnet format --verify` roda no CI — rodar `dotnet format` local antes do push quando mexer em blocos grandes; FakeRunner síncrono pode completar refresh inline durante asserts — usar `TaskCompletionSource` gate para deixar refresh em voo; `SelectedRepo.Selected` é o seletor global compartilhado por todas as telas.
+- **Pendente do usuário**: `sudo rm -rf ~/.agent-harness/data/skills-cache.root-stale`; decisão de wire `check-spec-status.sh` no CI (workflows protegidos); validação manual touch do keybar/focus.

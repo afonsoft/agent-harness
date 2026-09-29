@@ -6,8 +6,8 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-28 UTC` (sessão 5 — reconciliação #338/#318 + verificação)
-- **fase_atual**: `Phase 8 — Epic #356 entregue (#357/#358/#359 merged via PRs #362/#363/#364), main @5ea8d46 verde, deploy harness-server OK, 0 issues abertas`
+- **iniciado_em**: `2026-09-29 UTC` (sessão 6 — bot-review dos últimos 20 PRs → Epic #366)
+- **fase_atual**: `Phase 8 — Epic #366 entregue (#367–#372 merged via PRs #374–#379), main @7af9a09 verde, deploy harness-server OK, 0 issues abertas`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
@@ -28,6 +28,7 @@
 | E14 - Observability & FinOps | `SPEC-20260919-ade-observability-finops` | #169 | Done — merged (recurring jobs PR #234, maintenance jobs PR #235) |
 | E15 - Cockpit HITL | `SPEC-20260919-ade-cockpit-hitl` | #170 | Done — merged via PR #245 (`03d90c1`) + deploy; issue fechada 2026-09-20 |
 | E16 - Harness Platform (mestre) | `SPEC-20260919-ade-harness-platform` | #171 | Done — todos sub-Epics entregues; issue fechada 2026-09-20 |
+| E17 - Bot review 2026-09-29 | `SPEC-20260929-*` (6 SPECs) | #366 | Done — slices #367–#372 merged via PRs #374–#379; issue fechada 2026-09-29 |
 
 ```yaml
 fila_e6:
