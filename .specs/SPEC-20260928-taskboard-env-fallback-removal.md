@@ -9,7 +9,7 @@
 | Stack | `.NET 10` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-taskboard-env-fallback-removal` |
-| Ticket | [#359](https://github.com/afonsoft/agent-harness/issues/359) (Epic [#356](https://github.com/afonsoft/agent-harness/issues/359)) |
+| Ticket | [#359](https://github.com/afonsoft/agent-harness/issues/359) (Epic [#356](https://github.com/afonsoft/agent-harness/issues/356)), PR [#364](https://github.com/afonsoft/agent-harness/pull/364) |
 | Status | `Done` |
 | Related | `SPEC-20260922-harness-home-rename` (origem do fallback; §48/§67 deferem a remoção "num ciclo futuro, com spec própria") |
 

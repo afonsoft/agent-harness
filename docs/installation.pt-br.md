@@ -81,7 +81,7 @@ export HARNESS_DATA_DIR="$PWD/.data"
 export GITHUB_TOKEN="ghp_your_token"
 ```
 
-> **Migração:** variáveis `TASKBOARD_*` não são mais lidas (removidas após o ciclo de depreciação, SPEC-20260928-taskboard-env-fallback-removal) — hosts ainda nos nomes legados devem rodar `install.sh --migrate` ou exportar os equivalentes `HARNESS_*` antes de atualizar; `CODEX_TASKBOARD_*` não são mais lidas.
+> **Migração:** variáveis `TASKBOARD_*` não são mais lidas (removidas após o ciclo de depreciação, SPEC-20260928-taskboard-env-fallback-removal) — hosts ainda nos nomes legados devem rodar `install.sh --migrate` ou exportar os equivalentes `HARNESS_*` antes de atualizar; `CODEX_TASKBOARD_*` não são mais lidas. O `--migrate` cobre apenas o home padrão (`~/.taskboard` → `~/.agent-harness`); instalações com **diretório de dados customizado** (`HARNESS_DATA_DIR` ou `.data` sob o content root do servidor) que ainda tenham `taskboard.sqlite` devem renomeá-lo manualmente — pare o servidor, renomeie `taskboard.sqlite` (e os arquivos `-wal`/`-shm`, se existirem) para `harness.sqlite` e reinicie.
 
 ## Executar o servidor
 

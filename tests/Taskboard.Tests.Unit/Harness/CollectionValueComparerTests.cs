@@ -54,7 +54,8 @@ public class CollectionValueComparerTests : IDisposable
     {
         var comparer = new ListStringValueComparer();
         var original = new List<string> { "x" };
-        var snapshot = (List<string>)comparer.SnapshotExpression.Compile()(original);
+        // Sem cast para o tipo concreto (CodeQL): a asserção é sobre conteúdo.
+        var snapshot = comparer.SnapshotExpression.Compile()(original);
         original.Add("y");
         snapshot.ShouldBe(["x"]);
     }
@@ -101,6 +102,31 @@ public class CollectionValueComparerTests : IDisposable
 
         property.IsModified.ShouldBeFalse(
             "reatribuição com conteúdo equivalente não deve sujar a entidade (RF-003)");
+    }
+
+    [Fact]
+    public void Dado_ItemTracked_Quando_SoTagsReatribuidas_Entao_MarcaModified()
+    {
+        // SPEC-20260929-quality-hygiene RF-002: mutação EXCLUSIVA da coleção
+        // (sem UpdateContent) deve ser detectada pelo comparer.
+        using var context = new TaskboardDbContext(_options);
+        var item = ProjectMemoryItem.Create(
+            ProjectMemoryItemId.NewGuid(),
+            "afonsoft/agent-harness",
+            "topic",
+            "content",
+            MemoryType.Fact,
+            ["a"]);
+        context.ProjectMemoryItems.Add(item);
+        context.SaveChanges();
+
+        var property = context.Entry(item).Property(i => i.Tags);
+        property.IsModified = false;
+        property.CurrentValue = new List<string> { "a", "b" };
+        context.ChangeTracker.DetectChanges();
+
+        property.IsModified.ShouldBeTrue(
+            "reatribuição de Tags com conteúdo diverso deve sujar a entidade");
     }
 
     [Fact]
