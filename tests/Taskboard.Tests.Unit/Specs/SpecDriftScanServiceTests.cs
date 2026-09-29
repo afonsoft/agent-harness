@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
+using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Specs;
 using Taskboard.Dtos;
 using Taskboard.Server.Services;
+using Taskboard.Tests.Unit.Jobs;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.Specs;
@@ -33,7 +35,7 @@ public sealed class SpecDriftScanServiceTests
         var detector = Substitute.For<ISpecDriftDetector>();
         detector.BuildReportAsync(null, Arg.Any<CancellationToken>()).Returns(Task.FromResult(report));
         var cache = new SpecDriftReportCache();
-        var service = new SpecDriftScanService(detector, cache, NullLogger<SpecDriftScanService>.Instance);
+        var service = new SpecDriftScanService(detector, cache, CreateRegistry(), NullLogger<SpecDriftScanService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
         try
@@ -60,7 +62,7 @@ public sealed class SpecDriftScanServiceTests
         detector.BuildReportAsync(null, Arg.Any<CancellationToken>())
             .Returns<Task<SpecDriftReportDto>>(_ => throw new InvalidOperationException("boom"));
         var cache = new SpecDriftReportCache();
-        var service = new SpecDriftScanService(detector, cache, NullLogger<SpecDriftScanService>.Instance);
+        var service = new SpecDriftScanService(detector, cache, CreateRegistry(), NullLogger<SpecDriftScanService>.Instance);
 
         // A exceção do tick fica contida — Start/Stop não propagam.
         await service.StartAsync(CancellationToken.None);
@@ -69,4 +71,7 @@ public sealed class SpecDriftScanServiceTests
 
         cache.Last.ShouldBeNull();
     }
+
+    private static JobRegistry CreateRegistry() => JobRegistryTestHost.Create(
+        definitions: new JobDefinition(SpecDriftScanService.JobKey, "Spec drift scan", "", 3600, 300));
 }

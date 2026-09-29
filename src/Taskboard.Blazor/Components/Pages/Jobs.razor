@@ -1,0 +1,281 @@
+@page "/jobs"
+@attribute [Authorize]
+@inject TaskboardClient Client
+@inject ToastService ToastService
+@implements IDisposable
+
+<PageTitle>Jobs - Harness</PageTitle>
+
+<h1 class="h4 fw-bold mb-1">Jobs</h1>
+<p class="small text-body-secondary mb-4">Managed background jobs — schedule, enable/disable and run them without restarting the server.</p>
+
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
+                <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+            </Button>
+        </div>
+
+        @if (_loading && _jobs is null)
+        {
+            <Loading Message="Loading jobs..." />
+        }
+        else if (!string.IsNullOrEmpty(_error))
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false">
+                <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
+            </Alert>
+        }
+        else if (_jobs is { Count: > 0 })
+        {
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Job</th>
+                            <th>State</th>
+                            <th>Interval</th>
+                            <th>Enabled</th>
+                            <th>Last run</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var job in _jobs)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">@job.Name</div>
+                                    <div class="small text-body-secondary">@job.Description</div>
+                                    @if (job.Log.Count > 0)
+                                    {
+                                        <details class="small mt-1">
+                                            <summary class="text-body-secondary">Recent log (@job.Log.Count)</summary>
+                                            <ul class="list-unstyled mb-0 mt-1 font-monospace small">
+                                                @foreach (var entry in job.Log.AsEnumerable().Reverse())
+                                                {
+                                                    <li>
+                                                        <span class="text-body-secondary">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                                        <span class="@(entry.Outcome == "error" ? "text-danger" : "text-body-secondary")">[@entry.Outcome]</span>
+                                                        @entry.Message
+                                                    </li>
+                                                }
+                                            </ul>
+                                        </details>
+                                    }
+                                </td>
+                                <td>
+                                    @if (job.IsRunning)
+                                    {
+                                        <Badge Color="BadgeColor.Primary">Running</Badge>
+                                    }
+                                    else if (!job.Enabled)
+                                    {
+                                        <Badge Color="BadgeColor.Secondary">Disabled</Badge>
+                                    }
+                                    else
+                                    {
+                                        <Badge Color="BadgeColor.Success">Idle</Badge>
+                                    }
+                                    @if (job.LastOutcome == "error")
+                                    {
+                                        <Badge Color="BadgeColor.Danger" class="ms-1">Error</Badge>
+                                    }
+                                </td>
+                                <td>
+                                    @if (job.RunOnce)
+                                    {
+                                        <span class="small text-body-secondary">on startup</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex align-items-center gap-1">
+                                            <input type="number" class="form-control form-control-sm" style="max-width: 6.5rem;"
+                                                   min="1" value="@GetIntervalDraft(job)"
+                                                   @onchange="e => SetIntervalDraft(job.Key, e.Value)"
+                                                   aria-label="Interval in seconds for @job.Key" />
+                                            <span class="small text-body-secondary">s</span>
+                                            @if (IntervalDirty(job))
+                                            {
+                                                <Button Color="ButtonColor.Primary" Outline="true" Size="ButtonSize.Small"
+                                                        @onclick="() => SaveIntervalAsync(job)" Disabled="_saving">
+                                                    Save
+                                                </Button>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="form-check form-switch mb-0">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               id="job-enabled-@job.Key"
+                                               checked="@GetEnabledDraft(job)"
+                                               @onchange="e => ToggleEnabledAsync(job, e.Value is true)"
+                                               aria-label="Enable @job.Key" />
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (job.LastCompletedAt is { } completed)
+                                    {
+                                        <div class="small">@completed.ToLocalTime().ToString("g")</div>
+                                        @if (!string.IsNullOrEmpty(job.LastMessage))
+                                        {
+                                            <div class="small text-body-secondary text-truncate" style="max-width: 16rem;" title="@job.LastMessage">@job.LastMessage</div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="small text-body-secondary">never</span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                                            @onclick="() => RunNowAsync(job)" Disabled="job.IsRunning">
+                                        <Icon Name="IconName.PlayCircle" class="me-1" /> Run now
+                                    </Button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <EmptyState Message="No managed jobs." />
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<JobStatusDto>? _jobs;
+    private readonly Dictionary<string, int> _intervalDrafts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> _enabledDrafts = new(StringComparer.Ordinal);
+    private bool _loading;
+    private bool _saving;
+    private string? _error;
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource? _pollCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _pollCts = new CancellationTokenSource();
+        _pollTimer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        _ = PollLoopAsync(_pollCts.Token);
+    }
+
+    private async Task PollLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (await _pollTimer!.WaitForNextTickAsync(ct))
+            {
+                await RefreshAsync();
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            _jobs = await Client.GetJobsAsync();
+            _error = null;
+            foreach (var job in _jobs)
+            {
+                _intervalDrafts.TryAdd(job.Key, job.IntervalSeconds);
+                _enabledDrafts[job.Key] = job.Enabled;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load jobs: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private int GetIntervalDraft(JobStatusDto job) =>
+        _intervalDrafts.TryGetValue(job.Key, out var draft) ? draft : job.IntervalSeconds;
+
+    private void SetIntervalDraft(string key, object? value)
+    {
+        if (int.TryParse(value?.ToString(), out var seconds))
+        {
+            _intervalDrafts[key] = seconds;
+        }
+    }
+
+    private bool IntervalDirty(JobStatusDto job) =>
+        _intervalDrafts.TryGetValue(job.Key, out var draft) && draft != job.IntervalSeconds;
+
+    private async Task SaveIntervalAsync(JobStatusDto job)
+    {
+        _saving = true;
+        try
+        {
+            var error = await Client.UpdateJobAsync(job.Key, null, _intervalDrafts[job.Key]);
+            if (error is not null)
+            {
+                ToastService.Notify(new(ToastType.Danger, error));
+            }
+            else
+            {
+                ToastService.Notify(new(ToastType.Success, $"Interval for '{job.Name}' saved."));
+                await RefreshAsync();
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private bool GetEnabledDraft(JobStatusDto job) =>
+        _enabledDrafts.TryGetValue(job.Key, out var draft) ? draft : job.Enabled;
+
+    private async Task ToggleEnabledAsync(JobStatusDto job, bool enabled)
+    {
+        var error = await Client.UpdateJobAsync(job.Key, enabled, null);
+        if (error is not null)
+        {
+            _enabledDrafts[job.Key] = job.Enabled;
+            ToastService.Notify(new(ToastType.Danger, error));
+            return;
+        }
+
+        _enabledDrafts[job.Key] = enabled;
+        ToastService.Notify(new(ToastType.Success, $"Job '{job.Name}' {(enabled ? "enabled" : "disabled")}."));
+        await RefreshAsync();
+    }
+
+    private async Task RunNowAsync(JobStatusDto job)
+    {
+        var error = await Client.RunJobNowAsync(job.Key);
+        if (error is not null)
+        {
+            ToastService.Notify(new(ToastType.Danger, error));
+            return;
+        }
+
+        ToastService.Notify(new(ToastType.Success, $"Run requested for '{job.Name}'."));
+        await RefreshAsync();
+    }
+
+    public void Dispose()
+    {
+        _pollCts?.Cancel();
+        _pollTimer?.Dispose();
+        _pollCts?.Dispose();
+    }
+}

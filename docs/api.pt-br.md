@@ -60,6 +60,16 @@ PUT    /api/configuration/{key}
 DELETE /api/configuration/{key}
 ```
 
+### Jobs Gerenciados (SPEC-20260929-jobs-dashboard)
+
+```http
+GET  /api/jobs
+PUT  /api/jobs/{key}
+POST /api/jobs/{key}/run
+```
+
+`GET` → `200` com `JobStatusDto[]`: key, nome, descrição, enabled, intervalo efetivo + default (segundos), `runOnce`, `isRunning`, timestamps da última execução, último resultado/mensagem, contador de execuções e tail de ~50 linhas de log. `PUT` body `{ "enabled": bool?, "intervalSeconds": int? }` persiste override `JobSchedule` (vence o default da definição, aplicado sem restart — o loop relê o schedule efetivo a cada iteração) → `200 JobStatusDto`; key desconhecida → `404 JOB_NOT_FOUND`; intervalo abaixo do mínimo do job → `400 INVALID_INTERVAL`. `POST .../run` dispara execução imediata → `202 { "started": true }`, ou `202 { "started": false, "reason": "already-running" }` quando já há execução em voo (single-flight com o tick periódico); key desconhecida → `404`. Jobs gerenciados: `cli-metrics-sync` (15min), `finops-aggregation` (30s), `stale-run-reaper` (5min), `spec-drift-scan` (1h), `cli-probe-refresh` (1h), `skills-sync` (só no startup) e `agent-run-event-retention` (6h, só quando eventos de agente estão habilitados). A tela Blazor é `/jobs`.
+
 ### Skills de Agente
 
 ```http

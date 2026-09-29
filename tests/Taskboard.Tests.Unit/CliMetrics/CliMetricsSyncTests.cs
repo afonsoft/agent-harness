@@ -4,8 +4,10 @@ using NSubstitute;
 using Shouldly;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.CliMetrics;
+using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Dtos;
 using Taskboard.Server.Services;
+using Taskboard.Tests.Unit.Jobs;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.CliMetrics;
@@ -80,7 +82,8 @@ public class CliMetricsSyncTests
         var (coordinator, service) = CriarCoordinator();
         var hosted = new CliMetricsSyncService(
             coordinator,
-            new CliMetricsOptions { Enabled = false },
+            JobRegistryTestHost.Create(definitions: new JobDefinition(
+                CliMetricsSyncService.JobKey, "test", "", 3600, 60, EnabledByDefault: false)),
             Substitute.For<ILogger<CliMetricsSyncService>>());
 
         await hosted.StartAsync(CancellationToken.None);
@@ -96,7 +99,8 @@ public class CliMetricsSyncTests
         var (coordinator, service) = CriarCoordinator();
         var hosted = new CliMetricsSyncService(
             coordinator,
-            new CliMetricsOptions { Enabled = true, SyncIntervalMinutes = 60 },
+            JobRegistryTestHost.Create(definitions: new JobDefinition(
+                CliMetricsSyncService.JobKey, "test", "", 3600, 60)),
             Substitute.For<ILogger<CliMetricsSyncService>>());
 
         await hosted.StartAsync(CancellationToken.None);

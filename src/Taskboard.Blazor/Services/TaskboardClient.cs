@@ -3,6 +3,7 @@ using System.Text.Json;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Configuration;
+using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
@@ -293,6 +294,29 @@ public sealed class TaskboardClient
         var response = await _httpClient.DeleteAsync(
             $"/api/configuration/{Uri.EscapeDataString(key)}",
             cancellationToken);
+        return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    /// <summary>Lista os jobs gerenciados com estado, schedule efetivo e log recente (SPEC-20260929-jobs-dashboard).</summary>
+    public async Task<IReadOnlyList<JobStatusDto>> GetJobsAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<List<JobStatusDto>>("/api/jobs", cancellationToken) ?? [];
+
+    /// <summary>Persiste override de enabled/intervalo do job. Retorna erro da API ou <c>null</c> em sucesso.</summary>
+    public async Task<string?> UpdateJobAsync(
+        string key, bool? enabled, int? intervalSeconds, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            $"/api/jobs/{Uri.EscapeDataString(key)}",
+            new UpdateJobRequest(enabled, intervalSeconds),
+            cancellationToken);
+        return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    /// <summary>Dispara execução imediata do job (202). Retorna erro da API ou <c>null</c>.</summary>
+    public async Task<string?> RunJobNowAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/jobs/{Uri.EscapeDataString(key)}/run", content: null, cancellationToken);
         return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
     }
 

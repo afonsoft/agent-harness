@@ -4,63 +4,29 @@ namespace Taskboard.Server.Services;
 
 /// <summary>
 /// Recurring FinOps projection (SPEC-20260920-harness-recurring-jobs RF-001):
-/// costs newly ingested CLI session metrics every 30 seconds so the /finops
-/// dashboard reflects real usage without waiting for Harness runs.
+/// costs newly ingested CLI session metrics — managed job
+/// <c>finops-aggregation</c> (SPEC-20260929-jobs-dashboard), default 30s.
 /// </summary>
-public sealed class FinOpsAggregationService : BackgroundService
+public sealed class FinOpsAggregationService : ManagedJobService
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
+    public const string JobKey = "finops-aggregation";
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<FinOpsAggregationService> _logger;
 
     public FinOpsAggregationService(
         IServiceScopeFactory scopeFactory,
+        JobRegistry registry,
         ILogger<FinOpsAggregationService> logger)
+        : base(registry, JobKey, logger)
     {
         _scopeFactory = scopeFactory;
-        _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task<string?> RunJobAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("FinOps aggregation started (interval {Interval}).", Interval);
-
-        // Initial pass so existing uncosted sessions are projected on boot.
-        await SafeRunAsync(stoppingToken).ConfigureAwait(false);
-
-        using var timer = new PeriodicTimer(Interval);
-        try
-        {
-            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-            {
-                await SafeRunAsync(stoppingToken).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-        }
-    }
-
-    private async Task SafeRunAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            var aggregator = scope.ServiceProvider.GetRequiredService<FinOpsAggregator>();
-            var processed = await aggregator.RunOnceAsync(stoppingToken).ConfigureAwait(false);
-            if (processed > 0)
-            {
-                _logger.LogDebug("FinOps aggregation: {Count} sessions costed.", processed);
-            }
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "FinOps aggregation tick failed.");
-        }
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var aggregator = scope.ServiceProvider.GetRequiredService<FinOpsAggregator>();
+        var processed = await aggregator.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+        return processed > 0 ? $"{processed} sessions costed" : null;
     }
 }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Taskboard.Application.Contracts.Jobs;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Repositories;
 using Taskboard.Repositories;
@@ -19,6 +20,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped(typeof(IRepository<>), typeof(EfCoreRepository<>));
+        services.AddScoped<IJobScheduleStore, EfCoreJobScheduleStore>();
 
         return services;
     }
