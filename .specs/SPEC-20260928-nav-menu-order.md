@@ -9,7 +9,7 @@
 | Stack | `.NET 10 / Blazor WASM` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-nav-menu-order` |
-| Ticket | [#345](https://github.com/afonsoft/agent-harness/issues/345) |
+| Ticket | [#345](https://github.com/afonsoft/agent-harness/issues/345), PR [#350](https://github.com/afonsoft/agent-harness/pull/350) |
 | Status | `Done` |
 | Related | `SPEC-20260921-ai-code-chat-ux`, `SPEC-20260922-harness-home-rename` |
 

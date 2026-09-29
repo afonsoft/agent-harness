@@ -15,6 +15,8 @@ public sealed class ListStringValueComparer : ValueComparer<IReadOnlyList<string
         : base(
             (left, right) => SequenceEquals(left, right),
             list => ComputeHash(list),
+            // null! é intencional: o snapshot de uma coleção nula precisa ser
+            // null — [] faria DetectChanges marcar a entidade como modified.
             list => list == null ? null! : list.ToList())
     {
     }

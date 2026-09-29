@@ -81,7 +81,7 @@ export HARNESS_DATA_DIR="$PWD/.data"
 export GITHUB_TOKEN="ghp_your_token"
 ```
 
-> **Migration:** `TASKBOARD_*` variables are no longer read (removed after the one-cycle deprecation, SPEC-20260928-taskboard-env-fallback-removal) — hosts still on the legacy names must run `install.sh --migrate` or export the `HARNESS_*` equivalents before upgrading; `CODEX_TASKBOARD_*` variables are no longer read.
+> **Migration:** `TASKBOARD_*` variables are no longer read (removed after the one-cycle deprecation, SPEC-20260928-taskboard-env-fallback-removal) — hosts still on the legacy names must run `install.sh --migrate` or export the `HARNESS_*` equivalents before upgrading; `CODEX_TASKBOARD_*` variables are no longer read. `--migrate` covers the standard home (`~/.taskboard` → `~/.agent-harness`); installs using a **custom data directory** (`HARNESS_DATA_DIR` or the server content-root `.data`) that still hold a legacy `taskboard.sqlite` must rename it manually — stop the server, rename `taskboard.sqlite` (plus any `-wal`/`-shm` sidecars) to `harness.sqlite`, then restart.
 
 ## Run the server
 

@@ -103,4 +103,82 @@ public class TerminalFocusKeybarGuardTests
         Regex.IsMatch(css, @"html\[data-terminal-focus\]\s*\.terminal-keybar")
             .ShouldBeTrue("site.css deve exibir .terminal-keybar apenas dentro de html[data-terminal-focus]");
     }
+
+    // SPEC-20260929-quality-hygiene RF-003/RF-004/RF-005 — guards estruturais:
+    // não basta o nome existir na fonte, ele precisa estar no objeto exportado
+    // / dentro do bloco de media query / ligado ao handler correto.
+
+    /// <summary>Extrai o bloco {...} que começa em <paramref name="openBraceAt"/>.</summary>
+    private static string BlockAt(string source, int openBraceAt)
+    {
+        var depth = 0;
+        for (var i = openBraceAt; i < source.Length; i++)
+        {
+            if (source[i] == '{') depth++;
+            else if (source[i] == '}' && --depth == 0)
+            {
+                return source[openBraceAt..(i + 1)];
+            }
+        }
+
+        throw new InvalidOperationException("bloco sem fechamento");
+    }
+
+    [Fact]
+    public void Dado_TerminalJs_Quando_LeFonte_Entao_PasteClipboardNoObjetoExportado()
+    {
+        // RF-003 — pasteClipboard deve constar no objeto retornado pelo IIFE
+        // (o objeto que vira window.taskboardTerminal), não apenas declarado.
+        var js = TerminalJs();
+        var returnKw = js.LastIndexOf("return", StringComparison.Ordinal);
+        var brace = js.IndexOf('{', returnKw);
+        var exports = BlockAt(js, brace);
+
+        exports.ShouldContain("pasteClipboard");
+        exports.ShouldContain("initReadOnly"); // export usado pelo pane read-only
+    }
+
+    [Fact]
+    public void Dado_TaskboardJs_Quando_LeFonte_Entao_SetTerminalFocusNoObjetoExportado()
+    {
+        // RF-003 — setTerminalFocus deve ser propriedade de window.taskboard.
+        var js = TaskboardJs();
+        var assign = js.IndexOf("window.taskboard =", StringComparison.Ordinal);
+        assign.ShouldBeGreaterThanOrEqualTo(0);
+        var brace = js.IndexOf('{', assign);
+        var exports = BlockAt(js, brace);
+
+        Regex.IsMatch(exports, @"setTerminalFocus\s*:")
+            .ShouldBeTrue("setTerminalFocus deve ser membro do objeto window.taskboard");
+    }
+
+    [Fact]
+    public void Dado_SiteCss_Quando_LeFonte_Entao_KeybarDentroDoBlocoMedia()
+    {
+        // RF-004 — a regra de visibilidade da keybar precisa viver DENTRO do
+        // bloco @media (pointer: coarse)/(hover: none), não apenas coexistir.
+        var css = SiteCss();
+        var media = Regex.Match(css, @"@media\s*\(pointer:\s*coarse\),\s*\(hover:\s*none\)");
+        media.Success.ShouldBeTrue("media query de ponteiro coarse não encontrada");
+        var brace = css.IndexOf('{', media.Index);
+        var block = BlockAt(css, brace);
+
+        Regex.IsMatch(block, @"html\[data-terminal-focus\]\s*\.terminal-keybar")
+            .ShouldBeTrue("a regra html[data-terminal-focus] .terminal-keybar deve estar dentro do bloco da media query");
+    }
+
+    [Fact]
+    public void Dado_TerminalRazor_Quando_LeFonte_Entao_HandlerDeFocoLigaAoEstado()
+    {
+        // RF-005 — o handler ToggleFocusModeAsync é o único dono do flip de
+        // _focusMode e deve acionar o interop que aplica o atributo no <html>.
+        var razor = TerminalRazor();
+        var handler = razor.IndexOf("ToggleFocusModeAsync()", StringComparison.Ordinal);
+        handler.ShouldBeGreaterThanOrEqualTo(0);
+        var brace = razor.IndexOf('{', handler);
+        var body = BlockAt(razor, brace);
+
+        body.ShouldContain("_focusMode");
+        body.ShouldContain("taskboard.setTerminalFocus");
+    }
 }

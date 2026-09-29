@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-quality-hygiene` |
 | Ticket | [#372](https://github.com/afonsoft/agent-harness/issues/372) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | PRs #350, #360–#364 (achados Devin Review/CodeQL/Sonar em testes e docs) |
 
 ## 1. User Story
@@ -68,7 +68,7 @@ Achados residuais dos bots (Devin Review, CodeQL/github-advanced-security, Sonar
 
 ### RF-001: Alertas CodeQL/Sonar zerados
 
-- **Description:** Substituir o cast `List<string>` no teste por coleção comparável (ex.: `ToList()` sobre o resultado ou `IReadOnlyList`); remover `!` de `ListStringValueComparer.cs:18`.
+- **Description:** Substituir o cast `List<string>` no teste por coleção comparável (ex.: `ToList()` sobre o resultado ou `IReadOnlyList`); corrigir o cast em `CollectionValueComparerTests.cs` (o `null!` de `ListStringValueComparer.cs:18` é semântico — mantido com comentário explicativo).
 
 ### RF-002: Teste de Tags isolado
 
