@@ -84,3 +84,8 @@
 - Decisão aberta (não-gap): wiring de `check-spec-status.sh` em CI — exige aprovação humana para editar `.github/workflows/**`.
 - Validação manual touch do focus/keybar continua pendente (sem harness de browser no repo).
 - followups.md: ADR Spectre.Console.Cli e UX-diff review ainda abertos (não bloqueantes).
+
+
+## 8. Follow-up — Epic #366 (bot-review-20260929)
+
+Análise dos últimos 20 PRs (75 comentários bot) gerou 6 SPECs adicionais aprovados pelo usuário — todos entregues: #367–#372 via PRs #374–#379; Epic #366 fechado; deploy em main @7af9a09. Ver `orchestrator_sessions.md` (sessão 2026-09-29) para detalhes.
