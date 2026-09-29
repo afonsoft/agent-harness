@@ -12,14 +12,25 @@
 <PageTitle>AI Code - Harness</PageTitle>
 
 <div class="d-flex align-items-center gap-2 mb-3">
-    @* Mobile (<768px): the rail becomes an overlay drawer toggled from here. *@
-    <button type="button" class="btn btn-sm btn-outline-secondary d-md-none" title="Threads"
-            aria-label="Open thread list"
-            @onclick="OpenRailDrawerAsync">
-        <Icon Name="IconName.List" />
-    </button>
     <h1 class="h4 fw-bold mb-0">AI Code</h1>
     <span class="small text-body-secondary ms-1">Chat threads and agent sub-tasks</span>
+    @* SPEC-20260929-ai-chat-rail-overlay RF-002: histórico + new chat no
+       topo-direito sobre o painel de chat — o rail fica oculto por padrão. *@
+    <div class="ms-auto d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" title="Threads history"
+                aria-label="Open thread history"
+                @onclick="OpenRailDrawerAsync">
+            <Icon Name="IconName.ClockHistory" />
+            <span class="ms-1 d-none d-sm-inline">History</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-primary" title="New conversation"
+                aria-label="New conversation"
+                disabled="@(!HasEligibleAgent)"
+                @onclick="NewConversationAsync">
+            <Icon Name="IconName.PlusSquare" />
+            <span class="ms-1 d-none d-sm-inline">New</span>
+        </button>
+    </div>
 </div>
 
 @if (_threads is null)
@@ -31,14 +42,13 @@ else
 <div class="ai-chat-layout @(_railDrawerOpen ? "rail-open" : "")">
     @if (_railDrawerOpen)
     {
-        <div class="ai-chat-rail-scrim d-md-none" @onclick="() => _railDrawerOpen = false"></div>
+        <div class="ai-chat-rail-scrim" @onclick="() => _railDrawerOpen = false"></div>
     }
     <div class="ai-chat-rail-wrap @(_railDrawerOpen ? "drawer-open" : "")">
         <ThreadRail Threads="OrderedThreads"
                     ActiveThreadId="_activeThreadId"
-                    Collapsed="_railCollapsed"
+                    Collapsed="false"
                     HasEligibleAgent="HasEligibleAgent"
-                    OnToggleCollapsed="ToggleRailCollapsedAsync"
                     OnNew="NewConversationAsync"
                     OnSelect="SelectThreadFromRailAsync"
                     OnDelete="DeleteThreadAsync" />
@@ -532,7 +542,6 @@ else
     private bool _sseError;
     private bool _scrollPending;
     // SPEC-20260928: rail state — collapsed (desktop icon rail), drawer (mobile overlay).
-    private bool _railCollapsed;
     private bool _railDrawerOpen;
     private bool _overflowOpen;
     private ElementReference _messagesRef;
@@ -811,7 +820,6 @@ else
             string? lastAgent = null;
             try
             {
-                _railCollapsed = await JS.InvokeAsync<bool>("taskboard.getAiChatRailCollapsed");
                 lastAgent = await JS.InvokeAsync<string?>("taskboard.getAiChatLastAgent");
             }
             catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
@@ -875,27 +883,6 @@ else
     {
         await JS.InvokeVoidAsync("taskboard.blurActiveElement");
         await modal.HideAsync();
-    }
-
-    /// <summary>SPEC-20260928 RF-001: rail collapse persists per-browser.</summary>
-    private async Task ToggleRailCollapsedAsync()
-    {
-        _railCollapsed = !_railCollapsed;
-        try
-        {
-            await JS.InvokeVoidAsync("taskboard.setAiChatRailCollapsed", _railCollapsed);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
-        {
-            // Storage/JS unavailable — session-only state.
-        }
-
-        // SPEC-20260929-ai-code-ux-fixes RF-004: expanding the rail refreshes
-        // the list — threads created/deleted in other tabs must surface.
-        if (!_railCollapsed)
-        {
-            await RefreshThreadsAsync();
-        }
     }
 
     /// <summary>
