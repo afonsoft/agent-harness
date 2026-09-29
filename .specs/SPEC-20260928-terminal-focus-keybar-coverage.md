@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-terminal-focus-keybar-coverage` |
 | Ticket | [#358](https://github.com/afonsoft/agent-harness/issues/358) (Epic [#356](https://github.com/afonsoft/agent-harness/issues/356)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260923-terminal-focus-mode` (PR #341), `SPEC-20260923-terminal-virtual-keybar` (PR #342), `SPEC-20260923-terminal-tabs-keyed-render` (padrão source-guard) |
 
 ## 1. User Story
@@ -78,16 +78,16 @@ Sem mudança de API — testes apenas.
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** a fonte atual **when** os guards rodam **then** todos passam (green baseline).
-- [ ] **Given** remoção intencional de qualquer hook (simulada em teste manual do autor) **when** o guard correspondente roda **then** ele falha com mensagem clara apontando o RF.
-- [ ] **Given** `dotnet test` **when** executado **then** suíte verde com os novos guards.
+- [x] **Given** a fonte atual **when** os guards rodam **then** todos passam (green baseline).
+- [x] **Given** remoção intencional de qualquer hook (simulada em teste manual do autor) **when** o guard correspondente roda **then** ele falha com mensagem clara apontando o RF.
+- [x] **Given** `dotnet test` **when** executado **then** suíte verde com os novos guards.
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** mapear nomes exatos na fonte (JS registration names, classes CSS, atributos).
-- [ ] **T2 — Implementation:** `TerminalFocusKeybarGuardTests` com um `Fact` por RF.
-- [ ] **T3 — Verification:** `dotnet test` filtrado + suíte completa; mutação manual de um hook para confirmar falha do guard.
-- [ ] **T4 — Done + PR:** `Status = Done` e PR na branch do spec.
+- [x] **T1 — Discovery:** mapear nomes exatos na fonte (JS registration names, classes CSS, atributos).
+- [x] **T2 — Implementation:** `TerminalFocusKeybarGuardTests` com um `Fact` por RF.
+- [x] **T3 — Verification:** `dotnet test` filtrado + suíte completa; mutação manual de um hook para confirmar falha do guard.
+- [x] **T4 — Done + PR:** `Status = Done` e PR na branch do spec.
 
 ## 8. Organization Guardrails
 
