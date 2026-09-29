@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-jobs-dashboard` |
 | Ticket | [#383](https://github.com/afonsoft/agent-harness/issues/383) (Epic [#381](https://github.com/afonsoft/agent-harness/issues/381)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | SPEC-20260928-agent-cli-probe-background, SPEC-20260920-harness-recurring-jobs, SPEC-20260929-cli-probe-hardening |
 
 ## 1. User Story
@@ -28,7 +28,7 @@
 ## 2. Scope
 
 - `src/Taskboard.Domain/Entities/JobSchedule.cs` (novo) + `TaskboardDbContext` + EF config + migration.
-- `src/Taskboard.Application.Contracts/Jobs/` — `JobDefinition` (catálogo estático), `JobStatusDto`, `IJobRegistry`/`IJobScheduler` (registrar, ler overrides, reportar execução, trigger manual).
+- `src/Taskboard.Application.Contracts/Jobs/` — `JobDefinition` (catálogo estático), `JobStatusDto`, `IJobRegistry` (status, overrides, reportar execução, trigger manual) e `IJobScheduleStore` (porta de persistência — DTOs, nunca entidades).
 - `src/Taskboard.Server/Services/ManagedJobService.cs` (novo) — base `BackgroundService`: loop `Delay(GetInterval(key))` re-lendo enabled/interval a cada iteração + tracking + trigger manual via canal; converter os timers existentes.
 - `src/Taskboard.Server/Program.cs` — endpoints `GET /api/jobs`, `PUT /api/jobs/{key}`, `POST /api/jobs/{key}/run`.
 - `src/Taskboard.Blazor/Components/Pages/Jobs.razor` (nova tela) + `NavMenu.razor` + `TaskboardClient`.
@@ -81,20 +81,20 @@ POST /api/jobs/{key}/run            → 202 { started: bool }
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** servidor no ar >1h sem leituras de catálogo **when** o job `cli-probe-refresh` roda **then** snapshot é atualizado (visível no log do job e em `LastCompletedAt`).
-- [ ] **Given** `PUT /api/jobs/cli-probe-refresh` com intervalSeconds=300 **when** confirmado **then** próximo tick usa 5min sem restart.
-- [ ] **Given** job disabled **when** page `/jobs` **then** badge Disabled e nenhuma execução nova.
-- [ ] **Given** Run now **when** clicado **then** execução imediata aparece no log.
-- [ ] **Given** build/test/migration **then** verde.
+- [x] **Given** servidor no ar >1h sem leituras de catálogo **when** o job `cli-probe-refresh` roda **then** snapshot é atualizado (visível no log do job e em `LastCompletedAt`).
+- [x] **Given** `PUT /api/jobs/cli-probe-refresh` com intervalSeconds=300 **when** confirmado **then** próximo tick usa 5min sem restart.
+- [x] **Given** job disabled **when** page `/jobs` **then** badge Disabled e nenhuma execução nova.
+- [x] **Given** Run now **when** clicado **then** execução imediata aparece no log.
+- [x] **Given** build/test/migration **then** verde.
 
 ## 7. Task Plan
 
-- [ ] **T1 — Domain/EF:** `JobSchedule` + config + migration.
-- [ ] **T2 — Registry:** contracts + `JobRegistry` + `ManagedJobService` base.
-- [ ] **T3 — Conversão:** 6 timers + cli-probe-refresh 1h.
-- [ ] **T4 — API + client.**
-- [ ] **T5 — Página `/jobs` + NavMenu + docs.**
-- [ ] **T6 — Testes + Done + PR.**
+- [x] **T1 — Domain/EF:** `JobSchedule` + config + migration.
+- [x] **T2 — Registry:** contracts + `JobRegistry` + `ManagedJobService` base.
+- [x] **T3 — Conversão:** 6 timers + cli-probe-refresh 1h.
+- [x] **T4 — API + client.**
+- [x] **T5 — Página `/jobs` + NavMenu + docs.**
+- [x] **T6 — Testes + Done + PR.**
 
 ## 8. Organization Guardrails
 

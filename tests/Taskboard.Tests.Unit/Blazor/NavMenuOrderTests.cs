@@ -65,6 +65,7 @@ public class NavMenuOrderTests
         var finops = PositionOf(src, "finops");
         var settings = PositionOf(src, "settings");
         var skills = PositionOf(src, "skills");
+        var jobs = PositionOf(src, "jobs");
         var prompts = PositionOf(src, "prompts/taskboard/manage-taskboard");
         var issues = src.IndexOf("github.com/afonsoft/agent-harness/issues", StringComparison.Ordinal);
 
@@ -74,7 +75,8 @@ public class NavMenuOrderTests
         finops.ShouldBeGreaterThan(agents);
         settings.ShouldBeGreaterThan(finops);
         skills.ShouldBeGreaterThan(settings);
-        prompts.ShouldBeGreaterThan(skills);
+        jobs.ShouldBeGreaterThan(skills, "Jobs deve vir após Skills (SPEC-20260929-jobs-dashboard RF-005)");
+        prompts.ShouldBeGreaterThan(jobs, "Jobs deve vir antes de Prompts");
         issues.ShouldBeGreaterThan(prompts);
     }
 }
