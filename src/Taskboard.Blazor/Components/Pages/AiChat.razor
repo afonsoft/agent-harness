@@ -7,6 +7,7 @@
 @inject IGitHubService GitHubService
 @inject IJSRuntime JS
 @inject ToastService ToastService
+@inject Taskboard.Blazor.Services.SelectedRepositoryService SelectedRepo
 
 <PageTitle>AI Code - Harness</PageTitle>
 
@@ -14,7 +15,7 @@
     @* Mobile (<768px): the rail becomes an overlay drawer toggled from here. *@
     <button type="button" class="btn btn-sm btn-outline-secondary d-md-none" title="Threads"
             aria-label="Open thread list"
-            @onclick="() => _railDrawerOpen = true">
+            @onclick="OpenRailDrawerAsync">
         <Icon Name="IconName.List" />
     </button>
     <h1 class="h4 fw-bold mb-0">AI Code</h1>
@@ -363,6 +364,7 @@ else
                             {
                                 <div class="ai-chat-overflow-menu">
                                     <button type="button" class="ai-chat-overflow-item"
+                                            disabled="@(_running || _sending)"
                                             @onclick="ShowRunAgentFromOverflowAsync">
                                         <Icon Name="IconName.Robot" class="me-1" /> Run agent on this thread
                                     </button>
@@ -409,7 +411,7 @@ else
                         else
                         {
                             <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                    Disabled="@_sending"
+                                    Disabled="@(_sending || !HasUserPrompt)"
                                     title="Resend the last user prompt"
                                     @onclick="RetryAgentAsync">Retry</Button>
                         }
@@ -884,6 +886,36 @@ else
         {
             // Storage/JS unavailable — session-only state.
         }
+
+        // SPEC-20260929-ai-code-ux-fixes RF-004: expanding the rail refreshes
+        // the list — threads created/deleted in other tabs must surface.
+        if (!_railCollapsed)
+        {
+            await RefreshThreadsAsync();
+        }
+    }
+
+    /// <summary>
+    /// Mobile drawer open — refreshes the thread list so cross-tab changes
+    /// surface (SPEC-20260929-ai-code-ux-fixes RF-004).
+    /// </summary>
+    private async Task OpenRailDrawerAsync()
+    {
+        _railDrawerOpen = true;
+        await RefreshThreadsAsync();
+    }
+
+    /// <summary>Best-effort thread-list refresh — keeps the stale list on error.</summary>
+    private async Task RefreshThreadsAsync()
+    {
+        try
+        {
+            _threads = await Client.GetAiChatThreadsAsync();
+        }
+        catch
+        {
+            // Transient API failure — keep showing the last known list.
+        }
     }
 
     /// <summary>Rail selection also closes the mobile drawer.</summary>
@@ -893,9 +925,17 @@ else
         await SelectThreadAsync(thread);
     }
 
+    /// <summary>Retry only makes sense when a user prompt exists to resend.</summary>
+    private bool HasUserPrompt => _events.Any(e => e.Role == "user");
+
     private async Task ShowRunAgentFromOverflowAsync()
     {
         _overflowOpen = false;
+        if (_running || _sending)
+        {
+            return; // a run/response is in flight — dispatching now would send a partial transcript
+        }
+
         await ShowRunAgentAsync();
     }
 
@@ -1257,10 +1297,14 @@ else
         }
     }
 
-    /// <summary>RF-007: New — clears the composer/stream and unlocks the bar.</summary>
+    /// <summary>RF-007 + SPEC-20260929-ai-code-ux-fixes RF-001/RF-003: New —
+    /// creates the thread immediately (it appears in the rail, gets the
+    /// command-bar defaults), closes the mobile drawer and honors the global
+    /// repo selection before the inherited _cfgRepo.</summary>
     private async Task NewConversationAsync()
     {
         await JS.InvokeVoidAsync("taskboardSse.disconnect", "ai-chat");
+        _railDrawerOpen = false;
         _activeThread = null;
         _activeThreadId = null;
         _events.Clear();
@@ -1275,7 +1319,41 @@ else
         _running = false;
         _sseError = false;
         _scrollPending = false;
-        await JS.InvokeVoidAsync("taskboard.focusElement", _composerRef);
+
+        var cli = SelectedCli;
+        // RF-002: the global repository selector wins over the repo inherited
+        // from the previously selected thread.
+        var repo = !string.IsNullOrWhiteSpace(SelectedRepo.Selected)
+            ? SelectedRepo.Selected
+            : string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim();
+        var request = new CreateAiChatThreadRequest(
+            "New conversation",
+            _cfgModelId,
+            "none",
+            _cfgMode == "agent" ? _cfgSandbox : "read-only",
+            Mode: _cfgMode,
+            AgentType: cli?.AgentType?.ToString(),
+            WorkspacePath: null,
+            RepositoryFullName: repo,
+            ModelTier: _cfgModelTier.Length == 0 ? null : _cfgModelTier,
+            Transport: _cfgView == "terminal" ? "pty" : null,
+            ContainerContext: string.IsNullOrWhiteSpace(_cfgContext) ? null : _cfgContext,
+            AgentCliId: cli?.AgentCliId);
+
+        var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
+        if (thread is null)
+        {
+            ToastService.Notify(new(ToastType.Danger, createError ?? "Failed to create the conversation."));
+            return;
+        }
+
+        _threads = (_threads ?? []).Concat([thread]).ToList();
+        await SelectThreadAsync(thread);
+
+        if (thread.Kind != "terminal")
+        {
+            await JS.InvokeVoidAsync("taskboard.focusElement", _composerRef);
+        }
     }
 
     private async Task StopAgentAsync()
