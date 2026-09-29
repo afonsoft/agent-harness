@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -312,12 +313,88 @@ public class AiChatServiceAgentBindingTests
         dto.AgentType.ShouldBe("Claude");
     }
 
+    // SPEC-20260929-ai-chat-capabilities RF-001/RF-002/RF-003.
+
+    [Fact]
+    public async Task Dado_CliSemAcpNoHost_Quando_CriarChat_Entao_InvalidValue()
+    {
+        // Aider elegível mas PTY-only: o gate de capability vence a elegibilidade.
+        var discovery = Substitute.For<IAgentDiscoveryService>();
+        discovery.ResolveExecutablePath(AgentType.Aider).Returns("/usr/bin/aider");
+
+        var sut = CriarServico(eligible: [AgentType.Aider], discovery: discovery);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentType: "Aider", Transport: "acp"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+        ex.Message.ShouldContain("ACP");
+    }
+
+    [Fact]
+    public async Task Dado_CustomCliComTransporteAcp_Quando_CriarThread_Entao_InvalidValue()
+    {
+        // Custom defs spawn via argv (PTY) — chat estruturado exige adapter ACP
+        // por AgentType; a criação recusa em vez de gerar thread morta.
+        var defs = Substitute.For<IAgentCliDefinitionRepository>();
+        defs.GetAsync("custom-acp", Arg.Any<CancellationToken>()).Returns(
+            new Taskboard.Dtos.AgentCliDefinitionDto(
+                "custom-acp", "ACP Custom", "mycli", "", "acp", null, "--version", true, true));
+
+        var sut = CriarServico(eligible: [], cliDefinitions: defs);
+
+        var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only",
+                AgentCliId: "custom-acp"),
+            Actor.LocalUser()));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+        ex.Message.ShouldContain("chat view");
+    }
+
+    [Fact]
+    public async Task Dado_ThreadComCliEContexto_Quando_Fork_Entao_PreservaBinding()
+    {
+        var dbPath = Path.Join(Path.GetTempPath(), $"tb-fork-{Guid.NewGuid()}.sqlite");
+        var options = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<Taskboard.EntityFrameworkCore.Data.TaskboardDbContext>()
+            .UseSqlite($"Data Source={dbPath};Pooling=false")
+            .Options;
+        await using var ctx = new Taskboard.EntityFrameworkCore.Data.TaskboardDbContext(options);
+        await ctx.Database.EnsureCreatedAsync();
+
+        var source = AiChatThread.CreateAgentThread(
+            AiChatThreadId.NewGuid(), "orig", ModelRef.From("default"), "medium",
+            Sandbox.ReadOnly, AgentType.Claude, workspacePath: "/work");
+        source.ConfigureCli("pty", "dev", agentCliId: null);
+        var first = AiChatEvent.CreateTyped(
+            AiChatEventId.NewGuid(), source.Id, AiChatEventRole.User, "hello", AiChatEventKind.Message);
+        ctx.Set<AiChatThread>().Add(source);
+        ctx.Set<AiChatEvent>().Add(first);
+        await ctx.SaveChangesAsync();
+
+        var threadRepo = new Taskboard.EntityFrameworkCore.Repositories.EfCoreRepository<AiChatThread>(ctx);
+        var eventRepo = new Taskboard.EntityFrameworkCore.Repositories.EfCoreRepository<AiChatEvent>(ctx);
+        var sut = CriarServico(eligible: [], threadRepo: threadRepo, eventRepo: eventRepo);
+
+        var dto = await sut.ForkThreadAsync(source.Id, first.Id.Value, Actor.LocalUser());
+
+        dto.Transport.ShouldBe("pty");
+        dto.ContainerContext.ShouldBe("dev");
+        dto.AgentType.ShouldBe("Claude");
+
+        ctx.Dispose();
+        File.Delete(dbPath);
+    }
+
     private static AiChatService CriarServico(
         AgentType[] eligible,
         IRepository<AiChatThread>? threadRepo = null,
         IAgentCliDefinitionRepository? cliDefinitions = null,
         IAgentDiscoveryService? discovery = null,
-        IContainerCliDiscovery? containerDiscovery = null)
+        IContainerCliDiscovery? containerDiscovery = null,
+        IRepository<AiChatEvent>? eventRepo = null)
     {
         var eligibility = Substitute.For<IAgentEligibilityService>();
         eligibility.GetEligibleTypesAsync(Arg.Any<CancellationToken>())
@@ -326,7 +403,7 @@ public class AiChatServiceAgentBindingTests
         return new AiChatService(
             threadRepo ?? Substitute.For<IRepository<AiChatThread>>(),
             Substitute.For<IRepository<AiChatRun>>(),
-            Substitute.For<IRepository<AiChatEvent>>(),
+            eventRepo ?? Substitute.For<IRepository<AiChatEvent>>(),
             Substitute.For<ILLMProvider>(),
             Substitute.For<IThreadEventStreamService>(),
             Substitute.For<IServiceScopeFactory>(),
