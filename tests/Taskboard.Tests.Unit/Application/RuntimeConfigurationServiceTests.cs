@@ -42,6 +42,14 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Terminal:Enabled",
             "Taskboard:WebCliAgent:Enabled",
             "Taskboard:Agents:DefaultPrompt",
+            "Taskboard:Chat:Tools:Enabled",
+            "Taskboard:Chat:MaxToolIterations",
+            "Taskboard:Chat:SearchBackend",
+            "Taskboard:Chat:SearchUrl",
+            "Taskboard:Chat:SearchApiKey",
+            "Taskboard:Chat:DefaultChatModel",
+            "Taskboard:Chat:DefaultCodeModel",
+            "Taskboard:Chat:DefaultImageModel",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }

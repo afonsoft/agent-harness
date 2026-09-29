@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Taskboard.Domain.Agents;
 using Taskboard.Domain.Entities;
+using Taskboard.Domain.Entities.Chat;
 using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Domain.Issues;
@@ -36,6 +37,9 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ModelPriceRate> ModelPriceRates => Set<ModelPriceRate>();
     public DbSet<RunCostMetric> RunCostMetrics => Set<RunCostMetric>();
     public DbSet<JobSchedule> JobSchedules => Set<JobSchedule>();
+    public DbSet<ChatProvider> ChatProviders => Set<ChatProvider>();
+    public DbSet<ChatConversation> ChatConversations => Set<ChatConversation>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

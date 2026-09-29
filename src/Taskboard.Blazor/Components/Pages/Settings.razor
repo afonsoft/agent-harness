@@ -1,5 +1,6 @@
 @page "/settings"
 @attribute [Authorize]
+@using Taskboard.Application.Contracts.Chat
 @inject TaskboardClient Client
 @inject NavigationManager Navigation
 @inject ToastService ToastService
@@ -348,6 +349,137 @@
                 </div>
 
                 <div class="form-section">
+                    <h2 class="form-section-title">Chat</h2>
+                    <p class="small text-body-secondary">
+                        OpenAI-compatible providers for the AI Code provider chat (SPEC-20260929-ai-code-provider-chat).
+                        API keys are stored server-side and never returned in clear text.
+                    </p>
+                    @if (_chatError is not null)
+                    {
+                        <div class="alert alert-warning mb-2">@_chatError</div>
+                    }
+                    <div class="table-responsive mb-2">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Base URL</th>
+                                    <th scope="col">Key</th>
+                                    <th scope="col">Enabled</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var provider in _chatProviders)
+                                {
+                                    <tr @key="provider.Id">
+                                        <td class="fw-medium">@provider.Name</td>
+                                        <td class="small font-monospace">@provider.BaseUrl</td>
+                                        <td class="small">@(provider.HasApiKey ? provider.KeyHint : "—")</td>
+                                        <td>
+                                            <span class="badge @(provider.Enabled ? "text-bg-success" : "text-bg-secondary")">@(provider.Enabled ? "on" : "off")</span>
+                                        </td>
+                                        <td class="text-end text-nowrap">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => TestChatProviderAsync(provider)" disabled="@_chatBusy">
+                                                Test
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => DeleteChatProviderAsync(provider)" disabled="@_chatBusy">
+                                                Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_chatProviders.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="text-body-secondary small">No provider registered.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1" for="chat-provider-name">Name</label>
+                            <input id="chat-provider-name" class="form-control form-control-sm" @bind="_chatNewName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1" for="chat-provider-url">Base URL</label>
+                            <input id="chat-provider-url" class="form-control form-control-sm font-monospace" placeholder="https://api.openai.com" @bind="_chatNewUrl" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1" for="chat-provider-key">API key</label>
+                            <input id="chat-provider-key" type="password" class="form-control form-control-sm" @bind="_chatNewKey" />
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-sm btn-primary w-100" @onclick="AddChatProviderAsync" disabled="@_chatBusy">Add provider</button>
+                        </div>
+                    </div>
+
+                    <h3 class="h6">Capability defaults</h3>
+                    <p class="small text-body-secondary mb-2">Model used per capability when the conversation does not override it.</p>
+                    @foreach (var capability in ChatCapabilities)
+                    {
+                        var state = _chatCapability[capability];
+                        <div class="row g-2 align-items-center mb-2">
+                            <div class="col-md-2">
+                                <span class="small fw-medium text-capitalize">@capability</span>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-select form-select-sm" @bind="state.ProviderId" @bind:after="() => OnCapabilityProviderChangedAsync(capability)">
+                                    <option value="">—</option>
+                                    @foreach (var provider in _chatProviders)
+                                    {
+                                        <option value="@provider.Id" selected="@(provider.Id.ToString() == state.ProviderId)">@provider.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <select class="form-select form-select-sm" @bind="state.Model" disabled="@state.Models.Count == 0">
+                                    @if (state.Models.Count == 0)
+                                    {
+                                        <option value="">no models</option>
+                                    }
+                                    @foreach (var model in state.Models)
+                                    {
+                                        <option value="@model" selected="@(model == state.Model)">@model</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary w-100" @onclick="() => SaveCapabilityAsync(capability)" disabled="@_chatBusy">
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    <h3 class="h6 mt-3">Web search</h3>
+                    <div class="row g-2 align-items-end mb-2">
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1" for="chat-search-backend">Backend</label>
+                            <select id="chat-search-backend" class="form-select form-select-sm" @bind="_chatSearchBackend">
+                                <option value="none">none</option>
+                                <option value="searxng">SearxNG</option>
+                                <option value="tavily">Tavily</option>
+                                <option value="brave">Brave</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small mb-1" for="chat-search-url">SearxNG URL</label>
+                            <input id="chat-search-url" class="form-control form-control-sm font-monospace" placeholder="https://searx.example.com" @bind="_chatSearchUrl" />
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100" @onclick="SaveChatSearchAsync" disabled="@_chatBusy">Save</button>
+                        </div>
+                    </div>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label small mb-1" for="chat-search-key">Tavily / Brave API key</label>
+                            <input id="chat-search-key" type="password" class="form-control form-control-sm" @bind="_chatSearchKey" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
                     <h2 class="form-section-title">Features</h2>
                     <p class="small text-body-secondary">
                         Feature switches persist as database overrides and apply immediately — no restart.
@@ -492,6 +624,33 @@
     private string? _editingKey;
     private string _editingValue = string.Empty;
 
+    // SPEC-20260929-ai-code-provider-chat RF-011: provider catalog + capability
+    // defaults + search backend for the AI Code provider chat.
+    private static readonly string[] ChatCapabilities = ["chat", "code", "image"];
+
+    private sealed record ChatCapabilityState(string ConfigKey)
+    {
+        public string ProviderId { get; set; } = string.Empty;
+        public string Model { get; set; } = string.Empty;
+        public IReadOnlyList<string> Models { get; set; } = [];
+    }
+
+    private IReadOnlyList<ChatProviderDto> _chatProviders = [];
+    private string? _chatError;
+    private bool _chatBusy;
+    private string _chatNewName = string.Empty;
+    private string _chatNewUrl = string.Empty;
+    private string _chatNewKey = string.Empty;
+    private readonly Dictionary<string, ChatCapabilityState> _chatCapability = new()
+    {
+        ["chat"] = new("Taskboard:Chat:DefaultChatModel"),
+        ["code"] = new("Taskboard:Chat:DefaultCodeModel"),
+        ["image"] = new("Taskboard:Chat:DefaultImageModel"),
+    };
+    private string _chatSearchBackend = "none";
+    private string _chatSearchUrl = string.Empty;
+    private string _chatSearchKey = string.Empty;
+
     // SPEC-20260929-webcli-toggle-finops-active-sessions RF-002: dedicated
     // feature switches for the boolean feature keys of the config catalog.
     private static readonly (string Key, string Label, string Description)[] FeatureToggles =
@@ -568,6 +727,7 @@
         }
 
         await LoadConfigurationAsync();
+        await LoadChatStateAsync();
         await LoadSkillsStatusAsync();
         await LoadMcpStatusAsync();
     }
@@ -1048,6 +1208,191 @@
 
         ToastService.Notify(new(ToastType.Info, $"{entry.Key} override removed"));
         await LoadConfigurationAsync();
+    }
+
+    // SPEC-20260929-ai-code-provider-chat RF-011.
+    private async Task LoadChatStateAsync()
+    {
+        _chatBusy = true;
+        try
+        {
+            _chatProviders = await Client.GetChatProvidersAsync();
+            foreach (var capability in ChatCapabilities)
+            {
+                var state = _chatCapability[capability];
+                var raw = _configEntries.FirstOrDefault(e => e.Key == state.ConfigKey)?.EffectiveValue;
+                (state.ProviderId, state.Model) = ParseCapabilityValue(raw);
+                if (!string.IsNullOrEmpty(state.ProviderId))
+                {
+                    await LoadCapabilityModelsAsync(capability, state);
+                }
+            }
+
+            var backend = _configEntries.FirstOrDefault(e => e.Key == "Taskboard:Chat:SearchBackend")?.EffectiveValue;
+            _chatSearchBackend = string.IsNullOrWhiteSpace(backend) ? "none" : backend;
+            _chatSearchUrl = _configEntries.FirstOrDefault(e => e.Key == "Taskboard:Chat:SearchUrl")?.EffectiveValue ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _chatError = $"Failed to load chat settings: {ex.Message}";
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private static (string ProviderId, string Model) ParseCapabilityValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        var separator = raw.IndexOf(':');
+        return separator <= 0
+            ? (string.Empty, string.Empty)
+            : (raw[..separator], raw[(separator + 1)..]);
+    }
+
+    private async Task LoadCapabilityModelsAsync(string capability, ChatCapabilityState state)
+    {
+        try
+        {
+            state.Models = await Client.GetChatProviderModelsAsync(Guid.Parse(state.ProviderId));
+        }
+        catch (Exception)
+        {
+            state.Models = [];
+        }
+    }
+
+    private async Task OnCapabilityProviderChangedAsync(string capability)
+    {
+        var state = _chatCapability[capability];
+        state.Model = string.Empty;
+        state.Models = [];
+        if (Guid.TryParse(state.ProviderId, out var providerId))
+        {
+            try
+            {
+                state.Models = await Client.GetChatProviderModelsAsync(providerId);
+                state.Model = state.Models.Count > 0 ? state.Models[0] : string.Empty;
+            }
+            catch (Exception ex)
+            {
+                _chatError = $"Failed to load models: {ex.Message}";
+            }
+        }
+    }
+
+    private async Task SaveCapabilityAsync(string capability)
+    {
+        var state = _chatCapability[capability];
+        var value = string.IsNullOrEmpty(state.ProviderId) || string.IsNullOrEmpty(state.Model)
+            ? string.Empty
+            : $"{state.ProviderId}:{state.Model}";
+        var error = await Client.SetConfigurationValueAsync(state.ConfigKey, value);
+        if (error is not null)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to save {capability} default: {error}"));
+            return;
+        }
+
+        ToastService.Notify(new(ToastType.Success, $"{capability} default model saved"));
+        await LoadConfigurationAsync();
+    }
+
+    private async Task AddChatProviderAsync()
+    {
+        _chatError = null;
+        _chatBusy = true;
+        try
+        {
+            var provider = await Client.CreateChatProviderAsync(new ChatProviderUpsertRequest(
+                _chatNewName.Trim(), _chatNewUrl.Trim(), string.IsNullOrWhiteSpace(_chatNewKey) ? null : _chatNewKey));
+            ToastService.Notify(new(ToastType.Success, $"Provider '{provider.Name}' added"));
+            _chatNewName = _chatNewUrl = _chatNewKey = string.Empty;
+            _chatProviders = await Client.GetChatProvidersAsync();
+        }
+        catch (Exception ex)
+        {
+            _chatError = ProblemDetailReader.TryRead(ex.Message) ?? ex.Message;
+            ToastService.Notify(new(ToastType.Danger, "Failed to add provider"));
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private async Task TestChatProviderAsync(ChatProviderDto provider)
+    {
+        _chatBusy = true;
+        try
+        {
+            var models = await Client.GetChatProviderModelsAsync(provider.Id);
+            ToastService.Notify(new(ToastType.Success, $"{provider.Name}: {models.Count} models found"));
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"{provider.Name}: {ex.Message}"));
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private async Task DeleteChatProviderAsync(ChatProviderDto provider)
+    {
+        _chatBusy = true;
+        try
+        {
+            await Client.DeleteChatProviderAsync(provider.Id);
+            ToastService.Notify(new(ToastType.Info, $"Provider '{provider.Name}' deleted"));
+            _chatProviders = await Client.GetChatProvidersAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to delete provider: {ex.Message}"));
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private async Task SaveChatSearchAsync()
+    {
+        _chatBusy = true;
+        try
+        {
+            string? error;
+            error = await Client.SetConfigurationValueAsync("Taskboard:Chat:SearchBackend", _chatSearchBackend);
+            if (error is null && !string.IsNullOrWhiteSpace(_chatSearchUrl))
+            {
+                error = await Client.SetConfigurationValueAsync("Taskboard:Chat:SearchUrl", _chatSearchUrl.Trim());
+            }
+
+            if (error is null && !string.IsNullOrWhiteSpace(_chatSearchKey))
+            {
+                error = await Client.SetConfigurationValueAsync("Taskboard:Chat:SearchApiKey", _chatSearchKey);
+            }
+
+            if (error is not null)
+            {
+                ToastService.Notify(new(ToastType.Danger, $"Failed to save search config: {error}"));
+                return;
+            }
+
+            ToastService.Notify(new(ToastType.Success, "Web search configuration saved"));
+            await LoadConfigurationAsync();
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
     }
 
     private static string GetSourceBadgeClass(string source) => source switch

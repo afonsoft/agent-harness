@@ -22,10 +22,14 @@ using Taskboard;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
+using Taskboard.Application.Chat;
 using Taskboard.Application.CliMetrics;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Harness;
+using Taskboard.Integrations.Chat.SearchBackends;
+using Taskboard.Integrations.Chat.Tools;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Application.Contracts.Jobs;
@@ -296,6 +300,55 @@ builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>(
 builder.Services.AddSingleton<PathJailValidator>();
 builder.Services.AddSingleton<SecretScrubber>();
 builder.Services.AddSingleton<IPermissionGateway, PermissionGateway>();
+
+// SPEC-20260929-ai-code-provider-chat: provider chat — OpenAI-compatible
+// client, confined tools, search backends and the orchestration service.
+builder.Services.AddHttpClient("chat-provider", static client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(10);
+});
+builder.Services.AddHttpClient("chat-search", static client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddSingleton<OpenAiCompatibleClient>(sp =>
+    new(sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-provider")));
+builder.Services.AddSingleton<ChatImageStore>(new ChatImageStore(environment.GetDataDir()));
+builder.Services.AddSingleton<GenerateImageTool>(sp => new GenerateImageTool(
+    sp.GetRequiredService<OpenAiCompatibleClient>(),
+    sp.GetRequiredService<ChatImageStore>()));
+builder.Services.AddSingleton<ISecretRedactor>(sp => sp.GetRequiredService<SecretScrubber>());
+builder.Services.AddSingleton<IReadOnlyDictionary<string, IChatTool>>(sp =>
+{
+    var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-search");
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var backend = SearchBackendFactory.Create(
+        configuration["Taskboard:Chat:SearchBackend"] ?? "none",
+        configuration["Taskboard:Chat:SearchUrl"] ?? string.Empty,
+        configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty,
+        http);
+    var backends = new Dictionary<string, ISearchBackend>(StringComparer.Ordinal);
+    if (backend is not null)
+    {
+        backends[configuration["Taskboard:Chat:SearchBackend"] ?? "none"] = backend;
+    }
+
+    IChatTool[] list =
+    [
+        new ShellExecTool(
+            sp.GetRequiredService<ICommandRiskClassifier>(),
+            sp.GetRequiredService<ISecretRedactor>()),
+        new ReadFileTool(sp.GetRequiredService<PathJailValidator>(), sp.GetRequiredService<ISecretRedactor>()),
+        new WriteFileTool(sp.GetRequiredService<PathJailValidator>()),
+        new ListDirTool(sp.GetRequiredService<PathJailValidator>()),
+        new RunCliTool(sp.GetRequiredService<ISecretRedactor>()),
+        new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
+        new WebSearchTool(backends),
+        sp.GetRequiredService<GenerateImageTool>(),
+    ];
+    return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
+});
+builder.Services.AddScoped<ChatService>();
 // SPEC-20260919-harness-verification-loop: motor + evidência + loop fechado.
 builder.Services.AddSingleton<IProcessRunner, ProcessCommandRunner>();
 builder.Services.AddSingleton<IVerificationEngine, DotNetVerificationEngine>();
@@ -1732,6 +1785,152 @@ api.MapPut("settings", async (SaveSettingsRequest request, SettingsService setti
     await settings.SaveSettingsAsync(request, ct);
     return Results.NoContent();
 }).RequireAuthorization();
+
+// SPEC-20260929-ai-code-provider-chat: provider chat endpoints (RF-001..RF-009).
+var chat = api.MapGroup("local/chat").RequireAuthorization();
+
+chat.MapGet("providers", async (ChatService chatService, CancellationToken ct) =>
+    Results.Ok(new { providers = await chatService.ListProvidersAsync(ct) }));
+
+chat.MapPost("providers", async (ChatProviderUpsertRequest request, ChatService chatService, CancellationToken ct) =>
+{
+    try
+    {
+        var provider = await chatService.CreateProviderAsync(request, ct);
+        return Results.Created($"/api/local/chat/providers/{provider.Id}", new { provider });
+    }
+    catch (ChatValidationException ex)
+    {
+        return Results.BadRequest(new { error = new { code = "VALIDATION", message = ex.Message } });
+    }
+});
+
+chat.MapPut("providers/{id:guid}", async (Guid id, ChatProviderUpsertRequest request, ChatService chatService, CancellationToken ct) =>
+{
+    try
+    {
+        var provider = await chatService.UpdateProviderAsync(id, request, ct);
+        return provider is null
+            ? Results.NotFound(new { error = new { code = "PROVIDER_NOT_FOUND", message = $"Provider '{id}' not found." } })
+            : Results.Ok(new { provider });
+    }
+    catch (ChatValidationException ex)
+    {
+        return Results.BadRequest(new { error = new { code = "VALIDATION", message = ex.Message } });
+    }
+});
+
+chat.MapDelete("providers/{id:guid}", async (Guid id, ChatService chatService, CancellationToken ct) =>
+    await chatService.DeleteProviderAsync(id, ct)
+        ? Results.NoContent()
+        : Results.NotFound(new { error = new { code = "PROVIDER_NOT_FOUND", message = $"Provider '{id}' not found." } }));
+
+chat.MapGet("providers/{id:guid}/models", async (Guid id, ChatService chatService, CancellationToken ct) =>
+{
+    try
+    {
+        var models = await chatService.ListModelsAsync(id, ct);
+        return Results.Ok(new { models = models.Models, cached = models.Cached });
+    }
+    catch (ChatProviderException ex)
+    {
+        return Results.Json(new { error = new { code = "PROVIDER_UNAVAILABLE", message = ex.Message } }, statusCode: 502);
+    }
+    catch (ChatValidationException ex)
+    {
+        return Results.NotFound(new { error = new { code = "PROVIDER_NOT_FOUND", message = ex.Message } });
+    }
+});
+
+chat.MapGet("conversations", async (string? q, ChatService chatService, CancellationToken ct) =>
+    Results.Ok(new { conversations = await chatService.ListConversationsAsync(q, ct) }));
+
+chat.MapPost("conversations", async (CreateChatConversationRequest request, ChatService chatService, CancellationToken ct) =>
+{
+    try
+    {
+        var conversation = await chatService.CreateConversationAsync(request, ct);
+        return Results.Created($"/api/local/chat/conversations/{conversation.Id}", new { conversation });
+    }
+    catch (ChatValidationException ex)
+    {
+        return Results.BadRequest(new { error = new { code = "VALIDATION", message = ex.Message } });
+    }
+});
+
+chat.MapGet("conversations/{id}", async (string id, ChatService chatService, CancellationToken ct) =>
+    await chatService.GetConversationAsync(id, ct) is { } detail
+        ? Results.Ok(detail)
+        : Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Conversation '{id}' not found." } }));
+
+chat.MapPatch("conversations/{id}", async (string id, PatchChatConversationRequest request, ChatService chatService, CancellationToken ct) =>
+    await chatService.PatchConversationAsync(id, request, ct) is { } conversation
+        ? Results.Ok(new { conversation })
+        : Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Conversation '{id}' not found." } }));
+
+chat.MapDelete("conversations/{id}", async (string id, ChatService chatService, CancellationToken ct) =>
+    await chatService.DeleteConversationAsync(id, ct)
+        ? Results.NoContent()
+        : Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Conversation '{id}' not found." } }));
+
+chat.MapPost("conversations/{id}/messages", async (
+    string id,
+    SendChatMessageRequest request,
+    ChatService chatService,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Content))
+    {
+        return Results.BadRequest(new { error = new { code = "VALIDATION", message = "Content is required." } });
+    }
+
+    IAsyncEnumerable<ChatStreamEvent> stream;
+    try
+    {
+        stream = await chatService.SendMessageAsync(id, request.Content, ct);
+    }
+    catch (ChatValidationException ex)
+    {
+        return Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = ex.Message } });
+    }
+
+    http.Response.Headers.ContentType = "text/event-stream";
+    http.Response.Headers.CacheControl = "no-cache";
+    try
+    {
+        await foreach (var chatEvent in stream.WithCancellation(ct))
+        {
+            var (name, payload) = chatEvent switch
+            {
+                ChatDeltaEvent e => ("chat.delta", (object)new { content = e.Content }),
+                ChatToolCallEvent e => ("chat.tool_call", new { name = e.Name, arguments = e.ArgumentsJson }),
+                ChatToolResultEvent e => ("chat.tool_result", new { name = e.Name, result = e.ResultJson, refused = e.Refused, refusalReason = e.RefusalReason }),
+                ChatDoneEvent e => ("chat.done", new { tokensIn = e.TokensIn, tokensOut = e.TokensOut, finishReason = e.FinishReason, error = e.Error }),
+                _ => ("chat.done", new { }),
+            };
+            await http.Response.WriteAsync($"event: {name}\n", ct);
+            await http.Response.WriteAsync($"data: {JsonSerializer.Serialize(payload, ApiJsonOptions.Default)}\n\n", ct);
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Client disconnected or stop requested — the partial stream is already flushed.
+    }
+
+    return Results.Empty;
+});
+
+chat.MapPost("conversations/{id}/stop", (string id, ChatService chatService) =>
+    chatService.Stop(id) ? Results.Accepted(value: new { stopped = true }) : Results.Conflict(new { stopped = false }));
+
+chat.MapGet("images/{fileName}", (string fileName, ChatImageStore imageStore) =>
+{
+    var full = imageStore.Resolve(fileName);
+    return full is null
+        ? Results.NotFound(new { error = new { code = "IMAGE_NOT_FOUND", message = $"Image '{fileName}' not found." } })
+        : Results.File(full, "image/png");
+});
 
 api.MapGet("configuration", (RuntimeConfigurationService configuration) =>
     Results.Ok(new { entries = configuration.GetEntries() }))
