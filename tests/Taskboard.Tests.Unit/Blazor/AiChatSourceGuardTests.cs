@@ -132,4 +132,28 @@ public class AiChatSourceGuardTests
         source.ShouldContain("RefreshThreadsAsync");
         source.ShouldContain("!HasUserPrompt");
     }
+
+    // SPEC-20260929-ai-chat-view-first.
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_ViewAntesDoAgentCli()
+    {
+        // RF-001 — o select View precede o select Agent CLI na command bar.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var view = source.IndexOf("OnCfgViewChanged", StringComparison.Ordinal);
+        var cli = source.IndexOf("OnCfgCliChanged", StringComparison.Ordinal);
+        view.ShouldBeGreaterThanOrEqualTo(0);
+        cli.ShouldBeGreaterThan(view, "o select View (OnCfgViewChanged) deve vir antes do Agent CLI (OnCfgCliChanged)");
+    }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_CliSemAcpDisabledEmChat()
+    {
+        // RF-002 — em View=chat, opções sem SupportsChat ficam disabled.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        source.ShouldContain("_cfgView == \"chat\" && !opt.SupportsChat");
+        source.ShouldContain("AnyChatCapableCli");
+    }
 }
