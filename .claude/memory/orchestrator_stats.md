@@ -631,3 +631,12 @@ Notas:
 - Env canonical agora `HARNESS_*` (fallback `TASKBOARD_*` deprecated 1 ciclo).
 - Home: `~/.agent-harness` · DB: `harness.sqlite` · Unit: `harness-server.service` · Wrappers: `harness-server`/`harness-mcp`.
 - `install.sh --migrate` faz o runbook de migração para outros hosts.
+
+### Sessão 2026-09-29 (cont.) — Epic #381
+
+| Métrica | Valor |
+|---|---|
+| Issues fechadas | #382 (rail overlay), #386 (view-first + WebCliAgent toggle) |
+| PRs merged | #385, #387 |
+| PR em CI | #388 (jobs-dashboard → #383) |
+| Testes | unit 1267/1267, integration 302/302 |

@@ -83,3 +83,12 @@
 - **Deploy**: `harness-server` republicado de main @`7af9a09` (publish em dir novo + swap — `publish.new`→`publish`); active, `/health` 200, `/api/meta` OK, protegido 401.
 - **Lições**: `dotnet format --verify` roda no CI — rodar `dotnet format` local antes do push quando mexer em blocos grandes; FakeRunner síncrono pode completar refresh inline durante asserts — usar `TaskCompletionSource` gate para deixar refresh em voo; `SelectedRepo.Selected` é o seletor global compartilhado por todas as telas.
 - **Pendente do usuário**: `sudo rm -rf ~/.agent-harness/data/skills-cache.root-stale`; decisão de wire `check-spec-status.sh` no CI (workflows protegidos); validação manual touch do keybar/focus.
+
+## Sessão 2026-09-29 (cont.) — Epic #381 (rail overlay + view-first + jobs)
+
+- **#382/PR #385** `ai-chat-rail-overlay`: rail persistente virou overlay oculto por padrão — `History`/`New` no topo-direito, `.ai-chat-rail-wrap` fixed overlay em toda largura, `ThreadRail` sem toggle de collapse. Guard antigo (`OnToggleCollapsed`) substituído.
+- **#386/PR #387** `ai-chat-view-first`: seletor View antes do Agent CLI; em `chat` CLIs sem `SupportsChat` (ACP) ficam disabled e troca automática p/ primeiro CLI compatível; `Taskboard:WebCliAgent:Enabled` exposto no catálogo runtime (editable, default false) — o erro "Web CLI Agent feature is disabled" se resolve via Settings.
+- **#383/PR #388** `jobs-dashboard`: `ManagedJobService` base + `JobRegistry` singleton (defs via DI, overrides `JobSchedule` EF — migration `AddJobSchedules`, log ring 50, canal de wake), `/api/jobs` (GET/PUT/POST run, 400/404/202), tela `/jobs` (poll 10s) após Skills no NavMenu; `cli-probe-refresh` virou job de 1h; `skills-sync` RunOnce (`SyncOnStartup`→`EnabledByDefault`).
+- **Lições**: `signals.ReadAsync()` já consome o item — ler `signalTask.Result` antes do drain `TryRead` (bug real pego por teste de trigger manual). Ports de persistência em Contracts retornam DTOs, nunca entidades (Contracts só vê Domain.Shared). Merge de features concorrentes em `AiChat.razor` + docs: resolver mantendo ambas as descrições.
+- **Lição flake**: assert de paralelismo por `maxInFlight` em vez de wall-clock (CI mediu 1.163s vs limite 1.1s).
+- **Estado**: unit 1267 · integration 302 · spec-drift OK. #385/#387 merged.
