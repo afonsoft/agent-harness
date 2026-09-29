@@ -27,7 +27,7 @@ public sealed class TaskboardEnvironment
 
     /// <summary>
     /// Returns the configured taskboard port. Defaults to <c>47823</c>.
-    /// Precedence: database override &gt; <c>HARNESS_PORT</c> env (legacy <c>TASKBOARD_PORT</c>) &gt; appsettings.
+    /// Precedence: database override &gt; <c>HARNESS_PORT</c> env &gt; appsettings.
     /// </summary>
     public int GetPort()
     {

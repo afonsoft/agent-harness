@@ -23,10 +23,6 @@ public sealed class SkillsSyncService : ISkillsSyncService
     internal const string RepositoryEnvAlias = SkillsRepository.EnvAlias;
     internal const string DefaultRepository = SkillsRepository.DefaultRepository;
     internal const string ManifestFileName = ".harness-skills.json";
-
-    // DEPRECATED (SPEC-20260922-harness-home-rename): legacy manifest name read
-    // as fallback for one cycle — destinations written before the rename.
-    internal const string LegacyManifestFileName = ".taskboard-skills.json";
     internal const int DefaultTimeoutSeconds = 120;
 
     private readonly IConfiguration _configuration;
@@ -232,14 +228,6 @@ public sealed class SkillsSyncService : ISkillsSyncService
             Directory.CreateDirectory(targetRoot);
             var manifestPath = Path.Join(targetRoot, ManifestFileName);
             var manifest = SkillsManifest.Load(manifestPath);
-            if (manifest.Skills.Count == 0)
-            {
-                var legacyPath = Path.Join(targetRoot, LegacyManifestFileName);
-                if (File.Exists(legacyPath))
-                {
-                    manifest = SkillsManifest.Load(legacyPath);
-                }
-            }
 
             foreach (var name in manifest.Skills.Keys.ToList())
             {

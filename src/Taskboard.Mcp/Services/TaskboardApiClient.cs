@@ -31,7 +31,7 @@ public sealed class TaskboardApiClient : ITaskboardApiClient
         // SPEC-20260915-api-authorization-hardening RF-004: machine clients
         // authenticate via X-Api-Key when the key is configured. An explicit
         // key (e.g. resolved from IConfiguration by the in-process host) wins
-        // over the TASKBOARD_API_KEY environment variable.
+        // over the HARNESS_API_KEY environment variable.
         apiKey ??= HarnessEnv.Get("HARNESS_API_KEY");
         if (!string.IsNullOrWhiteSpace(apiKey))
         {

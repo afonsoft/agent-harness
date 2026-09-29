@@ -183,8 +183,8 @@ public sealed class RuntimeConfigurationService
     private string? ResolveValue(CatalogEntry entry)
     {
         // A DB override is already visible through configuration (the provider is
-        // registered last). Otherwise a dedicated env alias (e.g. HARNESS_PORT,
-        // legacy TASKBOARD_PORT) beats Taskboard__* env vars and appsettings.
+        // registered last). Otherwise a dedicated env alias (e.g. HARNESS_PORT)
+        // beats Taskboard__* env vars and appsettings.
         if (!HasDatabaseOverride(entry.Key)
             && entry.EnvAlias is not null
             && HarnessEnv.Get(entry.EnvAlias) is { Length: > 0 } envValue)

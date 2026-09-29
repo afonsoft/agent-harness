@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-taskboard-env-fallback-removal` |
 | Ticket | [#359](https://github.com/afonsoft/agent-harness/issues/359) (Epic [#356](https://github.com/afonsoft/agent-harness/issues/359)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260922-harness-home-rename` (origem do fallback; §48/§67 deferem a remoção "num ciclo futuro, com spec própria") |
 
 ## 1. User Story
@@ -83,10 +83,10 @@
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** `grep -rn "TASKBOARD_" src/ install.sh` **when** executado **then** só restam ocorrências de scrub (`WithoutHarnessEnv`) e comentários de compatibilidade removidos.
-- [ ] **Given** host com apenas `TASKBOARD_*` setado e app novo **when** inicia **then** usa defaults canônicos (não lê legado) — comportamento documentado.
-- [ ] **Given** `dotnet build` + `dotnet test` **when** executados **then** verde; testes de fallback removidos/substituídos por testes de "não-fallback".
-- [ ] **Given** o host local **when** o deploy ocorre **then** `harness-server` segue healthy (env já em `HARNESS_*`).
+- [x] **Given** `grep -rn "TASKBOARD_" src/ install.sh` **when** executado **then** só restam ocorrências de scrub (`WithoutHarnessEnv`) e comentários de compatibilidade removidos.
+- [x] **Given** host com apenas `TASKBOARD_*` setado e app novo **when** inicia **then** usa defaults canônicos (não lê legado) — comportamento documentado.
+- [x] **Given** `dotnet build` + `dotnet test` **when** executados **then** verde; testes de fallback removidos/substituídos por testes de "não-fallback".
+- [x] **Given** o host local **when** o deploy ocorre **then** `harness-server` segue healthy (env já em `HARNESS_*`).
 
 **Edge cases:**
 
@@ -97,11 +97,11 @@
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** inventariar todos os read sites de `TASKBOARD_*`/`~/.taskboard`/`taskboard.sqlite`/`.taskboard-skills.json`.
-- [ ] **T2 — Implementation:** remover fallbacks; manter scrub dual em `WithoutHarnessEnv`.
-- [ ] **T3 — Tests:** remover testes de fallback; adicionar cobertura de "não-fallback" + scrub dual.
-- [ ] **T4 — Docs:** README/installation/CHANGELOG (breaking + migração).
-- [ ] **T5 — Done + PR:** `Status = Done` e PR na branch do spec.
+- [x] **T1 — Discovery:** inventariar todos os read sites de `TASKBOARD_*`/`~/.taskboard`/`taskboard.sqlite`/`.taskboard-skills.json`.
+- [x] **T2 — Implementation:** remover fallbacks; manter scrub dual em `WithoutHarnessEnv`.
+- [x] **T3 — Tests:** remover testes de fallback; adicionar cobertura de "não-fallback" + scrub dual.
+- [x] **T4 — Docs:** README/installation/CHANGELOG (breaking + migração).
+- [x] **T5 — Done + PR:** `Status = Done` e PR na branch do spec.
 
 ## 8. Organization Guardrails
 

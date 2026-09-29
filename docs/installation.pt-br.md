@@ -81,7 +81,7 @@ export HARNESS_DATA_DIR="$PWD/.data"
 export GITHUB_TOKEN="ghp_your_token"
 ```
 
-> **Migração:** variáveis legadas `TASKBOARD_*` ainda são lidas como fallback depreciado por um ciclo (SPEC-20260922-harness-home-rename); `CODEX_TASKBOARD_*` não são mais lidas. Use os nomes `HARNESS_*`.
+> **Migração:** variáveis `TASKBOARD_*` não são mais lidas (removidas após o ciclo de depreciação, SPEC-20260928-taskboard-env-fallback-removal) — hosts ainda nos nomes legados devem rodar `install.sh --migrate` ou exportar os equivalentes `HARNESS_*` antes de atualizar; `CODEX_TASKBOARD_*` não são mais lidas.
 
 ## Executar o servidor
 

@@ -10,7 +10,7 @@ namespace Taskboard.Server.Auth;
 /// <summary>
 /// SPEC-20260915-api-authorization-hardening RF-003: `X-Api-Key` scheme for
 /// non-browser clients (taskctl, MCP server). The effective key is read from
-/// configuration (<c>Taskboard:ApiKey</c> / <c>TASKBOARD_API_KEY</c>) per
+/// configuration (<c>Taskboard:ApiKey</c> / <c>HARNESS_API_KEY</c>) per
 /// request so database overrides apply without restart. Comparison is
 /// constant-time; the key is never logged. Missing header → NoResult so the
 /// cookie scheme still applies; invalid header → Fail.
