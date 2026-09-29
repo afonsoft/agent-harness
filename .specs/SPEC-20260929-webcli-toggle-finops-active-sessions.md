@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260929-webcli-toggle-finops-active` |
 | Ticket | [#390](https://github.com/afonsoft/agent-harness/issues/390) |
-| Status | `Done` — delivered in PR |
+| Status | `Done` — delivered in PR [#391](https://github.com/afonsoft/agent-harness/pull/391) |
 
 ## 1. User Story
 
