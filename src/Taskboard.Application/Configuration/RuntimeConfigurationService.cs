@@ -79,6 +79,31 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Agents:DefaultPrompt", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "HARNESS_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),
+        // SPEC-20260929-ai-code-provider-chat: provider chat (Settings → Chat).
+        new("Taskboard:Chat:Tools:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_TOOLS_ENABLED", Validate: ValidateBoolean),
+        new("Taskboard:Chat:MaxToolIterations", "8", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidatePositiveInt),
+        new("Taskboard:Chat:SearchBackend", "none", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_SEARCH_BACKEND", Validate: ValidateSearchBackend),
+        new("Taskboard:Chat:SearchUrl", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_SEARCH_URL", Validate: ValidateSearchUrl),
+        new("Taskboard:Chat:SearchApiKey", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_SEARCH_API_KEY", Validate: null),
+        new("Taskboard:Chat:DefaultChatModel", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: null),
+        new("Taskboard:Chat:DefaultCodeModel", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: null),
+        new("Taskboard:Chat:DefaultImageModel", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: null),
     ];
 
     private readonly IConfiguration _configuration;
@@ -276,6 +301,23 @@ public sealed class RuntimeConfigurationService
         value.Length <= Taskboard.Application.Contracts.Agents.AgentPromptTemplate.MaxLength
             ? null
             : $"Prompt template must be at most {Taskboard.Application.Contracts.Agents.AgentPromptTemplate.MaxLength} characters.";
+
+    // SPEC-20260929-ai-code-provider-chat.
+    private static string? ValidatePositiveInt(string value) =>
+        int.TryParse(value, out var n) && n is >= 1 and <= 64
+            ? null
+            : "Value must be an integer between 1 and 64.";
+
+    private static string? ValidateSearchBackend(string value) =>
+        value is "none" or "searxng" or "tavily" or "brave"
+            ? null
+            : "Search backend must be one of: none, searxng, tavily, brave.";
+
+    private static string? ValidateSearchUrl(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            || (Uri.TryCreate(value, UriKind.Absolute, out var u) && u.Scheme is "http" or "https")
+            ? null
+            : "Search URL must be an absolute http(s) URL.";
 
     private static string? ValidateLogLevel(string value) =>
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)

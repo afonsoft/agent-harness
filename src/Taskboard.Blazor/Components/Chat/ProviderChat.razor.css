@@ -1,0 +1,122 @@
+/* SPEC-20260929-ai-code-provider-chat RF-010 — open-webui-like layout. */
+.provider-chat {
+    height: calc(100vh - 180px);
+    min-height: 480px;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .75rem;
+    overflow: hidden;
+    background: var(--bs-body-bg);
+}
+
+.provider-chat-sidebar {
+    width: 260px;
+    min-width: 260px;
+    border-right: 1px solid var(--bs-border-color);
+    display: flex;
+    flex-direction: column;
+    background: var(--bs-tertiary-bg);
+    transition: width .15s ease;
+}
+
+.provider-chat-sidebar.collapsed {
+    display: none;
+}
+
+.provider-chat-item {
+    display: flex;
+    align-items: center;
+    border-radius: .5rem;
+    margin-bottom: .25rem;
+}
+
+.provider-chat-item.active {
+    background: var(--bs-primary-bg-subtle);
+}
+
+.provider-chat-item-btn {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    padding: .4rem .5rem;
+    border-radius: .5rem;
+    color: inherit;
+    min-width: 0;
+}
+
+.provider-chat-item-btn:hover {
+    background: var(--bs-secondary-bg);
+}
+
+.provider-chat-delete {
+    opacity: 0;
+    margin-right: .35rem;
+    flex: 0 0 auto;
+}
+
+.provider-chat-item:hover .provider-chat-delete {
+    opacity: .8;
+}
+
+.provider-chat-messages {
+    scroll-behavior: smooth;
+}
+
+.provider-chat-bubble {
+    max-width: 85%;
+    margin-bottom: .75rem;
+    padding: .6rem .9rem;
+    border-radius: .9rem;
+    background: var(--bs-tertiary-bg);
+    word-wrap: break-word;
+}
+
+.provider-chat-bubble.user {
+    margin-left: auto;
+    background: var(--bs-primary-bg-subtle);
+}
+
+.provider-chat-bubble.tool {
+    max-width: 95%;
+    background: var(--bs-secondary-bg);
+}
+
+.provider-tool-card summary {
+    cursor: pointer;
+    margin-bottom: .25rem;
+}
+
+.provider-chat-image {
+    max-height: 380px;
+}
+
+.typing-dot {
+    display: inline-block;
+    width: .5rem;
+    height: .5rem;
+    border-radius: 50%;
+    background: var(--bs-secondary);
+    animation: provider-chat-blink 1s infinite alternate;
+}
+
+@keyframes provider-chat-blink {
+    from { opacity: .2; }
+    to { opacity: 1; }
+}
+
+@media (max-width: 767.98px) {
+    .provider-chat {
+        height: calc(100vh - 220px);
+    }
+
+    .provider-chat-sidebar {
+        position: absolute;
+        z-index: 10;
+        height: 100%;
+        box-shadow: 0 0 1rem rgba(0, 0, 0, .25);
+    }
+
+    .provider-chat-bubble {
+        max-width: 100%;
+    }
+}

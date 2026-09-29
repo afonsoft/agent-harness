@@ -1,0 +1,475 @@
+@using System.Text.Json
+@using Taskboard.Application.Contracts.Chat
+@using Taskboard.Rendering
+@inject TaskboardClient Client
+@inject ToastService ToastService
+@implements IDisposable
+
+@* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode inside AI
+   Code — open-webui-like layout: collapsible history sidebar, provider/model
+   pickers, streamed messages with tool cards and inline images. *@
+
+<div class="provider-chat d-flex">
+    <div class="provider-chat-sidebar @(_sidebarOpen ? "" : "collapsed")">
+        <div class="d-flex justify-content-between align-items-center px-3 pt-3">
+            <span class="fw-semibold small text-body-secondary">Histórico</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Recolher/expandir">☰</button>
+        </div>
+        <div class="px-3 py-2">
+            <button type="button" class="btn btn-primary btn-sm w-100" @onclick="StartNewChatAsync" disabled="@_busy">+ New chat</button>
+        </div>
+        <div class="px-3 pb-2">
+            <input type="search" class="form-control form-control-sm" placeholder="Buscar conversas…" @bind="_search" @bind:after="OnSearchChangedAsync" />
+        </div>
+        <div class="provider-chat-list flex-grow-1 overflow-auto px-2">
+            @if (_conversations.Count == 0)
+            {
+                <div class="text-body-secondary small px-2 py-3">Nenhuma conversa ainda.</div>
+            }
+            @foreach (var conversation in _conversations)
+            {
+                <div class="provider-chat-item @(conversation.Id == _conversationId ? "active" : "")" @key="conversation.Id">
+                    <button type="button" class="provider-chat-item-btn" @onclick="() => OpenConversationAsync(conversation.Id)" title="@conversation.Title">
+                        <span class="d-block text-truncate">@conversation.Title</span>
+                        <span class="d-block text-truncate text-body-secondary small">@conversation.Model</span>
+                    </button>
+                    <button type="button" class="btn-close btn-close-white btn-sm provider-chat-delete" title="Excluir" @onclick="() => DeleteConversationAsync(conversation.Id)"></button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="provider-chat-main flex-grow-1 d-flex flex-column">
+        <div class="provider-chat-header d-flex align-items-center gap-2 px-3 py-2 border-bottom">
+            @if (!_sidebarOpen)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Histórico">☰</button>
+            }
+            <span class="text-body-secondary small">Provider</span>
+            <select class="form-select form-select-sm w-auto" @bind="_providerId" @bind:after="OnProviderChangedAsync">
+                <option value="">—</option>
+                @foreach (var provider in _providers)
+                {
+                    <option value="@provider.Id" selected="@(provider.Id == _providerId)">@provider.Name</option>
+                }
+            </select>
+            <span class="text-body-secondary small">Model</span>
+            <select class="form-select form-select-sm w-auto" @bind="_model" disabled="@(_models.Count == 0)">
+                @if (_models.Count == 0)
+                {
+                    <option value="">no models</option>
+                }
+                @foreach (var model in _models)
+                {
+                    <option value="@model" selected="@(model == _model)">@model</option>
+                }
+            </select>
+            @if (_conversationTitle is { Length: > 0 })
+            {
+                <span class="ms-auto small text-body-secondary text-truncate d-none d-md-block">@_conversationTitle</span>
+            }
+        </div>
+
+        <div class="provider-chat-messages flex-grow-1 overflow-auto px-3 py-3" id="provider-chat-scroll">
+            @if (_messages.Count == 0 && !_running && string.IsNullOrEmpty(_streaming))
+            {
+                <div class="text-center text-body-secondary py-5">
+                    <p class="mb-1 fw-semibold">Provider Chat</p>
+                    <p class="small mb-0">Escolha um provider e um modelo, depois envie uma mensagem. Tools de host (shell, arquivos, CLIs), busca web, código e imagem ficam disponíveis ao modelo — confinadas pelo security gateway.</p>
+                </div>
+            }
+            @foreach (var message in _messages)
+            {
+                <div class="provider-chat-bubble @BubbleClass(message.Role)">
+                    @if (message.Role == "tool")
+                    {
+                        <details class="provider-tool-card" open="@message.Refused">
+                            <summary>
+                                <span class="badge @(message.Refused ? "text-bg-danger" : "text-bg-secondary")">tool</span>
+                                <code>@message.ToolName</code>
+                                @if (message.Refused)
+                                {
+                                    <span class="badge text-bg-warning ms-1">refused</span>
+                                }
+                            </summary>
+                            <pre class="small mb-0"><code>@message.Content</code></pre>
+                        </details>
+                    }
+                    else
+                    {
+                        <div class="ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(message.Content))</div>
+                        @if (message.ImageUrl is not null)
+                        {
+                            <img src="@message.ImageUrl" alt="generated" class="provider-chat-image img-fluid rounded mt-2" />
+                        }
+                    }
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(_streaming))
+            {
+                <div class="provider-chat-bubble assistant">
+                    <div class="ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(_streaming))</div>
+                </div>
+            }
+            @if (_running && string.IsNullOrEmpty(_streaming))
+            {
+                <div class="provider-chat-bubble assistant"><span class="typing-dot"></span></div>
+            }
+        </div>
+
+        <div class="provider-chat-composer border-top px-3 py-2">
+            @if (_error is not null)
+            {
+                <div class="alert alert-danger py-1 px-2 small mb-2">@_error</div>
+            }
+            <div class="d-flex gap-2 align-items-end">
+                <textarea class="form-control" rows="2" placeholder="Mensagem… (Enter envia, Shift+Enter quebra linha)"
+                          @bind="_composer" @onkeydown="OnComposerKey"></textarea>
+                @if (_running)
+                {
+                    <button type="button" class="btn btn-outline-danger" @onclick="StopAsync" title="Stop">■</button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-primary" @onclick="SendAsync" disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model))">Send</button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _sidebarOpen = true;
+
+    private IReadOnlyList<ChatProviderDto> _providers = [];
+    private Guid _providerId;
+    private IReadOnlyList<string> _models = [];
+    private string _model = string.Empty;
+
+    private IReadOnlyList<ChatConversationDto> _conversations = [];
+    private string? _conversationId;
+    private string? _conversationTitle;
+    private readonly List<ChatMessageDto> _messages = [];
+
+    private string _composer = string.Empty;
+    private string _search = string.Empty;
+    private string? _streaming;
+    private string? _error;
+    private bool _running;
+    private bool _busy;
+    private CancellationTokenSource? _streamCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _providers = await Client.GetChatProvidersAsync();
+            var conversation = await Client.GetChatConversationsAsync();
+            _conversations = conversation;
+            if (_providers.Count > 0)
+            {
+                _providerId = _providers[0].Id;
+                await OnProviderChangedAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao carregar providers: {ex.Message}";
+        }
+    }
+
+    private static string BubbleClass(string role) => role switch
+    {
+        "user" => "user",
+        "tool" => "tool",
+        _ => "assistant",
+    };
+
+    private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
+
+    private async Task OnProviderChangedAsync()
+    {
+        _models = [];
+        _model = string.Empty;
+        if (_providerId == Guid.Empty)
+        {
+            return;
+        }
+
+        try
+        {
+            _models = await Client.GetChatProviderModelsAsync(_providerId);
+            _model = _models.Count > 0 ? _models[0] : string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao carregar modelos: {ex.Message}";
+        }
+    }
+
+    private async Task OnSearchChangedAsync()
+    {
+        try
+        {
+            _conversations = await Client.GetChatConversationsAsync(_search);
+        }
+        catch (Exception)
+        {
+            // Search is best-effort.
+        }
+    }
+
+    private async Task StartNewChatAsync()
+    {
+        if (_providerId == Guid.Empty || string.IsNullOrEmpty(_model))
+        {
+            _error = "Selecione um provider e um modelo antes de iniciar uma conversa.";
+            return;
+        }
+
+        _error = null;
+        _busy = true;
+        try
+        {
+            var conversation = await Client.CreateChatConversationAsync(new CreateChatConversationRequest(_providerId, _model));
+            _conversationId = conversation.Id;
+            _conversationTitle = conversation.Title;
+            _messages.Clear();
+            _streaming = null;
+            await OnSearchChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao criar conversa: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OpenConversationAsync(string id)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var detail = await Client.GetChatConversationAsync(id);
+            if (detail is null)
+            {
+                return;
+            }
+
+            _conversationId = detail.Conversation.Id;
+            _conversationTitle = detail.Conversation.Title;
+            _messages.Clear();
+            _messages.AddRange(detail.Messages);
+            _streaming = null;
+            if (_providerId != detail.Conversation.ProviderId)
+            {
+                _providerId = detail.Conversation.ProviderId;
+                await OnProviderChangedAsync();
+            }
+
+            if (_models.Contains(detail.Conversation.Model))
+            {
+                _model = detail.Conversation.Model;
+            }
+
+            await ScrollToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao abrir conversa: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteConversationAsync(string id)
+    {
+        try
+        {
+            await Client.DeleteChatConversationAsync(id);
+            if (_conversationId == id)
+            {
+                _conversationId = null;
+                _conversationTitle = null;
+                _messages.Clear();
+            }
+
+            await OnSearchChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao excluir: {ex.Message}";
+        }
+    }
+
+    private async Task OnComposerKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_running)
+        {
+            await SendAsync();
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        var content = _composer.Trim();
+        if (content.Length == 0 || _conversationId is null)
+        {
+            if (_conversationId is null)
+            {
+                await StartNewChatAsync();
+                if (_conversationId is null)
+                {
+                    return;
+                }
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        _error = null;
+        _composer = string.Empty;
+        _messages.Add(new ChatMessageDto(
+            Id: Guid.NewGuid().ToString("N"), Role: "user", Content: content,
+            ToolCallsJson: null, ToolCallId: null, ToolName: null, Refused: false,
+            ImagePath: null, ImageUrl: null, TokensIn: null, TokensOut: null, Model: null,
+            CreatedAt: DateTime.UtcNow));
+        _running = true;
+        _streaming = string.Empty;
+        _streamCts = new CancellationTokenSource();
+        await ScrollToEndAsync();
+
+        try
+        {
+            using var response = await Client.SendChatMessageAsync(_conversationId, content, _streamCts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Falha no envio ({(int)response.StatusCode}).";
+                _running = false;
+                _streaming = null;
+                return;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(_streamCts.Token);
+            using var reader = new StreamReader(stream);
+            string? eventName = null;
+            while (await reader.ReadLineAsync(_streamCts.Token) is { } line)
+            {
+                if (line.StartsWith("event:", StringComparison.Ordinal))
+                {
+                    eventName = line["event:".Length..].Trim();
+                    continue;
+                }
+
+                if (!line.StartsWith("data:", StringComparison.Ordinal) || eventName is null)
+                {
+                    continue;
+                }
+
+                var data = line["data:".Length..].Trim();
+                await HandleSseEventAsync(eventName, data);
+                eventName = null;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stop pressed — partial content stays on screen.
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha no stream: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+            _streaming = null;
+            _streamCts?.Dispose();
+            _streamCts = null;
+            await ReloadConversationAsync();
+        }
+    }
+
+    private async Task HandleSseEventAsync(string eventName, string data)
+    {
+        switch (eventName)
+        {
+            case "chat.delta":
+                var delta = JsonSerializer.Deserialize<JsonElement>(data);
+                _streaming += delta.TryGetProperty("content", out var c) ? c.GetString() ?? string.Empty : string.Empty;
+                await ScrollToEndAsync();
+                break;
+            case "chat.tool_call":
+                // The persisted tool message arrives via reload; live card comes from tool_result.
+                break;
+            case "chat.tool_result":
+                await ReloadConversationAsync();
+                await ScrollToEndAsync();
+                break;
+            case "chat.done":
+                break;
+        }
+    }
+
+    private async Task ReloadConversationAsync()
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var detail = await Client.GetChatConversationAsync(_conversationId);
+            if (detail is null)
+            {
+                return;
+            }
+
+            _messages.Clear();
+            _messages.AddRange(detail.Messages);
+            _conversationTitle = detail.Conversation.Title;
+            await OnSearchChangedAsync();
+        }
+        catch (Exception)
+        {
+            // Reload is best-effort — the streamed content stays visible.
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Client.StopChatAsync(_conversationId);
+        }
+        catch (Exception)
+        {
+            // The stream ends on its own when the server cancels.
+        }
+    }
+
+    private async Task ScrollToEndAsync()
+    {
+        await Task.Delay(1);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _streamCts?.Cancel();
+        _streamCts?.Dispose();
+    }
+}

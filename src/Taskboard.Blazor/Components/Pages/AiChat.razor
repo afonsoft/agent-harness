@@ -55,6 +55,16 @@ else
     </div>
 
     <section class="ai-chat-main card">
+        @if (_cfgMode == "provider")
+        {
+            @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode —
+               replaces the agent-CLI UI with the open-webui-like layout. *@
+            <div class="card-body p-2">
+                <ProviderChat />
+            </div>
+        }
+        else
+        {
         @if (_activeThread is not null)
         {
             <div class="card-header d-flex align-items-center justify-content-between py-2">
@@ -230,6 +240,7 @@ else
                         <select class="form-select form-select-sm ai-chat-quickselect" @bind="_cfgMode">
                             <option value="assistant">Assistant</option>
                             <option value="agent">Agent</option>
+                            <option value="provider">Chat (Provider)</option>
                         </select>
                     </label>
                     <label class="d-flex align-items-center gap-1 mb-0"
@@ -432,6 +443,7 @@ else
                 </div>
             </div>
         </div>
+        }
         }
     </section>
 </div>

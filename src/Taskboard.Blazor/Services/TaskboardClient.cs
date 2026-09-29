@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
+using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Mcp;
@@ -862,6 +863,110 @@ public sealed class TaskboardClient
     private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);
 
     private sealed record InstalledAgentsResponse(List<AgentInfo> Agents);
+
+    // SPEC-20260929-ai-code-provider-chat.
+    public async Task<IReadOnlyList<ChatProviderDto>> GetChatProvidersAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await _httpClient.GetFromJsonAsync<ChatProviderListResponse>("api/local/chat/providers", cancellationToken);
+        return body?.Providers ?? [];
+    }
+
+    public async Task<ChatProviderDto> CreateChatProviderAsync(ChatProviderUpsertRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("api/local/chat/providers", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatProviderResponse>(cancellationToken: cancellationToken);
+        return body!.Provider;
+    }
+
+    public async Task<ChatProviderDto> UpdateChatProviderAsync(Guid id, ChatProviderUpsertRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync($"api/local/chat/providers/{id}", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatProviderResponse>(cancellationToken: cancellationToken);
+        return body!.Provider;
+    }
+
+    public async Task DeleteChatProviderAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync($"api/local/chat/providers/{id}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<IReadOnlyList<string>> GetChatProviderModelsAsync(Guid providerId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/providers/{providerId}/models", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatModelListResponse>(cancellationToken: cancellationToken);
+        return body!.Models;
+    }
+
+    public async Task<IReadOnlyList<ChatConversationDto>> GetChatConversationsAsync(string? query = null, CancellationToken cancellationToken = default)
+    {
+        var url = "api/local/chat/conversations";
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            url += $"?q={Uri.EscapeDataString(query)}";
+        }
+
+        var body = await _httpClient.GetFromJsonAsync<ChatConversationListResponse>(url, cancellationToken);
+        return body?.Conversations ?? [];
+    }
+
+    public async Task<ChatConversationDto> CreateChatConversationAsync(CreateChatConversationRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("api/local/chat/conversations", request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body!.Conversation;
+    }
+
+    public async Task<ChatConversationDetailDto?> GetChatConversationAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ChatConversationDetailDto>(cancellationToken: cancellationToken);
+    }
+
+    public async Task DeleteChatConversationAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task RenameChatConversationAsync(string id, string title, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PatchAsJsonAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", new PatchChatConversationRequest(Title: title), cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Opens the SSE stream of a chat turn — the caller reads <see cref="HttpResponseMessage.Content"/> incrementally.</summary>
+    public Task<HttpResponseMessage> SendChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post,
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages")
+        {
+            Content = JsonContent.Create(new SendChatMessageRequest(content)),
+        };
+        return _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+    }
+
+    public async Task StopChatAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}/stop", content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private sealed record ChatProviderListResponse(List<ChatProviderDto> Providers);
+    private sealed record ChatProviderResponse(ChatProviderDto Provider);
+    private sealed record ChatModelListResponse(List<string> Models);
+    private sealed record ChatConversationListResponse(List<ChatConversationDto> Conversations);
+    private sealed record ChatConversationResponse(ChatConversationDto Conversation);
 
     private sealed record AiChatThreadListResponse(List<AiChatThreadDto> Threads);
     private sealed record AiChatThreadResponse(AiChatThreadDto Thread);
