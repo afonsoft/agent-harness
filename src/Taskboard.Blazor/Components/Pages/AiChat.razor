@@ -222,23 +222,26 @@ else
                             <option value="agent">Agent</option>
                         </select>
                     </label>
+                    <label class="d-flex align-items-center gap-1 mb-0"
+                           title="Structured chat (ACP) or raw terminal (PTY)">
+                        <span class="text-body-secondary">View</span>
+                        <select class="form-select form-select-sm ai-chat-quickselect"
+                                value="@_cfgView" @onchange="OnCfgViewChanged">
+                            <option value="chat" disabled="@(!AnyChatCapableCli)">Chat</option>
+                            <option value="terminal">Terminal</option>
+                        </select>
+                    </label>
                     <label class="d-flex align-items-center gap-1 mb-0">
                         <span class="text-body-secondary">Agent CLI</span>
                         <select class="form-select form-select-sm ai-chat-quickselect"
                                 value="@_cfgCli" @onchange="OnCfgCliChanged">
                             @foreach (var opt in _cliOptions)
                             {
-                                <option value="@opt.Value" disabled="@(!opt.Selectable)">@opt.Label</option>
+                                // SPEC-20260929-ai-chat-view-first RF-002: em
+                                // View=chat só entram CLIs com suporte ACP.
+                                <option value="@opt.Value"
+                                        disabled="@(!opt.Selectable || (_cfgView == "chat" && !opt.SupportsChat))">@opt.Label</option>
                             }
-                        </select>
-                    </label>
-                    <label class="d-flex align-items-center gap-1 mb-0"
-                           title="Structured chat (ACP) or raw terminal (PTY)">
-                        <span class="text-body-secondary">View</span>
-                        <select class="form-select form-select-sm ai-chat-quickselect"
-                                value="@_cfgView" @onchange="OnCfgViewChanged">
-                            <option value="chat" disabled="@(!SelectedCliSupportsChat)">Chat</option>
-                            <option value="terminal">Terminal</option>
                         </select>
                     </label>
                     @if (_dockerContainers?.Count > 0)
@@ -965,10 +968,36 @@ else
         }
     }
 
+    /// <summary>Alguma CLI oferece chat estruturado (ACP) no contexto atual.</summary>
+    private bool AnyChatCapableCli =>
+        _cliOptions.Any(o => o.Selectable && o.SupportsChat);
+
     private void OnCfgViewChanged(ChangeEventArgs e)
     {
         var view = e.Value?.ToString() ?? "chat";
-        _cfgView = view == "chat" && !SelectedCliSupportsChat ? "terminal" : view;
+        if (view == "chat")
+        {
+            // SPEC-20260929-ai-chat-view-first RF-002: View=chat exige CLI com
+            // ACP — troca para a primeira compatível; sem nenhuma, terminal.
+            if (!SelectedCliSupportsChat)
+            {
+                var first = _cliOptions.FirstOrDefault(o => o.Selectable && o.SupportsChat);
+                if (first is null)
+                {
+                    _cfgView = "terminal";
+                    return;
+                }
+
+                _cfgCli = first.Value;
+                _cfgModelId = string.Empty;
+            }
+
+            _cfgView = "chat";
+        }
+        else
+        {
+            _cfgView = "terminal";
+        }
     }
 
     private static string ModelOptionLabel(AiChatModelDto model) =>
