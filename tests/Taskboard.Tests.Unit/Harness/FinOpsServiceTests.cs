@@ -225,11 +225,11 @@ public sealed class FinOpsServiceTests : IDisposable
     private CliSessionMetric AddCliSession(
         string externalId, DateTime started, DateTime? ended = null, string? model = "gpt-5",
         long? input = 100, long? output = 50, AgentCliKind kind = AgentCliKind.Codex,
-        bool tokensEstimated = false, int? messages = 3)
+        bool tokensEstimated = false, int? messages = 3, DateTime? ingestedAt = null)
     {
         var session = CliSessionMetric.Create(
             CliMetricSourceId.NewGuid(), kind, externalId, "sessão " + externalId,
-            started, ended, messages, model, input, output, null, DateTime.UtcNow, tokensEstimated);
+            started, ended, messages, model, input, output, null, ingestedAt ?? DateTime.UtcNow, tokensEstimated);
         _context.CliSessionMetrics.Add(session);
         _context.SaveChanges();
         return session;
@@ -340,6 +340,69 @@ public sealed class FinOpsServiceTests : IDisposable
 
         summary.Alerts.ShouldNotBeNull()
             .ShouldContain(a => a.Code == "NoActiveSessions" && a.Severity == "warn");
+    }
+
+    // SPEC-20260929-webcli-toggle-finops-active-sessions RF-003.
+    [Fact]
+    public async Task Dado_SessaoAbertaReIngerida_Quando_Summary_Entao_SemAlertaSemSessaoAtiva()
+    {
+        var now = DateTime.UtcNow;
+        // Sessão Devin aberta há 2h e re-ingestada há 5min — ativa apesar do
+        // StartedAtUtc fora da janela (o bug original ignorava sessões abertas).
+        AddCliSession("live-1", now.AddHours(-2), ended: null, ingestedAt: now.AddMinutes(-5));
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.Alerts.ShouldNotBeNull()
+            .ShouldNotContain(a => a.Code == "NoActiveSessions");
+        var row = summary.RecentSessions.ShouldNotBeNull().Single(r => r.Id == "live-1");
+        row.Status.ShouldBe("running");
+        row.LastActivityUtc.UtcDateTime.ShouldBe(now.AddMinutes(-5), TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Dado_SessaoAbertaSemReIngestao_Quando_Summary_Entao_AlertaSemSessaoAtiva()
+    {
+        var now = DateTime.UtcNow;
+        // Aberta há 2h e nunca re-ingestada — sem sinal de atividade recente.
+        AddCliSession("stale-open-1", now.AddHours(-2), ended: null, ingestedAt: now.AddHours(-2));
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.Alerts.ShouldNotBeNull()
+            .ShouldContain(a => a.Code == "NoActiveSessions" && a.Severity == "warn");
+        var row = summary.RecentSessions.ShouldNotBeNull().Single(r => r.Id == "stale-open-1");
+        row.Status.ShouldBe("finished");
+    }
+
+    [Fact]
+    public async Task Dado_RunEmExecucao_Quando_Summary_Entao_SemAlertaSemSessaoAtiva()
+    {
+        var now = DateTime.UtcNow;
+        var run = new AgentRun(Guid.NewGuid(), "issue-live", AgentType.Claude, now.AddHours(-2));
+        run.MarkRunning();
+        _context.AgentRuns.Add(run);
+        _context.SaveChanges();
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.Alerts.ShouldNotBeNull()
+            .ShouldNotContain(a => a.Code == "NoActiveSessions");
+    }
+
+    [Fact]
+    public async Task Dado_SessaoFechadaForaDaJanela_Quando_Summary_Entao_AlertaSemSessaoAtiva()
+    {
+        var now = DateTime.UtcNow;
+        // Fechada há 40min — fora da janela de 30min, mesmo re-ingestada agora.
+        AddCliSession("closed-1", now.AddHours(-3), ended: now.AddMinutes(-40), ingestedAt: now);
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.Alerts.ShouldNotBeNull()
+            .ShouldContain(a => a.Code == "NoActiveSessions");
+        var row = summary.RecentSessions.ShouldNotBeNull().Single(r => r.Id == "closed-1");
+        row.Status.ShouldBe("finished");
     }
 
     [Fact]

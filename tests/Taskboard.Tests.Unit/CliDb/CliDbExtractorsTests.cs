@@ -229,6 +229,38 @@ public class CliDbExtractorsTests : IDisposable
         session.TokensInput.ShouldBeNull();
     }
 
+    // SPEC-20260929-webcli-toggle-finops-active-sessions RF-004: o cursor por
+    // rowid nunca relê sessões já ingeridas — sessões abertas e ativas na
+    // janela de refresh voltam mesmo com o cursor avançado.
+    [Fact]
+    public async Task Dado_DevinDbComSessaoAberta_Quando_ExtrairComCursorAvancado_Entao_AbertasERecentesRetornam()
+    {
+        var recentEpoch = DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds();
+        var path = CriarDb(".local/share/devin/cli/sessions.db", $"""
+            CREATE TABLE sessions (id TEXT, working_directory TEXT, backend_type TEXT, model TEXT,
+                agent_mode TEXT, created_at INTEGER, last_activity_at INTEGER, title TEXT,
+                main_chain_id INTEGER, shell_last_seen_index INTEGER, cogs_json TEXT,
+                workspace_dirs TEXT, hidden INTEGER, metadata TEXT);
+            INSERT INTO sessions (id, title, created_at, last_activity_at, model, hidden)
+            VALUES ('dv-old','antiga fechada',1700000000,1700000500,'devin-m',0),
+                   ('dv-open','aberta agora',1700000000,NULL,'devin-m',0),
+                   ('dv-recent','ativa ha 1h',1700000000,{recentEpoch},'devin-m',0);
+            """);
+        var extractor = new DevinCliDbExtractor(
+            Locator(), Reader(), NullLogger<DevinCliDbExtractor>.Instance);
+
+        // Cursor avançado: o scan incremental (rowid > 999) não veria nenhuma linha.
+        var result = await extractor.ExtractSinceAsync($"{path}|999");
+
+        result.Status.ShouldBe(CliDbSourceStatus.Available);
+        var ids = result.Sessions.Select(s => s.ExternalId).ToList();
+        ids.ShouldContain("dv-open", "sessão aberta (last_activity_at NULL) deve ser re-lida");
+        ids.ShouldContain("dv-recent", "sessão ativa na janela de refresh deve ser re-lida");
+        ids.ShouldNotContain("dv-old", "sessão antiga fechada não entra no refresh");
+        var open = result.Sessions.Single(s => s.ExternalId == "dv-open");
+        open.EndedAtUtc.ShouldBeNull();
+    }
+
     [Fact]
     public async Task Dado_AntigravityDb_Quando_Extrair_Entao_ApenasSummariesComEstimativa()
     {

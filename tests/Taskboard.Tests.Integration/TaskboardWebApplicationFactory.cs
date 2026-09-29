@@ -35,7 +35,9 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Enables the Web CLI Agent feature flag for subclass factories (queue/
-    /// retry endpoints return 404 otherwise). Off by default — matches prod.
+    /// retry endpoints return 404 otherwise). Off by default — most suites do
+    /// not exercise agent endpoints; the production default is on
+    /// (SPEC-20260929-webcli-toggle-finops-active-sessions RF-001).
     /// </summary>
     public bool WebCliAgentEnabled { get; protected set; }
 

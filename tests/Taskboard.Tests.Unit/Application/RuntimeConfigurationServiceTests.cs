@@ -241,6 +241,75 @@ public class RuntimeConfigurationServiceTests
         result.Error.ShouldBe(ConfigurationWriteError.NotFound);
     }
 
+    // SPEC-20260929-webcli-toggle-finops-active-sessions RF-001.
+    [Fact]
+    public void Dado_Catalogo_Quando_ListarWebCliAgent_Entao_DefaultTrueSemRestart()
+    {
+        var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        var entry = service.GetEntries().Single(e => e.Key == "Taskboard:WebCliAgent:Enabled");
+
+        entry.EffectiveValue.ShouldBe("true");
+        entry.Source.ShouldBe("default");
+        entry.Editable.ShouldBeTrue();
+        entry.RequiresRestart.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_OverrideFalse_Quando_ListarComProviderSqlite_Entao_OverrideVence()
+    {
+        var dbPath = Path.Join(Path.GetTempPath(), $"tb-svc-{Guid.NewGuid()}.sqlite");
+        var options = new DbContextOptionsBuilder<TaskboardDbContext>()
+            .UseSqlite($"Data Source={dbPath}")
+            .Options;
+        using var context = new TaskboardDbContext(options);
+        context.Database.EnsureCreated();
+        var provider = new SqliteConfigurationProvider(dbPath);
+        var configuration = new ConfigurationBuilder()
+            .Add(new SqliteConfigurationSource(provider))
+            .Build();
+        var service = new RuntimeConfigurationService(
+            configuration, new EfCoreRepository<ConfigurationOverride>(context));
+
+        (await service.SetOverrideAsync("Taskboard:WebCliAgent:Enabled", "false"))
+            .Error.ShouldBe(ConfigurationWriteError.None);
+        provider.Reload();
+
+        var entry = service.GetEntries().Single(e => e.Key == "Taskboard:WebCliAgent:Enabled");
+        entry.EffectiveValue.ShouldBe("false");
+        entry.Source.ShouldBe("db");
+    }
+
+    [Fact]
+    public void Dado_EnvAlias_Quando_Definido_Entao_ValorEnvVence()
+    {
+        Environment.SetEnvironmentVariable("HARNESS_WEB_CLI_AGENT_ENABLED", "false");
+        try
+        {
+            var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
+
+            var entry = service.GetEntries().Single(e => e.Key == "Taskboard:WebCliAgent:Enabled");
+
+            entry.EffectiveValue.ShouldBe("false");
+            entry.Source.ShouldBe("env");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HARNESS_WEB_CLI_AGENT_ENABLED", null);
+        }
+    }
+
+    [Fact]
+    public async Task Dado_ValorNaoBooleano_Quando_SetOverrideWebCliAgent_Entao_RetornaValidation()
+    {
+        var (service, context, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        var result = await service.SetOverrideAsync("Taskboard:WebCliAgent:Enabled", "yes");
+
+        result.Error.ShouldBe(ConfigurationWriteError.Validation);
+        context.ConfigurationOverrides.ShouldBeEmpty();
+    }
+
     private static (RuntimeConfigurationService Service, TaskboardDbContext Context, string DbPath) CreateSut(
         IConfiguration configuration)
     {

@@ -41,6 +41,14 @@ public sealed class DevinCliDbExtractor : CliDbExtractorBase
     // v2: message_nodes scalar rollup feeds TokensInput + MessageCount (RF-002).
     public override int DataVersion => 2;
 
+    /// <summary>
+    /// SPEC-20260929-webcli-toggle-finops-active-sessions RF-004: every pass
+    /// re-reads sessions that are open (<c>last_activity_at IS NULL</c>) or
+    /// active within this window, so a live session's end timestamp reaches
+    /// the FinOps liveness rule instead of staying at first-ingest values.
+    /// </summary>
+    internal static readonly int RefreshWindowHours = 24;
+
     // message_nodes is estimation-only — the sessions table alone decides drift.
     public override IReadOnlyList<string> DriftCheckedTables(CliDbSource source) => ["sessions"];
 
@@ -74,7 +82,31 @@ public sealed class DevinCliDbExtractor : CliDbExtractorBase
             orderBy: "rowid",
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var touched = new List<CliSessionRecord>(rows.Count);
+        // Refresh pass: the rowid watermark never re-reads an already-ingested
+        // session, so an open session's last_activity_at would stay stale
+        // forever. Re-read open/recently-active rows and merge them over the
+        // incremental scan by external id (RF-004).
+        var refreshSince = DateTimeOffset.UtcNow
+            .AddHours(-RefreshWindowHours).ToUnixTimeSeconds();
+        var refreshed = await conn.QueryAsync(
+            "sessions",
+            ["rowid", "id", "title", "created_at", "last_activity_at", "model"],
+            r => (Rowid: r.GetInt64("rowid") ?? 0,
+                Record: new CliSessionRecord(
+                    source.Name,
+                    r.GetString("id") ?? string.Empty,
+                    r.GetString("title"),
+                    CliDbTimestamps.EpochSeconds(r.GetInt64("created_at")),
+                    CliDbTimestamps.OptEpochSeconds(r.GetInt64("last_activity_at")),
+                    MessageCount: null,
+                    r.GetString("model"),
+                    TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
+            whereClause: "last_activity_at IS NULL OR last_activity_at >= @since",
+            parameters: new Dictionary<string, object?> { ["@since"] = refreshSince },
+            orderBy: "rowid",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var touchedById = new Dictionary<string, CliSessionRecord>(StringComparer.Ordinal);
         foreach (var (rowid, record) in rows)
         {
             if (rowid > (maxRowid ?? 0))
@@ -85,8 +117,18 @@ public sealed class DevinCliDbExtractor : CliDbExtractorBase
             {
                 continue;
             }
-            touched.Add(record);
+            touchedById[record.ExternalId] = record;
         }
+        foreach (var (_, record) in refreshed)
+        {
+            if (record.ExternalId.Length == 0)
+            {
+                continue;
+            }
+            touchedById[record.ExternalId] = record;
+        }
+
+        var touched = touchedById.Values.ToList();
 
         var rollup = await TryRollupByGroupAsync(
             conn, "message_nodes", "session_id", "chat_message",
