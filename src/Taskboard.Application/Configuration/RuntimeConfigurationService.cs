@@ -71,11 +71,12 @@ public sealed class RuntimeConfigurationService
             ReadOnlyReason: null,
             EnvAlias: "HARNESS_TERMINAL_ENABLED", Validate: ValidateBoolean),
         // SPEC-20260929-ai-chat-view-first RF-003: liga os endpoints de
-        // agente interativo (prompt/queue/retry/cancel/events) — lida por
-        // request, sem restart.
-        new("Taskboard:WebCliAgent:Enabled", "false", Editable: true, RequiresRestart: false,
+        // agente interativo (prompt/queue/retry/cancel/events). Lida por
+        // request, sem restart. SPEC-20260929-webcli-toggle-finops-active-
+        // sessions RF-001: default on (toggle visível em Settings → Features).
+        new("Taskboard:WebCliAgent:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_WEB_CLI_AGENT_ENABLED", Validate: ValidateBoolean),
         new("Taskboard:Agents:DefaultPrompt", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "HARNESS_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),
