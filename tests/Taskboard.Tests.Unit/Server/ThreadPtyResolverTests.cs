@@ -60,7 +60,8 @@ public class ThreadPtyResolverTests
             Substitute.For<IAgentModelConfigService>(),
             Substitute.For<IAgentModelCatalogService>(),
             defs,
-            discovery);
+            discovery,
+            Substitute.For<IContainerCliDiscovery>());
 
         return (new ThreadPtyResolver(service, defs, discovery), threadRepo, defs, discovery);
     }
@@ -144,16 +145,18 @@ public class ThreadPtyResolverTests
     }
 
     [Fact]
-    public async Task Dado_ContextoDocker_Quando_Resolve_Entao_DockerExecWrap()
+    public async Task Dado_ContextoDocker_Quando_Resolve_Entao_DockerExecComNomeDoBinario()
     {
+        // SPEC-20260929-docker-cli-context RF-001: dentro do contêiner o binário
+        // é resolvido pelo PATH do contêiner — o path do host não vale lá.
         var thread = PtyThread("/work", AgentType.Claude, container: "dev");
         var (sut, _, _, discovery) = Create(thread);
-        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/usr/bin/claude");
+        discovery.ResolveExecutablePath(AgentType.Claude).Returns("/home/harness/.local/bin/claude");
 
         var (result, error) = await sut.ResolveAsync(thread.Id.Value);
 
         error.ShouldBeNull();
-        result!.Command.ShouldBe(["docker", "exec", "-it", "dev", "/usr/bin/claude"]);
+        result!.Command.ShouldBe(["docker", "exec", "-it", "dev", "claude"]);
     }
 
     [Fact]

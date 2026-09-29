@@ -30,7 +30,9 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         string RawLine);
 
     /// <summary>State a session needs to respawn (reconnect after process death).</summary>
-    private sealed record SpawnContext(AgentType AgentType, string WorkspacePath, Sandbox Sandbox, string? ModelName);
+    private sealed record SpawnContext(
+        AgentType AgentType, string WorkspacePath, Sandbox Sandbox, string? ModelName,
+        string? ContainerContext = null);
 
     /// <summary>An in-flight prompt turn — ends on the RPC response (v1) or a state_update (v2).</summary>
     private sealed class ActiveTurn
@@ -118,7 +120,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         string workspacePath,
         Sandbox sandbox,
         string? modelName = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? containerContext = null)
     {
         if (IsSessionActive(threadId))
         {
@@ -131,7 +134,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             throw new NotSupportedException($"No adapter found for agent type '{agentType}'.");
         }
 
-        var spawn = new SpawnContext(agentType, workspacePath, sandbox, modelName);
+        var spawn = new SpawnContext(agentType, workspacePath, sandbox, modelName, containerContext);
         var holder = await SpawnChannelAsync(threadId, spawn, adapter, cancellationToken).ConfigureAwait(false);
         if (holder is null)
         {
@@ -1450,9 +1453,34 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     {
         var command = adapter.BuildSessionCommand(spawn.AgentType, spawn.WorkspacePath, spawn.Sandbox, spawn.ModelName);
 
+        // SPEC-20260929-docker-cli-context RF-003: ACP sessions inside a
+        // container go through `docker exec -i` (stdio transport — no TTY).
+        // The inner binary is addressed by name: a host-resolved path would
+        // not exist inside the container.
+        if (!string.IsNullOrWhiteSpace(spawn.ContainerContext))
+        {
+            if (!DockerCliSpawner.IsValidContainerName(spawn.ContainerContext))
+            {
+                EmitEvent(threadId, "error", "system",
+                    $"Invalid container name '{spawn.ContainerContext}'.", null);
+                return null;
+            }
+
+            var innerName = Path.GetFileName(command.ExecutablePath);
+            command = command with
+            {
+                ExecutablePath = "docker",
+                Arguments = DockerCliSpawner.BuildExecArgs(
+                    spawn.ContainerContext, [innerName, .. command.Arguments], interactive: false),
+                TcpPort = null
+            };
+        }
+
         // RF-014: TCP when the adapter asks for it or Taskboard:Acp:TcpPort
-        // points at an already-running ACP server.
-        if ((command.TcpPort ?? _options.AgentTcpPort) is { } port)
+        // points at an already-running ACP server. Container sessions never
+        // take this path — the argv above is a `docker exec`, not a TCP peer.
+        if (string.IsNullOrWhiteSpace(spawn.ContainerContext)
+            && (command.TcpPort ?? _options.AgentTcpPort) is { } port)
         {
             // RF-014: TCP transport — connect to an already-running ACP server
             // (e.g. `copilot --acp --port`) instead of spawning a subprocess.

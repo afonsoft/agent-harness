@@ -78,7 +78,10 @@ public sealed class ThreadPtyResolver(
                 return (null, $"No known CLI binary for agent '{thread.AgentType}'.");
             }
 
-            var path = discovery.ResolveExecutablePath(agentType);
+            // Inside a container the binary is resolved by name — a host path
+            // would not exist there (SPEC-20260929-docker-cli-context RF-001).
+            var inContainer = !string.IsNullOrWhiteSpace(thread.ContainerContext);
+            var path = inContainer ? null : discovery.ResolveExecutablePath(agentType);
             argv = [path ?? binary];
         }
         else

@@ -29,9 +29,26 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
 
         var command = adapter.BuildCommand(request);
 
+        // Container context → `docker exec -i <container> <bin> <args>`; the
+        // adapter emits the bare binary name for container runs so host paths
+        // never leak into the container (SPEC-20260929-docker-cli-context).
+        var executable = command.ExecutablePath;
+        var arguments = command.Arguments;
+        if (!string.IsNullOrWhiteSpace(request.ContainerContext))
+        {
+            if (!DockerCliSpawner.IsValidContainerName(request.ContainerContext))
+            {
+                throw new InvalidOperationException($"Invalid container name '{request.ContainerContext}'.");
+            }
+
+            executable = "docker";
+            arguments = DockerCliSpawner.BuildExecArgs(
+                request.ContainerContext, [command.ExecutablePath, .. command.Arguments], interactive: false);
+        }
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = command.ExecutablePath,
+            FileName = executable,
             WorkingDirectory = command.WorkingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -39,7 +56,7 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
             CreateNoWindow = true
         };
 
-        foreach (var argument in command.Arguments)
+        foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
         }

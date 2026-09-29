@@ -34,6 +34,7 @@ public sealed class AiChatService
     private readonly IAgentModelCatalogService _modelCatalog;
     private readonly IAgentCliDefinitionRepository _cliDefinitions;
     private readonly IAgentDiscoveryService _discovery;
+    private readonly IContainerCliDiscovery _containerDiscovery;
 
     public AiChatService(
         IRepository<AiChatThread> threadRepo,
@@ -50,7 +51,8 @@ public sealed class AiChatService
         IAgentModelConfigService modelConfig,
         IAgentModelCatalogService modelCatalog,
         IAgentCliDefinitionRepository cliDefinitions,
-        IAgentDiscoveryService discovery)
+        IAgentDiscoveryService discovery,
+        IContainerCliDiscovery containerDiscovery)
     {
         _threadRepo = threadRepo;
         _runRepo = runRepo;
@@ -67,6 +69,36 @@ public sealed class AiChatService
         _modelCatalog = modelCatalog;
         _cliDefinitions = cliDefinitions;
         _discovery = discovery;
+        _containerDiscovery = containerDiscovery;
+    }
+
+    /// <summary>
+    /// SPEC-20260929-docker-cli-context RF-002: with <c>ContainerContext</c>,
+    /// CLI availability is validated against the binaries discovered inside
+    /// that container — never against the host PATH. A container not seen by
+    /// discovery (stopped, unknown name) fails closed.
+    /// </summary>
+    private async Task EnsureContainerCliAsync(string containerContext, AgentType agentType, CancellationToken ct)
+    {
+        var containers = await _containerDiscovery.ListContainersAsync(ct).ConfigureAwait(false);
+        var container = containers.FirstOrDefault(
+            c => string.Equals(c.Name, containerContext.Trim(), StringComparison.Ordinal));
+        if (container is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Container '{containerContext}' is not running or not allowed.");
+        }
+
+        var binary = AgentCliMap.CliKindFor(agentType) is { } kind
+            ? AgentCliMap.GetSpec(kind)?.Binary
+            : agentType == AgentType.OpenHands ? "openhands" : null;
+        if (binary is null || !container.AvailableClis.Contains(binary, StringComparer.Ordinal))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"CLI for agent '{agentType}' is not installed in container '{containerContext}'.");
+        }
     }
 
     public async Task<AiChatThreadDto> CreateThreadAsync(
@@ -118,15 +150,39 @@ public sealed class AiChatService
             transport = string.IsNullOrWhiteSpace(request.Transport)
                 ? "acp"
                 : request.Transport.Trim().ToLowerInvariant();
+
+            // Container context shifts availability checks to the binaries
+            // discovered inside the container (SPEC-20260929-docker-cli-context
+            // RF-002) — a host install is neither required nor sufficient.
+            var inContainer = !string.IsNullOrWhiteSpace(request.ContainerContext)
+                && !string.Equals(request.ContainerContext, "host", StringComparison.OrdinalIgnoreCase);
             if (transport is "acp")
             {
-                var eligible = await _eligibility.GetEligibleTypesAsync(ct);
-                if (!eligible.Contains(parsedType))
+                if (inContainer)
                 {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.AgentNotEligible,
-                        $"Agent '{parsedType}' is not eligible — the CLI must be installed, authenticated and enabled.");
+                    if (!AgentCliMap.SupportsAcp(parsedType))
+                    {
+                        throw new DomainException(
+                            TaskboardDomainErrorCodes.InvalidValue,
+                            $"Agent '{parsedType}' has no structured chat (ACP) support — use the terminal view.");
+                    }
+
+                    await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
                 }
+                else
+                {
+                    var eligible = await _eligibility.GetEligibleTypesAsync(ct);
+                    if (!eligible.Contains(parsedType))
+                    {
+                        throw new DomainException(
+                            TaskboardDomainErrorCodes.AgentNotEligible,
+                            $"Agent '{parsedType}' is not eligible — the CLI must be installed, authenticated and enabled.");
+                    }
+                }
+            }
+            else if (inContainer)
+            {
+                await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
             }
             else if (_discovery.ResolveExecutablePath(parsedType) is null)
             {
@@ -420,7 +476,8 @@ public sealed class AiChatService
                     var progress = new SequentialEmitProgress(this, threadId);
 
                     var result = await _cliChatRunner.RunAsync(
-                        thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct);
+                        thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct,
+                        thread.ContainerContext);
 
                     // Drain every queued write before closing the run — the run
                     // record must not complete while response lines are pending.

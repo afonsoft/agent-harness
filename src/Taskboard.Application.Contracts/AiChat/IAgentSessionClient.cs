@@ -17,7 +17,8 @@ public interface IAgentSessionClient
         string workspacePath,
         Sandbox sandbox,
         string? modelName = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? containerContext = null);
 
     /// <summary>
     /// Envia um prompt para o agente com entrega imediata ou em fila (steer vs queue).

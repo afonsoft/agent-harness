@@ -12,7 +12,7 @@ namespace Taskboard.Integrations.Agents;
 /// (5s), cached briefly, and degrade to "unavailable" — never throws to the
 /// request path when the daemon is absent.
 /// </summary>
-public sealed class DockerCliDiscovery
+public sealed class DockerCliDiscovery : IContainerCliDiscovery
 {
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan AvailabilityCache = TimeSpan.FromSeconds(30);

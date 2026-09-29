@@ -241,7 +241,8 @@ else
                         <label class="d-flex align-items-center gap-1 mb-0"
                                title="Run the CLI on this host or inside a running container">
                             <span class="text-body-secondary">In</span>
-                            <select class="form-select form-select-sm ai-chat-quickselect" @bind="_cfgContext">
+                            <select class="form-select form-select-sm ai-chat-quickselect"
+                                    value="@_cfgContext" @onchange="OnCfgContextChanged">
                                 <option value="">host</option>
                                 @foreach (var container in _dockerContainers)
                                 {
@@ -602,10 +603,54 @@ else
     /// installed-but-not-eligible builtins (terminal only) and enabled custom
     /// defs. Order: chat-capable first, then terminal-only, then custom.
     /// </summary>
+    private void OnCfgContextChanged(ChangeEventArgs e)
+    {
+        _cfgContext = e.Value?.ToString() ?? string.Empty;
+        BuildCliOptions();
+        if (!SelectedCliSupportsChat && _cfgView == "chat")
+        {
+            _cfgView = "terminal";
+        }
+    }
+
     private void BuildCliOptions()
     {
         var options = new List<CliOption>();
         var covered = new HashSet<AgentType>();
+
+        // SPEC-20260929-docker-cli-context RF-002: with a container selected,
+        // availability comes from the binaries discovered inside it — CLIs
+        // that exist only in the container become selectable.
+        var container = _dockerContainers?.FirstOrDefault(c => c.Name == _cfgContext);
+        if (container is not null)
+        {
+            foreach (var bin in container.AvailableClis)
+            {
+                AgentType? type = null;
+                string? display = null;
+                foreach (var kv in AgentCliMap.All)
+                {
+                    if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
+                    {
+                        type = AgentCliMap.AgentTypeFor(kv.Key);
+                        display = kv.Value.DisplayName;
+                        break;
+                    }
+                }
+
+                type ??= bin == "openhands" ? AgentType.OpenHands : null;
+                if (type is null || !covered.Add(type.Value))
+                {
+                    continue;
+                }
+
+                options.Add(new CliOption(
+                    $"agent:{type.Value}", display ?? bin, type.Value, null,
+                    SupportsChat: AgentCliMap.SupportsAcp(type.Value), Selectable: true));
+            }
+        }
+        else
+        {
 
         foreach (var agent in _agents ?? [])
         {
@@ -633,6 +678,7 @@ else
             options.Add(new CliOption(
                 $"agent:{type}", status.DisplayName, type, null,
                 SupportsChat: false, Selectable: true));
+        }
         }
 
         foreach (var def in _customDefs.Where(d => d.Enabled))

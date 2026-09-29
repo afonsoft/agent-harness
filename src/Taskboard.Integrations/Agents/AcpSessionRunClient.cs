@@ -91,7 +91,8 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
                 request.RepoPath ?? Environment.CurrentDirectory,
                 Sandbox.WorkspaceWrite,
                 request.ResolvedModelName,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                request.ContainerContext).ConfigureAwait(false);
 
             if (!started)
             {

@@ -165,6 +165,14 @@ public static class AgentCliMap
                 ScriptInstall("https://cli.kiro.dev/install")),
         };
 
+    /// <summary>
+    /// Whether the CLI speaks ACP (structured chat sessions) natively —
+    /// PTY-only CLIs can still run in terminal threads but cannot serve the
+    /// chat transport (SPEC-20260929-docker-cli-context).
+    /// </summary>
+    public static bool SupportsAcp(AgentType type) =>
+        type is AgentType.OpenCode or AgentType.Claude or AgentType.Codex or AgentType.Devin;
+
     /// <summary>Returns the spec for <paramref name="kind"/>, or <c>null</c> for unknown members.</summary>
     public static AgentCliSpec? GetSpec(AgentCliKind kind) =>
         Specs.TryGetValue(kind, out var spec) ? spec : null;

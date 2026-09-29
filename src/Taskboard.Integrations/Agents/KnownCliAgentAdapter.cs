@@ -27,8 +27,12 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         var name = AgentCliInvocation.ExecutableName(request.AgentType)
                    ?? throw new NotSupportedException($"Agent type {request.AgentType} is not supported.");
 
-        var executablePath = PathSearch.FindExecutable(name)
-                             ?? throw new FileNotFoundException($"Executable '{name}' not found in PATH.");
+        // Container runs resolve the binary by name inside the container —
+        // a host path would not exist there (SPEC-20260929-docker-cli-context).
+        var executablePath = request.ContainerContext is not null
+            ? name
+            : PathSearch.FindExecutable(name)
+              ?? throw new FileNotFoundException($"Executable '{name}' not found in PATH.");
 
         var prompt = BuildPrompt(request);
         var workingDirectory = !string.IsNullOrWhiteSpace(request.RepoPath)
