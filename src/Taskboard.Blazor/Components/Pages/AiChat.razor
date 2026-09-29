@@ -665,7 +665,7 @@ else
 
             options.Add(new CliOption(
                 $"agent:{agent.Type}", agent.Name, agent.Type, null,
-                SupportsChat: true, Selectable: true));
+                SupportsChat: AgentCliMap.SupportsAcp(agent.Type), Selectable: true));
         }
 
         // Installed but not eligible (no auth / disabled) — terminal threads
@@ -690,7 +690,9 @@ else
             var label = def.Resolved ? def.DisplayName : $"{def.DisplayName} (not on PATH)";
             options.Add(new CliOption(
                 $"custom:{def.Id}", label, null, def.Id,
-                SupportsChat: def.Transport == "acp" && def.Resolved,
+                // Custom defs spawn via argv (PTY) only — the server refuses
+                // acp transport for them (SPEC-20260929-ai-chat-capabilities).
+                SupportsChat: false,
                 Selectable: def.Resolved));
         }
 

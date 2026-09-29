@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / Docker / PTY / ACP` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-docker-cli-context` |
-| Ticket | [#368](https://github.com/afonsoft/agent-harness/issues/368) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366)) |
-| Status | `Approved` |
+| Ticket | [#368](https://github.com/afonsoft/agent-harness/issues/368) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366), PR [#375](https://github.com/afonsoft/agent-harness/pull/375)) |
+| Status | `Done` |
 | Related | `SPEC-20260928-ai-code-generic-cli` (PR #353), `SPEC-20260929-pty-session-security` (allowlist de contêiner) |
 
 ## 1. User Story

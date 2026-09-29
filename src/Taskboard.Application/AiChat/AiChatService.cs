@@ -135,6 +135,17 @@ public sealed class AiChatService
             transport = string.IsNullOrWhiteSpace(request.Transport)
                 ? def.Transport
                 : request.Transport.Trim().ToLowerInvariant();
+
+            // SPEC-20260929-ai-chat-capabilities RF-002: structured chat needs
+            // an AgentType-bound ACP adapter — custom defs spawn via argv only
+            // (PTY). Refuse the dead path at creation instead of a thread that
+            // can never execute a prompt.
+            if (transport is "acp")
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Custom CLI '{def.DisplayName}' cannot serve the chat view — ACP sessions require a builtin agent. Use the terminal view.");
+            }
         }
         else
         {
@@ -158,15 +169,18 @@ public sealed class AiChatService
                 && !string.Equals(request.ContainerContext, "host", StringComparison.OrdinalIgnoreCase);
             if (transport is "acp")
             {
+                // SPEC-20260929-ai-chat-capabilities RF-001: chat requires a
+                // CLI that actually speaks ACP — eligibility alone must not
+                // admit PTY-only CLIs into structured threads.
+                if (!AgentCliMap.SupportsAcp(parsedType))
+                {
+                    throw new DomainException(
+                        TaskboardDomainErrorCodes.InvalidValue,
+                        $"Agent '{parsedType}' has no structured chat (ACP) support — use the terminal view.");
+                }
+
                 if (inContainer)
                 {
-                    if (!AgentCliMap.SupportsAcp(parsedType))
-                    {
-                        throw new DomainException(
-                            TaskboardDomainErrorCodes.InvalidValue,
-                            $"Agent '{parsedType}' has no structured chat (ACP) support — use the terminal view.");
-                    }
-
                     await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
                 }
                 else
@@ -726,6 +740,9 @@ public sealed class AiChatService
                 agentType: source.AgentType,
                 repositoryFullName: source.RepositoryFullName);
         fork.SetModelChoice(source.ModelTier, source.ModelSource);
+        // SPEC-20260929-ai-chat-capabilities RF-003: the fork keeps the
+        // source's CLI binding — transport, container context and custom def.
+        fork.ConfigureCli(source.Transport, source.ContainerContext, source.AgentCliId);
 
         await _threadRepo.AddAsync(fork, ct);
         foreach (var ev in events.Take(cut + 1))
