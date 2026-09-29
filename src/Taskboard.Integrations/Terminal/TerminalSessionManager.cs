@@ -99,20 +99,38 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             // buffered scrollback replays through the new output delegate so a
             // fresh xterm shows the backlog (SPEC-20260928-ai-code-generic-cli
             // RF-003 — browser refresh must not lose visible output).
-            if (_sessions.TryGetValue(sessionId, out var bound)
-                && bound.Session.IsRunning)
+            // Rebind requires ownership: a session owned by another user must
+            // never attach to this connection — it would leak output and
+            // accept foreign input (SPEC-20260929-pty-session-security RF-001).
+            if (_sessions.TryGetValue(sessionId, out var bound))
             {
-                bound.ConnectionId = connectionId;
-                bound.OrphanedAtUtc = null;
-                bound.OnOutput = onOutput;
-                bound.OnClosed = onClosed;
-                var replay = bound.Scrollback.ToString();
-                if (replay.Length > 0)
+                if (bound.Session.IsRunning)
                 {
-                    _ = bound.OnOutput(sessionId, replay);
+                    if (bound.UserKey != userKey)
+                    {
+                        throw new InvalidOperationException(
+                            "Terminal session id is already in use.");
+                    }
+
+                    bound.ConnectionId = connectionId;
+                    bound.OrphanedAtUtc = null;
+                    bound.OnOutput = onOutput;
+                    bound.OnClosed = onClosed;
+                    var replay = bound.Scrollback.ToString();
+                    if (replay.Length > 0)
+                    {
+                        _ = bound.OnOutput(sessionId, replay);
+                    }
+
+                    return Task.FromResult(sessionId);
                 }
 
-                return Task.FromResult(sessionId);
+                // Stale entry (exited, Exited dispatch pending) — evict so the
+                // deterministic id can be reused by a fresh session.
+                if (_sessions.TryRemove(sessionId, out var stale))
+                {
+                    _ = DisposeEntryAsync(stale);
+                }
             }
 
             var count = 0;
@@ -175,12 +193,17 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         return requested;
     }
 
-    private static void AppendScrollback(SessionEntry entry, string chunk)
+    private void AppendScrollback(SessionEntry entry, string chunk)
     {
-        entry.Scrollback.Append(chunk);
-        if (entry.Scrollback.Length > ScrollbackLimit)
+        // Mutations share _gate with every reader (rebind replay, GetScrollback)
+        // so a concurrent reattach never sees a torn buffer (RF-005).
+        lock (_gate)
         {
-            entry.Scrollback.Remove(0, entry.Scrollback.Length - ScrollbackLimit);
+            entry.Scrollback.Append(chunk);
+            if (entry.Scrollback.Length > ScrollbackLimit)
+            {
+                entry.Scrollback.Remove(0, entry.Scrollback.Length - ScrollbackLimit);
+            }
         }
     }
 

@@ -62,4 +62,35 @@ public class AiChatSourceGuardTests
         source.ShouldContain("ai-chat-overflow-menu");
         source.ShouldContain("ShowRunAgentFromOverflowAsync");
     }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_PtyPaneComKey()
+    {
+        // SPEC-20260929-pty-session-security RF-003 — sem @key o Blazor reutiliza
+        // a instância ao trocar de thread, empilhando handlers e xterms órfãos.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        source.ShouldContain("<PtyThreadPane");
+        source.ShouldContain("@key");
+    }
+
+    [Fact]
+    public void Dado_PtyPane_Quando_LeFonte_Entao_SessionIdPreSetadoParaReplay()
+    {
+        // SPEC-20260929-pty-session-security RF-004 — o id determinístico é
+        // atribuído antes do invoke para o replay de scrollback passar no filtro.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Join(dir.FullName, "Taskboard.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        var pane = File.ReadAllText(Path.Join(
+            dir!.FullName, "src", "Taskboard.Blazor", "Components", "AiChat", "PtyThreadPane.razor"));
+
+        var assign = pane.IndexOf("_sessionId = $\"t-{Thread.Id}\"", StringComparison.Ordinal);
+        var invoke = pane.IndexOf("InvokeAsync<string>(\"OpenForThread\"", StringComparison.Ordinal);
+        assign.ShouldBeGreaterThanOrEqualTo(0);
+        invoke.ShouldBeGreaterThan(assign, "o sessionId determinístico deve ser atribuído antes do OpenForThread");
+    }
 }
