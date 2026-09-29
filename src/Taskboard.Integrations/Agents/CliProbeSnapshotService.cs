@@ -273,28 +273,28 @@ public sealed class CliProbeSnapshotService
         // background refresh writer (SPEC-20260929 RF-002).
         lock (_saveGate)
         {
-        try
-        {
-            var snapshot = new ProbeSnapshot(
-                savedAt,
-                _versions.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
-                _models.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
-
-            var directory = Path.GetDirectoryName(_snapshotFile);
-            if (!string.IsNullOrEmpty(directory))
+            try
             {
-                Directory.CreateDirectory(directory);
-            }
+                var snapshot = new ProbeSnapshot(
+                    savedAt,
+                    _versions.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
+                    _models.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
 
-            // Atomic write: temp file + rename so a crash never leaves a partial JSON.
-            var tempFile = _snapshotFile + ".tmp";
-            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot, JsonOptions));
-            File.Move(tempFile, _snapshotFile, overwrite: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to persist CLI probe snapshot at {File}.", _snapshotFile);
-        }
+                var directory = Path.GetDirectoryName(_snapshotFile);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                // Atomic write: temp file + rename so a crash never leaves a partial JSON.
+                var tempFile = _snapshotFile + ".tmp";
+                File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot, JsonOptions));
+                File.Move(tempFile, _snapshotFile, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist CLI probe snapshot at {File}.", _snapshotFile);
+            }
         }
     }
 
