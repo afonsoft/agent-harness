@@ -480,6 +480,46 @@
                 </div>
 
                 <div class="form-section">
+                    <h2 class="form-section-title">Features</h2>
+                    <p class="small text-body-secondary">
+                        Feature switches persist as database overrides and apply immediately — no restart.
+                    </p>
+                    @if (_configError is not null)
+                    {
+                        <div class="alert alert-warning mb-0">@_configError</div>
+                    }
+                    else
+                    {
+                        @foreach (var (key, label, description) in FeatureToggles)
+                        {
+                            var entry = FeatureEntry(key);
+                            <div class="setting-row" @key="key">
+                                <div>
+                                    <div class="fw-medium">@label</div>
+                                    <div class="small text-body-secondary">@description</div>
+                                    @if (entry is not null)
+                                    {
+                                        <div class="mt-1">
+                                            <span class="badge @GetSourceBadgeClass(entry.Source)">@entry.Source</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="form-check form-switch mb-0">
+                                    @if (entry is not null && entry.Editable)
+                                    {
+                                        <input type="checkbox" role="switch" class="form-check-input" checked="@(IsFeatureEnabled(entry))" @onchange="e => ToggleFeatureAsync(key, (bool)e.Value!)" aria-label="Enable @label" />
+                                    }
+                                    else
+                                    {
+                                        <span class="small text-body-secondary">unavailable</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="form-section">
                     <h2 class="form-section-title">Configuration</h2>
                     <p class="small text-body-secondary">Database overrides win over environment variables and appsettings.</p>
                     @if (_configError is not null)
@@ -610,6 +650,16 @@
     private string _chatSearchBackend = "none";
     private string _chatSearchUrl = string.Empty;
     private string _chatSearchKey = string.Empty;
+
+    // SPEC-20260929-webcli-toggle-finops-active-sessions RF-002: dedicated
+    // feature switches for the boolean feature keys of the config catalog.
+    private static readonly (string Key, string Label, string Description)[] FeatureToggles =
+    [
+        new("Taskboard:WebCliAgent:Enabled", "Web CLI Agent",
+            "Interactive agent prompts on the AI Code page (send, queue, retry, cancel)."),
+        new("Taskboard:Terminal:Enabled", "Terminal",
+            "Web terminal access to the installed agent CLIs."),
+    ];
 
     private const string SkillsRepositoryKey = "Taskboard:Skills:Repository";
     private string _skillsRepo = string.Empty;
@@ -1352,6 +1402,28 @@
         "appsettings" => "text-bg-warning",
         _ => "text-bg-secondary"
     };
+
+    // SPEC-20260929-webcli-toggle-finops-active-sessions RF-002.
+    private ConfigurationEntryDto? FeatureEntry(string key) =>
+        _configEntries.FirstOrDefault(e => e.Key == key);
+
+    private static bool IsFeatureEnabled(ConfigurationEntryDto entry) =>
+        string.Equals(entry.EffectiveValue, "true", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ToggleFeatureAsync(string key, bool enabled)
+    {
+        var error = await Client.SetConfigurationValueAsync(key, enabled ? "true" : "false");
+        if (error is not null)
+        {
+            ToastService.Notify(new(ToastType.Danger, $"Failed to save {key}: {error}"));
+        }
+        else
+        {
+            ToastService.Notify(new(ToastType.Success, $"{key} {(enabled ? "enabled" : "disabled")}"));
+        }
+
+        await LoadConfigurationAsync();
+    }
 
     private void ToggleTokenVisibility()
     {

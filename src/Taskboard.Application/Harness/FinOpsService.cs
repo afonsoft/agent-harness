@@ -347,8 +347,8 @@ public sealed class FinOpsService : IFinOpsService
         IReadOnlyList<AgentRun> runs,
         IReadOnlyList<ModelPriceRateInfo> rates)
     {
-        var activeWindow = TimeSpan.FromSeconds(_options.ActiveWindowSeconds);
-        string Status(DateTime lastActivity) => now - lastActivity <= activeWindow ? "running" : "finished";
+        var windowStart = now.AddSeconds(-_options.ActiveWindowSeconds);
+        string Status(bool active) => active ? "running" : "finished";
 
         var runsById = new Dictionary<string, AgentRun>(StringComparer.Ordinal);
         foreach (var run in runs)
@@ -360,7 +360,7 @@ public sealed class FinOpsService : IFinOpsService
         var rows = new List<FinOpsSessionRowDto>();
         foreach (var s in sessions)
         {
-            var lastActivity = s.EndedAtUtc ?? s.StartedAtUtc;
+            var lastActivity = LastKnownActivity(s);
             var tokens = SessionTokens(s);
             var (_, model) = CliModelName.Normalize(s.ModelName);
             // Fallback-priced costs (no matching rate) carry the same ~ badge.
@@ -371,7 +371,7 @@ public sealed class FinOpsService : IFinOpsService
                 Id: s.ExternalId,
                 Title: s.Title,
                 Model: NormalizeModel(s.ModelName),
-                Status: Status(lastActivity),
+                Status: Status(IsSessionActive(s, windowStart)),
                 Messages: s.MessageCount,
                 Tokens: tokens,
                 CostUsd: s.CostUsd,
@@ -390,7 +390,7 @@ public sealed class FinOpsService : IFinOpsService
                 Id: run.Key,
                 Title: agentRun?.IssueId,
                 Model: NormalizeModel(ordered[^1].ModelName),
-                Status: Status(lastActivity),
+                Status: Status(agentRun?.State == AgentRunState.Running || lastActivity >= windowStart),
                 Messages: null,
                 Tokens: ordered.Sum(m => m.TotalTokens),
                 CostUsd: ordered.Sum(m => m.CostUsd),
@@ -408,6 +408,21 @@ public sealed class FinOpsService : IFinOpsService
             .ToList();
     }
 
+    // SPEC-20260929-webcli-toggle-finops-active-sessions RF-003: a session is
+    // active when it ended inside the window, or it is still open and the sync
+    // loop saw it (IngestedAtUtc) or it started inside the window. Open
+    // sessions started long ago were previously invisible to the alert.
+    private static bool IsSessionActive(CliSessionMetric session, DateTime windowStart) =>
+        session.EndedAtUtc is { } ended
+            ? ended >= windowStart
+            : session.StartedAtUtc >= windowStart || session.IngestedAtUtc >= windowStart;
+
+    // Best-known last activity: the end time when present, otherwise the
+    // fresher of start and last re-ingest (open sessions).
+    private static DateTime LastKnownActivity(CliSessionMetric session) =>
+        session.EndedAtUtc
+        ?? (session.IngestedAtUtc > session.StartedAtUtc ? session.IngestedAtUtc : session.StartedAtUtc);
+
     // RF-008 — warn/crit alerts computed server-side.
     private IReadOnlyList<FinOpsAlertDto> BuildAlerts(
         DateTime now,
@@ -422,8 +437,9 @@ public sealed class FinOpsService : IFinOpsService
         var alerts = new List<FinOpsAlertDto>();
 
         var windowStart = now.AddSeconds(-_options.ActiveWindowSeconds);
-        var anyActive = sessions.Any(s => (s.EndedAtUtc ?? s.StartedAtUtc) >= windowStart)
-            || metrics.Any(m => m.RecordedAtUtc >= windowStart);
+        var anyActive = sessions.Any(s => IsSessionActive(s, windowStart))
+            || metrics.Any(m => m.RecordedAtUtc >= windowStart)
+            || runs.Any(r => r.State == AgentRunState.Running);
         if (!anyActive)
         {
             alerts.Add(new FinOpsAlertDto("warn", "NoActiveSessions",
