@@ -1655,6 +1655,18 @@ html[data-terminal-focus] .terminal-focus-exit {
     width: 52px;
 }
 
+/* Collapsed rail: stack the header buttons so New stays fully visible and
+   clickable at 52px (SPEC-20260929-ai-code-ux-fixes RF-006). */
+.ai-chat-rail.is-collapsed .ai-chat-rail-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.3rem 0.25rem;
+}
+
+.ai-chat-rail.is-collapsed .ai-chat-rail-new {
+    margin-left: 0;
+}
+
 .ai-chat-rail-header {
     display: flex;
     align-items: center;
