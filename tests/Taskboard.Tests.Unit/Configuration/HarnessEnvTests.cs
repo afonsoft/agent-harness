@@ -5,8 +5,8 @@ using Xunit;
 namespace Taskboard.Tests.Unit.Configuration;
 
 /// <summary>
-/// SPEC-20260922-harness-home-rename RF-001: HARNESS_* canonical,
-/// TASKBOARD_* deprecated fallback.
+/// SPEC-20260928-taskboard-env-fallback-removal RF-001: only canonical
+/// <c>HARNESS_*</c> names are read; <c>TASKBOARD_*</c> is ignored.
 /// </summary>
 public class HarnessEnvTests
 {
@@ -29,15 +29,16 @@ public class HarnessEnvTests
     }
 
     [Fact]
-    public void Dado_ApenasLegado_Quando_Get_Entao_FallbackComCallback()
+    public void Dado_ApenasLegado_Quando_Get_Entao_Ignorado()
     {
+        // Breaking change (SPEC-20260928): the legacy TASKBOARD_* name is no
+        // longer read — a host that only sets it gets the canonical default.
         Environment.SetEnvironmentVariable(Canonical, null);
         Environment.SetEnvironmentVariable(Legacy, "legado");
-        string? warned = null;
         try
         {
-            HarnessEnv.Get(Canonical, name => warned = name).ShouldBe("legado");
-            warned.ShouldBe(Legacy);
+            HarnessEnv.Get(Canonical).ShouldBeNull();
+            HarnessEnv.IsSet(Canonical).ShouldBeFalse();
         }
         finally
         {

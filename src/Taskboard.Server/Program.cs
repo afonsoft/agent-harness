@@ -110,20 +110,7 @@ var environment = new TaskboardEnvironment(builder.Configuration, builder.Enviro
 var dataDir = environment.GetDataDir();
 Directory.CreateDirectory(dataDir);
 
-// SPEC-20260922-harness-home-rename RF-004: migrate the legacy database file
-// in place — idempotent, only when the new name does not exist yet.
-var legacyDbPath = Path.Combine(dataDir, "taskboard.sqlite");
 var harnessDbPath = Path.Combine(dataDir, "harness.sqlite");
-if (!File.Exists(harnessDbPath) && File.Exists(legacyDbPath))
-{
-    foreach (var suffix in new[] { "", "-wal", "-shm" })
-    {
-        if (File.Exists(legacyDbPath + suffix))
-        {
-            File.Move(legacyDbPath + suffix, harnessDbPath + suffix);
-        }
-    }
-}
 
 // Database-stored overrides are registered last so they win over env vars and
 // appsettings. Loaded now so a Taskboard:Port override applies to this boot.
@@ -676,7 +663,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 // TaskboardTools served by the stdio exe are also exposed over Streamable
 // HTTP (stateless by default in the v2 SDK) under the authenticated /api
 // group. The loopback ITaskboardApiClient lets the tools reuse the local
-// API unchanged (it authenticates itself via TASKBOARD_API_KEY).
+// API unchanged (it authenticates itself via HARNESS_API_KEY).
 builder.Services.AddSingleton<ITaskboardApiClient>(sp =>
     new TaskboardApiClient(
         HarnessEnv.Get("HARNESS_URL")

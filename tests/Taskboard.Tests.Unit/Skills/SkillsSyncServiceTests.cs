@@ -50,10 +50,11 @@ public class SkillsSyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Dado_ManifestLegado_Quando_Sync_Entao_LeManifestAntigo()
+    public async Task Dado_ManifestLegado_Quando_Sync_Entao_IgnoraManifestAntigo()
     {
-        // SPEC-20260922-harness-home-rename RF-007: pre-rename destinations hold
-        // .taskboard-skills.json — the sync must still read it as fallback.
+        // SPEC-20260928-taskboard-env-fallback-removal RF-002: pre-rename
+        // destinations may still hold .taskboard-skills.json — the sync must
+        // NOT read it; only the canonical .harness-skills.json is used.
         var repo = await CreateSourceRepositoryAsync();
         var home = Path.Join(_root, "home");
         var service = CreateService(repo, home);
@@ -66,8 +67,7 @@ public class SkillsSyncServiceTests : IDisposable
 
         status.State.ShouldBe(SkillsSyncState.Succeeded);
         var manifest = File.ReadAllText(Path.Join(skillsDir, ".harness-skills.json"));
-        manifest.ShouldContain("ghost-skill");
-        manifest.ShouldContain("\"removedFromSource\": true");
+        manifest.ShouldNotContain("ghost-skill");
     }
 
     [Fact]

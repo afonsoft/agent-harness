@@ -6,10 +6,10 @@ set -euo pipefail
 # para executar o servidor, o MCP e o frontend.
 
 DEFAULT_REPO="https://github.com/afonsoft/agent-harness.git"
-# SPEC-20260922-harness-home-rename: HARNESS_* canonical; TASKBOARD_* legacy fallback.
-REPO_URL="${HARNESS_REPO:-${TASKBOARD_REPO:-$DEFAULT_REPO}}"
-HARNESS_HOME="${HARNESS_HOME:-${TASKBOARD_HOME:-$HOME/.agent-harness}}"
-[ -n "${HARNESS_DIR:-${TASKBOARD_DIR:-}}" ] && HARNESS_HOME="${HARNESS_DIR:-$TASKBOARD_DIR}"
+# SPEC-20260928-taskboard-env-fallback-removal: HARNESS_* canonical only.
+REPO_URL="${HARNESS_REPO:-$DEFAULT_REPO}"
+HARNESS_HOME="${HARNESS_HOME:-$HOME/.agent-harness}"
+[ -n "${HARNESS_DIR:-}" ] && HARNESS_HOME="$HARNESS_DIR"
 BIN_DIR="$HARNESS_HOME/bin"
 REPO_DIR="$HARNESS_HOME/agent-harness"
 NUGET_DIR="$REPO_DIR/artifacts/nuget"
@@ -40,7 +40,7 @@ Opcoes:
   --dry-run    Simular sem alterar arquivos
   --help       Exibir esta ajuda
 
-Variaveis de ambiente (legadas TASKBOARD_* ainda aceitas):
+Variaveis de ambiente:
   HARNESS_REPO    URL do repositorio (padrao: DEFAULT_REPO)
   HARNESS_HOME    Diretorio base da instalacao (padrao: $HOME/.agent-harness)
 EOF
@@ -283,11 +283,7 @@ create_wrappers() {
     write_file "$BIN_DIR/harness-server" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-HARNESS_DIR_RESOLVED="\${HARNESS_HOME:-\${TASKBOARD_HOME:-\$HOME/.agent-harness}}"
-ENV_FILE="\$HARNESS_DIR_RESOLVED/env"
-if [ ! -f "\$ENV_FILE" ] && [ -f "\$HOME/.taskboard/env" ]; then
-    ENV_FILE="\$HOME/.taskboard/env"
-fi
+ENV_FILE="\${HARNESS_HOME:-\$HOME/.agent-harness}/env"
 if [ -f "\$ENV_FILE" ]; then
     # shellcheck source=/dev/null
     source "\$ENV_FILE"
@@ -302,11 +298,7 @@ EOF
     write_file "$BIN_DIR/harness-mcp" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-HARNESS_DIR_RESOLVED="\${HARNESS_HOME:-\${TASKBOARD_HOME:-\$HOME/.agent-harness}}"
-ENV_FILE="\$HARNESS_DIR_RESOLVED/env"
-if [ ! -f "\$ENV_FILE" ] && [ -f "\$HOME/.taskboard/env" ]; then
-    ENV_FILE="\$HOME/.taskboard/env"
-fi
+ENV_FILE="\${HARNESS_HOME:-\$HOME/.agent-harness}/env"
 if [ -f "\$ENV_FILE" ]; then
     # shellcheck source=/dev/null
     source "\$ENV_FILE"

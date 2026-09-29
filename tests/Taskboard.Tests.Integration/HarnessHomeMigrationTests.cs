@@ -1,4 +1,3 @@
-using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Shouldly;
@@ -8,8 +7,10 @@ using Xunit;
 namespace Taskboard.Tests.Integration;
 
 /// <summary>
-/// SPEC-20260922-harness-home-rename RF-004: a legacy <c>taskboard.sqlite</c>
-/// in the data dir is migrated to <c>harness.sqlite</c> on startup.
+/// SPEC-20260928-taskboard-env-fallback-removal RF-002: a legacy
+/// <c>taskboard.sqlite</c> in the data dir is NOT picked up on startup — the
+/// canonical <c>harness.sqlite</c> is created fresh and the legacy file is
+/// left untouched (migration path: <c>install.sh --migrate</c>).
 /// </summary>
 public class HarnessHomeMigrationTests : IClassFixture<HarnessHomeMigrationTests.LegacyDbFactory>
 {
@@ -43,18 +44,19 @@ public class HarnessHomeMigrationTests : IClassFixture<HarnessHomeMigrationTests
     }
 
     [Fact]
-    public async Task Dado_BancoLegado_Quando_Boot_Entao_MigraParaHarnessSqlite()
+    public async Task Dado_BancoLegado_Quando_Boot_Entao_IgnoraECriaHarnessSqlite()
     {
         // Pre-seed the legacy database file before the host boots (the host is
         // created lazily on the first CreateClient call).
         Directory.CreateDirectory(_factory.DataDir);
         var legacyDb = Path.Combine(_factory.DataDir, "taskboard.sqlite");
         var harnessDb = Path.Combine(_factory.DataDir, "harness.sqlite");
-        await File.WriteAllTextAsync(legacyDb, "");
+        await File.WriteAllTextAsync(legacyDb, "sentinel");
 
         using var client = _factory.CreateClient();
 
-        File.Exists(harnessDb).ShouldBeTrue("startup migrates taskboard.sqlite → harness.sqlite");
-        File.Exists(legacyDb).ShouldBeFalse("the legacy file is moved, not copied");
+        File.Exists(harnessDb).ShouldBeTrue("startup always works on harness.sqlite");
+        File.Exists(legacyDb).ShouldBeTrue("the legacy file is left untouched");
+        (await File.ReadAllTextAsync(legacyDb)).ShouldBe("sentinel");
     }
 }
