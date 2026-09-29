@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-ai-code-ux-fixes` |
 | Ticket | [#370](https://github.com/afonsoft/agent-harness/issues/370) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260928-ai-code-ux-simplify` (PR #352) |
 
 ## 1. User Story

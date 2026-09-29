@@ -93,4 +93,43 @@ public class AiChatSourceGuardTests
         assign.ShouldBeGreaterThanOrEqualTo(0);
         invoke.ShouldBeGreaterThan(assign, "o sessionId determinístico deve ser atribuído antes do OpenForThread");
     }
+
+    // SPEC-20260929-ai-code-ux-fixes.
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_NewCriaThread()
+    {
+        // RF-001 — New materializa a thread via API, não apenas limpa o estado.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var newBody = source.IndexOf("NewConversationAsync", StringComparison.Ordinal);
+        var create = source.IndexOf("CreateAiChatThreadAsync", newBody, StringComparison.Ordinal);
+        create.ShouldBeGreaterThan(newBody, "NewConversationAsync deve chamar CreateAiChatThreadAsync");
+    }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_NewFechaDrawerEUsoRepoGlobal()
+    {
+        // RF-002/RF-003 — New fecha o drawer mobile e prefere o seletor global.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var newBody = source.IndexOf("private async Task NewConversationAsync", StringComparison.Ordinal);
+        var end = source.IndexOf("\n    }", newBody, StringComparison.Ordinal);
+        var body = source[newBody..end];
+
+        body.ShouldContain("_railDrawerOpen = false");
+        body.ShouldContain("SelectedRepo.Selected");
+    }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_AcoesCondicionadasAoEstado()
+    {
+        // RF-004/RF-005 — drawer recarrega threads; Run agent bloqueia em voo;
+        // Retry exige prompt do usuário.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        source.ShouldContain("OpenRailDrawerAsync");
+        source.ShouldContain("RefreshThreadsAsync");
+        source.ShouldContain("!HasUserPrompt");
+    }
 }

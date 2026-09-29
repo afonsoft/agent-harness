@@ -9,8 +9,8 @@
 | Stack | `.NET 10 / ACP / PTY` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-ai-chat-capabilities` |
-| Ticket | [#369](https://github.com/afonsoft/agent-harness/issues/369) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366)) |
-| Status | `Approved` |
+| Ticket | [#369](https://github.com/afonsoft/agent-harness/issues/369) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366), PR [#376](https://github.com/afonsoft/agent-harness/pull/376)) |
+| Status | `Done` |
 | Related | `SPEC-20260928-ai-code-generic-cli` (PR #353) |
 
 ## 1. User Story
