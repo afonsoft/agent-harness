@@ -77,11 +77,11 @@ public sealed class PipelineStageExecutionConfiguration : IEntityTypeConfigurati
 
         builder.Property(s => s.DependsOn)
             .HasMaxLength(1024)
-            .HasConversion(new ReadOnlyListStringJsonValueConverter());
+            .HasConversion(new ReadOnlyListStringJsonValueConverter(), new ListStringValueComparer());
 
         builder.Property(s => s.TriedAgents)
             .HasMaxLength(1024)
-            .HasConversion(new ReadOnlyListStringJsonValueConverter());
+            .HasConversion(new ReadOnlyListStringJsonValueConverter(), new ListStringValueComparer());
 
         builder.Property(s => s.AdjustedPrompt).HasMaxLength(16384);
         builder.Property(s => s.HandoffSummary).HasMaxLength(16384);
