@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260929-ai-code-provider-chat` |
 | Ticket | [#392](https://github.com/afonsoft/agent-harness/issues/392) |
-| Status | `Done` — delivered in PR |
+| Status | `Done` — delivered in PR [#393](https://github.com/afonsoft/agent-harness/pull/393) |
 
 ## 1. User Story
 
