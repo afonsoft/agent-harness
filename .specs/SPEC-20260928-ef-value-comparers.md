@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260928-ef-value-comparers` |
 | Ticket | [#357](https://github.com/afonsoft/agent-harness/issues/357) (Epic [#356](https://github.com/afonsoft/agent-harness/issues/356)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260919-harness-context-memory` (E7 `Tags`), `SPEC-20260919-ade-multi-agent-orchestration` (E12 `DependsOn`/`TriedAgents`) |
 
 ## 1. User Story
@@ -87,17 +87,17 @@ Sem mudança de API ou schema de banco — somente comportamento interno do EF C
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** as três configurações **when** o modelo é construído **then** nenhuma warning "value converter without value comparer" é emitida para `DependsOn`/`TriedAgents`/`Tags`.
-- [ ] **Given** uma entidade tracked **when** a coleção é mutada **then** `SaveChanges` persiste a mudança (teste verde).
-- [ ] **Given** coleção reatribuída com mesmo conteúdo **when** `SaveChanges` roda **then** nenhum UPDATE desnecessário ocorre (verificado via `ChangeTracker.HasChanges()` ou log).
-- [ ] **Given** `dotnet build` + `dotnet test` **when** executados **then** build limpo (TreatWarningsAsErrors) e suíte verde.
+- [x] **Given** as três configurações **when** o modelo é construído **then** nenhuma warning "value converter without value comparer" é emitida para `DependsOn`/`TriedAgents`/`Tags`.
+- [x] **Given** uma entidade tracked **when** a coleção é mutada **then** `SaveChanges` persiste a mudança (teste verde).
+- [x] **Given** coleção reatribuída com mesmo conteúdo **when** `SaveChanges` roda **then** nenhum UPDATE desnecessário ocorre (verificado via `ChangeTracker.HasChanges()` ou log).
+- [x] **Given** `dotnet build` + `dotnet test` **when** executados **then** build limpo (TreatWarningsAsErrors) e suíte verde.
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Implementation:** criar `ListStringValueComparer` e aplicar nas 3 propriedades.
-- [ ] **T2 — Tests:** teste de change detection (mutação detectada; equivalência ignorada).
-- [ ] **T3 — Verification:** `dotnet build` + `dotnet test`; confirmar ausência do warning de modelo em output/log.
-- [ ] **T4 — Done + PR:** `Status = Done` e PR na branch do spec.
+- [x] **T1 — Implementation:** criar `ListStringValueComparer` e aplicar nas 3 propriedades.
+- [x] **T2 — Tests:** teste de change detection (mutação detectada; equivalência ignorada).
+- [x] **T3 — Verification:** `dotnet build` + `dotnet test`; confirmar ausência do warning de modelo em output/log.
+- [x] **T4 — Done + PR:** `Status = Done` e PR na branch do spec.
 
 ## 8. Organization Guardrails
 

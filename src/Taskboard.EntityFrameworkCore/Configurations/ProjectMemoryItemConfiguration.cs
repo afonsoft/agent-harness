@@ -38,7 +38,7 @@ public sealed class ProjectMemoryItemConfiguration : IEntityTypeConfiguration<Pr
             .HasConversion<string>();
 
         builder.Property(m => m.Tags)
-            .HasConversion(new ReadOnlyListStringJsonValueConverter())
+            .HasConversion(new ReadOnlyListStringJsonValueConverter(), new ListStringValueComparer())
             .HasMaxLength(2048);
 
         builder.Property(m => m.CreatedAt);
