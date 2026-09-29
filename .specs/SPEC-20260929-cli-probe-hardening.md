@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-cli-probe-hardening` |
 | Ticket | [#371](https://github.com/afonsoft/agent-harness/issues/371) (Epic [#366](https://github.com/afonsoft/agent-harness/issues/366)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | `SPEC-20260928-agent-cli-probe-background` (PR #351) |
 
 ## 1. User Story

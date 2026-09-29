@@ -1,5 +1,6 @@
 @using Taskboard.Agents
 @using Taskboard.Application.Contracts.Agents
+@implements IDisposable
 @inject IAgentModelConfigService ModelConfig
 @inject IAgentModelCatalogService ModelCatalog
 @inject ToastService ToastService
@@ -63,7 +64,7 @@ else if (_config is not null)
                 </span>
             }
         </p>
-        <Tooltip Title="Re-executar o comando de listagem de modelos da CLI (ignora o cache de 5 min)">
+        <Tooltip Title="Re-executar o comando de listagem de modelos da CLI (força nova sondagem, atualizando o snapshot persistido)">
             <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
                     @onclick="SyncAsync" Disabled="@(_syncing || _loading)">
                 @if (_syncing)
@@ -186,15 +187,37 @@ else
     }
 
     private bool _warmRetryScheduled;
+    private readonly CancellationTokenSource _warmCts = new();
+
+    public void Dispose()
+    {
+        _warmCts.Cancel();
+        _warmCts.Dispose();
+    }
 
     private async Task RetryAvailableSoonAsync()
     {
+        // SPEC-20260929-cli-probe-hardening RF-003: a single 2.5s retry loses to
+        // probes allowed up to ~10s — keep polling until the background refresh
+        // lands or a deadline beyond the probe timeout elapses.
+        var deadline = DateTime.UtcNow.AddSeconds(12);
         try
         {
-            await Task.Delay(2500);
-            _available = await ModelCatalog.ListAvailableAsync(AgentType);
-            _suggestions = BuildSuggestions();
-            await InvokeAsync(StateHasChanged);
+            while (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(2500, _warmCts.Token);
+                _available = await ModelCatalog.ListAvailableAsync(AgentType);
+                _suggestions = BuildSuggestions();
+                await InvokeAsync(StateHasChanged);
+                if (_available?.Count > 0)
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Dialog disposed mid-poll.
         }
         catch
         {
@@ -202,8 +225,8 @@ else
         }
     }
 
-    // Sync button: forces a fresh probe server-side (bypasses the 5-min
-    // cache) so newly installed/updated CLIs surface their models at once.
+    // Sync button: forces a fresh probe server-side (updating the persisted
+    // snapshot) so newly installed/updated CLIs surface their models at once.
     private async Task SyncAsync()
     {
         _syncing = true;

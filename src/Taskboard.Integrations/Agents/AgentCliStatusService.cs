@@ -42,6 +42,14 @@ public sealed class AgentCliStatusService : IAgentCliStatusService
     {
         // Stale snapshot → refresh in background; the response below is served
         // from the last-known snapshot immediately (SPEC-20260928 RF-004).
+        if (_snapshot is { Refreshing: false }
+            && _snapshot.LastCompletedAt < DateTimeOffset.UtcNow - _refreshTtl)
+        {
+            _logger.LogDebug(
+                "CLI probe snapshot stale (last completed {LastCompleted}) — scheduling background refresh.",
+                _snapshot.LastCompletedAt);
+        }
+
         _snapshot?.EnsureFresh(_refreshTtl);
 
         var results = new List<AgentCliStatus>();

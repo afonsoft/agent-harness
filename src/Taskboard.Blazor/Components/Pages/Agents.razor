@@ -535,7 +535,19 @@
     /// <summary>Refresh button: kicks the background probes then reloads the page data.</summary>
     private async Task RefreshAllAsync()
     {
-        await Client.RefreshAgentClisAsync();
+        // SPEC-20260929-cli-probe-hardening RF-004: a failed kick (network/API)
+        // must not escape the handler — notify and still reload the last-known
+        // status so the page stays usable.
+        try
+        {
+            await Client.RefreshAgentClisAsync();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Warning,
+                $"Could not schedule a CLI probe refresh: {ex.Message}"));
+        }
+
         await RefreshAsync();
     }
 

@@ -22,7 +22,7 @@ public sealed class CliProbeSnapshotService
     private static readonly TimeSpan VersionProbeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ModelsProbeTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RefreshTimeout = TimeSpan.FromSeconds(30);
-    private static readonly Regex VersionPattern = new(@"\d+\.\d+(\.\d+)?", RegexOptions.Compiled);
+    private static readonly Regex VersionPattern = new(@"\d+\.\d+(\.\d+)?", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private readonly string _snapshotFile;
@@ -35,6 +35,7 @@ public sealed class CliProbeSnapshotService
     private readonly ConcurrentDictionary<AgentCliKind, string> _versions = new();
     private readonly ConcurrentDictionary<AgentType, IReadOnlyList<string>> _models = new();
     private readonly object _refreshGate = new();
+    private readonly object _saveGate = new();
     private Task? _refreshTask;
 
     public CliProbeSnapshotService(
@@ -71,9 +72,17 @@ public sealed class CliProbeSnapshotService
     public IReadOnlyList<string>? GetModels(AgentType type) =>
         _models.TryGetValue(type, out var models) ? models : null;
 
-    /// <summary>Records a model list produced by a synchronous forced probe.</summary>
-    public void SetModels(AgentType type, IReadOnlyList<string> models) =>
+    /// <summary>
+    /// Records a model list produced by a synchronous forced probe and
+    /// persists it immediately — a manual Sync must survive a restart instead
+    /// of reverting to the last background snapshot (SPEC-20260929 RF-002).
+    /// </summary>
+    public void SetModels(AgentType type, IReadOnlyList<string> models)
+    {
         _models[type] = models;
+        LastCompletedAt = _time.GetUtcNow();
+        SaveSnapshot(LastCompletedAt);
+    }
 
     /// <summary>
     /// Kicks a background refresh when none is running (single-flight).
@@ -143,7 +152,8 @@ public sealed class CliProbeSnapshotService
             {
                 var probe = AgentCliModels.ModelListProbe(type);
                 var kind = AgentCliMap.CliKindFor(type);
-                var path = kind is null ? null : _locator(AgentCliMap.GetSpec(kind.Value)!.Binary);
+                var binary = kind is null ? null : AgentCliMap.GetSpec(kind.Value)?.Binary;
+                var path = binary is null ? null : _locator(binary);
                 if (probe is not null && path is not null)
                 {
                     tasks.Add(ProbeModelsAsync(type, path, probe, timeout.Token));
@@ -156,9 +166,9 @@ public sealed class CliProbeSnapshotService
             LastDuration = completed - started;
             SaveSnapshot(completed);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            _logger.LogWarning("CLI probe refresh timed out after {Timeout}.", RefreshTimeout);
+            _logger.LogWarning(ex, "CLI probe refresh timed out after {Timeout}.", RefreshTimeout);
         }
         catch (Exception ex)
         {
@@ -259,27 +269,32 @@ public sealed class CliProbeSnapshotService
 
     private void SaveSnapshot(DateTimeOffset savedAt)
     {
-        try
+        // Serialized — a forced SetModels may run concurrently with the
+        // background refresh writer (SPEC-20260929 RF-002).
+        lock (_saveGate)
         {
-            var snapshot = new ProbeSnapshot(
-                savedAt,
-                _versions.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
-                _models.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
-
-            var directory = Path.GetDirectoryName(_snapshotFile);
-            if (!string.IsNullOrEmpty(directory))
+            try
             {
-                Directory.CreateDirectory(directory);
-            }
+                var snapshot = new ProbeSnapshot(
+                    savedAt,
+                    _versions.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
+                    _models.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value));
 
-            // Atomic write: temp file + rename so a crash never leaves a partial JSON.
-            var tempFile = _snapshotFile + ".tmp";
-            File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot, JsonOptions));
-            File.Move(tempFile, _snapshotFile, overwrite: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to persist CLI probe snapshot at {File}.", _snapshotFile);
+                var directory = Path.GetDirectoryName(_snapshotFile);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                // Atomic write: temp file + rename so a crash never leaves a partial JSON.
+                var tempFile = _snapshotFile + ".tmp";
+                File.WriteAllText(tempFile, JsonSerializer.Serialize(snapshot, JsonOptions));
+                File.Move(tempFile, _snapshotFile, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist CLI probe snapshot at {File}.", _snapshotFile);
+            }
         }
     }
 

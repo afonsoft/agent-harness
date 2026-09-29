@@ -167,6 +167,21 @@ public class CliProbeSnapshotServiceTests : IDisposable
     }
 
     [Fact]
+    public void Dado_SetModels_Quando_Executado_Entao_PersisteParaNovaInstancia()
+    {
+        // SPEC-20260929-cli-probe-hardening RF-002: um Sync manual bem-sucedido
+        // grava o snapshot — restart não pode devolver a lista antiga.
+        var file = Path.Join(_root, "snap-set.json");
+        var snapshot = Create(snapshotFile: file);
+
+        snapshot.SetModels(AgentType.OpenCode, ["opencode/m1", "opencode/m2"]);
+
+        File.Exists(file).ShouldBeTrue();
+        var reload = Create(snapshotFile: file);
+        reload.GetModels(AgentType.OpenCode).ShouldBe(["opencode/m1", "opencode/m2"]);
+    }
+
+    [Fact]
     public void Dado_TtlZero_Quando_EnsureFresh_Entao_NaoDispara()
     {
         var snapshot = Create(locator: _ => "/usr/bin/claude");
