@@ -70,6 +70,12 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Terminal:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "HARNESS_TERMINAL_ENABLED", Validate: ValidateBoolean),
+        // SPEC-20260929-ai-chat-view-first RF-003: liga os endpoints de
+        // agente interativo (prompt/queue/retry/cancel/events) — lida por
+        // request, sem restart.
+        new("Taskboard:WebCliAgent:Enabled", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean),
         new("Taskboard:Agents:DefaultPrompt", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "HARNESS_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),

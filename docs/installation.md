@@ -217,7 +217,7 @@ chmod +x install.sh
 
 ## Agent CLIs and the web terminal
 
-The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`HARNESS_TERMINAL_ENABLED`).
+The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`HARNESS_TERMINAL_ENABLED`). Interactive agent sessions behind the AI Code agent actions are gated by `Taskboard:WebCliAgent:Enabled` (default `false`) — enable it at **Settings → Configuration** (editable at runtime, no restart) or via env `Taskboard__WebCliAgent__Enabled=true`.
 
 - **Bare-metal/host install:** the server uses the real `$HOME`, so CLIs already installed on the host are detected as-is.
 - **Docker image:** the runtime stage ships Node.js LTS plus all five CLIs pre-installed, and sets `HOME=/data/home` so CLI credentials land inside the `/data` volume and survive container recreation. Authenticate each CLI once from `/terminal`.
