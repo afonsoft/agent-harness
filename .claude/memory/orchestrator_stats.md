@@ -7,7 +7,7 @@
 ## Sessão
 
 - **iniciado_em**: `2026-09-28 UTC` (sessão 5 — reconciliação #338/#318 + verificação)
-- **fase_atual**: `gap-analysis 2026-09-28 — Epic #356 + slices #357/#358/#359 abertas (3 SPECs Approved); housekeeping executado; main @fb85de4`
+- **fase_atual**: `Phase 8 — Epic #356 entregue (#357/#358/#359 merged via PRs #362/#363/#364), main @5ea8d46 verde, deploy harness-server OK, 0 issues abertas`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
