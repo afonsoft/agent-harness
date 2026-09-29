@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
@@ -56,13 +55,23 @@ public class CliProbeSnapshotServiceTests : IDisposable
     [Fact]
     public async Task Dado_ClicsInstalados_Quando_Refresh_Entao_ProbesEmParalelo()
     {
-        // Three installed CLIs, each probe delayed 400ms — parallel wall time
-        // must be ~400ms, not 1.2s sequential.
+        // Determinístico: em vez de wall-clock (flaky em CI carregado), conta a
+        // concorrência máxima observada — sondas paralelas devem se sobrepor.
+        var inFlight = 0;
+        var maxInFlight = 0;
+        var gate = new object();
         var runner = new FakeRunner
         {
             Handler = async (_, args) =>
             {
-                await Task.Delay(400);
+                var now = Interlocked.Increment(ref inFlight);
+                lock (gate)
+                {
+                    maxInFlight = Math.Max(maxInFlight, now);
+                }
+
+                await Task.Delay(150);
+                Interlocked.Decrement(ref inFlight);
                 return args.Contains("--version")
                     ? new CommandResult(0, "tool 1.2.3\n", string.Empty)
                     : new CommandResult(0, "opencode/m9\n", string.Empty);
@@ -70,12 +79,10 @@ public class CliProbeSnapshotServiceTests : IDisposable
         };
         var snapshot = Create(locator: name => Installed.Contains(name) ? $"/usr/bin/{name}" : null, runner: runner);
 
-        var watch = Stopwatch.StartNew();
         await snapshot.RefreshAsync();
-        watch.Stop();
 
-        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromMilliseconds(1100));
         runner.Calls.ShouldBe(4); // 3 version probes + 1 models probe (opencode)
+        maxInFlight.ShouldBeGreaterThan(1, "sondas deveriam rodar em paralelo");
         snapshot.GetVersion(AgentCliKind.Claude).ShouldBe("1.2.3");
         snapshot.GetModels(AgentType.OpenCode).ShouldBe(["opencode/m9"]);
     }
