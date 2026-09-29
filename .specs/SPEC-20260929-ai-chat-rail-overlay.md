@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260929-ai-chat-rail-overlay` |
 | Ticket | [#382](https://github.com/afonsoft/agent-harness/issues/382) (Epic [#381](https://github.com/afonsoft/agent-harness/issues/381)) |
-| Status | `Approved` |
+| Status | `Done` |
 | Related | SPEC-20260922-ai-chat-command-bar, SPEC-20260928-ai-code-ux-simplify, SPEC-20260929-ai-code-ux-fixes |
 
 ## 1. User Story
@@ -64,17 +64,17 @@ Sem mudança.
 
 ## 6. Acceptance Criteria
 
-- [ ] **Given** página AI Code **when** aberta **then** o rail não ocupa largura; chat usa 100%.
-- [ ] **Given** clique em History **when** executado **then** overlay com a lista abre sobre o chat (e recarrega).
-- [ ] **Given** overlay aberto **when** selecionar thread/scrim/New **then** fecha.
-- [ ] **Given** build/test **then** verde.
+- [x] **Given** página AI Code **when** aberta **then** o rail não ocupa largura; chat usa 100%.
+- [x] **Given** clique em History **when** executado **then** overlay com a lista abre sobre o chat (e recarrega).
+- [x] **Given** overlay aberto **when** selecionar thread/scrim/New **then** fecha.
+- [x] **Given** build/test **then** verde.
 
 ## 7. Task Plan
 
-- [ ] **T1 — UI:** botões top-right + overlay permanente + remover collapse toggle.
-- [ ] **T2 — CSS:** overlay em todas as larguras; scrim visível ≥768px também.
-- [ ] **T3 — Tests/docs:** guards + features.md.
-- [ ] **T4 — Done + PR.**
+- [x] **T1 — UI:** botões top-right + overlay permanente + remover collapse toggle.
+- [x] **T2 — CSS:** overlay em todas as larguras; scrim visível ≥768px também.
+- [x] **T3 — Tests/docs:** guards + features.md.
+- [x] **T4 — Done + PR.**
 
 ## 8. Organization Guardrails
 

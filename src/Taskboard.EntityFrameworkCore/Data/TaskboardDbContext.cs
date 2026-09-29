@@ -35,6 +35,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<PipelineStageExecution> PipelineStageExecutions => Set<PipelineStageExecution>();
     public DbSet<ModelPriceRate> ModelPriceRates => Set<ModelPriceRate>();
     public DbSet<RunCostMetric> RunCostMetrics => Set<RunCostMetric>();
+    public DbSet<JobSchedule> JobSchedules => Set<JobSchedule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

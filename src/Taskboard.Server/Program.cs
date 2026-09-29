@@ -28,6 +28,7 @@ using Taskboard.Application.Harness;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.CliMetrics;
 using Taskboard.Application.Contracts.Harness;
+using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Specs;
 using Taskboard.Application.Specs;
 using Taskboard.Domain.Agents;
@@ -356,6 +357,60 @@ builder.Services.AddScoped<ICliMetricsService>(sp => new CliMetricsService(
 builder.Services.AddSingleton<CliMetricsSyncCoordinator>();
 builder.Services.AddHostedService<CliMetricsSyncService>();
 
+// SPEC-20260929-jobs-dashboard: singleton registry + static catalog of
+// managed jobs. EnabledByDefault/DefaultIntervalSeconds seed each definition —
+// a persisted JobSchedule row wins over them at runtime without restart.
+builder.Services.AddSingleton<JobRegistry>();
+builder.Services.AddSingleton<IJobRegistry>(sp => sp.GetRequiredService<JobRegistry>());
+builder.Services.AddSingleton(new JobDefinition(
+    CliMetricsSyncService.JobKey,
+    "CLI metrics sync",
+    "Ingests incremental CLI session metrics from local cli-db sources.",
+    DefaultIntervalSeconds: Math.Max(60, cliMetricsOptions.SyncIntervalMinutes * 60),
+    MinIntervalSeconds: 60,
+    EnabledByDefault: cliMetricsOptions.Enabled));
+builder.Services.AddSingleton(new JobDefinition(
+    FinOpsAggregationService.JobKey,
+    "FinOps aggregation",
+    "Projects cost for newly ingested CLI session metrics.",
+    DefaultIntervalSeconds: 30,
+    MinIntervalSeconds: 10));
+builder.Services.AddSingleton(new JobDefinition(
+    StaleAgentRunReaperService.JobKey,
+    "Stale run reaper",
+    "Fails agent runs stuck Queued/Running with no live job.",
+    DefaultIntervalSeconds: 300,
+    MinIntervalSeconds: 60));
+builder.Services.AddSingleton(new JobDefinition(
+    SpecDriftScanService.JobKey,
+    "Spec drift scan",
+    "Rebuilds the living-spec drift report.",
+    DefaultIntervalSeconds: 3600,
+    MinIntervalSeconds: 300));
+builder.Services.AddSingleton(new JobDefinition(
+    CliProbeRefreshJobService.JobKey,
+    "CLI & model probe refresh",
+    "Refreshes versions/models of installed agent CLIs (probe snapshot).",
+    DefaultIntervalSeconds: 3600,
+    MinIntervalSeconds: 300));
+builder.Services.AddSingleton(new JobDefinition(
+    SkillsSyncHostedService.JobKey,
+    "Skills sync",
+    "Clones the skills repository into the local skills cache.",
+    DefaultIntervalSeconds: 0,
+    MinIntervalSeconds: 60,
+    RunOnce: true,
+    EnabledByDefault: builder.Configuration.GetValue("Taskboard:Skills:SyncOnStartup", true)));
+if (builder.Configuration.GetValue("Taskboard:AgentEvents:Enabled", true))
+{
+    builder.Services.AddSingleton(new JobDefinition(
+        AgentRunEventRetentionService.JobKey,
+        "Agent run event retention",
+        "Purges AgentRunEvent rows past the retention window.",
+        DefaultIntervalSeconds: 21600,
+        MinIntervalSeconds: 3600));
+}
+
 // SPEC-20260919-ade-multi-agent-orchestration: DAG de agentes especializados
 // sobre worktree compartilhado do run.
 // SPEC-20260923-cockpit-run-hardening RF-002: Taskboard:Pipelines:AutoRetry
@@ -442,9 +497,7 @@ builder.Services.AddSingleton(sp => new CliProbeSnapshotService(
     Path.Combine(dataDir, "agent-probe-snapshot.json"),
     homeDir,
     sp.GetRequiredService<ILogger<CliProbeSnapshotService>>()));
-builder.Services.AddHostedService(sp => new CliProbeRefreshHostedService(
-    sp.GetRequiredService<CliProbeSnapshotService>(),
-    sp.GetRequiredService<ILogger<CliProbeRefreshHostedService>>()));
+builder.Services.AddHostedService<CliProbeRefreshJobService>();
 
 var agentCliProbeTtl = TimeSpan.FromSeconds(
     builder.Configuration.GetValue("Taskboard:AgentCliProbe:TtlSeconds", 120));
@@ -539,12 +592,9 @@ builder.Services.AddReverseProxy()
             }
         ]);
 
-// Opt-out switch for environments where a background git clone must not run
-// (tests, air-gapped hosts). Default: enabled.
-if (builder.Configuration.GetValue("Taskboard:Skills:SyncOnStartup", true))
-{
-    builder.Services.AddHostedService<SkillsSyncHostedService>();
-}
+// Taskboard:Skills:SyncOnStartup=false maps to the job's EnabledByDefault —
+// the service registers anyway so the job is visible/manageable on /jobs.
+builder.Services.AddHostedService<SkillsSyncHostedService>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
@@ -1735,6 +1785,47 @@ static IResult ConfigurationError(ConfigurationWriteResult result) => result.Err
         error = new { code = "VALIDATION", message = result.Message }
     })
 };
+
+// SPEC-20260929-jobs-dashboard: managed background jobs status/control.
+api.MapGet("jobs", (JobRegistry jobs) =>
+    Results.Ok(jobs.GetStatuses()))
+    .RequireAuthorization();
+
+api.MapPut("jobs/{key}", async (
+    string key,
+    UpdateJobRequest request,
+    JobRegistry jobs,
+    CancellationToken ct) =>
+{
+    var result = await jobs.SetOverrideAsync(key, request.Enabled, request.IntervalSeconds, ct);
+    return result.Error switch
+    {
+        JobUpdateError.None => Results.Ok(result.Status),
+        JobUpdateError.UnknownJob => Results.NotFound(new
+        {
+            error = new { code = "JOB_NOT_FOUND", message = result.Message }
+        }),
+        _ => Results.BadRequest(new
+        {
+            error = new { code = "INVALID_INTERVAL", message = result.Message }
+        })
+    };
+}).RequireAuthorization();
+
+api.MapPost("jobs/{key}/run", (string key, JobRegistry jobs) =>
+    jobs.Trigger(key) switch
+    {
+        JobTriggerResult.Started => Results.Accepted(value: new { started = true }),
+        JobTriggerResult.AlreadyRunning => Results.Accepted(value: new
+        {
+            started = false,
+            reason = "already-running"
+        }),
+        _ => Results.NotFound(new
+        {
+            error = new { code = "JOB_NOT_FOUND", message = $"Unknown job '{key}'." }
+        })
+    }).RequireAuthorization();
 
 api.MapGet("skills", async (ISkillDiscoveryService skills, CancellationToken ct) =>
 {

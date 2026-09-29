@@ -3,43 +3,35 @@ using Taskboard.Application.Contracts.Skills;
 namespace Taskboard.Server.Services;
 
 /// <summary>
-/// Triggers a skills synchronization in the background when the application
-/// starts (SPEC-20260915-skills-repo-sync RF-006). Never blocks or fails the
-/// application startup.
+/// Skills synchronization as managed run-once job <c>skills-sync</c>
+/// (SPEC-20260929-jobs-dashboard): runs at startup when enabled and on manual
+/// trigger from /jobs; never blocks or fails application startup.
+/// SPEC-20260915-skills-repo-sync RF-006.
 /// </summary>
-public sealed class SkillsSyncHostedService : BackgroundService
+public sealed class SkillsSyncHostedService : ManagedJobService
 {
+    public const string JobKey = "skills-sync";
+
     private readonly ISkillsSyncService _syncService;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<SkillsSyncHostedService> _logger;
 
     public SkillsSyncHostedService(
         ISkillsSyncService syncService,
         IServiceScopeFactory scopeFactory,
+        JobRegistry registry,
         ILogger<SkillsSyncHostedService> logger)
+        : base(registry, JobKey, logger)
     {
         _syncService = syncService;
         _scopeFactory = scopeFactory;
-        _logger = logger;
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task<string?> RunJobAsync(CancellationToken cancellationToken)
     {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var agents = await EnabledAgentResolver
-                    .ResolveAsync(_scopeFactory, stoppingToken)
-                    .ConfigureAwait(false);
-                await _syncService.SyncAsync(agents, stoppingToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Startup skills sync failed.");
-            }
-        }, stoppingToken);
-
-        return Task.CompletedTask;
+        var agents = await EnabledAgentResolver
+            .ResolveAsync(_scopeFactory, cancellationToken)
+            .ConfigureAwait(false);
+        await _syncService.SyncAsync(agents, cancellationToken).ConfigureAwait(false);
+        return $"skills synced for {agents.Count} agent(s)";
     }
 }

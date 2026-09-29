@@ -6,13 +6,14 @@ namespace Taskboard.Server.Services;
 /// Periodic retention for <c>AgentRunEvent</c> rows
 /// (SPEC-20260921-agent-execution-event-pipeline): deletes events older than
 /// <c>Taskboard:AgentEvents:RetentionDays</c> (default 30, 0 disables).
-/// Runs once at startup and then every 6 hours.
+/// Managed job <c>agent-run-event-retention</c> (SPEC-20260929-jobs-dashboard),
+/// default every 6 hours.
 /// </summary>
-public sealed class AgentRunEventRetentionService : BackgroundService
+public sealed class AgentRunEventRetentionService : ManagedJobService
 {
+    public const string JobKey = "agent-run-event-retention";
     public const string RetentionDaysKey = "Taskboard:AgentEvents:RetentionDays";
     private const int DefaultRetentionDays = 30;
-    private static readonly TimeSpan Interval = TimeSpan.FromHours(6);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
@@ -21,51 +22,33 @@ public sealed class AgentRunEventRetentionService : BackgroundService
     public AgentRunEventRetentionService(
         IServiceScopeFactory scopeFactory,
         IConfiguration configuration,
+        JobRegistry registry,
         ILogger<AgentRunEventRetentionService> logger)
+        : base(registry, JobKey, logger)
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task<string?> RunJobAsync(CancellationToken cancellationToken)
     {
         var days = _configuration.GetValue(RetentionDaysKey, DefaultRetentionDays);
         if (days <= 0)
         {
-            return;
+            return "retention disabled (RetentionDays <= 0)";
         }
 
-        await PurgeAsync(days, stoppingToken).ConfigureAwait(false);
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAgentRunEventRepository>();
+        var purged = await repository.DeleteOlderThanAsync(
+            DateTimeOffset.UtcNow.AddDays(-days), cancellationToken).ConfigureAwait(false);
+        if (purged > 0)
+        {
+            _logger.LogInformation(
+                "Agent run events: purged {Count} rows past {Days}d retention", purged, days);
+        }
 
-        using var timer = new PeriodicTimer(Interval);
-        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-        {
-            await PurgeAsync(days, stoppingToken).ConfigureAwait(false);
-        }
-    }
-
-    private async Task PurgeAsync(int retentionDays, CancellationToken ct)
-    {
-        try
-        {
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IAgentRunEventRepository>();
-            var purged = await repository.DeleteOlderThanAsync(
-                DateTimeOffset.UtcNow.AddDays(-retentionDays), ct).ConfigureAwait(false);
-            if (purged > 0)
-            {
-                _logger.LogInformation(
-                    "Agent run events: purged {Count} rows past {Days}d retention", purged, retentionDays);
-            }
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // shutdown
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Agent run events retention purge failed; will retry at the next interval.");
-        }
+        return purged > 0 ? $"purged {purged} rows past {days}d" : null;
     }
 }
