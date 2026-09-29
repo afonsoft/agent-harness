@@ -1,7 +1,7 @@
 # Gap Analysis — 2026-09-28
 
 - Repository: `/home/ubuntu/repos/agent-harness` | Branch: `main` | Commit: `73a6c90`
-- Phase reached: `gate` (SPECs Draft gerados — aguardando aprovação para Issues)
+- Phase reached: `done` (gate aprovado → issues → implementado → merged → deploy)
 - Mode: `full` (sweep completo pós-fechamento do fluxo orchestrator)
 
 ---
@@ -63,9 +63,20 @@
 - `.specs/SPEC-20260928-terminal-focus-keybar-coverage.md`
 - `.specs/SPEC-20260928-taskboard-env-fallback-removal.md`
 
+## 5. Issues
+
+- Epic: gap-analysis-20260928 → #356 (closed)
+- Slices: ef-value-comparers → #357 (closed, PR #362 `341b000`) · terminal-focus-keybar-coverage → #358 (closed, PR #363 `d505311`) · taskboard-env-fallback-removal → #359 (closed, PR #364 `5ea8d46`)
+
 ## 6. Approval gate
 
-- Decision: `pending` — aguardando usuário (2026-09-28)
+- Decision: `approved` (todos os 3 SPECs + housekeeping) | By: user | Date: 2026-09-28
+
+## 6.1 Orchestrator handoff
+
+- Executado na mesma sessão (Phase 4 sequential): 3 branches → 3 PRs → CI verde → squash merge → issues fechadas por `Closes`.
+- Verificação final: `dotnet build` 0w/0e · unit 1212 · integration 296 · shellcheck OK · format clean · redeploy `harness-server` @5ea8d46 (health 200, API 401 anônimo).
+- Housekeeping: worktree stale pruned; branch `feature/agent-pipe_*` deletada (merged); cruft `~/.agent-harness` limpo; `skills-cache.root-stale` pendente (root-owned, precisa sudo).
 
 ## 7. Pendencies
 
