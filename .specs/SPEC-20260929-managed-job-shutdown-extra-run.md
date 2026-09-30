@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `fix/devin-20260929-managed-job-shutdown-run` |
 | Ticket | [#396](https://github.com/afonsoft/agent-harness/issues/396) — epic [#395](https://github.com/afonsoft/agent-harness/issues/395) |
-| Status | `Approved` |
+| Status | `Done` — entregue neste PR |
 
 ## 1. User Story
 

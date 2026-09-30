@@ -47,7 +47,11 @@ public abstract class ManagedJobService : BackgroundService
                 var delayTask = Task.Delay(wait, stoppingToken);
                 var signalTask = signals.ReadAsync(stoppingToken).AsTask();
                 var winner = await Task.WhenAny(delayTask, signalTask).ConfigureAwait(false);
-                if (winner == delayTask)
+                // SPEC-20260929-managed-job-shutdown-extra-run RF-001: a
+                // delayTask cancelled by StopAsync also wins WhenAny — without
+                // the IsCompletedSuccessfully check it would fire a spurious
+                // run on every shutdown (even for disabled jobs).
+                if (winner == delayTask && delayTask.IsCompletedSuccessfully)
                 {
                     await RunOnceSafeAsync(stoppingToken).ConfigureAwait(false);
                     continue;
