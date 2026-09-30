@@ -25,6 +25,19 @@
     {
         <div class="card">
             <div class="card-body p-4">
+                <nav class="settings-tabs nav nav-tabs mb-4 pb-0 border-bottom flex-nowrap overflow-auto" role="tablist" aria-label="Settings sections" @onkeydown="OnTabsKeyDown">
+                    @foreach (var tab in SettingsTabs)
+                    {
+                        var id = tab.Id;
+                        <button type="button" role="tab" class="nav-link text-nowrap @(id == _activeTab ? "active" : "")"
+                                aria-selected="@(id == _activeTab)" tabindex="@(id == _activeTab ? 0 : -1)"
+                                data-tab="@id" @onclick="() => SelectTab(id)">
+                            @tab.Label
+                        </button>
+                    }
+                </nav>
+                <!-- SPEC-20260930-settings-tabs: panéis permanecem no DOM (d-none) — estado de formulário preservado ao alternar abas. -->
+                <div class="tab-pane" role="tabpanel" aria-label="Integrations" hidden="@(_activeTab != "integrations")">
                 <div class="form-section">
                     <h2 class="form-section-title">Integrations</h2>
                     <label class="form-label" for="github-token">GitHub token</label>
@@ -284,6 +297,8 @@
                     </div>
                 </div>
 
+                </div>
+                <div class="tab-pane" role="tabpanel" aria-label="Security" hidden="@(_activeTab != "security")">
                 <div class="form-section">
                     <h2 class="form-section-title">Security</h2>
                     <label class="form-label" for="current-password">Change password</label>
@@ -307,6 +322,8 @@
                     </div>
                 </div>
 
+                </div>
+                <div class="tab-pane" role="tabpanel" aria-label="Agents" hidden="@(_activeTab != "agents")">
                 <div class="form-section">
                     <h2 class="form-section-title">Agents</h2>
                     <p class="small text-body-secondary">
@@ -348,6 +365,8 @@
                     }
                 </div>
 
+                </div>
+                <div class="tab-pane" role="tabpanel" aria-label="Chat" hidden="@(_activeTab != "chat")">
                 <div class="form-section">
                     <h2 class="form-section-title">Chat</h2>
                     <p class="small text-body-secondary">
@@ -477,8 +496,57 @@
                             <input id="chat-search-key" type="password" class="form-control form-control-sm" @bind="_chatSearchKey" />
                         </div>
                     </div>
-                </div>
 
+                    @* SPEC-20261001-chat-capability-registry: catálogo unificado
+                       (builtin/MCP/skill/delegation) com toggle granular. *@
+                    <h3 class="h6 mt-3">Capabilities</h3>
+                    <p class="small text-body-secondary">
+                        Tools builtin, MCP, skills e delegação. Clique no estado para habilitar/desabilitar
+                        individualmente (lista <code>Taskboard:Chat:Capabilities:Disabled</code>).
+                    </p>
+                    @if (_capabilities.Count == 0)
+                    {
+                        <p class="small text-body-secondary">Catálogo indisponível.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Kind</th>
+                                        <th scope="col">Capability</th>
+                                        <th scope="col">Origin</th>
+                                        <th scope="col">State</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var cap in _capabilities)
+                                    {
+                                        <tr @key="cap.Id">
+                                            <td><span class="badge text-bg-secondary">@cap.Kind</span></td>
+                                            <td class="small font-monospace text-break">@cap.Name</td>
+                                            <td class="small">@(cap.Origin ?? "—")</td>
+                                            <td class="text-nowrap">
+                                                <button type="button" class="btn btn-sm @(cap.Enabled ? "btn-outline-success" : "btn-outline-danger")"
+                                                        @onclick="() => ToggleCapabilityAsync(cap)" disabled="@_chatBusy">
+                                                    @(cap.Enabled ? "on" : "off")
+                                                </button>
+                                                @if (cap.RequiresConfirmation)
+                                                {
+                                                    <span class="badge text-bg-warning">mutating</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @onclick="RefreshCapabilitiesAsync" disabled="@_chatBusy">Refresh</button>
+                    }
+                </div>
+                </div>
+                <div class="tab-pane" role="tabpanel" aria-label="General" hidden="@(_activeTab != "general")">
                 <div class="form-section">
                     <h2 class="form-section-title">Features</h2>
                     <p class="small text-body-secondary">
@@ -592,6 +660,7 @@
                         </div>
                     }
                 </div>
+                </div>
             </div>
 
             <div class="action-bar">
@@ -636,6 +705,8 @@
     }
 
     private IReadOnlyList<ChatProviderDto> _chatProviders = [];
+    // SPEC-20261001-chat-capability-registry: catálogo para a aba Chat.
+    private IReadOnlyList<ChatCapability> _capabilities = [];
     private string? _chatError;
     private bool _chatBusy;
     private string _chatNewName = string.Empty;
@@ -689,6 +760,71 @@
     private string? _ragError;
     private string _ragKeyInputType = "password";
     private string _ragKeyToggleLabel = "Show";
+
+    // ---- Tabs (SPEC-20260930-settings-tabs) ----
+
+    private static readonly (string Id, string Label)[] SettingsTabs =
+    [
+        ("general", "General"),
+        ("integrations", "Integrations"),
+        ("agents", "Agents"),
+        ("chat", "Chat"),
+        ("security", "Security"),
+    ];
+
+    private string _activeTab = "general";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // ?tab= deep link — refresh/URL preserves the selected tab.
+            var query = new Uri(Navigation.Uri).Query;
+            if (query.Length > 1)
+            {
+                var tab = query[1..].Split('&')
+                    .Select(pair => pair.Split('=', 2))
+                    .Where(pair => pair.Length == 2 && pair[0] == "tab")
+                    .Select(pair => Uri.UnescapeDataString(pair[1]))
+                    .FirstOrDefault();
+                if (tab is not null && SettingsTabs.Any(t => t.Id == tab))
+                {
+                    _activeTab = tab;
+                    StateHasChanged();
+                }
+            }
+        }
+    }
+
+    private void SelectTab(string id)
+    {
+        _activeTab = id;
+        Navigation.NavigateTo($"/settings?tab={id}", replace: true);
+    }
+
+    /// <summary>WAI-ARIA tabs keyboard model: ←/→ cycle, Home/End jump.</summary>
+    private void OnTabsKeyDown(KeyboardEventArgs e)
+    {
+        var index = Array.FindIndex(SettingsTabs, t => t.Id == _activeTab);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var next = e.Key switch
+        {
+            "ArrowRight" => (index + 1) % SettingsTabs.Length,
+            "ArrowLeft" => (index - 1 + SettingsTabs.Length) % SettingsTabs.Length,
+            "Home" => 0,
+            "End" => SettingsTabs.Length - 1,
+            _ => index,
+        };
+
+        if (next != index)
+        {
+            SelectTab(SettingsTabs[next].Id);
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -1215,6 +1351,79 @@
         await LoadConfigurationAsync();
     }
 
+    /// <summary>Toggle granular — reescreve a lista Disabled preservando os demais ids.</summary>
+    private async Task ToggleCapabilityAsync(ChatCapability cap)
+    {
+        var raw = _configEntries
+            .FirstOrDefault(e => e.Key == "Taskboard:Chat:Capabilities:Disabled")?.EffectiveValue;
+        var ids = ParseDisabledIds(raw);
+        if (cap.Enabled)
+        {
+            ids.Add(cap.Id);
+        }
+        else
+        {
+            ids.Remove(cap.Id);
+        }
+
+        _chatBusy = true;
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(ids.Order(StringComparer.Ordinal).ToList());
+            var error = await Client.SetConfigurationValueAsync("Taskboard:Chat:Capabilities:Disabled", json);
+            if (error is not null)
+            {
+                await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to toggle {cap.Id}: {error}"));
+                return;
+            }
+
+            await ToastService.NotifyAsync(new(ToastType.Success, $"{cap.Id} {(cap.Enabled ? "disabled" : "enabled")}"));
+            await LoadConfigurationAsync();
+            await LoadChatStateAsync();
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private async Task RefreshCapabilitiesAsync()
+    {
+        _chatBusy = true;
+        try
+        {
+            _capabilities = await Client.GetChatCapabilitiesAsync();
+        }
+        catch
+        {
+            // best-effort — mantém o catálogo atual.
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    private static ISet<string> ParseDisabledIds(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        try
+        {
+            var ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(raw);
+            return ids is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(ids, StringComparer.Ordinal);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
+
     // SPEC-20260929-ai-code-provider-chat RF-011.
     private async Task LoadChatStateAsync()
     {
@@ -1222,6 +1431,15 @@
         try
         {
             _chatProviders = await Client.GetChatProvidersAsync();
+            try
+            {
+                _capabilities = await Client.GetChatCapabilitiesAsync();
+            }
+            catch
+            {
+                _capabilities = [];
+            }
+
             foreach (var capability in ChatCapabilities)
             {
                 var state = _chatCapability[capability];

@@ -9,5 +9,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Tomlyn" />
+    <!-- SPEC-20261001-chat-mcp-client: MCP client side of the same SDK the server uses. -->
+    <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 </Project>

@@ -105,6 +105,30 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:DefaultImageModel", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: null),
+        // SPEC-20261001-chat-default-mode: auto = chat when configured, else agent.
+        new("Taskboard:AiChat:DefaultMode", "auto", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_AICHAT_DEFAULT_MODE", Validate: ValidateAiChatDefaultMode),
+        // SPEC-20261001-chat-capability-registry: masters + granular toggles.
+        new("Taskboard:Chat:Skills:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_SKILLS_ENABLED", Validate: ValidateBoolean),
+        new("Taskboard:Chat:AgentDelegation:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_AGENT_DELEGATION_ENABLED", Validate: ValidateBoolean),
+        new("Taskboard:Chat:Mcp:Enabled", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_MCP_ENABLED", Validate: ValidateBoolean),
+        // SPEC-20261001-chat-mcp-client: servers JSON + per-call timeout.
+        new("Taskboard:Chat:Mcp:Servers", "[]", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_MCP_SERVERS", Validate: ValidateJsonArray),
+        new("Taskboard:Chat:Mcp:CallTimeoutSeconds", "30", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateIntRange5To300),
+        new("Taskboard:Chat:Capabilities:Disabled", "[]", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateJsonStringArray),
     ];
 
     private readonly IConfiguration _configuration;
@@ -313,6 +337,44 @@ public sealed class RuntimeConfigurationService
         value is "none" or "searxng" or "tavily" or "brave"
             ? null
             : "Search backend must be one of: none, searxng, tavily, brave.";
+
+    private static string? ValidateAiChatDefaultMode(string value) =>
+        value is "auto" or "chat" or "agent"
+            ? null
+            : "Default mode must be one of: auto, chat, agent.";
+
+    private static string? ValidateJsonStringArray(string value)
+    {
+        try
+        {
+            var ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(value);
+            return ids is null ? "Value must be a JSON array of strings." : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return "Value must be a JSON array of strings.";
+        }
+    }
+
+    private static string? ValidateJsonArray(string value)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(value);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? null
+                : "Value must be a JSON array.";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return "Value must be a JSON array.";
+        }
+    }
+
+    private static string? ValidateIntRange5To300(string value) =>
+        int.TryParse(value, out var seconds) && seconds is >= 5 and <= 300
+            ? null
+            : "Timeout must be an integer between 5 and 300 seconds.";
 
     private static string? ValidateSearchUrl(string value) =>
         string.IsNullOrWhiteSpace(value)

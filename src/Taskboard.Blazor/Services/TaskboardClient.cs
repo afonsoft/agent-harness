@@ -962,11 +962,19 @@ public sealed class TaskboardClient
         response.EnsureSuccessStatusCode();
     }
 
+    /// <summary>SPEC-20261001-chat-capability-registry: invocable capabilities catalog.</summary>
+    public async Task<IReadOnlyList<ChatCapability>> GetChatCapabilitiesAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await _httpClient.GetFromJsonAsync<ChatCapabilitiesResponse>("api/local/chat/capabilities", cancellationToken);
+        return body?.Capabilities ?? [];
+    }
+
     private sealed record ChatProviderListResponse(List<ChatProviderDto> Providers);
     private sealed record ChatProviderResponse(ChatProviderDto Provider);
     private sealed record ChatModelListResponse(List<string> Models);
     private sealed record ChatConversationListResponse(List<ChatConversationDto> Conversations);
     private sealed record ChatConversationResponse(ChatConversationDto Conversation);
+    private sealed record ChatCapabilitiesResponse(List<ChatCapability> Capabilities);
 
     private sealed record AiChatThreadListResponse(List<AiChatThreadDto> Threads);
     private sealed record AiChatThreadResponse(AiChatThreadDto Thread);

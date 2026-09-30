@@ -60,7 +60,7 @@ else
             @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode —
                replaces the agent-CLI UI with the open-webui-like layout. *@
             <div class="card-body p-2">
-                <ProviderChat />
+                <ProviderChat OnSwitchToAgent="SwitchToAgentMode" />
             </div>
         }
         else
@@ -237,12 +237,20 @@ else
                 {
                     <label class="d-flex align-items-center gap-1 mb-0">
                         <span class="text-body-secondary">Mode</span>
-                        <select class="form-select form-select-sm ai-chat-quickselect" @bind="_cfgMode">
+                        <select class="form-select form-select-sm ai-chat-quickselect"
+                                @bind="_cfgMode" @bind:after="() => _chatUnavailableHint = false">
                             <option value="assistant">Assistant</option>
                             <option value="agent">Agent</option>
                             <option value="provider">Chat (Provider)</option>
                         </select>
                     </label>
+                    @if (_chatUnavailableHint)
+                    {
+                        <span class="text-body-secondary small">
+                            Chat indisponível — configure um provider ou CLI com chat em
+                            <a href="/settings" class="alert-link">Settings → Chat</a>.
+                        </span>
+                    }
                     <label class="d-flex align-items-center gap-1 mb-0"
                            title="Structured chat (ACP) or raw terminal (PTY)">
                         <span class="text-body-secondary">View</span>
@@ -589,6 +597,10 @@ else
     private string _cfgView = "chat";
     private string _cfgContext = string.Empty;
 
+    // SPEC-20261001-chat-default-mode: resolved default-mode hint shown when
+    // no chat surface is configured (Chat unavailable → Agent fallback).
+    private bool _chatUnavailableHint;
+
     /// <summary>Uma entrada do seletor "Agent CLI" — builtin ou def customizada.</summary>
     private sealed record CliOption(
         string Value,
@@ -633,6 +645,13 @@ else
     /// installed-but-not-eligible builtins (terminal only) and enabled custom
     /// defs. Order: chat-capable first, then terminal-only, then custom.
     /// </summary>
+    /// <summary>/agent builtin — chat hand-off to agent mode (SPEC-20261001-chat-skills-slash-commands).</summary>
+    private void SwitchToAgentMode()
+    {
+        _cfgMode = "agent";
+        _chatUnavailableHint = false;
+    }
+
     private void OnCfgContextChanged(ChangeEventArgs e)
     {
         _cfgContext = e.Value?.ToString() ?? string.Empty;
@@ -862,6 +881,37 @@ else
             {
                 _cfgCli = first.Value;
                 _cfgView = first.SupportsChat ? "chat" : "terminal";
+            }
+
+            // SPEC-20261001-chat-default-mode FR-001/003: resolve the default
+            // mode once at init — provider chat when configured, else CLI chat,
+            // else agent with a hint. Existing threads still override via
+            // SelectThreadAsync (thread.Mode wins).
+            try
+            {
+                var providers = await Client.GetChatProvidersAsync();
+                var providerChatAvailable = providers.Any(p => p.Enabled);
+                string? configuredMode = null;
+                try
+                {
+                    var entries = await Client.GetConfigurationEntriesAsync();
+                    configuredMode = entries.FirstOrDefault(
+                        e => string.Equals(e.Key, "Taskboard:AiChat:DefaultMode", StringComparison.Ordinal))
+                        ?.EffectiveValue;
+                }
+                catch
+                {
+                    // Config endpoint best-effort — default "auto" applies.
+                }
+
+                var resolution = Taskboard.Application.Contracts.AiChat.DefaultModePolicy.Resolve(
+                    configuredMode, providerChatAvailable, AnyChatCapableCli);
+                _cfgMode = resolution.Mode;
+                _chatUnavailableHint = resolution.FellBack;
+            }
+            catch
+            {
+                // Provider list best-effort — keep the "assistant" default.
             }
         }
         catch

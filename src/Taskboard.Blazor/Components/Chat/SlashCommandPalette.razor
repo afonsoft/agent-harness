@@ -1,0 +1,40 @@
+@* SPEC-20261001-chat-skills-slash-commands FR-003: slash palette — lists
+   enabled skills (/name) and builtin commands while the composer starts with
+   "/". Keyboard: ↑/↓ navigate, Enter/Tab select, Esc closes. *@
+
+@if (Open && Filtered.Count > 0)
+{
+    <div class="slash-palette" role="listbox" aria-label="Slash commands">
+        @for (var i = 0; i < Filtered.Count; i++)
+        {
+            var index = i;
+            var item = Filtered[i];
+            <button type="button" role="option" aria-selected="@(index == ActiveIndex)"
+                    class="slash-item @(index == ActiveIndex ? "active" : null)"
+                    @onclick="() => OnSelect.InvokeAsync(item)">
+                <span class="slash-item-cmd">/@item.Command</span>
+                @if (item.Kind == "skill")
+                {
+                    <span class="badge text-bg-secondary ms-1">skill</span>
+                }
+                <span class="slash-item-desc text-truncate">@item.Description</span>
+            </button>
+        }
+    </div>
+}
+
+@code {
+    public sealed record SlashItem(string Command, string Description, string Kind);
+
+    [Parameter] public IReadOnlyList<SlashItem> Items { get; set; } = [];
+    /// <summary>Text after the leading "/" (single token, no spaces).</summary>
+    [Parameter] public string Filter { get; set; } = string.Empty;
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public int ActiveIndex { get; set; }
+    [Parameter] public EventCallback<SlashItem> OnSelect { get; set; }
+
+    private IReadOnlyList<SlashItem> Filtered => Items
+        .Where(i => i.Command.Contains(Filter, StringComparison.OrdinalIgnoreCase))
+        .Take(12)
+        .ToList();
+}
