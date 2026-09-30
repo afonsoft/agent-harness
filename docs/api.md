@@ -395,6 +395,30 @@ Budget caps: `AgentExecutionRequest.maxBudgetUsd` (per run) and `PipelineStartRe
 
 Telemetry: every run/stage/verification emits `System.Diagnostics.Activity` spans from the `Taskboard.Harness` activity source (`harness.run`, `harness.stage`, `harness.tool_call`, `harness.verification`) tagged with `harness.run_id`, `agent.type`, `model.name`, `tokens.*`, `cost.usd` (RF-004). Spans are in-process only unless `Taskboard:Telemetry:OtlpEndpoint` is set in `appsettings.json` — nothing is exported without explicit configuration (guardrail §8). The Blazor dashboard is `/finops`.
 
+### Provider Chat (open-webui style)
+
+```http
+GET    /api/local/chat/providers
+POST   /api/local/chat/providers              { name, baseUrl, apiKey?, enabled? }
+PUT    /api/local/chat/providers/{id}         { name, baseUrl, apiKey?, enabled? }
+DELETE /api/local/chat/providers/{id}
+GET    /api/local/chat/providers/{id}/models
+GET    /api/local/chat/conversations?q={text}
+POST   /api/local/chat/conversations          { providerId, model, title? }
+GET    /api/local/chat/conversations/{id}
+PATCH  /api/local/chat/conversations/{id}     { title?, model? }
+DELETE /api/local/chat/conversations/{id}
+POST   /api/local/chat/conversations/{id}/messages   { content }   → SSE
+POST   /api/local/chat/conversations/{id}/stop
+GET    /api/local/chat/images/{fileName}
+```
+
+All routes require cookie or `X-Api-Key` auth (the group maps `RequireAuthorization`).
+
+Providers are OpenAI-compatible endpoints registered by the operator (SPEC-20260929-ai-code-provider-chat). Provider DTOs never expose the key — only `hasApiKey` + `keyHint` (`••••last4`). `POST`/`PUT` validate `name` + absolute http(s) `baseUrl` (`400 VALIDATION`); a null `apiKey` on update keeps the stored key. `GET .../models` calls the provider's `/v1/models`, caches the list for 1h and returns `{ models[], cached }` (`502 PROVIDER_UNAVAILABLE` on upstream failure, `404 PROVIDER_NOT_FOUND`).
+
+Conversations persist in SQLite (`ChatConversation`/`ChatMessage`); `q` searches title and message content. `POST .../messages` streams the assistant turn as SSE — `chat.delta` `{ content }`, `chat.tool_call` `{ name, arguments }`, `chat.tool_result` `{ name, result, refused, refusalReason }`, `chat.done` `{ tokensIn, tokensOut, finishReason, error }`. The server runs an OpenAI function-calling tool loop (max `Taskboard:Chat:MaxToolIterations`, default 8) over the host tools — `shell_exec`/`run_cli` classified by the security gateway (`Dangerous` refused), file ops path-jailed to the workspace, output truncated (16 KB) and secret-scrubbed; master switch `Taskboard:Chat:Tools:Enabled`. `POST .../stop` cancels the in-flight turn (`202`/`409`). `GET .../images/{fileName}` serves PNGs produced by `generate_image` (`404 IMAGE_NOT_FOUND`).
+
 ## SSE
 
 ### Global events
