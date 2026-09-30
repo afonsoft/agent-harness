@@ -270,5 +270,6 @@ else
     {
         RepoService.Changed -= OnRepoChangedAsync;
         _cts?.Cancel();
+        _cts?.Dispose();
     }
 }

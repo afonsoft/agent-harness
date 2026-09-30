@@ -270,7 +270,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             }
         }
 
-        return sawRedirect && level == SecurityRiskLevel.Safe
+        return sawRedirect
             ? new(SecurityRiskLevel.WorkspaceWrite, "Escrita via redirect dentro do worktree.")
             : new(level, baseLevel == SecurityRiskLevel.Safe ? "Leitura confinada ao worktree." : "Escrita confinada ao worktree.");
     }

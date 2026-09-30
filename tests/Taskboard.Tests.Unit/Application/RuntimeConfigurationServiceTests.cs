@@ -50,6 +50,13 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Chat:DefaultChatModel",
             "Taskboard:Chat:DefaultCodeModel",
             "Taskboard:Chat:DefaultImageModel",
+            "Taskboard:AiChat:DefaultMode",
+            "Taskboard:Chat:Skills:Enabled",
+            "Taskboard:Chat:AgentDelegation:Enabled",
+            "Taskboard:Chat:Mcp:Enabled",
+            "Taskboard:Chat:Mcp:Servers",
+            "Taskboard:Chat:Mcp:CallTimeoutSeconds",
+            "Taskboard:Chat:Capabilities:Disabled",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }

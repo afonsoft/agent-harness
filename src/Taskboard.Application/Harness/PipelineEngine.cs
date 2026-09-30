@@ -485,7 +485,7 @@ public sealed class PipelineEngine
                     stageKey,
                     JsonSerializer.Serialize(
                         new { stream = message.Stream.ToString(), content = message.Content },
-                        JsonOptions)));
+                        JsonOptions)), CancellationToken.None);
             }
 
             // SPEC-20260921-agent-execution-event-pipeline RF-003: durable

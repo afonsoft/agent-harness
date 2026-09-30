@@ -55,10 +55,21 @@ RUN git config --system --add safe.directory '*' \
 
 VOLUME /data
 
-COPY --from=build /app/publish .
+# Non-root runtime (S6471): the server, its SQLite DB and agent CLI state all
+# live under /data; /app only holds read-only binaries. Named volumes inherit
+# this ownership on first creation — for EXISTING root-owned volumes run once:
+#   docker run --rm -u root -v <volume>:/data alpine chown -R 1000:1000 /data
+RUN groupadd --system --gid 1000 harness \
+    && useradd --system --uid 1000 --gid harness --home-dir /data/home harness \
+    && mkdir -p /data/home \
+    && chown -R harness:harness /data /app
+
+COPY --from=build --chown=harness:harness /app/publish .
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:47823
 EXPOSE 47823
+
+USER harness
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:47823/health || exit 1

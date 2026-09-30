@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +21,12 @@ public sealed record ChatToolCallEvent(string Name, string ArgumentsJson) : Chat
 
 public sealed record ChatToolResultEvent(string Name, string ResultJson, bool Refused, string? RefusalReason) : ChatStreamEvent;
 
+/// <summary>
+/// Live activity status (SPEC-20261001-chat-ux-compact FR-003): emitted while a
+/// tool/MCP/agent/sub-agent runs so the UI can show "Running X…" chips.
+/// </summary>
+public sealed record ChatStatusEvent(string Phase, string? Label) : ChatStreamEvent;
+
 public sealed record ChatDoneEvent(int? TokensIn, int? TokensOut, string? FinishReason, string? Error = null) : ChatStreamEvent;
 
 /// <summary>Request-level validation failure surfaced as 400.</summary>
@@ -35,7 +42,8 @@ public sealed class ChatService(
     IRepository<ChatConversation> conversations,
     IRepository<ChatMessage> messages,
     OpenAiCompatibleClient client,
-    IReadOnlyDictionary<string, IChatTool> tools,
+    IChatCapabilityRegistry capabilities,
+    Taskboard.Application.Contracts.Skills.ISkillDiscoveryService skills,
     IWorkspacePathResolver workspace,
     IConfiguration configuration,
     TimeProvider? clock = null)
@@ -238,16 +246,16 @@ public sealed class ChatService(
     public async Task<IAsyncEnumerable<ChatStreamEvent>> SendMessageAsync(
         string conversationId, string content, CancellationToken requestAborted)
     {
-        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId)).ConfigureAwait(false)
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), requestAborted).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
-        var provider = await providers.GetAsync(conversation.ProviderId).ConfigureAwait(false)
+        var provider = await providers.GetAsync(conversation.ProviderId, requestAborted).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted);
         var key = conversation.Id.Value;
         if (_runs.TryRemove(key, out var previous))
         {
-            previous.Cancel();
+            await previous.CancelAsync();
             previous.Dispose();
         }
 
@@ -282,8 +290,11 @@ public sealed class ChatService(
         conversation.Touch(UtcNow);
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        var wire = await BuildTranscriptAsync(conversation, provider, ct).ConfigureAwait(false);
-        var toolDefs = BuildToolDefinitions();
+        // SPEC-20261001-chat-capability-registry FR-003: effective tool set —
+        // disabled capabilities never reach the provider payload.
+        var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
+        var wire = await BuildTranscriptAsync(conversation, provider, toolSet, ct).ConfigureAwait(false);
+        var toolDefs = BuildToolDefinitions(toolSet);
         int? tokensIn = null;
         int? tokensOut = null;
         string? error = null;
@@ -381,7 +392,20 @@ public sealed class ChatService(
 
             foreach (var toolCall in toolCalls)
             {
-                var (resultJson, refused, refusalReason) = await ExecuteToolAsync(toolCall, provider, ct).ConfigureAwait(false);
+                // FR-003: live status — the "running" event reaches the client
+                // before the (possibly long) tool call completes; tool-reported
+                // activity is drained from a channel while it executes.
+                var activity = Channel.CreateUnbounded<ChatStreamEvent>();
+                yield return new ChatStatusEvent("running_tool", toolCall.Name);
+                var toolTask = ExecuteToolAsync(toolCall, provider, toolSet, conversation, activity.Writer, ct);
+                while (!toolTask.IsCompleted)
+                {
+                    while (activity.Reader.TryRead(out var progress)) yield return progress;
+                    await Task.Delay(150).ConfigureAwait(false);
+                }
+                while (activity.Reader.TryRead(out var progress)) yield return progress;
+                var (resultJson, refused, refusalReason) = await toolTask.ConfigureAwait(false);
+                yield return new ChatStatusEvent("idle", null);
                 yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
                 yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
 
@@ -401,9 +425,13 @@ public sealed class ChatService(
     }
 
     private async Task<(string Json, bool Refused, string? Reason)> ExecuteToolAsync(
-        OpenAiToolCall toolCall, ChatProvider provider, CancellationToken ct)
+        OpenAiToolCall toolCall, ChatProvider provider,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatConversation conversation,
+        ChannelWriter<ChatStreamEvent> activity,
+        CancellationToken ct)
     {
-        if (!tools.TryGetValue(toolCall.Name, out var tool))
+        if (!toolSet.TryGetValue(toolCall.Name, out var tool))
         {
             return (JsonSerializer.Serialize(new { error = $"unknown tool '{toolCall.Name}'" }), true, "unknown tool");
         }
@@ -426,7 +454,12 @@ public sealed class ChatService(
             ImageModel: ResolveImageModel(provider.Id),
             SearchBackend: configuration["Taskboard:Chat:SearchBackend"] ?? "none",
             SearchUrl: configuration["Taskboard:Chat:SearchUrl"] ?? string.Empty,
-            SearchApiKey: configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty);
+            SearchApiKey: configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty,
+            ConversationId: conversation.Id.Value,
+            Model: conversation.Model,
+            DelegationDepth: 0,
+            Activity: new ChannelActivityReporter(activity),
+            ToolSet: toolSet);
 
         try
         {
@@ -444,14 +477,18 @@ public sealed class ChatService(
     }
 
     private async Task<List<OpenAiChatMessage>> BuildTranscriptAsync(
-        ChatConversation conversation, ChatProvider provider, CancellationToken ct)
+        ChatConversation conversation, ChatProvider provider,
+        IReadOnlyDictionary<string, IChatTool> toolSet, CancellationToken ct)
     {
         var rows = await messages.Query
             .Where(m => m.ConversationId == conversation.Id)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct).ConfigureAwait(false);
 
-        var wire = new List<OpenAiChatMessage> { new("system", SystemPrompt()) };
+        var wire = new List<OpenAiChatMessage>
+        {
+            new("system", SystemPrompt(toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false))),
+        };
         foreach (var message in rows)
         {
             var role = message.Role.Value;
@@ -475,27 +512,58 @@ public sealed class ChatService(
         return wire;
     }
 
-    private string SystemPrompt()
+    private string SystemPrompt(IReadOnlyDictionary<string, IChatTool> toolSet, string skillCatalog)
     {
         var workdir = workspace.ResolveCardWorkdir(null, out _);
-        var toolNames = string.Join(", ", tools.Keys.Order());
+        var toolNames = string.Join(", ", toolSet.Keys.Order());
         return $"""
             You are the Harness Chat assistant running on the operator's host server.
             Current date: {UtcNow:yyyy-MM-dd}. Workspace directory: {workdir}.
             You can call tools to act on the host: {toolNames}. Commands and file access are
             confined to the workspace by a security gateway — dangerous operations are refused.
             Prefer tools when they answer the request; keep answers concise and use markdown.
+            {skillCatalog}
             """;
     }
 
-    private List<OpenAiToolDefinition> BuildToolDefinitions()
+    /// <summary>
+    /// SPEC-20261001-chat-skills-slash-commands FR-002: enabled skills announced
+    /// in the system prompt (≤40, description truncated) when use_skill is live.
+    /// </summary>
+    private async Task<string> SkillCatalogSectionAsync(
+        IReadOnlyDictionary<string, IChatTool> toolSet, CancellationToken ct)
     {
-        if (!ParseBool("Taskboard:Chat:Tools:Enabled", defaultValue: true))
+        if (!toolSet.ContainsKey("use_skill"))
         {
-            return [];
+            return string.Empty;
         }
 
-        return tools.Select(kv => new OpenAiToolDefinition(kv.Key, kv.Value.Description, kv.Value.ParametersJson))
+        try
+        {
+            var discovered = await skills.DiscoverAsync(ct).ConfigureAwait(false);
+            var lines = discovered
+                .Where(sk => capabilities.IsCapabilityEnabled($"skill:{sk.Name}"))
+                .OrderBy(sk => sk.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(40)
+                .Select(sk =>
+                {
+                    var desc = sk.Description is { Length: > 120 } ? string.Concat(sk.Description.AsSpan(0, 120), "…") : sk.Description;
+                    return $"- {sk.Name} — {desc}";
+                })
+                .ToList();
+            return lines.Count == 0
+                ? string.Empty
+                : "Available skills (invoke via use_skill or a user /command):\n" + string.Join('\n', lines);
+        }
+        catch (Exception)
+        {
+            return string.Empty; // discovery failure must never break the turn
+        }
+    }
+
+    private static List<OpenAiToolDefinition> BuildToolDefinitions(IReadOnlyDictionary<string, IChatTool> toolSet)
+    {
+        return toolSet.Select(kv => new OpenAiToolDefinition(kv.Key, kv.Value.Description, kv.Value.ParametersJson))
             .OrderBy(t => t.Name, StringComparer.Ordinal)
             .ToList();
     }
@@ -504,6 +572,12 @@ public sealed class ChatService(
     {
         var raw = configuration[key];
         return int.TryParse(raw, out var value) && value > 0 ? value : defaultValue;
+    }
+
+    /// <summary>Fire-and-forget activity reporter over the turn's event channel.</summary>
+    private sealed class ChannelActivityReporter(ChannelWriter<ChatStreamEvent> writer) : IChatActivityReporter
+    {
+        public void Report(string phase, string label) => writer.TryWrite(new ChatStatusEvent(phase, label));
     }
 
     /// <summary>Capability default values are "{providerId}:{model}" — the image

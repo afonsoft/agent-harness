@@ -38,6 +38,18 @@ public class DynamicCommandClassifierTests
     public void Dado_ComandoDeEscritaNoWorktree_Quando_Classify_Entao_WorkspaceWrite(string command)
         => _sut.Classify(command, Worktree).RiskLevel.ShouldBe(SecurityRiskLevel.WorkspaceWrite);
 
+    [Fact]
+    public void Dado_RedirectComBinarioSeguro_Quando_Classify_Entao_WorkspaceWriteComRazaoDeRedirect()
+    {
+        // SPEC-20260930-sonar-s2583: `sawRedirect && level == Safe` era branch
+        // morto — level já é WorkspaceWrite quando há redirect. Binário Safe +
+        // redirect dentro do jail deve reportar "redirect", não "leitura".
+        var result = _sut.Classify("cat README.md > out.txt", Worktree);
+
+        result.RiskLevel.ShouldBe(SecurityRiskLevel.WorkspaceWrite);
+        result.Reason.ShouldContain("redirect", customMessage: "redirect dentro do jail deve reportar a razão correta");
+    }
+
     [Theory]
     [InlineData("rm -rf /")]
     [InlineData("rm -rf /etc")]

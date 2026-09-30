@@ -60,7 +60,7 @@ else
             @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode —
                replaces the agent-CLI UI with the open-webui-like layout. *@
             <div class="card-body p-2">
-                <ProviderChat />
+                <ProviderChat OnSwitchToAgent="SwitchToAgentMode" />
             </div>
         }
         else
@@ -237,12 +237,20 @@ else
                 {
                     <label class="d-flex align-items-center gap-1 mb-0">
                         <span class="text-body-secondary">Mode</span>
-                        <select class="form-select form-select-sm ai-chat-quickselect" @bind="_cfgMode">
+                        <select class="form-select form-select-sm ai-chat-quickselect"
+                                @bind="_cfgMode" @bind:after="() => _chatUnavailableHint = false">
                             <option value="assistant">Assistant</option>
                             <option value="agent">Agent</option>
                             <option value="provider">Chat (Provider)</option>
                         </select>
                     </label>
+                    @if (_chatUnavailableHint)
+                    {
+                        <span class="text-body-secondary small">
+                            Chat indisponível — configure um provider ou CLI com chat em
+                            <a href="/settings" class="alert-link">Settings → Chat</a>.
+                        </span>
+                    }
                     <label class="d-flex align-items-center gap-1 mb-0"
                            title="Structured chat (ACP) or raw terminal (PTY)">
                         <span class="text-body-secondary">View</span>
@@ -589,6 +597,10 @@ else
     private string _cfgView = "chat";
     private string _cfgContext = string.Empty;
 
+    // SPEC-20261001-chat-default-mode: resolved default-mode hint shown when
+    // no chat surface is configured (Chat unavailable → Agent fallback).
+    private bool _chatUnavailableHint;
+
     /// <summary>Uma entrada do seletor "Agent CLI" — builtin ou def customizada.</summary>
     private sealed record CliOption(
         string Value,
@@ -633,6 +645,13 @@ else
     /// installed-but-not-eligible builtins (terminal only) and enabled custom
     /// defs. Order: chat-capable first, then terminal-only, then custom.
     /// </summary>
+    /// <summary>/agent builtin — chat hand-off to agent mode (SPEC-20261001-chat-skills-slash-commands).</summary>
+    private void SwitchToAgentMode()
+    {
+        _cfgMode = "agent";
+        _chatUnavailableHint = false;
+    }
+
     private void OnCfgContextChanged(ChangeEventArgs e)
     {
         _cfgContext = e.Value?.ToString() ?? string.Empty;
@@ -819,7 +838,7 @@ else
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
             _threads = [];
         }
 
@@ -862,6 +881,37 @@ else
             {
                 _cfgCli = first.Value;
                 _cfgView = first.SupportsChat ? "chat" : "terminal";
+            }
+
+            // SPEC-20261001-chat-default-mode FR-001/003: resolve the default
+            // mode once at init — provider chat when configured, else CLI chat,
+            // else agent with a hint. Existing threads still override via
+            // SelectThreadAsync (thread.Mode wins).
+            try
+            {
+                var providers = await Client.GetChatProvidersAsync();
+                var providerChatAvailable = providers.Any(p => p.Enabled);
+                string? configuredMode = null;
+                try
+                {
+                    var entries = await Client.GetConfigurationEntriesAsync();
+                    configuredMode = entries.FirstOrDefault(
+                        e => string.Equals(e.Key, "Taskboard:AiChat:DefaultMode", StringComparison.Ordinal))
+                        ?.EffectiveValue;
+                }
+                catch
+                {
+                    // Config endpoint best-effort — default "auto" applies.
+                }
+
+                var resolution = Taskboard.Application.Contracts.AiChat.DefaultModePolicy.Resolve(
+                    configuredMode, providerChatAvailable, AnyChatCapableCli);
+                _cfgMode = resolution.Mode;
+                _chatUnavailableHint = resolution.FellBack;
+            }
+            catch
+            {
+                // Provider list best-effort — keep the "assistant" default.
             }
         }
         catch
@@ -1258,7 +1308,7 @@ else
                 if (thread is null)
                 {
                     // RF-003: surface the real backend reason (e.g. missing clone).
-                    ToastService.Notify(new(ToastType.Danger, createError ?? "Failed to create the thread."));
+                    await ToastService.NotifyAsync(new(ToastType.Danger, createError ?? "Failed to create the thread."));
                     return;
                 }
 
@@ -1283,7 +1333,7 @@ else
                 _composer = string.Empty;
                 if (queued is null)
                 {
-                    ToastService.Notify(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
+                    await ToastService.NotifyAsync(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
                     return;
                 }
 
@@ -1300,7 +1350,7 @@ else
             var (postedAssistant, postError) = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
             if (postedAssistant is null)
             {
-                ToastService.Notify(new(ToastType.Danger, postError ?? "Failed to post the message."));
+                await ToastService.NotifyAsync(new(ToastType.Danger, postError ?? "Failed to post the message."));
                 return;
             }
 
@@ -1311,13 +1361,13 @@ else
             if (run is null)
             {
                 _running = false;
-                ToastService.Notify(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
+                await ToastService.NotifyAsync(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
             }
         }
         catch (Exception ex)
         {
             _running = false;
-            ToastService.Notify(new(ToastType.Danger, $"Send failed: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Send failed: {ex.Message}"));
         }
         finally
         {
@@ -1371,7 +1421,7 @@ else
         var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
         if (thread is null)
         {
-            ToastService.Notify(new(ToastType.Danger, createError ?? "Failed to create the conversation."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, createError ?? "Failed to create the conversation."));
             return;
         }
 
@@ -1391,7 +1441,7 @@ else
         if (ok)
         {
             _running = false;
-            ToastService.Notify(new(ToastType.Info, "Agent run cancelled."));
+            await ToastService.NotifyAsync(new(ToastType.Info, "Agent run cancelled."));
         }
     }
 
@@ -1413,12 +1463,12 @@ else
         var (fork, error) = await Client.ForkAiChatThreadAsync(_activeThreadId, eventId);
         if (fork is null)
         {
-            ToastService.Notify(new(ToastType.Danger, error ?? "Failed to fork the thread."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, error ?? "Failed to fork the thread."));
             return;
         }
 
         _threads = (_threads ?? []).Concat([fork]).ToList();
-        ToastService.Notify(new(ToastType.Success, $"Forked into '{fork.Title}'."));
+        await ToastService.NotifyAsync(new(ToastType.Success, $"Forked into '{fork.Title}'."));
         await SelectThreadAsync(fork);
     }
 
@@ -1433,7 +1483,7 @@ else
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Nothing to retry — send a prompt first."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Nothing to retry — send a prompt first."));
         }
     }
 
@@ -1453,7 +1503,7 @@ else
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Model switch rejected — no live session."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Model switch rejected — no live session."));
         }
     }
 
@@ -1473,7 +1523,7 @@ else
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Mode switch rejected — no live session."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Mode switch rejected — no live session."));
         }
     }
 
@@ -1484,11 +1534,11 @@ else
         _permissions.RemoveAll(p => p.RequestId == args.RequestId);
         if (ok)
         {
-            ToastService.Notify(new(ToastType.Success, $"Permission '{args.Outcome}' sent to agent."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Permission '{args.Outcome}' sent to agent."));
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Permission request already expired."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Permission request already expired."));
         }
     }
 
@@ -1497,7 +1547,7 @@ else
         var deleted = await Client.DeleteAiChatThreadAsync(thread.Id);
         if (!deleted)
         {
-            ToastService.Notify(new(ToastType.Danger, "Failed to delete the thread."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, "Failed to delete the thread."));
             return;
         }
 
@@ -1553,13 +1603,13 @@ else
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to queue the agent: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to queue the agent: {ex.Message}"));
             return;
         }
 
         if (!queued)
         {
-            ToastService.Notify(new(ToastType.Danger, $"{selection.AgentName} is not eligible right now (disabled or CLI not authenticated)."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"{selection.AgentName} is not eligible right now (disabled or CLI not authenticated)."));
             return;
         }
 
@@ -1569,7 +1619,7 @@ else
                 $"{selection.AgentName} queued for {selection.RepositoryFullName} (tier {selection.Tier})."));
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Warning, error));
+            await ToastService.NotifyAsync(new(ToastType.Warning, error));
         }
 
         _ = PollAgentRunAsync(issueId, threadId, selection.AgentName, selection.RepositoryFullName, _disposeCts.Token);

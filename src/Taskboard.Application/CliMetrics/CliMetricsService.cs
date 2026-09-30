@@ -139,8 +139,8 @@ public sealed class CliMetricsService : ICliMetricsService
             }
             // Errored sources always retry — the failure may have been transient or
             // caused by a previous build, and an unchanged file must not pin it.
-            if (state?.Status is CliDbSourceStatus.Error
-                || state?.ResolvedPath != joined || state.FileModifiedUtc?.Ticks != mtime || state.FileSizeBytes != size)
+            if (state is null || state.Status is CliDbSourceStatus.Error
+                || state.ResolvedPath != joined || state.FileModifiedUtc?.Ticks != mtime || state.FileSizeBytes != size)
             {
                 unchanged = false;
             }

@@ -125,17 +125,17 @@ window.taskboard = {
 // approval gates — permission is requested lazily on the first cockpit visit;
 // every failure path degrades to the in-app toast/modal silently.
 window.taskboardNotify = {
-    ensurePermission: function () {
+    ensurePermission: async function () {
         try {
             if (!('Notification' in window)) {
-                return Promise.resolve('unsupported');
+                return 'unsupported';
             }
             if (Notification.permission !== 'default') {
-                return Promise.resolve(Notification.permission);
+                return Notification.permission;
             }
-            return Notification.requestPermission();
+            return await Notification.requestPermission();
         } catch (e) {
-            return Promise.resolve('denied');
+            return 'denied';
         }
     },
 
@@ -198,5 +198,31 @@ window.taskboardSse = {
             }
         }
         this._sources = {};
+    }
+};
+
+// SPEC-20261001-chat-ux-compact FR-004: dynamic syntax colors for chat code
+// blocks (markdown/bash/csharp/json/python/js…). Throttled — re-highlighting
+// the whole container on every SSE delta would be O(n²).
+window.taskboardChat = {
+    _last: 0,
+
+    highlight: function (containerId) {
+        var container = document.getElementById(containerId);
+        if (!container || !window.hljs) {
+            return;
+        }
+        var now = Date.now();
+        if (now - this._last < 400) {
+            return;
+        }
+        this._last = now;
+        container.querySelectorAll('pre code:not(.hljs)').forEach(function (block) {
+            try {
+                window.hljs.highlightElement(block);
+            } catch (e) {
+                /* unknown language — leave plain */
+            }
+        });
     }
 };

@@ -17,15 +17,15 @@ namespace Taskboard.Integrations.CliDb;
 public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
 {
     private static readonly Regex IdentifierPattern =
-        new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+        new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     // Word-ish boundary on '_' separators: catches access_token, api_key,
     // hashed_password, credential — but not metric columns like tokens_input.
     private static readonly Regex SecretColumnPattern =
-        new("(^|_)(token|secret|key|credential|password|auth)(_|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new("(^|_)(token|secret|key|credential|password|auth)(_|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex UnsafeWherePattern =
-        new(";|'|\"|--|/\\*|\\*/|@__limit", RegexOptions.Compiled);
+        new(";|'|\"|--|/\\*|\\*/|@__limit", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex OrderByPattern =
-        new("^[A-Za-z_][A-Za-z0-9_]*(\\s+(ASC|DESC))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new("^[A-Za-z_][A-Za-z0-9_]*(\\s+(ASC|DESC))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     private readonly string _homeDirectory;
     private readonly ILogger<SqliteCliDatabaseReader> _logger;
@@ -338,7 +338,8 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
                 }
 
                 await using var cmd = _conn.CreateCommand();
-                cmd.CommandText = $"PRAGMA table_info(\"{table}\")";
+                cmd.CommandText = "SELECT cid, \"name\" FROM pragma_table_info(@__table)";
+                cmd.Parameters.AddWithValue("@__table", table);
                 var cols = new List<string>();
                 await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -359,7 +360,12 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
         private async Task<long> PragmaLongAsync(string pragma, CancellationToken cancellationToken)
         {
             await using var cmd = _conn.CreateCommand();
-            cmd.CommandText = $"PRAGMA {pragma}";
+            cmd.CommandText = pragma switch
+            {
+                "user_version" => "PRAGMA user_version",
+                "application_id" => "PRAGMA application_id",
+                _ => throw new CliDbAccessDeniedException($"PRAGMA '{pragma}' is not allowlisted."),
+            };
             var value = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             return value is long l ? l : Convert.ToInt64(value);
         }

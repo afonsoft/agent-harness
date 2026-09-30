@@ -52,4 +52,17 @@ public class SettingsFeaturesTests
         src.Contains("role=\"switch\"", StringComparison.Ordinal)
             .ShouldBeTrue("toggles devem renderizar como switches");
     }
+
+    [Fact]
+    public void Dado_Settings_Quando_LeFonte_Entao_SemLiteralEmVariavelDeCredencial()
+    {
+        // Covers SPEC-20260930-sonar-s2068 RF-001: nenhum membro com nome de
+        // credencial (password/passwd/pwd) pode receber literal de string —
+        // é o padrão que o SonarQube S2068 marca como hard-coded credential.
+        var src = SettingsSource();
+
+        System.Text.RegularExpressions.Regex.IsMatch(
+            src, @"(?i)\b\w*(password|passwd|pwd)\w*\s*=\s*""")
+            .ShouldBeFalse("literal atribuído a membro com nome de credencial dispara S2068");
+    }
 }

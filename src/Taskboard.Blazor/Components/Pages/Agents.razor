@@ -412,7 +412,7 @@
 
             await _customCliModal.HideAsync();
             await LoadCustomDefsAsync();
-            ToastService.Notify(new(ToastType.Success,
+            await ToastService.NotifyAsync(new(ToastType.Success,
                 _editingDef is null ? $"CLI '{saved.DisplayName}' added." : $"CLI '{saved.DisplayName}' updated."));
         }
         finally
@@ -426,11 +426,11 @@
         _deleteDefId = null;
         if (await Client.DeleteCustomAgentCliAsync(def.Id))
         {
-            ToastService.Notify(new(ToastType.Success, $"CLI '{def.DisplayName}' removed."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"CLI '{def.DisplayName}' removed."));
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Custom CLI not found — it may already be gone."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Custom CLI not found — it may already be gone."));
         }
 
         await LoadCustomDefsAsync();
@@ -448,7 +448,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao carregar prompt padrão: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao carregar prompt padrão: {ex.Message}"));
         }
         finally
         {
@@ -462,12 +462,12 @@
         try
         {
             await PromptTemplateService.SetTemplateAsync(_template);
-            ToastService.Notify(new(ToastType.Success, "Prompt padrão salvo."));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Prompt padrão salvo."));
             await LoadTemplateAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao salvar prompt: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao salvar prompt: {ex.Message}"));
         }
         finally
         {
@@ -481,12 +481,12 @@
         try
         {
             await PromptTemplateService.SetTemplateAsync(null);
-            ToastService.Notify(new(ToastType.Success, "Prompt padrão restaurado."));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Prompt padrão restaurado."));
             await LoadTemplateAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao restaurar prompt: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao restaurar prompt: {ex.Message}"));
         }
         finally
         {
@@ -606,22 +606,22 @@
             var result = await Client.SyncCliMetricsAsync();
             if (result is null)
             {
-                ToastService.Notify(new(ToastType.Warning, "Métricas de CLI desabilitadas."));
+                await ToastService.NotifyAsync(new(ToastType.Warning, "Métricas de CLI desabilitadas."));
             }
             else if (result.InFlight)
             {
-                ToastService.Notify(new(ToastType.Info, "Sync já em andamento."));
+                await ToastService.NotifyAsync(new(ToastType.Info, "Sync já em andamento."));
             }
             else
             {
-                ToastService.Notify(new(ToastType.Success,
+                await ToastService.NotifyAsync(new(ToastType.Success,
                     $"Sync concluído — {result.SessionsIngested} sessões ingeridas."));
             }
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao sincronizar métricas: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao sincronizar métricas: {ex.Message}"));
         }
         finally
         {

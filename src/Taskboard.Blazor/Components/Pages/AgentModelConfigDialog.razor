@@ -233,7 +233,7 @@ else
         try
         {
             await RefreshAvailableAsync(forceRefresh: true);
-            ToastService.Notify(new(ToastType.Info,
+            await ToastService.NotifyAsync(new(ToastType.Info,
                 $"Lista de modelos de {DisplayName} atualizada ({_available?.Count ?? 0} reportados pela CLI)."));
         }
         finally
@@ -272,12 +272,12 @@ else
         {
             await ModelConfig.SetConfigAsync(AgentType,
                 new SaveAgentModelConfigRequest(_tiers[0].Value, _tiers[1].Value, _tiers[2].Value));
-            ToastService.Notify(new(ToastType.Success, $"Modelos de {DisplayName} salvos."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Modelos de {DisplayName} salvos."));
             await OnFinished.InvokeAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Falha ao salvar: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Falha ao salvar: {ex.Message}"));
         }
         finally
         {
@@ -291,12 +291,12 @@ else
         try
         {
             await ModelConfig.DeleteConfigAsync(AgentType);
-            ToastService.Notify(new(ToastType.Success, $"Modelos de {DisplayName} restaurados para o default."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Modelos de {DisplayName} restaurados para o default."));
             await OnFinished.InvokeAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Falha ao restaurar: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Falha ao restaurar: {ex.Message}"));
         }
         finally
         {

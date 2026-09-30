@@ -94,7 +94,7 @@ else if (_agents is not null)
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to load agents: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to load agents: {ex.Message}"));
             _agents ??= [];
         }
         finally

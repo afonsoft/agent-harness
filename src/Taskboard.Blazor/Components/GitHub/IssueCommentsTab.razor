@@ -126,12 +126,12 @@
         {
             await GitHub.AddIssueCommentAsync(RepositoryFullName, IssueNumber, _draft.Trim());
             _draft = string.Empty;
-            ToastService.Notify(new(ToastType.Success, "Comentário publicado no GitHub."));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Comentário publicado no GitHub."));
             await LoadAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Falha ao comentar: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Falha ao comentar: {ex.Message}"));
         }
         finally
         {

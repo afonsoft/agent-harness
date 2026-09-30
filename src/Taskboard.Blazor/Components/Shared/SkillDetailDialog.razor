@@ -114,7 +114,7 @@ else
     private async Task CopyContentAsync()
     {
         await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", Skill.Content);
-        ToastService.Notify(new(ToastType.Success, "Skill content copied to clipboard"));
+        await ToastService.NotifyAsync(new(ToastType.Success, "Skill content copied to clipboard"));
     }
 
     protected override void OnParametersSet()

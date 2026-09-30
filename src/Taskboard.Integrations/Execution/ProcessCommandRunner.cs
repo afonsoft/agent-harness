@@ -34,8 +34,8 @@ public sealed class ProcessCommandRunner : IProcessRunner
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start {executable}.");
 
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
+        var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(timeout ?? DefaultTimeout);

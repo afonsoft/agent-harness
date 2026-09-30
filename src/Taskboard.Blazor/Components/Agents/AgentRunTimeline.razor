@@ -280,7 +280,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Falha ao carregar eventos: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Falha ao carregar eventos: {ex.Message}"));
         }
         finally
         {

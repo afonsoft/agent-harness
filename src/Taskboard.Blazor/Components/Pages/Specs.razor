@@ -227,10 +227,10 @@
         var dto = await Client.UpdateSpecStatusAsync(specId, "Approved", RepoService.Selected);
         if (dto is null)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
             return;
         }
-        ToastService.Notify(new ToastMessage(ToastType.Success, $"{specId} → Approved"));
+        await ToastService.NotifyAsync(new ToastMessage(ToastType.Success, $"{specId} → Approved"));
         await RefreshAsync();
     }
 
@@ -239,7 +239,7 @@
         var detail = await Client.GetSpecAsync(specId, RepoService.Selected);
         if (detail is null)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, $"Spec {specId} não encontrada."));
             return;
         }
         await _runModal.ShowAsync<RunSpecDialog>(
@@ -260,6 +260,6 @@
     private async Task OnPipelineStartedAsync(string pipelineExecutionId)
     {
         await _runModal.HideAsync();
-        ToastService.Notify(new ToastMessage(ToastType.Success, $"Pipeline {pipelineExecutionId} iniciado."));
+        await ToastService.NotifyAsync(new ToastMessage(ToastType.Success, $"Pipeline {pipelineExecutionId} iniciado."));
     }
 }

@@ -102,7 +102,7 @@ public sealed class AgentCliDefinition : Entity<string>
     /// <summary>Slug used to derive the stable id: lowercase, alnum+dash, ≤48 chars.</summary>
     public static string SlugFor(string displayName)
     {
-        var slug = Regex.Replace(displayName.Trim().ToLowerInvariant(), @"[^a-z0-9]+", "-")
+        var slug = Regex.Replace(displayName.Trim().ToLowerInvariant(), @"[^a-z0-9]+", "-", RegexOptions.None, TimeSpan.FromSeconds(1))
             .Trim('-');
         if (slug.Length > 48)
         {

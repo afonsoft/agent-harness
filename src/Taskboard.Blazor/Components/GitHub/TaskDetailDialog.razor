@@ -218,12 +218,12 @@
             Issue = await GitHubService.UpdateIssueAsync(
                 RepositoryFullName, Issue.Number, _editTitle, _editBody);
             _editing = false;
-            ToastService.Notify(new(ToastType.Success, $"Issue #{Issue.Number} atualizada."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{Issue.Number} atualizada."));
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao salvar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao salvar issue: {ex.Message}"));
         }
         finally
         {
@@ -243,12 +243,12 @@
         {
             Issue = await GitHubService.UpdateIssueColumnAsync(
                 RepositoryFullName, Issue.Number, Issue.Column, column);
-            ToastService.Notify(new(ToastType.Success, $"Issue #{Issue.Number} movida para {column.ToLabel()}."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{Issue.Number} movida para {column.ToLabel()}."));
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao mover issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao mover issue: {ex.Message}"));
         }
     }
 
@@ -263,12 +263,12 @@
         try
         {
             Issue = await GitHubService.CloseIssueAsync(RepositoryFullName, Issue.Number, resolution);
-            ToastService.Notify(new(ToastType.Success, $"Issue #{Issue.Number} fechada ({resolution})."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{Issue.Number} fechada ({resolution})."));
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
         }
     }
 

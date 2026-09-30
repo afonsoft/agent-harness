@@ -58,7 +58,8 @@ public sealed class ChatServiceTests : IDisposable
             new EfCoreRepository<ChatConversation>(_context),
             new EfCoreRepository<ChatMessage>(_context),
             client,
-            tools,
+            new ChatCapabilityRegistry(tools, new FakeSkillDiscovery(), configuration),
+            new FakeSkillDiscovery(),
             new FakeWorkspaceResolver(),
             configuration);
     }
@@ -155,6 +156,22 @@ public sealed class ChatServiceTests : IDisposable
             exists = false;
             return Path.GetTempPath();
         }
+    }
+
+    private sealed class FakeSkillDiscovery : Taskboard.Application.Contracts.Skills.ISkillDiscoveryService
+    {
+        public Task<IReadOnlyList<Taskboard.Application.Contracts.Skills.SkillDto>> DiscoverAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Taskboard.Application.Contracts.Skills.SkillDto>>([]);
+
+        public Task<Taskboard.Application.Contracts.Skills.SkillDetailDto?> GetDetailAsync(
+            string source, string name, CancellationToken cancellationToken = default) =>
+            Task.FromResult<Taskboard.Application.Contracts.Skills.SkillDetailDto?>(null);
+
+        public Task<Taskboard.Application.Contracts.Skills.SkillFileResult> GetFileAsync(
+            string source, string name, string relativePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new Taskboard.Application.Contracts.Skills.SkillFileResult(
+                Taskboard.Application.Contracts.Skills.SkillFileError.NotFound, null, null));
     }
 
     /// <summary>Provider fake: 1ª chamada devolve tool_calls, 2ª devolve a resposta final.</summary>

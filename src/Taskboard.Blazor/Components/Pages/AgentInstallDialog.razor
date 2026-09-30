@@ -106,5 +106,9 @@ else
         _ => string.Empty
     };
 
-    public void Dispose() => _cts?.Cancel();
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
 }

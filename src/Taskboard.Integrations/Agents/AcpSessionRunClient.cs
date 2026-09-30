@@ -54,7 +54,7 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
                     var requestId = ExtractRequestId(e.PayloadJson);
                     if (requestId is not null)
                     {
-                        _ = _sessions.ReplyPermissionAsync(key, requestId, "allow");
+                        _ = _sessions.ReplyPermissionAsync(key, requestId, "allow", CancellationToken.None);
                     }
                     break;
                 case AgentEventKinds.Metric:
@@ -111,7 +111,7 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
 
             using var cancelReg = cancellationToken.Register(() =>
             {
-                _ = _sessions.CancelAsync(key);
+                _ = _sessions.CancelAsync(key, CancellationToken.None);
                 // The run is over from our side whether or not the agent still
                 // answers the pending prompt — complete so the caller unwinds.
                 turnDone.TrySetResult("cancelled");
@@ -129,12 +129,12 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
         }
         catch (OperationCanceledException)
         {
-            await _sessions.StopSessionAsync(key).ConfigureAwait(false);
+            await _sessions.StopSessionAsync(key, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
         catch (AcpException)
         {
-            await _sessions.StopSessionAsync(key).ConfigureAwait(false);
+            await _sessions.StopSessionAsync(key, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
         finally

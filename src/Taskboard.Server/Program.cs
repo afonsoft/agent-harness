@@ -345,10 +345,24 @@ builder.Services.AddSingleton<IReadOnlyDictionary<string, IChatTool>>(sp =>
         new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
         new WebSearchTool(backends),
         sp.GetRequiredService<GenerateImageTool>(),
+        // SPEC-20261001-chat-agent-delegation: chat → agent/sub-agent tools.
+        new RunAgentTool(
+            sp.GetRequiredService<IAgentOrchestrationService>(),
+            configuration),
+        new SubAgentTool(sp.GetRequiredService<OpenAiCompatibleClient>()),
+        // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
+        new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
     ];
     return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
 });
+builder.Services.AddScoped<IChatCapabilityRegistry, ChatCapabilityRegistry>();
 builder.Services.AddScoped<ChatService>();
+// SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
+builder.Services.AddSingleton<IMcpClientManager>(sp =>
+    new ChatMcpClientManager(
+        sp.GetRequiredService<IConfiguration>(),
+        sp.GetRequiredService<ILoggerFactory>(),
+        sp.GetService<ISecretRedactor>()));
 // SPEC-20260919-harness-verification-loop: motor + evidência + loop fechado.
 builder.Services.AddSingleton<IProcessRunner, ProcessCommandRunner>();
 builder.Services.AddSingleton<IVerificationEngine, DotNetVerificationEngine>();
@@ -1265,7 +1279,7 @@ api.MapMcp("mcp");
 // so a name the client rejects is never silently sanitized server-side.
 static bool IsRepoShapeValid(string? repo) =>
     string.IsNullOrEmpty(repo)
-    || Regex.IsMatch(repo.Trim(), @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");
+    || Regex.IsMatch(repo.Trim(), @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.None, TimeSpan.FromSeconds(1));
 
 static bool IsLocalUrl(string? url)
 {
@@ -1845,6 +1859,11 @@ chat.MapGet("providers/{id:guid}/models", async (Guid id, ChatService chatServic
 chat.MapGet("conversations", async (string? q, ChatService chatService, CancellationToken ct) =>
     Results.Ok(new { conversations = await chatService.ListConversationsAsync(q, ct) }));
 
+// SPEC-20261001-chat-capability-registry FR-004: capability catalog for the
+// Settings → Chat tab — tools/MCP/skills/delegation with effective toggles.
+chat.MapGet("capabilities", async (IChatCapabilityRegistry capabilities, CancellationToken ct) =>
+    Results.Ok(new { capabilities = await capabilities.ListAsync(ct) }));
+
 chat.MapPost("conversations", async (CreateChatConversationRequest request, ChatService chatService, CancellationToken ct) =>
 {
     try
@@ -1906,6 +1925,7 @@ chat.MapPost("conversations/{id}/messages", async (
                 ChatDeltaEvent e => ("chat.delta", (object)new { content = e.Content }),
                 ChatToolCallEvent e => ("chat.tool_call", new { name = e.Name, arguments = e.ArgumentsJson }),
                 ChatToolResultEvent e => ("chat.tool_result", new { name = e.Name, result = e.ResultJson, refused = e.Refused, refusalReason = e.RefusalReason }),
+                ChatStatusEvent e => ("chat.status", new { phase = e.Phase, label = e.Label }),
                 ChatDoneEvent e => ("chat.done", new { tokensIn = e.TokensIn, tokensOut = e.TokensOut, finishReason = e.FinishReason, error = e.Error }),
                 _ => ("chat.done", new { }),
             };
@@ -2968,7 +2988,7 @@ api.MapMethods("{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], () => Resu
 
 app.MapFallbackToFile("index.html");
 
-app.Run();
+await app.RunAsync();
 
 static async System.Threading.Tasks.Task<IReadOnlyCollection<AgentType>> ResolveEnabledAgentsAsync(
     IServiceProvider sp,
@@ -3050,7 +3070,7 @@ static async System.Threading.Tasks.Task RecordIssueHistoryByIdAsync(
 
 static bool IsGitHubRepoFullName(string? value) =>
     value is not null
-    && System.Text.RegularExpressions.Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");
+    && System.Text.RegularExpressions.Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.None, TimeSpan.FromSeconds(1));
 
 // SPEC-20260923-cockpit-run-hardening RF-004: durable normalized events map
 // back to the cockpit shapes — `output` becomes an agent_output line so the

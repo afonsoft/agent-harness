@@ -30,7 +30,7 @@ public sealed record AgentModelListProbe(IReadOnlyList<string> Arguments, AgentM
 /// </summary>
 public static class AgentModelListParser
 {
-    private static readonly Regex IdPattern = new(@"^[A-Za-z0-9][A-Za-z0-9._/+-]*$", RegexOptions.Compiled);
+    private static readonly Regex IdPattern = new(@"^[A-Za-z0-9][A-Za-z0-9._/+-]*$", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     public static IReadOnlyList<string> Parse(AgentModelListFormat format, string output)
     {
