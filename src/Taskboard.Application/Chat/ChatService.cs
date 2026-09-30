@@ -238,16 +238,16 @@ public sealed class ChatService(
     public async Task<IAsyncEnumerable<ChatStreamEvent>> SendMessageAsync(
         string conversationId, string content, CancellationToken requestAborted)
     {
-        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId)).ConfigureAwait(false)
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), requestAborted).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
-        var provider = await providers.GetAsync(conversation.ProviderId).ConfigureAwait(false)
+        var provider = await providers.GetAsync(conversation.ProviderId, requestAborted).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted);
         var key = conversation.Id.Value;
         if (_runs.TryRemove(key, out var previous))
         {
-            previous.Cancel();
+            await previous.CancelAsync();
             previous.Dispose();
         }
 

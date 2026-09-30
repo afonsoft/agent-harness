@@ -13,7 +13,7 @@ public static class RepositoryFilter
     public const int MaxResults = 50;
 
     private static readonly Regex RepositoryNamePattern =
-        new(@"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.Compiled);
+        new(@"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     /// <summary>
     /// Case-insensitive substring filter over <c>owner/repo</c> names,

@@ -205,12 +205,12 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
                         AppendLog(request.IssueId, new AgentLogMessage(
                             DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
                             $"Budget cap ${cap:F2} exceeded (${cumulative:F4} cumulative) — cancelling run."));
-                        cancellationTokenSource.Cancel();
+                        await cancellationTokenSource.CancelAsync();
                     }
                 }
             }
 
-            await _logBroadcaster.BroadcastAsync(message);
+            await _logBroadcaster.BroadcastAsync(message, cancellationTokenSource.Token);
         });
 
         try

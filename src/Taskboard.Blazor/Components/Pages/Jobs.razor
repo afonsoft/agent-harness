@@ -227,11 +227,11 @@
             var error = await Client.UpdateJobAsync(job.Key, null, _intervalDrafts[job.Key]);
             if (error is not null)
             {
-                ToastService.Notify(new(ToastType.Danger, error));
+                await ToastService.NotifyAsync(new(ToastType.Danger, error));
             }
             else
             {
-                ToastService.Notify(new(ToastType.Success, $"Interval for '{job.Name}' saved."));
+                await ToastService.NotifyAsync(new(ToastType.Success, $"Interval for '{job.Name}' saved."));
                 await RefreshAsync();
             }
         }
@@ -250,12 +250,12 @@
         if (error is not null)
         {
             _enabledDrafts[job.Key] = job.Enabled;
-            ToastService.Notify(new(ToastType.Danger, error));
+            await ToastService.NotifyAsync(new(ToastType.Danger, error));
             return;
         }
 
         _enabledDrafts[job.Key] = enabled;
-        ToastService.Notify(new(ToastType.Success, $"Job '{job.Name}' {(enabled ? "enabled" : "disabled")}."));
+        await ToastService.NotifyAsync(new(ToastType.Success, $"Job '{job.Name}' {(enabled ? "enabled" : "disabled")}."));
         await RefreshAsync();
     }
 
@@ -264,11 +264,11 @@
         var error = await Client.RunJobNowAsync(job.Key);
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Danger, error));
+            await ToastService.NotifyAsync(new(ToastType.Danger, error));
             return;
         }
 
-        ToastService.Notify(new(ToastType.Success, $"Run requested for '{job.Name}'."));
+        await ToastService.NotifyAsync(new(ToastType.Success, $"Run requested for '{job.Name}'."));
         await RefreshAsync();
     }
 

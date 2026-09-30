@@ -819,7 +819,7 @@ else
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to load threads: {ex.Message}"));
             _threads = [];
         }
 
@@ -1258,7 +1258,7 @@ else
                 if (thread is null)
                 {
                     // RF-003: surface the real backend reason (e.g. missing clone).
-                    ToastService.Notify(new(ToastType.Danger, createError ?? "Failed to create the thread."));
+                    await ToastService.NotifyAsync(new(ToastType.Danger, createError ?? "Failed to create the thread."));
                     return;
                 }
 
@@ -1283,7 +1283,7 @@ else
                 _composer = string.Empty;
                 if (queued is null)
                 {
-                    ToastService.Notify(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
+                    await ToastService.NotifyAsync(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
                     return;
                 }
 
@@ -1300,7 +1300,7 @@ else
             var (postedAssistant, postError) = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
             if (postedAssistant is null)
             {
-                ToastService.Notify(new(ToastType.Danger, postError ?? "Failed to post the message."));
+                await ToastService.NotifyAsync(new(ToastType.Danger, postError ?? "Failed to post the message."));
                 return;
             }
 
@@ -1311,13 +1311,13 @@ else
             if (run is null)
             {
                 _running = false;
-                ToastService.Notify(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
+                await ToastService.NotifyAsync(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
             }
         }
         catch (Exception ex)
         {
             _running = false;
-            ToastService.Notify(new(ToastType.Danger, $"Send failed: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Send failed: {ex.Message}"));
         }
         finally
         {
@@ -1371,7 +1371,7 @@ else
         var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
         if (thread is null)
         {
-            ToastService.Notify(new(ToastType.Danger, createError ?? "Failed to create the conversation."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, createError ?? "Failed to create the conversation."));
             return;
         }
 
@@ -1391,7 +1391,7 @@ else
         if (ok)
         {
             _running = false;
-            ToastService.Notify(new(ToastType.Info, "Agent run cancelled."));
+            await ToastService.NotifyAsync(new(ToastType.Info, "Agent run cancelled."));
         }
     }
 
@@ -1413,12 +1413,12 @@ else
         var (fork, error) = await Client.ForkAiChatThreadAsync(_activeThreadId, eventId);
         if (fork is null)
         {
-            ToastService.Notify(new(ToastType.Danger, error ?? "Failed to fork the thread."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, error ?? "Failed to fork the thread."));
             return;
         }
 
         _threads = (_threads ?? []).Concat([fork]).ToList();
-        ToastService.Notify(new(ToastType.Success, $"Forked into '{fork.Title}'."));
+        await ToastService.NotifyAsync(new(ToastType.Success, $"Forked into '{fork.Title}'."));
         await SelectThreadAsync(fork);
     }
 
@@ -1433,7 +1433,7 @@ else
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Nothing to retry — send a prompt first."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Nothing to retry — send a prompt first."));
         }
     }
 
@@ -1453,7 +1453,7 @@ else
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Model switch rejected — no live session."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Model switch rejected — no live session."));
         }
     }
 
@@ -1473,7 +1473,7 @@ else
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Mode switch rejected — no live session."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Mode switch rejected — no live session."));
         }
     }
 
@@ -1484,11 +1484,11 @@ else
         _permissions.RemoveAll(p => p.RequestId == args.RequestId);
         if (ok)
         {
-            ToastService.Notify(new(ToastType.Success, $"Permission '{args.Outcome}' sent to agent."));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Permission '{args.Outcome}' sent to agent."));
         }
         else
         {
-            ToastService.Notify(new(ToastType.Warning, "Permission request already expired."));
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Permission request already expired."));
         }
     }
 
@@ -1497,7 +1497,7 @@ else
         var deleted = await Client.DeleteAiChatThreadAsync(thread.Id);
         if (!deleted)
         {
-            ToastService.Notify(new(ToastType.Danger, "Failed to delete the thread."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, "Failed to delete the thread."));
             return;
         }
 
@@ -1553,13 +1553,13 @@ else
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to queue the agent: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to queue the agent: {ex.Message}"));
             return;
         }
 
         if (!queued)
         {
-            ToastService.Notify(new(ToastType.Danger, $"{selection.AgentName} is not eligible right now (disabled or CLI not authenticated)."));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"{selection.AgentName} is not eligible right now (disabled or CLI not authenticated)."));
             return;
         }
 
@@ -1569,7 +1569,7 @@ else
                 $"{selection.AgentName} queued for {selection.RepositoryFullName} (tier {selection.Tier})."));
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Warning, error));
+            await ToastService.NotifyAsync(new(ToastType.Warning, error));
         }
 
         _ = PollAgentRunAsync(issueId, threadId, selection.AgentName, selection.RepositoryFullName, _disposeCts.Token);

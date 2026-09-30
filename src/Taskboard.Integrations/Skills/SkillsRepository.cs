@@ -34,7 +34,7 @@ internal static class SkillsRepository
     internal const string DefaultRepository = "afonsoft/skills";
 
     private static readonly Regex OwnerRepoPattern =
-        new("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.Compiled);
+        new("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     /// <summary>
     /// Resolves the configured repository: database override &gt; env alias &gt;

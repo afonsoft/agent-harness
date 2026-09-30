@@ -62,7 +62,7 @@ public sealed class StreamingProcessRunner : IStreamingProcessRunner
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        process.WaitForExit(); // flush async output handlers
+        await process.WaitForExitAsync(); // flush async output handlers
         return process.ExitCode;
     }
 }

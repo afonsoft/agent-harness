@@ -34,7 +34,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao limpar logs: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao limpar logs: {ex.Message}"));
         }
     }
 
@@ -46,12 +46,12 @@
                 new AgentControlRequest("issue", IssueId, "cancel"));
             if (!accepted)
             {
-                ToastService.Notify(new(ToastType.Warning, "Nenhuma execução ativa para cancelar."));
+                await ToastService.NotifyAsync(new(ToastType.Warning, "Nenhuma execução ativa para cancelar."));
             }
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao cancelar: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao cancelar: {ex.Message}"));
         }
     }
 
@@ -72,12 +72,12 @@
                 new AgentPermissionReplyRequest("issue", IssueId, requestId, outcome));
             if (!ok)
             {
-                ToastService.Notify(new(ToastType.Warning, "Permissão expirada ou já respondida."));
+                await ToastService.NotifyAsync(new(ToastType.Warning, "Permissão expirada ou já respondida."));
             }
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao responder permissão: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao responder permissão: {ex.Message}"));
         }
     }
 

@@ -63,7 +63,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         _logger = logger;
         _idleTimeout = idleTimeout ?? IdleTimeout;
         _orphanTimeout = orphanTimeout ?? OrphanTimeout;
-        _sweepTask = Task.Run(() => SweepLoopAsync(sweepInterval ?? TimeSpan.FromMinutes(1), _sweepCts.Token));
+        _sweepTask = Task.Run(() => SweepLoopAsync(sweepInterval ?? TimeSpan.FromMinutes(1), _sweepCts.Token), _sweepCts.Token);
     }
 
     /// <summary>

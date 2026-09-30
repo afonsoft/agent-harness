@@ -210,4 +210,35 @@ public class SqliteCliDatabaseReaderTests : IDisposable
         await Should.ThrowAsync<CliDbReadException>(
             () => CriarReader().OpenAsync(Fonte(), path));
     }
+
+    [Fact]
+    public async Task Dado_Whitelist_Quando_Fingerprint_Entao_AssinaTabelasEColunas()
+    {
+        // Covers RF-001: PRAGMA table_info must use a bound parameter (S2077);
+        // columns come back sorted per table inside the signature.
+        var path = CriarDb("x.db");
+        await using var conn = await CriarReader().OpenAsync(Fonte(), path);
+
+        var fp = await conn.GetSchemaFingerprintAsync(["sessions"]);
+
+        fp.UserVersion.ShouldBe(0);
+        fp.ApplicationId.ShouldBe(0);
+        fp.TablesSignature.ShouldBe("sessions(id,started,title,token)");
+    }
+
+    [Fact]
+    public async Task Dado_NomeHostil_Quando_Fingerprint_Entao_IgnoraSemExecutar()
+    {
+        // Covers RF-001: identifiers failing IdentifierPattern are skipped
+        // before any SQL runs — no injection, no exception (S2077).
+        var path = CriarDb("x.db");
+        await using var conn = await CriarReader().OpenAsync(Fonte(), path);
+
+        var fp = await conn.GetSchemaFingerprintAsync(
+            ["sessions\", \"x\"; DROP TABLE sessions;--", "sessions"]);
+
+        fp.TablesSignature.ShouldBe("sessions(id,started,title,token)");
+        var rows = await conn.QueryAsync("sessions", ["id"], r => r.GetString("id"));
+        rows.ShouldBe(["s1", "s2"]);
+    }
 }

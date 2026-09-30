@@ -89,12 +89,12 @@
         try
         {
             await GitHubService.CreateIssueAsync(RepositoryFullName, _title, _body, _initialColumn);
-            ToastService.Notify(new(ToastType.Success, "Issue criada com sucesso."));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Issue criada com sucesso."));
             await OnSaved.InvokeAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao criar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao criar issue: {ex.Message}"));
         }
         finally
         {

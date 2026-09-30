@@ -341,7 +341,7 @@ else if (_runs is not null)
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
         }
     }
 
@@ -410,7 +410,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
             _runs ??= [];
         }
         finally
@@ -428,7 +428,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Templates: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Templates: {ex.Message}"));
         }
 
         try
@@ -443,7 +443,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Agents: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Agents: {ex.Message}"));
         }
 
         _reposLoading = true;
@@ -455,7 +455,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Repositories: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Repositories: {ex.Message}"));
         }
         finally
         {
@@ -496,7 +496,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
         finally
         {
@@ -529,7 +529,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Prompt padrão: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Prompt padrão: {ex.Message}"));
         }
         finally
         {
@@ -552,7 +552,7 @@ else if (_runs is not null)
             var issue = await GitHub.GetIssueAsync(_start.RepositoryFullName, number, _cts.Token);
             if (issue is null)
             {
-                ToastService.Notify(new ToastMessage(ToastType.Warning,
+                await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning,
                     $"Issue #{number} não encontrada em {_start.RepositoryFullName} — placeholders de issue ficam vazios."));
             }
 
@@ -560,7 +560,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning,
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning,
                 $"Não foi possível carregar a issue #{number}: {ex.Message}"));
             return (null, null, null);
         }
@@ -597,7 +597,7 @@ else if (_runs is not null)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning,
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning,
                 $"Não foi possível carregar os comentários da issue #{issueNumber}: {ex.Message}"));
             return null;
         }
@@ -650,9 +650,9 @@ else if (_runs is not null)
     {
         try
         {
-            _rowRefreshCts.Cancel();
+            await _rowRefreshCts.CancelAsync();
             _rowRefreshCts.Dispose();
-            _cts.Cancel();
+            await _cts.CancelAsync();
             _cts.Dispose();
         }
         catch (ObjectDisposedException)

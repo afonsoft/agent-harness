@@ -271,7 +271,7 @@ public sealed class RuntimeConfigurationService
             : "API key must be at least 16 characters, or empty to disable.";
 
     private static string? ValidateRagServerName(string value) =>
-        System.Text.RegularExpressions.Regex.IsMatch(value.Trim(), @"^[a-z0-9][a-z0-9-]{0,63}$")
+        System.Text.RegularExpressions.Regex.IsMatch(value.Trim(), @"^[a-z0-9][a-z0-9-]{0,63}$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1))
             ? null
             : "Server name must match ^[a-z0-9][a-z0-9-]{0,63}$.";
 
@@ -328,7 +328,7 @@ public sealed class RuntimeConfigurationService
     private static string? ValidateSkillsRepository(string value)
     {
         var trimmed = value.Trim();
-        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1)))
         {
             return null;
         }

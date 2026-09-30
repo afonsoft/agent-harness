@@ -298,9 +298,9 @@
                             <input type="password" class="form-control" @bind="_confirmPassword" placeholder="Confirm new password" aria-label="Confirm new password" />
                         </div>
                     </div>
-                    @if (!string.IsNullOrWhiteSpace(_passwordError))
+                    @if (!string.IsNullOrWhiteSpace(_changeError))
                     {
-                        <p class="mt-2 small text-danger">@_passwordError</p>
+                        <p class="mt-2 small text-danger">@_changeError</p>
                     }
                     <div class="mt-3">
                         <button type="button" class="btn btn-outline-secondary" @onclick="ChangePasswordAsync">Change password</button>
@@ -614,7 +614,7 @@
     private string _currentPassword = string.Empty;
     private string _newPassword = string.Empty;
     private string _confirmPassword = string.Empty;
-    private string? _passwordError;
+    private string? _changeError;
 
     private string _tokenInputType = "password";
     private string _tokenToggleLabel = "Show";
@@ -850,11 +850,16 @@
         }
         finally
         {
+            _pollCts?.Dispose();
             _pollCts = null;
         }
     }
 
-    public void Dispose() => _pollCts?.Cancel();
+    public void Dispose()
+    {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+    }
 
     private async Task InstallSkillsAsync()
     {
@@ -862,7 +867,7 @@
         try
         {
             _skillsInstall = await Client.InstallSkillsAsync();
-            ToastService.Notify(new(ToastType.Info, "Skills install started"));
+            await ToastService.NotifyAsync(new(ToastType.Info, "Skills install started"));
             if (_skillsInstall?.State == SkillsSyncState.Running)
             {
                 StartStatusPolling();
@@ -870,7 +875,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to start skills install: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to start skills install: {ex.Message}"));
         }
         finally
         {
@@ -884,14 +889,14 @@
         try
         {
             _skillsInstall = await Client.VerifySkillsInstallAsync();
-            ToastService.Notify(new(_skillsInstall?.Installed == true ? ToastType.Success : ToastType.Info,
+            await ToastService.NotifyAsync(new(_skillsInstall?.Installed == true ? ToastType.Success : ToastType.Info,
                 _skillsInstall?.Installed == true
                     ? $"Skills installed — {_skillsInstall.SkillCount} found"
                     : "Skills not installed"));
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Verify failed: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Verify failed: {ex.Message}"));
         }
         finally
         {
@@ -905,7 +910,7 @@
         try
         {
             _skillsSync = await Client.SyncSkillsAsync();
-            ToastService.Notify(new(ToastType.Info, "Skills sync started"));
+            await ToastService.NotifyAsync(new(ToastType.Info, "Skills sync started"));
             if (_skillsSync?.State == SkillsSyncState.Running)
             {
                 StartStatusPolling();
@@ -913,7 +918,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to start skills sync: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to start skills sync: {ex.Message}"));
         }
         finally
         {
@@ -1003,7 +1008,7 @@
 
             _ragApiKey = string.Empty;
             _ragKeySet = true;
-            ToastService.Notify(new(ToastType.Success, "RAG MCP configuration saved — provisioning started"));
+            await ToastService.NotifyAsync(new(ToastType.Success, "RAG MCP configuration saved — provisioning started"));
             await LoadConfigurationAsync();
             await LoadMcpStatusAsync();
             if (_mcpStatus?.State == McpProvisionState.Running)
@@ -1029,12 +1034,12 @@
             var (status, error) = await Client.SyncMcpAsync();
             if (error is not null)
             {
-                ToastService.Notify(new(ToastType.Danger, error));
+                await ToastService.NotifyAsync(new(ToastType.Danger, error));
                 return;
             }
 
             _mcpStatus = status;
-            ToastService.Notify(new(ToastType.Info, "MCP provisioning started"));
+            await ToastService.NotifyAsync(new(ToastType.Info, "MCP provisioning started"));
             if (_mcpStatus?.State == McpProvisionState.Running)
             {
                 StartStatusPolling();
@@ -1042,7 +1047,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to start MCP sync: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to start MCP sync: {ex.Message}"));
         }
         finally
         {
@@ -1058,13 +1063,13 @@
             var (status, error) = await Client.RemoveMcpAsync();
             if (error is not null)
             {
-                ToastService.Notify(new(ToastType.Danger, error));
+                await ToastService.NotifyAsync(new(ToastType.Danger, error));
                 return;
             }
 
             _ragRemoveConfirm = false;
             _mcpStatus = status;
-            ToastService.Notify(new(ToastType.Info, "MCP removal started — un-provisioning all agent CLIs"));
+            await ToastService.NotifyAsync(new(ToastType.Info, "MCP removal started — un-provisioning all agent CLIs"));
             if (_mcpStatus?.State == McpProvisionState.Running)
             {
                 StartStatusPolling();
@@ -1072,7 +1077,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to start MCP removal: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to start MCP removal: {ex.Message}"));
         }
         finally
         {
@@ -1087,7 +1092,7 @@
         {
             await LoadMcpStatusAsync();
             var configured = _mcpStatus?.Agents.Count(a => a.Configured) ?? 0;
-            ToastService.Notify(new(ToastType.Info, $"MCP status refreshed — {configured} agent(s) configured"));
+            await ToastService.NotifyAsync(new(ToastType.Info, $"MCP status refreshed — {configured} agent(s) configured"));
         }
         finally
         {
@@ -1150,7 +1155,7 @@
             return;
         }
 
-        ToastService.Notify(new(ToastType.Success, "Skills source repository saved"));
+        await ToastService.NotifyAsync(new(ToastType.Success, "Skills source repository saved"));
         await LoadConfigurationAsync();
     }
 
@@ -1164,7 +1169,7 @@
             return;
         }
 
-        ToastService.Notify(new(ToastType.Info, "Skills source repository reset to default"));
+        await ToastService.NotifyAsync(new(ToastType.Info, "Skills source repository reset to default"));
         await LoadConfigurationAsync();
     }
 
@@ -1185,13 +1190,13 @@
         var error = await Client.SetConfigurationValueAsync(entry.Key, _editingValue);
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to save {entry.Key}: {error}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save {entry.Key}: {error}"));
             return;
         }
 
         _editingKey = null;
         _editingValue = string.Empty;
-        ToastService.Notify(entry.RequiresRestart
+        await ToastService.NotifyAsync(entry.RequiresRestart
             ? new(ToastType.Warning, $"{entry.Key} saved — applies on next restart")
             : new(ToastType.Success, $"{entry.Key} saved"));
         await LoadConfigurationAsync();
@@ -1202,11 +1207,11 @@
         var error = await Client.DeleteConfigurationValueAsync(entry.Key);
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to reset {entry.Key}: {error}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to reset {entry.Key}: {error}"));
             return;
         }
 
-        ToastService.Notify(new(ToastType.Info, $"{entry.Key} override removed"));
+        await ToastService.NotifyAsync(new(ToastType.Info, $"{entry.Key} override removed"));
         await LoadConfigurationAsync();
     }
 
@@ -1295,11 +1300,11 @@
         var error = await Client.SetConfigurationValueAsync(state.ConfigKey, value);
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to save {capability} default: {error}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save {capability} default: {error}"));
             return;
         }
 
-        ToastService.Notify(new(ToastType.Success, $"{capability} default model saved"));
+        await ToastService.NotifyAsync(new(ToastType.Success, $"{capability} default model saved"));
         await LoadConfigurationAsync();
     }
 
@@ -1311,14 +1316,14 @@
         {
             var provider = await Client.CreateChatProviderAsync(new ChatProviderUpsertRequest(
                 _chatNewName.Trim(), _chatNewUrl.Trim(), string.IsNullOrWhiteSpace(_chatNewKey) ? null : _chatNewKey));
-            ToastService.Notify(new(ToastType.Success, $"Provider '{provider.Name}' added"));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"Provider '{provider.Name}' added"));
             _chatNewName = _chatNewUrl = _chatNewKey = string.Empty;
             _chatProviders = await Client.GetChatProvidersAsync();
         }
         catch (Exception ex)
         {
             _chatError = ProblemDetailReader.TryRead(ex.Message) ?? ex.Message;
-            ToastService.Notify(new(ToastType.Danger, "Failed to add provider"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, "Failed to add provider"));
         }
         finally
         {
@@ -1332,11 +1337,11 @@
         try
         {
             var models = await Client.GetChatProviderModelsAsync(provider.Id);
-            ToastService.Notify(new(ToastType.Success, $"{provider.Name}: {models.Count} models found"));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"{provider.Name}: {models.Count} models found"));
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"{provider.Name}: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"{provider.Name}: {ex.Message}"));
         }
         finally
         {
@@ -1350,12 +1355,12 @@
         try
         {
             await Client.DeleteChatProviderAsync(provider.Id);
-            ToastService.Notify(new(ToastType.Info, $"Provider '{provider.Name}' deleted"));
+            await ToastService.NotifyAsync(new(ToastType.Info, $"Provider '{provider.Name}' deleted"));
             _chatProviders = await Client.GetChatProvidersAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to delete provider: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to delete provider: {ex.Message}"));
         }
         finally
         {
@@ -1382,11 +1387,11 @@
 
             if (error is not null)
             {
-                ToastService.Notify(new(ToastType.Danger, $"Failed to save search config: {error}"));
+                await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save search config: {error}"));
                 return;
             }
 
-            ToastService.Notify(new(ToastType.Success, "Web search configuration saved"));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Web search configuration saved"));
             await LoadConfigurationAsync();
         }
         finally
@@ -1415,11 +1420,11 @@
         var error = await Client.SetConfigurationValueAsync(key, enabled ? "true" : "false");
         if (error is not null)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to save {key}: {error}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save {key}: {error}"));
         }
         else
         {
-            ToastService.Notify(new(ToastType.Success, $"{key} {(enabled ? "enabled" : "disabled")}"));
+            await ToastService.NotifyAsync(new(ToastType.Success, $"{key} {(enabled ? "enabled" : "disabled")}"));
         }
 
         await LoadConfigurationAsync();
@@ -1446,33 +1451,33 @@
 
     private async Task ChangePasswordAsync()
     {
-        _passwordError = null;
+        _changeError = null;
 
         if (string.IsNullOrWhiteSpace(_currentPassword) || string.IsNullOrWhiteSpace(_newPassword) || string.IsNullOrWhiteSpace(_confirmPassword))
         {
-            _passwordError = "All fields are required.";
+            _changeError = "All fields are required.";
             return;
         }
 
         if (!string.Equals(_newPassword, _confirmPassword, StringComparison.Ordinal))
         {
-            _passwordError = "New passwords do not match.";
+            _changeError = "New passwords do not match.";
             return;
         }
 
         try
         {
             await Client.ChangePasswordAsync(new ChangePasswordRequest(_currentPassword, _newPassword));
-            ToastService.Notify(new(ToastType.Success, "Password changed"));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Password changed"));
             _currentPassword = _newPassword = _confirmPassword = string.Empty;
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            _passwordError = "Not authorized. Please sign in again.";
+            _changeError = "Not authorized. Please sign in again.";
         }
         catch (HttpRequestException)
         {
-            _passwordError = "Current password is incorrect.";
+            _changeError = "Current password is incorrect.";
         }
     }
 
@@ -1483,7 +1488,7 @@
         {
             _enabledState[type] = value;
         }
-        _passwordError = null;
+        _changeError = null;
         ToastService.Notify(new(ToastType.Info, "Settings reset"));
     }
 
@@ -1496,12 +1501,12 @@
                 _gitHubToken,
                 _enabledState.Where(kv => kv.Value).Select(kv => kv.Key.ToString()).ToList().AsReadOnly());
             await Client.SaveSettingsAsync(request);
-            ToastService.Notify(new(ToastType.Success, "Settings saved"));
+            await ToastService.NotifyAsync(new(ToastType.Success, "Settings saved"));
             Navigation.NavigateTo("/settings", forceLoad: true);
         }
         catch (HttpRequestException ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Failed to save settings: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save settings: {ex.Message}"));
         }
     }
 }

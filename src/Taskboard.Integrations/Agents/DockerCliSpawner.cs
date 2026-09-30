@@ -22,5 +22,5 @@ public static class DockerCliSpawner
     public static bool IsValidContainerName(string? name) =>
         !string.IsNullOrWhiteSpace(name)
         && name.Length <= 128
-        && System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z0-9][A-Za-z0-9_.\-/]*$");
+        && System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z0-9][A-Za-z0-9_.\-/]*$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
 }

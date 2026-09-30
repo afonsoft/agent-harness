@@ -408,7 +408,7 @@
             }
             catch (Exception ex)
             {
-                ToastService.Notify(new(ToastType.Danger, $"Failed to load FinOps summary: {ex.Message}"));
+                await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to load FinOps summary: {ex.Message}"));
             }
 
             // RF-009: a failing sources call degrades to an empty checklist +
@@ -420,7 +420,7 @@
             catch (Exception ex)
             {
                 _sources = [];
-                ToastService.Notify(new(ToastType.Warning, $"Failed to load CLI source health: {ex.Message}"));
+                await ToastService.NotifyAsync(new(ToastType.Warning, $"Failed to load CLI source health: {ex.Message}"));
             }
         }
         finally
@@ -436,7 +436,7 @@
             _telemetry = await Client.GetRunTelemetryAsync(_runIdQuery.Trim());
             if (_telemetry is null)
             {
-                ToastService.Notify(new(ToastType.Warning, $"No telemetry found for run '{_runIdQuery}'."));
+                await ToastService.NotifyAsync(new(ToastType.Warning, $"No telemetry found for run '{_runIdQuery}'."));
             }
         }
     }

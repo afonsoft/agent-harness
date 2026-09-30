@@ -184,7 +184,7 @@
         _details = await Client.GetRunAsync(RunId);
         if (_details is null)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, "Run não encontrado."));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, "Run não encontrado."));
             return;
         }
 
@@ -231,7 +231,7 @@
             _pendingApproval = request;
             // RF-005: toast + browser notification além do modal — o resumo
             // chega mesmo com a página fora de foco.
-            ToastService.Notify(new ToastMessage(
+            await ToastService.NotifyAsync(new ToastMessage(
                 ToastType.Warning, request.Summary ?? request.Description));
             _ = JS.InvokeVoidAsync("taskboardNotify.notify",
                 request.Title,
@@ -272,7 +272,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
         }
     }
 
@@ -331,12 +331,12 @@
                 new AgentPermissionReplyRequest("run", RunId, requestId, outcome));
             if (!ok)
             {
-                ToastService.Notify(new ToastMessage(ToastType.Warning, "Permissão expirada ou já respondida."));
+                await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, "Permissão expirada ou já respondida."));
             }
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -374,7 +374,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Warning, $"Diff: {ex.Message}"));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Diff: {ex.Message}"));
         }
         finally
         {
@@ -387,11 +387,11 @@
         try
         {
             await Client.SteerRunAsync(RunId, instruction);
-            ToastService.Notify(new ToastMessage(ToastType.Info, "Steer enfileirado — aplicado na próxima etapa."));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Info, "Steer enfileirado — aplicado na próxima etapa."));
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -405,7 +405,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -419,7 +419,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -432,7 +432,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -452,7 +452,7 @@
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -463,12 +463,12 @@
             _prUrl = await Client.CreateRunPullRequestAsync(RunId, request.Title, request.Body);
             if (_prUrl is not null)
             {
-                ToastService.Notify(new ToastMessage(ToastType.Success, "PR criado."));
+                await ToastService.NotifyAsync(new ToastMessage(ToastType.Success, "PR criado."));
             }
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new ToastMessage(ToastType.Danger, ex.Message));
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, ex.Message));
         }
     }
 
@@ -476,7 +476,7 @@
     {
         try
         {
-            _refreshCts.Cancel();
+            await _refreshCts.CancelAsync();
             _refreshCts.Dispose();
         }
         catch (ObjectDisposedException)

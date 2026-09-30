@@ -117,7 +117,7 @@ public sealed class PtySession : IPtySession
         _process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start terminal process.");
         _pumpCts = new CancellationTokenSource();
-        _pumpTask = Task.Run(() => PumpAsync(_pumpCts.Token));
+        _pumpTask = Task.Run(() => PumpAsync(_pumpCts.Token), _pumpCts.Token);
     }
 
     /// <summary>
@@ -146,8 +146,8 @@ public sealed class PtySession : IPtySession
         LastActivityUtc = DateTimeOffset.UtcNow;
         try
         {
-            await _process.StandardInput.WriteAsync(data).ConfigureAwait(false);
-            await _process.StandardInput.FlushAsync().ConfigureAwait(false);
+            await _process.StandardInput.WriteAsync(data.AsMemory(), CancellationToken.None).ConfigureAwait(false);
+            await _process.StandardInput.FlushAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -325,6 +325,7 @@ public sealed class PtySession : IPtySession
         try
         {
             await (_pumpCts?.CancelAsync() ?? Task.CompletedTask).ConfigureAwait(false);
+            _pumpCts?.Dispose();
         }
         catch
         {

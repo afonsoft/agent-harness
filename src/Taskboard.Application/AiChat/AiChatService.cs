@@ -430,7 +430,7 @@ public sealed class AiChatService
             await using var scope = _serviceScopeFactory.CreateAsyncScope();
             var service = scope.ServiceProvider.GetRequiredService<AiChatService>();
             await service.ExecuteRunAsync(thread.Id, run.Id, CancellationToken.None);
-        });
+        }, CancellationToken.None);
 
         return run.ToDto();
     }

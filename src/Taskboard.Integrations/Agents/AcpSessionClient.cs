@@ -142,7 +142,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
 
         _sessions[threadId] = holder;
-        _ = Task.Run(() => ReadLoopAsync(holder));
+        _ = Task.Run(() => ReadLoopAsync(holder), holder.Cts.Token);
 
         // RF-001 + SPEC-20260921-acp-v2-readiness RF-202: ACP initialize with
         // the configured max protocol version (default 1 — v2 stays opt-in
@@ -398,7 +398,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         catch
         {
             holder.PendingResponses.TryRemove(id, out _);
-            tcs.TrySetCanceled();
+            tcs.TrySetCanceled(cancellationToken);
             return false;
         }
     }
@@ -629,7 +629,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             {
                 if (holder.PendingPermissions.TryRemove(requestId, out var removed))
                 {
-                    removed.TimeoutCts.Cancel();
+                    await removed.TimeoutCts.CancelAsync();
                     removed.TimeoutCts.Dispose();
                     await WriteLineAsync(holder, new
                     {
@@ -677,7 +677,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         // chosen optionId.
         if (holder.PendingPermissions.TryRemove(requestId, out var pending))
         {
-            pending.TimeoutCts.Cancel();
+            await pending.TimeoutCts.CancelAsync();
             pending.TimeoutCts.Dispose();
 
             var optionId = MapOutcomeToOption(outcome, pending.Options);
@@ -796,11 +796,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                 }
             }
 
-            holder.Cts.Cancel();
+            await holder.Cts.CancelAsync();
 
             foreach (var pending in holder.PendingResponses.Values)
             {
-                pending.TrySetCanceled();
+                pending.TrySetCanceled(holder.Cts.Token);
             }
 
             CleanupPendingState(holder);
@@ -1423,7 +1423,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, holder.Cts.Token);
         timeoutCts.CancelAfter(timeout);
-        await using var reg = timeoutCts.Token.Register(() => tcs.TrySetCanceled())
+        await using var reg = timeoutCts.Token.Register(() => tcs.TrySetCanceled(timeoutCts.Token))
             .ConfigureAwait(false);
 
         try
@@ -1574,7 +1574,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             {
                 // stderr closed/cancelled — read loop on stdout reports the death.
             }
-        });
+        }, holder.Cts.Token);
 
         return holder;
     }

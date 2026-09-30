@@ -135,7 +135,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 }
             }
 
-            _ = TryDispatchNextAsync(threadId);
+            _ = TryDispatchNextAsync(threadId, _reaperCts.Token);
         }
 
         return started;
@@ -360,10 +360,10 @@ public sealed class AgentSessionManager : IAsyncDisposable
                     log.Content,
                     log.Stream == Taskboard.Agents.AgentLogStream.StdErr ? AiChatEventKind.Error : AiChatEventKind.Message);
 
-                await eventRepo.AddAsync(evt).ConfigureAwait(false);
-                await eventRepo.SaveChangesAsync().ConfigureAwait(false);
+                await eventRepo.AddAsync(evt, cancellationToken).ConfigureAwait(false);
+                await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-                await _threadEvents.PublishAsync(thread.Id.Value, new ServerSentEvent("ai_chat.event", evt.ToDto())).ConfigureAwait(false);
+                await _threadEvents.PublishAsync(thread.Id.Value, new ServerSentEvent("ai_chat.event", evt.ToDto()), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -426,7 +426,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
         {
             _promptQueues.TryGetValue(threadId, out var deadQueue);
             deadQueue?.Reset();
-            _ = Task.Run(() => TryReconnectAsync(threadId));
+            _ = Task.Run(() => TryReconnectAsync(threadId), _reaperCts.Token);
         }
 
         // RF-002: the turn boundary is the session/prompt response — free the
@@ -447,7 +447,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 queue.TurnCompleted();
             }
 
-            _ = Task.Run(() => TryDispatchNextAsync(threadId));
+            _ = Task.Run(() => TryDispatchNextAsync(threadId, _reaperCts.Token), _reaperCts.Token);
         }
 
         _ = Task.Run(async () =>
@@ -482,9 +482,9 @@ public sealed class AgentSessionManager : IAsyncDisposable
                             threadId,
                             req.Tool,
                             req.Detail,
-                            req.Options).ConfigureAwait(false);
+                            req.Options, ct: _reaperCts.Token).ConfigureAwait(false);
 
-                        await _sessionClient.ReplyPermissionAsync(threadId, req.RequestId, outcome).ConfigureAwait(false);
+                        await _sessionClient.ReplyPermissionAsync(threadId, req.RequestId, outcome, _reaperCts.Token).ConfigureAwait(false);
                         return;
                     }
                 }
@@ -504,18 +504,18 @@ public sealed class AgentSessionManager : IAsyncDisposable
                     kind,
                     e.PayloadJson);
 
-                await eventRepo.AddAsync(chatEvent).ConfigureAwait(false);
-                await eventRepo.SaveChangesAsync().ConfigureAwait(false);
+                await eventRepo.AddAsync(chatEvent, _reaperCts.Token).ConfigureAwait(false);
+                await eventRepo.SaveChangesAsync(_reaperCts.Token).ConfigureAwait(false);
 
                 await _threadEvents.PublishAsync(
                     threadId,
-                    new ServerSentEvent("ai_chat.event", chatEvent.ToDto())).ConfigureAwait(false);
+                    new ServerSentEvent("ai_chat.event", chatEvent.ToDto()), _reaperCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to persist and publish agent session event for thread '{ThreadId}'.", threadId);
             }
-        });
+        }, _reaperCts.Token);
     }
 
     private async Task TryReconnectAsync(string threadId)
@@ -542,7 +542,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
             threadId,
             state.Count);
 
-        var ready = await EnsureSessionAsync(threadId).ConfigureAwait(false);
+        var ready = await EnsureSessionAsync(threadId, _reaperCts.Token).ConfigureAwait(false);
         if (ready)
         {
             // Only forgive the counter after the respawn proves stable — a
@@ -551,18 +551,18 @@ public sealed class AgentSessionManager : IAsyncDisposable
             // reconnecting forever.
             _ = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(60), _reaperCts.Token).ConfigureAwait(false);
                 if (_sessionClient.IsSessionActive(threadId))
                 {
                     _reconnects.TryRemove(threadId, out _);
                 }
-            });
+            }, _reaperCts.Token);
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _reaperCts.Cancel();
+        await _reaperCts.CancelAsync();
         _reaperCts.Dispose();
         _sessionClient.Dispose();
         await Task.CompletedTask;

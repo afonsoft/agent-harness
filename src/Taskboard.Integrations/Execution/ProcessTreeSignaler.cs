@@ -31,7 +31,7 @@ public sealed class ProcessTreeSignaler : IProcessTreeSignaler, IDisposable
 
         try
         {
-            using var pkill = Process.Start(new ProcessStartInfo("pkill", $"-TERM -P {processId}")
+            using var pkill = Process.Start(new ProcessStartInfo("/usr/bin/pkill", $"-TERM -P {processId}")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

@@ -103,7 +103,7 @@ else if (_agents is not null)
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
         }
         finally
         {

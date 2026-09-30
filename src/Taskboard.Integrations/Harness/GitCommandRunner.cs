@@ -41,8 +41,8 @@ public sealed class GitCommandRunner : IGitCommandRunner
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start {_executable}.");
 
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
+        var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(timeout ?? DefaultTimeout);

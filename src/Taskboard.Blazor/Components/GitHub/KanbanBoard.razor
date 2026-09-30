@@ -364,13 +364,13 @@ else if (_columns is not null)
         try
         {
             await GitHubService.CloseIssueAsync(RepositoryFullName, issue.Number, resolution);
-            ToastService.Notify(new(ToastType.Success,
+            await ToastService.NotifyAsync(new(ToastType.Success,
                 $"Issue #{issue.Number} fechada ({resolution})."));
             await LoadIssuesAsync();
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
         }
     }
 
@@ -383,7 +383,7 @@ else if (_columns is not null)
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao atualizar prioridade: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao atualizar prioridade: {ex.Message}"));
         }
     }
 
@@ -437,13 +437,13 @@ else if (_columns is not null)
                     _lastRun = (run.PipelineExecutionId, issue.Number);
                 }
 
-                ToastService.Notify(new(ToastType.Success,
+                await ToastService.NotifyAsync(new(ToastType.Success,
                     $"Issue #{issue.Number} movida para {toColumn.ToLabel()} e agente {request.AgentType} iniciado — abra no Cockpit."));
             }
             else
             {
                 await GitHubService.UpdateIssueColumnAsync(RepositoryFullName, issue.Number, fromColumn, toColumn);
-                ToastService.Notify(new(ToastType.Success, $"Issue #{issue.Number} movida para {toColumn.ToLabel()}."));
+                await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{issue.Number} movida para {toColumn.ToLabel()}."));
             }
 
             await LoadIssuesAsync();
@@ -451,7 +451,7 @@ else if (_columns is not null)
         catch (Exception ex)
         {
             _errorMessage = $"Erro ao mover issue: {ex.Message}";
-            ToastService.Notify(new(ToastType.Danger, _errorMessage));
+            await ToastService.NotifyAsync(new(ToastType.Danger, _errorMessage));
         }
     }
 

@@ -27,13 +27,13 @@ public sealed class VscodeInstallService : IVscodeInstallService
 
     private static readonly Regex SecretPattern = new(
         @"(?i)(api[_-]?key|access[_-]?token|secret|password|authorization)\s*[=:]\s*\S+",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     // Bearer tokens must be redacted before the key:value pass — otherwise
     // "Authorization: Bearer tok" keeps the token ("Bearer" eaten as the value).
     private static readonly Regex BearerPattern = new(
         @"Bearer\s+\S+",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     private readonly object _gate = new();
     private readonly string _homeDirectory;

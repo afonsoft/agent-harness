@@ -89,6 +89,6 @@ else
         }
 
         await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _skill.Content);
-        ToastService.Notify(new(ToastType.Success, "Prompt copied to clipboard"));
+        await ToastService.NotifyAsync(new(ToastType.Success, "Prompt copied to clipboard"));
     }
 }

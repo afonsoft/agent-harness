@@ -125,17 +125,17 @@ window.taskboard = {
 // approval gates — permission is requested lazily on the first cockpit visit;
 // every failure path degrades to the in-app toast/modal silently.
 window.taskboardNotify = {
-    ensurePermission: function () {
+    ensurePermission: async function () {
         try {
             if (!('Notification' in window)) {
-                return Promise.resolve('unsupported');
+                return 'unsupported';
             }
             if (Notification.permission !== 'default') {
-                return Promise.resolve(Notification.permission);
+                return Notification.permission;
             }
-            return Notification.requestPermission();
+            return await Notification.requestPermission();
         } catch (e) {
-            return Promise.resolve('denied');
+            return 'denied';
         }
     },
 

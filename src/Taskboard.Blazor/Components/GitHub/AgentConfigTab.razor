@@ -195,7 +195,7 @@ else if (_agents is not null)
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
         }
         finally
         {
@@ -285,13 +285,13 @@ else if (_agents is not null)
                 SkipVerification: true));
 
             await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, _prompt);
-            ToastService.Notify(new(ToastType.Success,
+            await ToastService.NotifyAsync(new(ToastType.Success,
                 $"Agente {_selectedAgentType} iniciado para a issue #{Issue.Number} — abra no Cockpit."));
             await OnExecuted.InvokeAsync(run);
         }
         catch (Exception ex)
         {
-            ToastService.Notify(new(ToastType.Danger, $"Erro ao executar agente: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao executar agente: {ex.Message}"));
         }
         finally
         {
