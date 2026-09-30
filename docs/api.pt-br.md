@@ -389,6 +389,30 @@ Teto de orçamento: `AgentExecutionRequest.maxBudgetUsd` (por run) e `PipelineSt
 
 Telemetria: cada run/estágio/verificação emite spans `System.Diagnostics.Activity` da fonte `Taskboard.Harness` (`harness.run`, `harness.stage`, `harness.tool_call`, `harness.verification`) com tags `harness.run_id`, `agent.type`, `model.name`, `tokens.*`, `cost.usd` (RF-004). Os spans ficam em processo a menos que `Taskboard:Telemetry:OtlpEndpoint` esteja configurado no `appsettings.json` — nada é exportado sem configuração explícita (guardrail §8). O dashboard Blazor é `/finops`.
 
+### Provider Chat (estilo open-webui)
+
+```http
+GET    /api/local/chat/providers
+POST   /api/local/chat/providers              { name, baseUrl, apiKey?, enabled? }
+PUT    /api/local/chat/providers/{id}         { name, baseUrl, apiKey?, enabled? }
+DELETE /api/local/chat/providers/{id}
+GET    /api/local/chat/providers/{id}/models
+GET    /api/local/chat/conversations?q={texto}
+POST   /api/local/chat/conversations          { providerId, model, title? }
+GET    /api/local/chat/conversations/{id}
+PATCH  /api/local/chat/conversations/{id}     { title?, model? }
+DELETE /api/local/chat/conversations/{id}
+POST   /api/local/chat/conversations/{id}/messages   { content }   → SSE
+POST   /api/local/chat/conversations/{id}/stop
+GET    /api/local/chat/images/{fileName}
+```
+
+Todas as rotas exigem cookie ou `X-Api-Key` (o grupo mapeia `RequireAuthorization`).
+
+Providers são endpoints OpenAI-compatíveis registrados pelo operador (SPEC-20260929-ai-code-provider-chat). Os DTOs de provider nunca expõem a key — apenas `hasApiKey` + `keyHint` (`••••last4`). `POST`/`PUT` validam `name` + `baseUrl` http(s) absoluta (`400 VALIDATION`); `apiKey` nula no update mantém a chave armazenada. `GET .../models` consulta o `/v1/models` do provider, cacheia a lista por 1h e retorna `{ models[], cached }` (`502 PROVIDER_UNAVAILABLE` em falha do upstream, `404 PROVIDER_NOT_FOUND`).
+
+Conversas persistem no SQLite (`ChatConversation`/`ChatMessage`); `q` busca em título e conteúdo das mensagens. `POST .../messages` transmite o turno do assistente via SSE — `chat.delta` `{ content }`, `chat.tool_call` `{ name, arguments }`, `chat.tool_result` `{ name, result, refused, refusalReason }`, `chat.done` `{ tokensIn, tokensOut, finishReason, error }`. O servidor executa um loop de function calling OpenAI (máx. `Taskboard:Chat:MaxToolIterations`, padrão 8) sobre as tools de host — `shell_exec`/`run_cli` classificados pelo security gateway (`Dangerous` recusado), ops de arquivo confinadas ao workspace por path jail, saída truncada (16 KB) e scrubada de segredos; chave mestra `Taskboard:Chat:Tools:Enabled`. `POST .../stop` cancela o turno em curso (`202`/`409`). `GET .../images/{fileName}` serve os PNGs produzidos por `generate_image` (`404 IMAGE_NOT_FOUND`).
+
 ## SSE
 
 ### Eventos globais

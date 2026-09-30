@@ -72,6 +72,11 @@ dotnet test Taskboard.sln
 | `HARNESS_RAG_URL` | *(none)* | RAG MCP URL provisioned into enabled agent CLIs (empty = entry removed) |
 | `HARNESS_RAG_API_KEY` | *(none)* | Bearer key for the RAG MCP server (masked in reads; also editable in `/settings`) |
 | `HARNESS_TERMINAL_ENABLED` | `true` | Enables the `/terminal` bash PTY page and `/agents` CLI status board (disable to remove the web shell surface) |
+| `HARNESS_WEB_CLI_AGENT_ENABLED` | `true` | Enables the AI Code interactive agent endpoints (prompt/queue/retry/cancel/permission replies); also toggleable in Settings → Features |
+| `HARNESS_CHAT_TOOLS_ENABLED` | `true` | Master switch for the provider-chat host tools (`shell_exec`, file ops, `run_cli`, `web_search`, `code_interpreter`, `generate_image`) — all auto-confined by the security gateway |
+| `HARNESS_CHAT_SEARCH_BACKEND` | `none` | Web-search backend used by the chat `web_search` tool: `none` / `searxng` / `tavily` / `brave` |
+| `HARNESS_CHAT_SEARCH_URL` | *(none)* | SearxNG instance URL (required when the search backend is `searxng`) |
+| `HARNESS_CHAT_SEARCH_API_KEY` | *(none)* | API key for the `tavily`/`brave` search backends (masked in reads; also editable in `/settings`) |
 
 Set variables for the current shell session:
 
@@ -217,7 +222,7 @@ chmod +x install.sh
 
 ## Agent CLIs and the web terminal
 
-The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`HARNESS_TERMINAL_ENABLED`). Interactive agent sessions behind the AI Code agent actions are gated by `Taskboard:WebCliAgent:Enabled` (default `false`) — enable it at **Settings → Configuration** (editable at runtime, no restart) or via env `Taskboard__WebCliAgent__Enabled=true`.
+The `/agents` page lists the supported agent CLIs (Claude Code, Codex, OpenCode, Devin CLI, Antigravity `agy`) with install/auth status, and `/terminal` opens an interactive bash session for running their login flows (`claude`, `codex login`, `devin auth login`, `agy`). The terminal is gated by `Taskboard:Terminal:Enabled` (`HARNESS_TERMINAL_ENABLED`). Interactive agent sessions behind the AI Code agent actions are gated by `Taskboard:WebCliAgent:Enabled` (default `true`) — toggle it at **Settings → Features** (editable at runtime, no restart) or via env `HARNESS_WEB_CLI_AGENT_ENABLED`.
 
 - **Bare-metal/host install:** the server uses the real `$HOME`, so CLIs already installed on the host are detected as-is.
 - **Docker image:** the runtime stage ships Node.js LTS plus all five CLIs pre-installed, and sets `HOME=/data/home` so CLI credentials land inside the `/data` volume and survive container recreation. Authenticate each CLI once from `/terminal`.

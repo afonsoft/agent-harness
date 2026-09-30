@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `docs/devin-20260929-chat-webcli-docs` |
 | Ticket | [#397](https://github.com/afonsoft/agent-harness/issues/397) — epic [#395](https://github.com/afonsoft/agent-harness/issues/395) |
-| Status | `Approved` |
+| Status | `Done` — entregue neste PR |
 
 ## 1. User Story
 
