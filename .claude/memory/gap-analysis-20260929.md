@@ -1,7 +1,7 @@
 # Gap Analysis — 2026-09-29
 
 - Repository: `/home/ubuntu/repos/agent-harness` | Branch: `main` | Commit: `09eddba`
-- Phase reached: `issues-created` (gate aprovado → specs Approved → Epic #395 + slices #396/#397)
+- Phase reached: `done` (specs Approved → issues → implementado → PRs #399/#400 merged)
 - Mode: `full` (sweep pós-merge PRs #391/#393/#394)
 
 ---
@@ -72,5 +72,5 @@ Regressão introduzida por SPEC-20260929-jobs-dashboard (migração para `Manage
 
 ## 6. Pendências
 
-- Orquestração/execução dos 2 SPECs (aguardando trigger do usuário — Phase 7 não autorizada no gate).
+- Nenhuma — os 2 SPECs foram implementados e mergeados (PRs #399 fix + #400 docs).
 - Housekeeping residual: nenhum.
