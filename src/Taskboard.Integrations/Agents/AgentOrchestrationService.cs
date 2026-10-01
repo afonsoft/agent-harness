@@ -177,7 +177,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         }
 
         AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Starting {request.AgentType} on {request.RepoPath}..."));
-        await UpdateRunAsync(job.RunId, (repo, id) => repo.MarkRunningAsync(id, CancellationToken.None), stoppingToken);
+        await UpdateRunAsync(job.RunId, (repo, id) => repo.MarkRunningAsync(id, CancellationToken.None));
 
         // SPEC-20260919-ade-observability-finops RF-004: root span for the run.
         // Child spans (stages, verification) inherit this trace context.
@@ -188,29 +188,39 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         // run that crosses its budget cap is cancelled mid-flight.
         TokenUsage? latestUsage = null;
         var budgetExceeded = false;
+        var broadcastToken = cancellationTokenSource.Token;
 
         var progress = new Progress<AgentLogMessage>(async message =>
         {
-            AppendLog(message.IssueId, message);
-            if (message.Stream == AgentLogStream.StdOut
-                && TokenUsageParser.TryExtract(message.Content) is { } parsed)
+            try
             {
-                latestUsage = parsed;
-                if (!budgetExceeded && request.MaxBudgetUsd is { } cap)
+                AppendLog(message.IssueId, message);
+                if (message.Stream == AgentLogStream.StdOut
+                    && TokenUsageParser.TryExtract(message.Content) is { } parsed)
                 {
-                    var cumulative = await TryComputeCumulativeCostAsync(request, worktreeRunId, latestUsage);
-                    if (cumulative > cap)
+                    latestUsage = parsed;
+                    if (!budgetExceeded && request.MaxBudgetUsd is { } cap)
                     {
-                        budgetExceeded = true;
-                        AppendLog(request.IssueId, new AgentLogMessage(
-                            DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
-                            $"Budget cap ${cap:F2} exceeded (${cumulative:F4} cumulative) — cancelling run."));
-                        await cancellationTokenSource.CancelAsync();
+                        var cumulative = await TryComputeCumulativeCostAsync(request, worktreeRunId, latestUsage);
+                        if (cumulative > cap)
+                        {
+                            budgetExceeded = true;
+                            AppendLog(request.IssueId, new AgentLogMessage(
+                                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                                $"Budget cap ${cap:F2} exceeded (${cumulative:F4} cumulative) — cancelling run."));
+                            await cancellationTokenSource.CancelAsync();
+                        }
                     }
                 }
-            }
 
-            await _logBroadcaster.BroadcastAsync(message, cancellationTokenSource.Token);
+                await _logBroadcaster.BroadcastAsync(message, broadcastToken);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run finished and its CTS was disposed before a late
+                // progress callback fired — an unhandled exception here would
+                // crash the process (async void); there is nothing left to do.
+            }
         });
 
         try
@@ -242,8 +252,8 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
 
             if (budgetExceeded)
             {
-                await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.BudgetExceeded, CancellationToken.None), stoppingToken);
-                await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+                await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.BudgetExceeded, CancellationToken.None));
+                await MarkWorktreeAsync(worktreeRunId, completed: false);
             }
             else if (result.IsSuccess)
             {
@@ -256,20 +266,20 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
                     AppendLog(request.IssueId, new AgentLogMessage(
                         DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
                         $"Verification failed ({report.Status}) — not moving to review."));
-                    await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
-                    await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+                    await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None));
+                    await MarkWorktreeAsync(worktreeRunId, completed: false);
                 }
                 else
                 {
-                    await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Succeeded, CancellationToken.None), stoppingToken);
-                    await MarkWorktreeAsync(worktreeRunId, completed: true, stoppingToken);
+                    await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Succeeded, CancellationToken.None));
+                    await MarkWorktreeAsync(worktreeRunId, completed: true);
                     await MoveToReviewAsync(request);
                 }
             }
             else
             {
-                await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
-                await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+                await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None));
+                await MarkWorktreeAsync(worktreeRunId, completed: false);
             }
         }
         catch (OperationCanceledException)
@@ -280,14 +290,14 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             AppendLog(request.IssueId, new AgentLogMessage(
                 DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
                 budgetExceeded ? "Agent stopped: budget cap exceeded." : "Agent execution was cancelled."));
-            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, finalState, CancellationToken.None), stoppingToken);
-            await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, finalState, CancellationToken.None));
+            await MarkWorktreeAsync(worktreeRunId, completed: false);
         }
         catch (Exception ex)
         {
             AppendLog(request.IssueId, new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System, $"Agent error: {ex.Message}"));
-            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None), stoppingToken);
-            await MarkWorktreeAsync(worktreeRunId, completed: false, stoppingToken);
+            await UpdateRunAsync(job.RunId, (repo, id) => repo.FinishAsync(id, AgentRunState.Failed, CancellationToken.None));
+            await MarkWorktreeAsync(worktreeRunId, completed: false);
         }
         finally
         {
@@ -438,7 +448,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     /// Marks the worktree session completed (kept for diff review) or failed
     /// (retained for inspection per <c>RetainOnFailure</c>). Best-effort.
     /// </summary>
-    private async Task MarkWorktreeAsync(string worktreeRunId, bool completed, CancellationToken cancellationToken)
+    private async Task MarkWorktreeAsync(string worktreeRunId, bool completed)
     {
         try
         {
@@ -536,7 +546,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         }
     }
 
-    private async Task UpdateRunAsync(Guid? runId, Func<IAgentRunRepository, Guid, Task> update, CancellationToken cancellationToken)
+    private async Task UpdateRunAsync(Guid? runId, Func<IAgentRunRepository, Guid, Task> update)
     {
         if (runId is null)
         {

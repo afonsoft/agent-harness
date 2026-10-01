@@ -556,6 +556,45 @@ public class AgentOrchestrationServiceTests
         }
     }
 
+    [Fact]
+    public async Task Dado_LogReportadoAposFimDoRun_Quando_CallbackTardioExecutar_Entao_NaoLancaObjectDisposedException()
+    {
+        // O finally de RunAsync descarta o CTS; um Report() tardio do ACP
+        // client não pode derrubar o processo (callback async void do Progress).
+        IProgress<AgentLogMessage>? progressoCapturado = null;
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(),
+                Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                progressoCapturado = callInfo.Arg<IProgress<AgentLogMessage>>();
+                return Task.FromResult(new AgentExecutionResult(0, true));
+            });
+        var service = CriarService(acpClient: acpClient);
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
+            await AguardarAsync(() => Task.FromResult(!service.GetLiveRunIds().Any()));
+
+            await Task.Delay(100);
+            progressoCapturado.ShouldNotBeNull();
+            progressoCapturado.Report(new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.StdOut, "late log"));
+            await Task.Delay(200);
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static WorktreeSessionDto CriarSession(string runId, string path)
         => new(
             "wt-1", runId, path, "feature/agent-x-y", "Active",
