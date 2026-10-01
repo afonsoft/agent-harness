@@ -415,22 +415,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
             return definition;
         }
 
-        if (request.StageOverrides is not null)
-        {
-            foreach (var key in request.StageOverrides.Keys)
-            {
-                var stage = definition.Stages.FirstOrDefault(s => s.Key == key)
-                    ?? throw new DomainException(
-                        TaskboardDomainErrorCodes.InvalidValue,
-                        $"Unknown stage '{key}' in template '{definition.TemplateId}'.");
-                if (stage.Kind is not PipelineStageKind.AgentWork)
-                {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.InvalidValue,
-                        $"Stage '{key}' is {stage.Kind} — agent overrides only apply to AgentWork stages.");
-                }
-            }
-        }
+        ValidateStageOverrides(definition, request);
 
         var eligible = _eligibility is null
             ? null
@@ -449,51 +434,93 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
         var legacyAgent = request.TemplateId == PipelineTemplates.SingleAgentId ? request.AgentOverride : null;
         var legacyTier = request.TemplateId == PipelineTemplates.SingleAgentId ? request.TierOverride : null;
 
-        var stages = definition.Stages.Select(s =>
-        {
-            if (s.Kind is not PipelineStageKind.AgentWork)
-            {
-                return s;
-            }
-
-            var ov = request.StageOverrides?.GetValueOrDefault(s.Key);
-            var pick = ov?.Agent ?? (request.SingleAgent ? request.SingleAgentType : null) ?? legacyAgent;
-            AgentType? resolved;
-            if (pick is { } explicitPick)
-            {
-                if (eligible is not null && !eligible.Contains(explicitPick))
-                {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.AgentNotEligible,
-                        $"Stage '{s.Key}' requests '{explicitPick}' but it is not installed, authenticated and enabled — pick an available CLI or leave it on Auto.");
-                }
-
-                resolved = explicitPick;
-            }
-            else if (singleAuto is { } single)
-            {
-                resolved = single;
-            }
-            else
-            {
-                resolved = s.Agent;
-                if (eligible is not null && (resolved is null || !eligible.Contains(resolved.Value)))
-                {
-                    resolved = FirstEligible(eligible)
-                        ?? throw new DomainException(
-                            TaskboardDomainErrorCodes.AgentNotEligible,
-                            $"No eligible agent CLI for stage '{s.Key}' — install and authenticate one under Settings → Agents.");
-                }
-            }
-
-            var tier = ov?.Tier
-                ?? (request.SingleAgent ? request.SingleAgentTier : null)
-                ?? legacyTier
-                ?? s.ModelTier;
-            return s with { Agent = resolved, ModelTier = tier };
-        }).ToList();
+        var stages = definition.Stages
+            .Select(s => ApplyStageOverride(s, request, singleAuto, legacyAgent, legacyTier, eligible))
+            .ToList();
 
         return definition with { Stages = stages };
+    }
+
+    private static void ValidateStageOverrides(PipelineDefinition definition, PipelineStartRequest request)
+    {
+        if (request.StageOverrides is null)
+        {
+            return;
+        }
+
+        foreach (var key in request.StageOverrides.Keys)
+        {
+            var stage = definition.Stages.FirstOrDefault(s => s.Key == key)
+                ?? throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Unknown stage '{key}' in template '{definition.TemplateId}'.");
+            if (stage.Kind is not PipelineStageKind.AgentWork)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Stage '{key}' is {stage.Kind} — agent overrides only apply to AgentWork stages.");
+            }
+        }
+    }
+
+    private static PipelineStage ApplyStageOverride(
+        PipelineStage s,
+        PipelineStartRequest request,
+        AgentType? singleAuto,
+        AgentType? legacyAgent,
+        AgentModelTier? legacyTier,
+        IReadOnlySet<AgentType>? eligible)
+    {
+        if (s.Kind is not PipelineStageKind.AgentWork)
+        {
+            return s;
+        }
+
+        var ov = request.StageOverrides?.GetValueOrDefault(s.Key);
+        var resolved = ResolveStageAgent(s, ov, request, singleAuto, legacyAgent, eligible);
+        var tier = ov?.Tier
+            ?? (request.SingleAgent ? request.SingleAgentTier : null)
+            ?? legacyTier
+            ?? s.ModelTier;
+        return s with { Agent = resolved, ModelTier = tier };
+    }
+
+    private static AgentType? ResolveStageAgent(
+        PipelineStage s,
+        PipelineStageOverrideDto? ov,
+        PipelineStartRequest request,
+        AgentType? singleAuto,
+        AgentType? legacyAgent,
+        IReadOnlySet<AgentType>? eligible)
+    {
+        var pick = ov?.Agent ?? (request.SingleAgent ? request.SingleAgentType : null) ?? legacyAgent;
+        if (pick is { } explicitPick)
+        {
+            if (eligible is not null && !eligible.Contains(explicitPick))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.AgentNotEligible,
+                    $"Stage '{s.Key}' requests '{explicitPick}' but it is not installed, authenticated and enabled — pick an available CLI or leave it on Auto.");
+            }
+
+            return explicitPick;
+        }
+
+        if (singleAuto is { } single)
+        {
+            return single;
+        }
+
+        var resolved = s.Agent;
+        if (eligible is not null && (resolved is null || !eligible.Contains(resolved.Value)))
+        {
+            resolved = FirstEligible(eligible)
+                ?? throw new DomainException(
+                    TaskboardDomainErrorCodes.AgentNotEligible,
+                    $"No eligible agent CLI for stage '{s.Key}' — install and authenticate one under Settings → Agents.");
+        }
+
+        return resolved;
     }
 
     private static AgentType? FirstEligible(IReadOnlySet<AgentType> eligible)
