@@ -76,170 +76,42 @@ public sealed class AgentControlService
         switch ((request.ScopeKind, action))
         {
             case (AgentEventScope.Issue, "cancel"):
-                {
-                    // SPEC-20260921-board-cockpit-agent-observability RF-004:
-                    // board runs are pipelines — cancel the execution bound to
-                    // the issue when one exists; the legacy orchestrator path
-                    // stays as fallback for one-shot runs.
-                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
-                    if (exec is not null && !IsFinished(exec))
-                    {
-                        await _pipelines.CancelAsync(exec.PipelineExecutionId, cancellationToken);
-                        await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
-                        return new AgentControlResult(AgentControlStatus.Accepted);
-                    }
-
-                    var signalled = await _orchestration.CancelAsync(request.ScopeId, cancellationToken);
-                    if (!signalled)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
-                    }
-
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await CancelIssueAsync(request, cancellationToken);
 
             case (AgentEventScope.Issue, SteerMethod) when !string.IsNullOrWhiteSpace(request.Content):
-                {
-                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
-                    if (exec is null || IsFinished(exec))
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
-                    }
-
-                    _steer.Enqueue(exec.PipelineExecutionId, request.Content.Trim());
-                    await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
-                        JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await SteerIssueAsync(request, cancellationToken);
 
             case (AgentEventScope.Issue, "retry"):
-                {
-                    var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
-                    var stageKey = request.StageId
-                        ?? exec?.Stages.FirstOrDefault(s => s.Status == "Failed")?.StageKey;
-                    if (exec is null || IsFinished(exec) || stageKey is null)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-failed-stage");
-                    }
-
-                    var retried = await _pipelines.RetryStageAsync(
-                        exec.PipelineExecutionId, stageKey, request.Content, cancellationToken);
-                    await EmitAsync(request, AgentEventKinds.Lifecycle,
-                        $"Retry dispatched for stage '{stageKey}'", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
-                }
+                return await RetryIssueAsync(request, cancellationToken);
 
             case (AgentEventScope.Run, SteerMethod) when !string.IsNullOrWhiteSpace(request.Content):
-                {
-                    if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
-                    }
-
-                    _steer.Enqueue(request.ScopeId, request.Content.Trim());
-                    await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
-                        JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await SteerRunAsync(request, cancellationToken);
 
             case (AgentEventScope.Run, "cancel"):
-                {
-                    var exec = await _pipelines.GetAsync(request.ScopeId, cancellationToken);
-                    if (exec is null)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
-                    }
-                    if (exec.Status is "Completed" or "Cancelled")
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "run-already-finished");
-                    }
-
-                    await _pipelines.CancelAsync(request.ScopeId, cancellationToken);
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (run)", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await CancelRunAsync(request, cancellationToken);
 
             case (AgentEventScope.Run, "retry") when !string.IsNullOrWhiteSpace(request.StageId):
-                {
-                    if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
-                    }
-
-                    var retried = await _pipelines.RetryStageAsync(request.ScopeId, request.StageId, request.Content, cancellationToken);
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, $"Retry dispatched for stage '{request.StageId}'", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
-                }
+                return await RetryRunAsync(request, cancellationToken);
 
             case (AgentEventScope.Thread, "cancel"):
-                {
-                    var cancelled = await _sessions.CancelAsync(request.ScopeId, cancellationToken);
-                    if (!cancelled)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
-                    }
-
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (thread)", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await CancelThreadAsync(request, cancellationToken);
 
             case (AgentEventScope.Thread, SteerMethod) when !string.IsNullOrWhiteSpace(request.Content):
-                {
-                    var sent = await _sessions.PromptAsync(request.ScopeId, request.Content.Trim(), SteerMethod, cancellationToken);
-                    if (!sent)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
-                    }
-
-                    await EmitAsync(request, AgentEventKinds.Steer, "Steer sent (thread)",
-                        JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await SteerThreadAsync(request, cancellationToken);
 
             // SPEC-20260921-acp-v1-conformance RF-003: session/set_config_option
             // (model, mode and agent-defined options) on a live thread session.
             case (AgentEventScope.Thread, "set_config")
                 when !string.IsNullOrWhiteSpace(request.ConfigId) && request.Content is not null:
-                {
-                    var set = await _sessions.SetConfigOptionAsync(
-                        request.ScopeId, request.ConfigId.Trim(), request.Content, cancellationToken);
-                    if (!set)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
-                    }
-
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, $"Config '{request.ConfigId}' → '{request.Content}'",
-                        cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await SetConfigOptionAsync(request, cancellationToken);
 
             case (AgentEventScope.Thread, "set_mode") when !string.IsNullOrWhiteSpace(request.Content):
-                {
-                    var set = await _sessions.SetModeAsync(request.ScopeId, request.Content.Trim(), cancellationToken);
-                    if (!set)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
-                    }
-
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, $"Mode → '{request.Content.Trim()}'", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await SetModeAsync(request, cancellationToken);
 
             // SPEC-20260921-acp-v1-conformance RF-004: auth/logout, gated by the
             // agent-advertised auth.logout capability.
             case (AgentEventScope.Thread, "logout"):
-                {
-                    var done = await _sessionClient.LogoutAsync(request.ScopeId, cancellationToken);
-                    if (!done)
-                    {
-                        return new AgentControlResult(AgentControlStatus.Conflict,
-                            Error: "no-active-session-or-logout-unsupported");
-                    }
-
-                    await EmitAsync(request, AgentEventKinds.Lifecycle, "Agent logout", cancellationToken);
-                    return new AgentControlResult(AgentControlStatus.Accepted);
-                }
+                return await LogoutThreadAsync(request, cancellationToken);
 
             case (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, SteerMethod):
                 return new AgentControlResult(AgentControlStatus.Conflict,
@@ -249,6 +121,168 @@ public sealed class AgentControlService
                 return new AgentControlResult(AgentControlStatus.BadRequest,
                     Error: $"unknown scope '{request.ScopeKind}' or action '{action}'.");
         }
+    }
+
+    private async Task<AgentControlResult> CancelIssueAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        // SPEC-20260921-board-cockpit-agent-observability RF-004:
+        // board runs are pipelines — cancel the execution bound to
+        // the issue when one exists; the legacy orchestrator path
+        // stays as fallback for one-shot runs.
+        var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+        if (exec is not null && !IsFinished(exec))
+        {
+            await _pipelines.CancelAsync(exec.PipelineExecutionId, cancellationToken);
+            await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
+            return new AgentControlResult(AgentControlStatus.Accepted);
+        }
+
+        var signalled = await _orchestration.CancelAsync(request.ScopeId, cancellationToken);
+        if (!signalled)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
+        }
+
+        await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (board)", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> SteerIssueAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+        if (exec is null || IsFinished(exec))
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
+        }
+
+        _steer.Enqueue(exec.PipelineExecutionId, request.Content!.Trim());
+        await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
+            JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> RetryIssueAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
+        var stageKey = request.StageId
+            ?? exec?.Stages.FirstOrDefault(s => s.Status == "Failed")?.StageKey;
+        if (exec is null || IsFinished(exec) || stageKey is null)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-failed-stage");
+        }
+
+        var retried = await _pipelines.RetryStageAsync(
+            exec.PipelineExecutionId, stageKey, request.Content, cancellationToken);
+        await EmitAsync(request, AgentEventKinds.Lifecycle,
+            $"Retry dispatched for stage '{stageKey}'", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
+    }
+
+    private async Task<AgentControlResult> SteerRunAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
+        }
+
+        _steer.Enqueue(request.ScopeId, request.Content!.Trim());
+        await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
+            JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> CancelRunAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var exec = await _pipelines.GetAsync(request.ScopeId, cancellationToken);
+        if (exec is null)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
+        }
+
+        if (exec.Status is "Completed" or "Cancelled")
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: "run-already-finished");
+        }
+
+        await _pipelines.CancelAsync(request.ScopeId, cancellationToken);
+        await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (run)", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> RetryRunAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
+        }
+
+        var retried = await _pipelines.RetryStageAsync(request.ScopeId, request.StageId!, request.Content, cancellationToken);
+        await EmitAsync(request, AgentEventKinds.Lifecycle, $"Retry dispatched for stage '{request.StageId}'", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
+    }
+
+    private async Task<AgentControlResult> CancelThreadAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var cancelled = await _sessions.CancelAsync(request.ScopeId, cancellationToken);
+        if (!cancelled)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
+        }
+
+        await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (thread)", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> SteerThreadAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var sent = await _sessions.PromptAsync(request.ScopeId, request.Content!.Trim(), SteerMethod, cancellationToken);
+        if (!sent)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
+        }
+
+        await EmitAsync(request, AgentEventKinds.Steer, "Steer sent (thread)",
+            JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> SetConfigOptionAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var set = await _sessions.SetConfigOptionAsync(
+            request.ScopeId, request.ConfigId!.Trim(), request.Content!, cancellationToken);
+        if (!set)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
+        }
+
+        await EmitAsync(request, AgentEventKinds.Lifecycle, $"Config '{request.ConfigId}' → '{request.Content}'",
+            cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> SetModeAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var set = await _sessions.SetModeAsync(request.ScopeId, request.Content!.Trim(), cancellationToken);
+        if (!set)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
+        }
+
+        await EmitAsync(request, AgentEventKinds.Lifecycle, $"Mode → '{request.Content.Trim()}'", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
+    }
+
+    private async Task<AgentControlResult> LogoutThreadAsync(AgentControlRequest request, CancellationToken cancellationToken)
+    {
+        var done = await _sessionClient.LogoutAsync(request.ScopeId, cancellationToken);
+        if (!done)
+        {
+            return new AgentControlResult(AgentControlStatus.Conflict,
+                Error: "no-active-session-or-logout-unsupported");
+        }
+
+        await EmitAsync(request, AgentEventKinds.Lifecycle, "Agent logout", cancellationToken);
+        return new AgentControlResult(AgentControlStatus.Accepted);
     }
 
     /// <summary>

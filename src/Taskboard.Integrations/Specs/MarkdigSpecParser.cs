@@ -276,41 +276,50 @@ public sealed partial class MarkdigSpecParser : ISpecDocumentParser
             {
                 continue;
             }
-            for (var j = i + 1; j < blocks.Count; j++)
+
+            CollectSectionFiles(blocks, i + 1, trigger.Level, files);
+        }
+    }
+
+    private static void CollectSectionFiles(List<Block> blocks, int start, int level, List<string> files)
+    {
+        for (var j = start; j < blocks.Count; j++)
+        {
+            if (blocks[j] is HeadingBlock h && h.Level <= level)
             {
-                if (blocks[j] is HeadingBlock h && h.Level <= trigger.Level)
-                {
-                    break;
-                }
-                if (blocks[j] is FencedCodeBlock fenced)
-                {
-                    foreach (var line in fenced.Lines.Lines)
-                    {
-                        var token = line.ToString().Trim()
-                            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                            .FirstOrDefault();
-                        if (token is not null && LooksLikePath(token))
-                        {
-                            files.Add(token);
-                        }
-                    }
-                }
-                else if (blocks[j] is ListBlock list)
-                {
-                    foreach (var item in list.OfType<ListItemBlock>())
-                    {
-                        var token = CheckboxRegex()
-                            .Replace(FirstParagraphText(item), "")
-                            .Trim()
-                            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                            .FirstOrDefault();
-                        if (token is not null && LooksLikePath(token))
-                        {
-                            files.Add(token);
-                        }
-                    }
-                }
+                break;
             }
+
+            CollectBlockFiles(blocks[j], files);
+        }
+    }
+
+    private static void CollectBlockFiles(Block block, List<string> files)
+    {
+        if (block is FencedCodeBlock fenced)
+        {
+            foreach (var line in fenced.Lines.Lines)
+            {
+                AddPathToken(line.ToString(), files);
+            }
+        }
+        else if (block is ListBlock list)
+        {
+            foreach (var item in list.OfType<ListItemBlock>())
+            {
+                AddPathToken(CheckboxRegex().Replace(FirstParagraphText(item), ""), files);
+            }
+        }
+    }
+
+    private static void AddPathToken(string text, List<string> files)
+    {
+        var token = text.Trim()
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault();
+        if (token is not null && LooksLikePath(token))
+        {
+            files.Add(token);
         }
     }
 
