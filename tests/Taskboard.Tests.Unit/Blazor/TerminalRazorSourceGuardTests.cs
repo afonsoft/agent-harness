@@ -61,7 +61,7 @@ public class TerminalRazorSourceGuardTests
         initBody.Success.ShouldBeTrue();
         initBody.Groups["body"].Value.ShouldContain("dispose(elementId)");
 
-        var roBody = Regex.Match(source, @"function initReadOnly\(elementId\)\s*\{(?<body>.*?)terms\.set", RegexOptions.Singleline);
+        var roBody = Regex.Match(source, @"function initReadOnly\(elementId[^)]*\)\s*\{(?<body>.*?)terms\.set", RegexOptions.Singleline);
         roBody.Success.ShouldBeTrue();
         roBody.Groups["body"].Value.ShouldContain("dispose(elementId)");
     }

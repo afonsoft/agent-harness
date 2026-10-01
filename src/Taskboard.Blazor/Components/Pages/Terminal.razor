@@ -37,7 +37,16 @@
                 <Icon Name="IconName.Plus" />
             </button>
         </li>
-        <li class="nav-item ms-auto">
+        @* SPEC-20261001-terminal-memory-mobile RF-003: touch devices get a
+           keybar toggle outside focus mode — hidden on fine pointers via CSS. *@
+        <li class="nav-item terminal-keybar-toggle ms-auto">
+            <button type="button" class="nav-link terminal-tab-new" title="Virtual keyboard"
+                    aria-pressed="@_keybarVisible" aria-label="Toggle virtual keyboard"
+                    @onclick="ToggleKeybarAsync">
+                <Icon Name="IconName.Keyboard" />
+            </button>
+        </li>
+        <li class="nav-item">
             <button type="button" class="nav-link terminal-tab-new" title="@(_focusMode ? "Restore terminal" : "Expand terminal")"
                     aria-pressed="@_focusMode" aria-label="@(_focusMode ? "Restore terminal" : "Expand terminal")"
                     @onclick="ToggleFocusModeAsync">
@@ -82,8 +91,9 @@
         </div>
     }
 
-    @* SPEC-20260923-terminal-virtual-keybar: virtual keys for touch devices —
-       visible only in focus mode + coarse pointer (pure CSS media query). *@
+    @* SPEC-20260923-terminal-virtual-keybar + SPEC-20261001 RF-003: virtual
+       keys for touch devices — visible in focus mode or when the tabstrip
+       keyboard toggle sets html[data-terminal-keybar] (coarse pointer only). *@
     <div class="terminal-keybar" role="toolbar" aria-label="Terminal virtual keys">
         <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b")'>Esc</button>
         <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\t")'>Tab</button>
@@ -138,6 +148,7 @@
     private int _tabCounter;
     private bool _cmdConsumed;
     private bool _focusMode;
+    private bool _keybarVisible;
     private bool _ctrlArmed;
 
     /// <summary>Virtual keys only make sense on a live session (SPEC-20260923-terminal-virtual-keybar RF-002).</summary>
@@ -395,6 +406,32 @@
         }
     }
 
+    // SPEC-20261001-terminal-memory-mobile RF-003: pins the virtual keybar
+    // without entering focus mode — the keybar steals vertical space, so the
+    // active xterm refits to push real cols/rows to the PTY.
+    private async Task ToggleKeybarAsync()
+    {
+        _keybarVisible = !_keybarVisible;
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setTerminalKeybar", _keybarVisible);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop unavailable — keep the flag in sync with the attribute.
+            _keybarVisible = false;
+            return;
+        }
+
+        StateHasChanged();
+        await Task.Yield();
+        if (_activeTab is not null)
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.fitNow", _activeTab.ElementId);
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", _activeTab.ElementId);
+        }
+    }
+
     // SPEC-20260923-terminal-virtual-keybar RF-002/RF-005: keybar sequences go
     // through the same hub Input path as real keystrokes; every tap refocuses
     // the xterm so the button doesn't keep the focus (and the OSK can reopen).
@@ -503,6 +540,7 @@
         try
         {
             await JS.InvokeVoidAsync("taskboard.setTerminalFocus", false);
+            await JS.InvokeVoidAsync("taskboard.setTerminalKeybar", false);
             await JS.InvokeVoidAsync("taskboardTerminal.disposeAll");
         }
         catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
