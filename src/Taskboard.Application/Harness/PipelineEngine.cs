@@ -260,69 +260,84 @@ public sealed class PipelineEngine
                     continue;
                 }
 
-                exec.BeginStageAutoRetry(stage.StageKey, now);
-                await PublishAsync(exec, EventKindStage,
-                    $"Stage '{stage.Name}' — auto-retry dispatched on {stage.Agent} (attempt {stage.Attempts})",
-                    stage.StageKey,
-                    new { stageKey = stage.StageKey, agent = stage.Agent?.ToString(), attempt = stage.Attempts })
-                    .ConfigureAwait(false);
+                await DispatchDueRetryAsync(exec, stage, now).ConfigureAwait(false);
                 continue;
             }
 
-            // Fresh failure (nothing scheduled yet) — count it against the
-            // bound agent and decide: retry, rotate or fail the run.
-            var agentBound = stage.Kind is PipelineStageKind.AgentWork && stage.Agent is not null;
-            var nextCount = stage.AutoRetryCount + 1;
-            var budgetHit = nextCount >= _autoRetry.AttemptsPerAgent;
-            var agentIneligible = agentBound
-                && eligible is not null
-                && !eligible.Contains(stage.Agent!.Value);
+            await HandleFreshFailureAsync(exec, stage, eligible, now).ConfigureAwait(false);
+        }
+    }
 
-            if (agentBound && (budgetHit || agentIneligible))
-            {
-                var next = NextUntriedEligible(stage, eligible);
-                if (next is null)
-                {
-                    await FailExecutionAsync(exec, stage).ConfigureAwait(false);
-                    continue;
-                }
+    private async Task DispatchDueRetryAsync(
+        PipelineExecution exec, PipelineStageExecution stage, DateTime now)
+    {
+        exec.BeginStageAutoRetry(stage.StageKey, now);
+        await PublishAsync(exec, EventKindStage,
+            $"Stage '{stage.Name}' — auto-retry dispatched on {stage.Agent} (attempt {stage.Attempts})",
+            stage.StageKey,
+            new { stageKey = stage.StageKey, agent = stage.Agent?.ToString(), attempt = stage.Attempts })
+            .ConfigureAwait(false);
+    }
 
-                var previous = stage.Agent!.Value;
-                exec.RotateStageAgent(stage.StageKey, next.Value, now + _autoRetry.Interval);
-                await PublishAsync(exec, EventKindStage,
-                    $"Stage '{stage.Name}' — {previous} exhausted {_autoRetry.AttemptsPerAgent} attempt(s) ({stage.LastError}); rotating to {next}",
-                    stage.StageKey,
-                    new
-                    {
-                        stageKey = stage.StageKey,
-                        previousAgent = previous.ToString(),
-                        agent = next.Value.ToString(),
-                        lastError = stage.LastError,
-                        triedAgents = stage.TriedAgents,
-                        retryAtUtc = stage.NextAutoRetryAtUtc,
-                    }).ConfigureAwait(false);
-                continue;
-            }
+    // Fresh failure (nothing scheduled yet) — count it against the
+    // bound agent and decide: retry, rotate or fail the run.
+    private async Task HandleFreshFailureAsync(
+        PipelineExecution exec,
+        PipelineStageExecution stage,
+        IReadOnlySet<AgentType>? eligible,
+        DateTime now)
+    {
+        var agentBound = stage.Kind is PipelineStageKind.AgentWork && stage.Agent is not null;
+        var nextCount = stage.AutoRetryCount + 1;
+        var budgetHit = nextCount >= _autoRetry.AttemptsPerAgent;
+        var agentIneligible = agentBound
+            && eligible is not null
+            && !eligible.Contains(stage.Agent!.Value);
 
-            if (!agentBound && budgetHit)
+        if (agentBound && (budgetHit || agentIneligible))
+        {
+            var next = NextUntriedEligible(stage, eligible);
+            if (next is null)
             {
                 await FailExecutionAsync(exec, stage).ConfigureAwait(false);
-                continue;
+                return;
             }
 
-            exec.ScheduleStageAutoRetry(stage.StageKey, now + _autoRetry.Interval);
+            var previous = stage.Agent!.Value;
+            exec.RotateStageAgent(stage.StageKey, next.Value, now + _autoRetry.Interval);
             await PublishAsync(exec, EventKindStage,
-                $"Stage '{stage.Name}' — auto-retry scheduled (failure {stage.AutoRetryCount}/{_autoRetry.AttemptsPerAgent} on {stage.Agent?.ToString() ?? "step"})",
+                $"Stage '{stage.Name}' — {previous} exhausted {_autoRetry.AttemptsPerAgent} attempt(s) ({stage.LastError}); rotating to {next}",
                 stage.StageKey,
                 new
                 {
                     stageKey = stage.StageKey,
-                    agent = stage.Agent?.ToString(),
-                    failure = stage.AutoRetryCount,
-                    budget = _autoRetry.AttemptsPerAgent,
+                    previousAgent = previous.ToString(),
+                    agent = next.Value.ToString(),
+                    lastError = stage.LastError,
+                    triedAgents = stage.TriedAgents,
                     retryAtUtc = stage.NextAutoRetryAtUtc,
                 }).ConfigureAwait(false);
+            return;
         }
+
+        if (!agentBound && budgetHit)
+        {
+            await FailExecutionAsync(exec, stage).ConfigureAwait(false);
+            return;
+        }
+
+        exec.ScheduleStageAutoRetry(stage.StageKey, now + _autoRetry.Interval);
+        await PublishAsync(exec, EventKindStage,
+            $"Stage '{stage.Name}' — auto-retry scheduled (failure {stage.AutoRetryCount}/{_autoRetry.AttemptsPerAgent} on {stage.Agent?.ToString() ?? "step"})",
+            stage.StageKey,
+            new
+            {
+                stageKey = stage.StageKey,
+                agent = stage.Agent?.ToString(),
+                failure = stage.AutoRetryCount,
+                budget = _autoRetry.AttemptsPerAgent,
+                retryAtUtc = stage.NextAutoRetryAtUtc,
+            }).ConfigureAwait(false);
     }
 
     /// <summary>
