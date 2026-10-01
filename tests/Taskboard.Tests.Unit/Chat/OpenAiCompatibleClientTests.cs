@@ -76,6 +76,50 @@ public sealed class OpenAiCompatibleClientTests
     }
 
     [Fact]
+    public async Task Dado_StreamComReasoning_Quando_StreamChat_Entao_ReasoningDeltaSeparado()
+    {
+        // Reasoning models (DeepSeek R1, o-series) emit delta.reasoning_content;
+        // chunks also carry content:"" — empty deltas must not count as reply.
+        var sse = new StringBuilder()
+            .AppendLine("""data: {"choices":[{"delta":{"content":"","reasoning_content":"pensando "}}]}""")
+            .AppendLine("""data: {"choices":[{"delta":{"reasoning_content":"mais"}}]}""")
+            .AppendLine("""data: {"choices":[{"delta":{"content":"pong"}}]}""")
+            .AppendLine("""data: {"choices":[{"delta":{},"finish_reason":"stop"}]}""")
+            .AppendLine("data: [DONE]")
+            .ToString();
+        var handler = new FakeHandler("/v1/chat/completions", sse, contentType: "text/event-stream");
+        var client = Client(handler);
+
+        var events = new List<OpenAiStreamEvent>();
+        await foreach (var chunk in client.StreamChatAsync(
+            BaseUrl, "sk-test", "r1",
+            [new OpenAiChatMessage("user", "oi")], null))
+        {
+            events.Add(chunk);
+        }
+
+        events.Select(e => e.ReasoningDelta).Where(r => r is not null)
+            .ShouldBe(["pensando ", "mais"]);
+        events.Count(e => e.ContentDelta == "pong").ShouldBe(1);
+        events.ShouldNotContain(e => e.ContentDelta == "");
+    }
+
+    [Fact]
+    public async Task Dado_MaxTokensInformado_Quando_StreamChat_Entao_PayloadLevaMaxTokens()
+    {
+        var handler = new FakeHandler("/v1/chat/completions", "data: [DONE]\n", contentType: "text/event-stream");
+        var client = Client(handler);
+
+        await foreach (var unused in client.StreamChatAsync(
+            BaseUrl, "sk-test", "m1",
+            [new OpenAiChatMessage("user", "oi")], null, maxTokens: 4096))
+        {
+        }
+
+        handler.RequestBodies.Single().ShouldContain("\"max_tokens\":4096");
+    }
+
+    [Fact]
     public async Task Dado_ImagemB64_Quando_GenerateImage_Entao_RetornaBase64()
     {
         var handler = new FakeHandler("/v1/images/generations", """
@@ -116,6 +160,7 @@ public sealed class OpenAiCompatibleClientTests
     {
         private readonly List<(string Path, string Body, string ContentType, HttpStatusCode Status)> _responses;
         public readonly List<HttpRequestMessage> Requests = [];
+        public readonly List<string> RequestBodies = [];
 
         public FakeHandler(string path, string body, string contentType = "application/json")
             : this((path, body, contentType, HttpStatusCode.OK))
@@ -125,9 +170,13 @@ public sealed class OpenAiCompatibleClientTests
         public FakeHandler(params (string Path, string Body, string ContentType, HttpStatusCode Status)[] responses) =>
             _responses = [.. responses];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(request);
+            if (request.Content is not null)
+            {
+                RequestBodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+            }
             var path = request.RequestUri!.AbsolutePath;
             var match = _responses.FirstOrDefault(r => path.EndsWith(r.Path, StringComparison.Ordinal));
             if (match == default)
@@ -135,10 +184,10 @@ public sealed class OpenAiCompatibleClientTests
                 match = _responses[0];
             }
 
-            return Task.FromResult(new HttpResponseMessage(match.Status)
+            return new HttpResponseMessage(match.Status)
             {
                 Content = new StringContent(match.Body, System.Text.Encoding.UTF8, match.ContentType),
-            });
+            };
         }
     }
 }

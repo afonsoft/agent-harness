@@ -18,8 +18,8 @@ public sealed class SkillTool(ISkillDiscoveryService skills, IConfiguration conf
 
     public string Name => "use_skill";
     public string Description =>
-        "Load the instructions of a global skill (from ~/.claude, ~/.devin, ~/.cursor, "
-        + "~/.opencode or built-in skills) and follow them for the current task.";
+        "Load the instructions of a global skill (from ~/.agents/skills) "
+        + "and follow them for the current task.";
     public string ParametersJson => """
         {"type":"object","properties":{
           "name":{"type":"string","description":"Skill name as listed in the system prompt"},
@@ -42,6 +42,7 @@ public sealed class SkillTool(ISkillDiscoveryService skills, IConfiguration conf
 
         var discovered = await skills.DiscoverAsync(cancellationToken).ConfigureAwait(false);
         var enabled = discovered
+            .Where(s => string.Equals(s.Source, SkillDiscoverySource.Agents, StringComparison.OrdinalIgnoreCase))
             .Where(s => ChatCapabilityRules.IsEnabled(configuration, $"skill:{s.Name}"))
             .ToList();
 

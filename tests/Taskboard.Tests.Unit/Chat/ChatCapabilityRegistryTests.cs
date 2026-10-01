@@ -73,8 +73,8 @@ public class ChatCapabilityRegistryTests
             new Dictionary<string, IChatTool>(),
             skills:
             [
-                new SkillDto("composio-cli", "operate composio", "claude", "/x/composio-cli"),
-                new SkillDto("graphify", "knowledge graph", "devin", "/x/graphify"),
+                new SkillDto("composio-cli", "operate composio", "agents", "/x/composio-cli"),
+                new SkillDto("graphify", "knowledge graph", "agents", "/x/graphify"),
             ]);
 
         var list = await registry.ListAsync();
@@ -89,7 +89,7 @@ public class ChatCapabilityRegistryTests
     {
         var registry = Build(
             new Dictionary<string, IChatTool>(),
-            skills: [new SkillDto("x", "d", "claude", "/x")],
+            skills: [new SkillDto("x", "d", "agents", "/x")],
             config: new() { ["Taskboard:Chat:Skills:Enabled"] = "false" });
 
         var list = await registry.ListAsync();
@@ -98,23 +98,25 @@ public class ChatCapabilityRegistryTests
     }
 
     [Fact]
-    public async Task Dado_MesmaSkillEmVariasOrigens_Quando_Lista_Entao_RowUnicaComOrigensAgregadas()
+    public async Task Dado_MesmaSkillEmVariasOrigens_Quando_Lista_Entao_SomenteAgents()
     {
         var registry = Build(
             new Dictionary<string, IChatTool>(),
             skills:
             [
+                new SkillDto("abp-angular", "d", "agents", "/a/abp-angular"),
                 new SkillDto("abp-angular", "d", "claude", "/c/abp-angular"),
                 new SkillDto("abp-angular", "d", "devin", "/d/abp-angular"),
-                new SkillDto("abp-angular", "d", "claude", "/c2/abp-angular"),
-                new SkillDto("graphify", "knowledge", "devin", "/d/graphify"),
+                new SkillDto("graphify", "knowledge", "agents", "/a/graphify"),
+                new SkillDto("claude-only", "d", "claude", "/c/claude-only"),
             ]);
 
         var list = await registry.ListAsync();
 
         list.GroupBy(c => c.Id).ShouldAllBe(g => g.Count() == 1);
-        list.Single(c => c.Id == "skill:abp-angular").Origin.ShouldBe("claude, devin");
         list.Count(c => c.Kind == ChatCapabilityKind.Skill).ShouldBe(2);
+        list.ShouldAllBe(c => c.Origin == "agents");
+        list.ShouldNotContain(c => c.Name == "claude-only");
     }
 
     [Fact]
@@ -122,7 +124,7 @@ public class ChatCapabilityRegistryTests
     {
         var registry = Build(
             new Dictionary<string, IChatTool>(),
-            skills: [new SkillDto("x", "d", "claude", "/x")],
+            skills: [new SkillDto("x", "d", "agents", "/x")],
             config: new() { ["Taskboard:Chat:Capabilities:Disabled"] = """["skill:x"]""" });
 
         var capability = (await registry.ListAsync()).Single(c => c.Id == "skill:x");
@@ -139,13 +141,13 @@ public class ChatCapabilityRegistryTests
                 ["shell_exec"] = Tool("shell_exec"),
                 ["run_agent"] = Tool("run_agent", "agent:run", ChatCapabilityKind.AgentDelegation),
             },
-            skills: [new SkillDto("s1", "d", "claude", "/s1")]);
+            skills: [new SkillDto("s1", "d", "agents", "/s1")]);
 
         var list = await registry.ListAsync();
 
         list.Select(c => c.Kind).Distinct().ShouldBe(
             [ChatCapabilityKind.BuiltinTool, ChatCapabilityKind.Skill, ChatCapabilityKind.AgentDelegation]);
-        list.Single(c => c.Id == "skill:s1").Origin.ShouldBe("claude");
+        list.Single(c => c.Id == "skill:s1").Origin.ShouldBe("agents");
         list.Single(c => c.Id == "tool:shell_exec").RequiresConfirmation.ShouldBeTrue();
     }
 

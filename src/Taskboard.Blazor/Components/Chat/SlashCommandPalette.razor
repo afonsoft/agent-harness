@@ -33,8 +33,14 @@
     [Parameter] public int ActiveIndex { get; set; }
     [Parameter] public EventCallback<SlashItem> OnSelect { get; set; }
 
-    private IReadOnlyList<SlashItem> Filtered => Items
-        .Where(i => i.Command.Contains(Filter, StringComparison.OrdinalIgnoreCase))
-        .Take(12)
-        .ToList();
+    private IReadOnlyList<SlashItem> Filtered => ApplyFilter(Items, Filter);
+
+    /// <summary>Shared filter+order: exact match first, then builtins, then
+    /// skills — keeps the keyboard selection identical to the visible list.</summary>
+    public static IReadOnlyList<SlashItem> ApplyFilter(IReadOnlyList<SlashItem> items, string filter) =>
+        items.Where(i => i.Command.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(i => string.Equals(i.Command, filter, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(i => i.Kind == "builtin" ? 0 : 1)
+            .Take(12)
+            .ToList();
 }

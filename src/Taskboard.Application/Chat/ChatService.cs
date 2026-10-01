@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Taskboard.Application.Contracts.Chat;
+using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Domain.Entities.Chat;
 using Taskboard.Repositories;
@@ -25,6 +26,10 @@ public sealed record ChatToolResultEvent(string Name, string ResultJson, bool Re
 /// tool/MCP/agent/sub-agent runs so the UI can show "Running X…" chips.
 /// </summary>
 public sealed record ChatStatusEvent(string Phase, string? Label) : ChatStreamEvent;
+
+/// <summary>Reasoning-model thinking delta (delta.reasoning_content) —
+/// streamed for live UI feedback, never persisted nor re-sent to the model.</summary>
+public sealed record ChatReasoningEvent(string Content) : ChatStreamEvent;
 
 public sealed record ChatDoneEvent(int? TokensIn, int? TokensOut, string? FinishReason, string? Error = null) : ChatStreamEvent;
 
@@ -277,6 +282,10 @@ public sealed class ChatService(
         int? tokensOut = null;
         string? error = null;
         var maxIterations = ParseInt("Taskboard:Chat:MaxToolIterations", 8);
+        // Reasoning models burn output tokens on reasoning_content before the
+        // answer — without an explicit budget gateways cap too low and the
+        // turn ends with empty content.
+        var maxTokens = ParseInt("Taskboard:Chat:MaxTokens", 4096);
 
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
@@ -284,7 +293,7 @@ public sealed class ChatService(
             // live progress instead of a burst after the provider finishes.
             var stream = new StreamOutcome();
             await foreach (var ev in ConsumeStreamAsync(
-                    provider, conversation, wire, toolDefs, stream, cts, requestAborted, ct)
+                    provider, conversation, wire, toolDefs, maxTokens, stream, cts, requestAborted, ct)
                 .ConfigureAwait(false))
             {
                 yield return ev;
@@ -407,6 +416,7 @@ public sealed class ChatService(
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         List<OpenAiToolDefinition> toolDefs,
+        int maxTokens,
         StreamOutcome outcome,
         CancellationTokenSource cts,
         CancellationToken requestAborted,
@@ -416,7 +426,7 @@ public sealed class ChatService(
             ParseInt("Taskboard:Chat:SseHeartbeatSeconds", 15));
         await using var enumerator = client.StreamChatAsync(
             provider.BaseUrl, provider.ApiKey, conversation.Model, wire,
-            toolDefs.Count > 0 ? toolDefs : null, ct).GetAsyncEnumerator(ct);
+            toolDefs.Count > 0 ? toolDefs : null, maxTokens, ct).GetAsyncEnumerator(ct);
 
         while (true)
         {
@@ -463,6 +473,11 @@ public sealed class ChatService(
             if (outcome.AccumulateChunk(enumerator.Current) is { } delta)
             {
                 yield return new ChatDeltaEvent(delta);
+            }
+
+            if (enumerator.Current.ReasoningDelta is { Length: > 0 } reasoning)
+            {
+                yield return new ChatReasoningEvent(reasoning);
             }
         }
     }
@@ -650,6 +665,7 @@ public sealed class ChatService(
         {
             var discovered = await skills.DiscoverAsync(ct).ConfigureAwait(false);
             var lines = discovered
+                .Where(sk => string.Equals(sk.Source, SkillDiscoverySource.Agents, StringComparison.OrdinalIgnoreCase))
                 .Where(sk => capabilities.IsCapabilityEnabled($"skill:{sk.Name}"))
                 .OrderBy(sk => sk.Name, StringComparer.OrdinalIgnoreCase)
                 .Take(40)

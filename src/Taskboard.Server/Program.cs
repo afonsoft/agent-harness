@@ -350,6 +350,7 @@ void RegisterCoreServices()
     builder.Services.AddSingleton<IAgentDiscoveryService, AgentDiscoveryService>();
     builder.Services.AddSingleton<ISkillDiscoveryService>(sp => new SkillDiscoveryService(new[]
     {
+        new SkillDiscoverySource(SkillDiscoverySource.Agents, Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agents", SkillsSegment)),
         new SkillDiscoverySource("claude", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", SkillsSegment)),
         new SkillDiscoverySource("devin", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".devin", SkillsSegment)),
         new SkillDiscoverySource("cursor", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor", SkillsSegment)),
@@ -2051,6 +2052,7 @@ void MapSettingsAndChatEndpoints()
                 var (name, payload) = chatEvent switch
                 {
                     ChatDeltaEvent e => ("chat.delta", (object)new { content = e.Content }),
+                    ChatReasoningEvent e => ("chat.reasoning", (object)new { content = e.Content }),
                     ChatToolCallEvent e => ("chat.tool_call", new { name = e.Name, arguments = e.ArgumentsJson }),
                     ChatToolResultEvent e => ("chat.tool_result", new { name = e.Name, result = e.ResultJson, refused = e.Refused, refusalReason = e.RefusalReason }),
                     ChatStatusEvent e => ("chat.status", new { phase = e.Phase, label = e.Label }),

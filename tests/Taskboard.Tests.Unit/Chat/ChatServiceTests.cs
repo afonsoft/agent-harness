@@ -206,6 +206,43 @@ public sealed class ChatServiceTests : IDisposable
         rest.OfType<ChatDoneEvent>().ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task Dado_StreamComReasoning_Quando_Enviar_Entao_ReasoningEventNaoPersiste()
+    {
+        var service = NewService(new ReasoningProviderHandler(), new ChatRunCoordinator());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "deepseek-r1"));
+
+        var events = new List<ChatStreamEvent>();
+        await foreach (var chatEvent in await service.SendMessageAsync(conversation.Id, "oi", CancellationToken.None))
+        {
+            events.Add(chatEvent);
+        }
+
+        events.OfType<ChatReasoningEvent>().Select(e => e.Content).ShouldBe(["thinking", "pong"]);
+        var detail = await service.GetConversationAsync(conversation.Id);
+        var assistant = detail!.Messages.Last();
+        assistant.Role.ShouldBe("assistant");
+        assistant.Content.ShouldBe("pong", "reasoning não vira conteúdo persistido");
+    }
+
+    /// <summary>Provider fake que emite reasoning_content antes da resposta.</summary>
+    private sealed class ReasoningProviderHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = string.Concat(
+                """data: {"choices":[{"delta":{"content":"","reasoning_content":"thinking"}}]}""", "\n",
+                """data: {"choices":[{"delta":{"reasoning_content":"pong"}}]}""", "\n",
+                """data: {"choices":[{"delta":{"content":"pong"}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}""", "\n",
+                "data: [DONE]\n");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            });
+        }
+    }
+
     /// <summary>B-17: tool result with imagePath attaches the image to the tool message.</summary>
     [Fact]
     public async Task Dado_ToolRetornaImagePath_Quando_Enviar_Entao_MensagemToolComImagem()

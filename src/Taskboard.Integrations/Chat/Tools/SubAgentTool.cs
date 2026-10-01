@@ -107,7 +107,8 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
                 await foreach (var chunk in client.StreamChatAsync(
                         context.ProviderBaseUrl, context.ProviderApiKey,
                         context.Model ?? string.Empty, wire,
-                        toolDefs.Count > 0 ? toolDefs : null, cancellationToken)
+                        toolDefs.Count > 0 ? toolDefs : null,
+                        cancellationToken: cancellationToken)
                     .ConfigureAwait(false))
                 {
                     if (chunk.ContentDelta is { Length: > 0 } delta)

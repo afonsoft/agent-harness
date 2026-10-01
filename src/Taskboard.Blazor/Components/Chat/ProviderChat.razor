@@ -122,6 +122,24 @@
                     <div class="ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(_streaming))</div>
                 </div>
             }
+            @if (!string.IsNullOrEmpty(_reasoning))
+            {
+                @* Reasoning models (DeepSeek R1, o-series) stream thinking in
+                   delta.reasoning_content — visible live while the answer is
+                   pending, collapsible afterwards. *@
+                <div class="provider-chat-bubble assistant provider-reasoning">
+                    <details open="@_running">
+                        <summary class="provider-reasoning-summary">
+                            @if (_running && string.IsNullOrEmpty(_streaming))
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            }
+                            Thinking
+                        </summary>
+                        <pre class="provider-reasoning-text mb-0">@_reasoning</pre>
+                    </details>
+                </div>
+            }
             @if (_running && string.IsNullOrEmpty(_streaming))
             {
                 <div class="provider-chat-bubble assistant">
@@ -155,7 +173,7 @@
             }
             @* SPEC-20261001-chat-skills-slash-commands FR-003: "/" no início do
                composer abre a paleta de skills/comandos. *@
-            <SlashCommandPalette Items="SlashItems" Filter="SlashFilter"
+            <SlashCommandPalette Items="SlashItems" Filter="@SlashFilter"
                                  Open="SlashOpen" ActiveIndex="_slashIndex"
                                  OnSelect="OnSlashSelect" />
             <div class="d-flex gap-2 align-items-end">
@@ -206,6 +224,7 @@
     private string? _statusPhase;
     private string? _statusLabel;
     private string? _streaming;
+    private string? _reasoning;
     private string? _error;
     private bool _running;
     private bool _busy;
@@ -353,6 +372,7 @@
             _conversationTitle = conversation.Title;
             _messages.Clear();
             _streaming = null;
+            _reasoning = null;
             await OnSearchChangedAsync();
         }
         catch (Exception ex)
@@ -397,6 +417,7 @@
         _messages.Clear();
         _messages.AddRange(detail.Messages);
         _streaming = null;
+        _reasoning = null;
         if (_providerId != detail.Conversation.ProviderId)
         {
             _providerId = detail.Conversation.ProviderId;
@@ -448,10 +469,8 @@
 
     private string SlashFilter => SlashOpen ? _composer[1..] : string.Empty;
 
-    private IReadOnlyList<SlashCommandPalette.SlashItem> SlashFiltered => _slashItems
-        .Where(i => i.Command.Contains(SlashFilter, StringComparison.OrdinalIgnoreCase))
-        .Take(12)
-        .ToList();
+    private IReadOnlyList<SlashCommandPalette.SlashItem> SlashFiltered =>
+        SlashCommandPalette.ApplyFilter(_slashItems, SlashFilter);
 
     private void OnSlashSelect(SlashCommandPalette.SlashItem item)
     {
@@ -552,9 +571,13 @@
             var capability = (await Client.GetChatCapabilitiesAsync())
                 .FirstOrDefault(c => c.Kind == Taskboard.Application.Contracts.Chat.ChatCapabilityKind.Skill
                     && string.Equals(c.Name, skill.Command, StringComparison.OrdinalIgnoreCase));
+            // Origin may aggregate several install dirs ("claude, devin") —
+            // the detail endpoint resolves by a single source, so use the first.
+            var source = capability?.Origin?.Split(',', StringSplitOptions.TrimEntries
+                | StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
             var detail = capability is null
                 ? null
-                : await Client.GetSkillDetailAsync(capability.Origin ?? string.Empty, capability.Name);
+                : await Client.GetSkillDetailAsync(source, capability.Name);
             if (detail is null)
             {
                 _error = $"Skill '{skill.Command}' indisponível.";
@@ -593,6 +616,7 @@
         "running_mcp" => $"Running MCP: {_statusLabel}",
         "running_agent" => $"Running agent: {_statusLabel}",
         "running_subagent" => $"Running sub-agent: {_statusLabel}",
+        "thinking" => "Thinking…",
         _ => _statusLabel ?? "Running…",
     };
 
@@ -666,6 +690,7 @@
             CreatedAt: DateTime.UtcNow));
         _running = true;
         _streaming = string.Empty;
+        _reasoning = string.Empty;
         _streamCts = new CancellationTokenSource();
         await ScrollToEndAsync();
 
@@ -728,6 +753,11 @@
             case "chat.delta":
                 var delta = JsonSerializer.Deserialize<JsonElement>(data);
                 _streaming += delta.TryGetProperty("content", out var c) ? c.GetString() ?? string.Empty : string.Empty;
+                await ScrollToEndAsync();
+                break;
+            case "chat.reasoning":
+                var reasoning = JsonSerializer.Deserialize<JsonElement>(data);
+                _reasoning += reasoning.TryGetProperty("content", out var r) ? r.GetString() ?? string.Empty : string.Empty;
                 await ScrollToEndAsync();
                 break;
             case "chat.tool_call":

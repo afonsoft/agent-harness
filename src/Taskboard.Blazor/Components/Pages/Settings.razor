@@ -452,7 +452,7 @@
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <select class="form-select form-select-sm" @bind="state.Model" disabled="@state.Models.Count == 0">
+                                <select class="form-select form-select-sm" @bind="state.Model" disabled="@(state.Models.Count == 0)">
                                     @if (state.Models.Count == 0)
                                     {
                                         <option value="">no models</option>

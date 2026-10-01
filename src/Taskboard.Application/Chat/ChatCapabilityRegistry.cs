@@ -42,10 +42,12 @@ public sealed class ChatCapabilityRegistry(
 
         if (IsMasterOn(ChatCapabilityKind.Skill))
         {
-            // The same skill installed in several agent dirs arrives once per
-            // source — but `skill:{name}` is a single toggle key, so the
+            // Only the canonical ~/.agents/skills dir feeds the chat catalog —
+            // per-CLI installs (~/.claude, ~/.cursor, …) stay on the Skills
+            // management page. `skill:{name}` is a single toggle key, so the
             // catalog emits one row per id with the origins merged.
-            var discovered = await skills.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+            var discovered = (await skills.DiscoverAsync(cancellationToken).ConfigureAwait(false))
+                .Where(s => string.Equals(s.Source, SkillDiscoverySource.Agents, StringComparison.OrdinalIgnoreCase));
             foreach (var group in discovered
                 .GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
                 .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))

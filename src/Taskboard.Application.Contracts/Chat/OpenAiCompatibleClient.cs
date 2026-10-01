@@ -19,11 +19,15 @@ public sealed record OpenAiToolCall(string Id, string Name, string ArgumentsJson
 public sealed record OpenAiToolDefinition(string Name, string Description, string ParametersJson);
 
 /// <summary>One parsed SSE chunk of a streaming chat completion.</summary>
+/// <param name="ReasoningDelta">Reasoning/thinking delta (DeepSeek R1,
+/// o-series, GLM) emitted in <c>delta.reasoning_content</c> — never part of
+/// the persisted reply.</param>
 public sealed record OpenAiStreamEvent(
     string? ContentDelta,
     IReadOnlyList<OpenAiToolCallDelta>? ToolCallDeltas,
     OpenAiUsage? Usage,
-    string? FinishReason);
+    string? FinishReason,
+    string? ReasoningDelta = null);
 
 public sealed record OpenAiToolCallDelta(int Index, string? Id, string? Name, string? ArgumentsDelta);
 
@@ -77,12 +81,16 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
     }
 
     /// <summary>Streams a chat completion; the caller accumulates tool-call deltas by index.</summary>
+    /// <param name="maxTokens">Output budget — reasoning models (DeepSeek R1)
+    /// spend tokens on <c>reasoning_content</c> before answering; a low cap
+    /// ends the turn with empty content.</param>
     public async IAsyncEnumerable<OpenAiStreamEvent> StreamChatAsync(
         string baseUrl,
         string apiKey,
         string model,
         IReadOnlyList<OpenAiChatMessage> messages,
         IReadOnlyList<OpenAiToolDefinition>? tools,
+        int? maxTokens = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var payload = new Dictionary<string, object?>
@@ -91,6 +99,10 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
             ["messages"] = messages.Select(ToWire).ToList(),
             ["stream"] = true,
         };
+        if (maxTokens is > 0)
+        {
+            payload["max_tokens"] = maxTokens.Value;
+        }
         if (tools is { Count: > 0 })
         {
             payload["tools"] = tools.Select(t => new Dictionary<string, object?>
@@ -255,14 +267,14 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
     private static OpenAiStreamEvent? ParseChunk(JsonElement chunk)
     {
         var usage = ParseUsage(chunk);
-        var (content, toolDeltas, finish) = ParseChoices(chunk);
+        var (content, toolDeltas, finish, reasoning) = ParseChoices(chunk);
 
-        if (content is null && toolDeltas is null && usage is null && finish is null)
+        if (content is null && toolDeltas is null && usage is null && finish is null && reasoning is null)
         {
             return null;
         }
 
-        return new OpenAiStreamEvent(content, toolDeltas, usage, finish);
+        return new OpenAiStreamEvent(content, toolDeltas, usage, finish, reasoning);
     }
 
     private static OpenAiUsage? ParseUsage(JsonElement chunk)
@@ -277,16 +289,17 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
             usageEl.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var cv) ? cv : null);
     }
 
-    private static (string? Content, List<OpenAiToolCallDelta>? ToolDeltas, string? Finish) ParseChoices(JsonElement chunk)
+    private static (string? Content, List<OpenAiToolCallDelta>? ToolDeltas, string? Finish, string? Reasoning) ParseChoices(JsonElement chunk)
     {
         if (!chunk.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array)
         {
-            return (null, null, null);
+            return (null, null, null, null);
         }
 
         string? content = null;
         List<OpenAiToolCallDelta>? toolDeltas = null;
         string? finish = null;
+        string? reasoning = null;
         foreach (var choice in choices.EnumerateArray())
         {
             if (choice.TryGetProperty("finish_reason", out var fr) && fr.ValueKind == JsonValueKind.String)
@@ -299,9 +312,16 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
                 continue;
             }
 
-            if (delta.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String)
+            if (delta.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String
+                && contentEl.GetString() is { Length: > 0 } text)
             {
-                content = contentEl.GetString();
+                content = text;
+            }
+
+            if (delta.TryGetProperty("reasoning_content", out var reasoningEl) && reasoningEl.ValueKind == JsonValueKind.String
+                && reasoningEl.GetString() is { Length: > 0 } reasoningText)
+            {
+                reasoning = reasoningText;
             }
 
             if (delta.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array)
@@ -310,7 +330,7 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
             }
         }
 
-        return (content, toolDeltas, finish);
+        return (content, toolDeltas, finish, reasoning);
     }
 
     private static List<OpenAiToolCallDelta> ParseToolCallDeltas(

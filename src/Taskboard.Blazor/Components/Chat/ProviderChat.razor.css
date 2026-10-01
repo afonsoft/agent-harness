@@ -99,6 +99,31 @@
     animation: provider-chat-blink 1s infinite alternate;
 }
 
+.provider-reasoning {
+    opacity: .85;
+}
+
+.provider-reasoning-summary {
+    align-items: center;
+    color: var(--bs-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: .8rem;
+    gap: .4rem;
+    user-select: none;
+}
+
+.provider-reasoning-text {
+    color: var(--bs-secondary);
+    font-family: inherit;
+    font-size: .8rem;
+    margin-top: .35rem;
+    max-height: 16rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 @keyframes provider-chat-blink {
     from { opacity: .2; }
     to { opacity: 1; }
