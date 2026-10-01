@@ -627,8 +627,11 @@ public class AgentOrchestrationServiceTests
 
             await AguardarAsync(async () =>
                 (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
-            (await service.GetLogsAsync(request.IssueId))
-                .ShouldContain(log => log.Content.Contains("log com broadcast cancelado"));
+            // Progress<T>.Report dispatches asynchronously — poll for the
+            // reported log instead of asserting on a snapshot read.
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId))
+                    .Any(log => log.Content.Contains("log com broadcast cancelado")));
         }
         finally
         {

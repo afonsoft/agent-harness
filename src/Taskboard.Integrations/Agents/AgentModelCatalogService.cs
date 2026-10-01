@@ -64,7 +64,7 @@ public sealed class AgentModelCatalogService : IAgentModelCatalogService
         // model list forever (SPEC-20260929-cli-probe-hardening RF-001).
         if (!forceRefresh)
         {
-            _snapshot?.EnsureFresh(_refreshTtl);
+            _snapshot?.EnsureModelsFresh(agentType, _refreshTtl);
             if (_snapshot?.GetModels(agentType) is { } cached)
             {
                 return cached;
