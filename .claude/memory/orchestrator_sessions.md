@@ -135,3 +135,15 @@
 - **S3776: 59/59 resolvidos.** Restante #410: S7637 + exclusão docs gerados (bloqueados — aprovação humana).
 - **Lições**: local functions em top-level podem ser declaradas no fim do arquivo e capturam `app`/`api`/`builder` (não-static); extrair blocos de endpoints via ranges de linha requer checar vars usadas cross-region (vscodePort) e local functions compartilhadas (ConfigurationError→file scope); erros CS4010/Task<?> eram cascata de CS0103.
 - SPEC-20261001-terminal-memory-mobile criada (Draft) — scrollback adaptativo do terminal + mobile.
+
+## Session continuation (2026-10-01, thread 4) — aprovados: S7637 + docs exclusion + terminal SPEC
+
+- **PR #415 MERGED to `main`** (incluiu `f5223c7` — SHA pinning S7637 + `docs/**` sonar exclusions; CI/Sonar verde no merge).
+- **SPEC-20261001-terminal-memory-mobile → Done**, branch `feat/devin-20261001-terminal-memory-mobile`, PR #416 → `main`, commit `ace66cb`.
+  - terminal.js: `resolveScrollback`/`resolveFontSize`/`isCompactViewport`; init 2000/800, readOnly 3000/1200, font 13/12; `scrollToBottomIfPinned` pós-fit.
+  - TerminalSessionManager: `ScrollbackLimit` → `DefaultScrollbackChars` 64_000 + `Terminal:ScrollbackChars` config; ctor interno ganha `scrollbackChars`.
+  - Terminal.razor: toggle ⌨ (`terminal-keybar-toggle`, `ToggleKeybarAsync`) → `taskboard.setTerminalKeybar` → `html[data-terminal-keybar]`; cleanup no Dispose.
+  - site.css: keybar sob `[data-terminal-focus]|[data-terminal-keybar]` em coarse; toggle só em coarse; tabstrip scroll-snap <768px, host 160px, descrição some <576px.
+  - Testes: +2 cap tests (64k default, 1000 custom) + 5 guards novos; guard `initReadOnly` regex relaxado p/ `options` param.
+  - Validação: build 0/0, **1351/1351 unit**, **307/307 integration**, format limpo.
+- Backlog #410 praticamente zerado: S7637 e docs exclusion entregues (verificar próximo scan SonarCloud na main p/ confirmação server-side dos docs/**).
