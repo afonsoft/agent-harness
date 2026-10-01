@@ -39,32 +39,37 @@ public sealed class AcpSessionModelCatalog(AcpSessionClient acp) : IAgentSession
         var models = new List<AiChatModelDto>();
         foreach (var opt in opts.EnumerateArray())
         {
-            if (opt.ValueKind != JsonValueKind.Object
-                || !string.Equals(
-                    opt.TryGetProperty("category", out var c) ? c.GetString() : null,
-                    "model",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (opt.TryGetProperty("options", out var arr) && arr.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var o in arr.EnumerateArray())
-                {
-                    if (o.TryGetProperty("value", out var v) && v.GetString() is { } value && value.Length > 0)
-                    {
-                        models.Add(Entry(agentType, value));
-                    }
-                }
-            }
-            else if (opt.TryGetProperty("value", out var single) && single.GetString() is { } current && current.Length > 0)
-            {
-                models.Add(Entry(agentType, current));
-            }
+            CollectModels(opt, agentType, models);
         }
 
         return models;
+    }
+
+    private static void CollectModels(JsonElement opt, string agentType, List<AiChatModelDto> models)
+    {
+        if (opt.ValueKind != JsonValueKind.Object
+            || !string.Equals(
+                opt.TryGetProperty("category", out var c) ? c.GetString() : null,
+                "model",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (opt.TryGetProperty("options", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var o in arr.EnumerateArray())
+            {
+                if (o.TryGetProperty("value", out var v) && v.GetString() is { } value && value.Length > 0)
+                {
+                    models.Add(Entry(agentType, value));
+                }
+            }
+        }
+        else if (opt.TryGetProperty("value", out var single) && single.GetString() is { } current && current.Length > 0)
+        {
+            models.Add(Entry(agentType, current));
+        }
     }
 
     private static AiChatModelDto Entry(string agentType, string name) =>

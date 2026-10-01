@@ -446,6 +446,16 @@ public sealed class FinOpsService : IFinOpsService
                 $"No active sessions in the last {_options.ActiveWindowSeconds / 60} minutes", atUtc));
         }
 
+        AddSourceAlerts(alerts, sources, atUtc);
+        AddBudgetAlerts(alerts, runs, since, atUtc);
+        AddCostSpikeAlert(alerts, metrics, cliRows, now, since, atUtc);
+
+        return alerts;
+    }
+
+    private static void AddSourceAlerts(
+        List<FinOpsAlertDto> alerts, IReadOnlyList<CliMetricSource> sources, DateTimeOffset atUtc)
+    {
         foreach (var source in sources.Where(
             s => s.Status is CliDbSourceStatus.Error or CliDbSourceStatus.SchemaDrifted))
         {
@@ -456,14 +466,27 @@ public sealed class FinOpsService : IFinOpsService
                 drifted ? "SourceSchemaDrifted" : "SourceError",
                 $"CLI source {source.Kind}/{source.SourceName}: {source.Status}{detail}", atUtc));
         }
+    }
 
+    private static void AddBudgetAlerts(
+        List<FinOpsAlertDto> alerts, IReadOnlyList<AgentRun> runs, DateTime since, DateTimeOffset atUtc)
+    {
         foreach (var run in runs.Where(r => r.State == AgentRunState.BudgetExceeded
             && (r.FinishedAt?.UtcDateTime ?? r.StartedAt.UtcDateTime) >= since))
         {
             alerts.Add(new FinOpsAlertDto("crit", "BudgetExceeded",
                 $"Run {run.IssueId} exceeded its budget cap", atUtc));
         }
+    }
 
+    private static void AddCostSpikeAlert(
+        List<FinOpsAlertDto> alerts,
+        IReadOnlyList<RunCostMetric> metrics,
+        IReadOnlyList<CliDailyUsageAggregate> cliRows,
+        DateTime now,
+        DateTime since,
+        DateTimeOffset atUtc)
+    {
         // (d) latest day cost > 2× the period daily average (strictly greater).
         var dailyCost = new Dictionary<DateOnly, decimal>();
         foreach (var m in metrics.Where(m => m.RecordedAtUtc >= since))
@@ -478,23 +501,23 @@ public sealed class FinOpsService : IFinOpsService
                 dailyCost[day] = dailyCost.GetValueOrDefault(day) + agg.CostUsd;
             }
         }
-        if (dailyCost.Count > 0)
+        if (dailyCost.Count == 0)
         {
-            // `all` has no fixed span — the average runs from the first day with data.
-            var periodDays = since > DateTime.MinValue
-                ? Math.Max(1, (int)Math.Ceiling((now - since).TotalDays))
-                : Math.Max(1, DateOnly.FromDateTime(now).DayNumber - dailyCost.Keys.Min().DayNumber + 1);
-            var average = dailyCost.Values.Sum() / periodDays;
-            var latest = dailyCost.OrderByDescending(kv => kv.Key).First();
-            if (average > 0 && latest.Value > 2m * average)
-            {
-                alerts.Add(new FinOpsAlertDto("warn", "DailyCostSpike",
-                    $"Cost on {latest.Key:yyyy-MM-dd} ({latest.Value:C2}) is above 2× the period daily average ({average:C2})",
-                    atUtc));
-            }
+            return;
         }
 
-        return alerts;
+        // `all` has no fixed span — the average runs from the first day with data.
+        var periodDays = since > DateTime.MinValue
+            ? Math.Max(1, (int)Math.Ceiling((now - since).TotalDays))
+            : Math.Max(1, DateOnly.FromDateTime(now).DayNumber - dailyCost.Keys.Min().DayNumber + 1);
+        var average = dailyCost.Values.Sum() / periodDays;
+        var latest = dailyCost.OrderByDescending(kv => kv.Key).First();
+        if (average > 0 && latest.Value > 2m * average)
+        {
+            alerts.Add(new FinOpsAlertDto("warn", "DailyCostSpike",
+                $"Cost on {latest.Key:yyyy-MM-dd} ({latest.Value:C2}) is above 2× the period daily average ({average:C2})",
+                atUtc));
+        }
     }
 
     public async Task<RunTelemetryDto?> GetRunTelemetryAsync(string runId, CancellationToken cancellationToken = default)
