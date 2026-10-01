@@ -12,10 +12,10 @@ namespace Taskboard.Application.Harness;
 public static class PipelineTemplates
 {
     private const string RoleBuilder = "builder";
-        private const string RoleBuilderDisplay = "Builder";
-        private const string RoleVerifier = "verifier";
-        private const string RoleVerifierDisplay = "Verifier";
-        private const string RoleArchitect = "architect";
+    private const string RoleBuilderDisplay = "Builder";
+    private const string RoleVerifier = "verifier";
+    private const string RoleVerifierDisplay = "Verifier";
+    private const string RoleArchitect = "architect";
 
     public static readonly PipelineDefinition StandardFeature = new(
         "standard-feature", "Standard Feature",

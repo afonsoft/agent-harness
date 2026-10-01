@@ -23,7 +23,7 @@ namespace Taskboard.Server.Services;
 public sealed class AcpClientToolHandler : IAcpClientToolHandler
 {
     private const string TerminalCreateMethod = "terminal/create";
-        private const string DecisionAllow = "allow";
+    private const string DecisionAllow = "allow";
 
     private const int DefaultOutputByteLimit = 1024 * 1024;
 

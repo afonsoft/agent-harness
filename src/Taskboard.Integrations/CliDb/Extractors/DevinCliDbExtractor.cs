@@ -16,10 +16,10 @@ namespace Taskboard.Integrations.CliDb.Extractors;
 public sealed class DevinCliDbExtractor : CliDbExtractorBase
 {
     private const string ColRowid = "rowid";
-        private const string ColTitle = "title";
-        private const string ColCreatedAt = "created_at";
-        private const string ColLastActivityAt = "last_activity_at";
-        private const string ColModel = "model";
+    private const string ColTitle = "title";
+    private const string ColCreatedAt = "created_at";
+    private const string ColLastActivityAt = "last_activity_at";
+    private const string ColModel = "model";
 
     // Baseline captured 2026-09-19 (user_version=0, application_id=0) over the
     // drift-checked table only — message_nodes is an optional estimation

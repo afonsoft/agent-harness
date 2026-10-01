@@ -19,7 +19,7 @@ namespace Taskboard.Integrations.Agents;
 public sealed class AcpV2Dialect : IAcpDialect
 {
     private const string SessionUpdateMethod = "session/update";
-        private const string EventRoleAssistant = "assistant";
+    private const string EventRoleAssistant = "assistant";
 
     public int ProtocolVersion => 2;
 

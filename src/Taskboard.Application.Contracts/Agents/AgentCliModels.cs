@@ -11,11 +11,11 @@ namespace Taskboard.Application.Contracts.Agents;
 public static class AgentCliModels
 {
     private const string FlagModel = "--model";
-        private const string ModelGpt56Luna = "gpt-5.6-luna";
-        private const string ModelGpt51 = "gpt-5.1";
-        private const string ModelHaiku = "haiku";
-        private const string ModelSonnet = "sonnet";
-        private const string ModelClaudeSonnet45 = "claude-sonnet-4-5";
+    private const string ModelGpt56Luna = "gpt-5.6-luna";
+    private const string ModelGpt51 = "gpt-5.1";
+    private const string ModelHaiku = "haiku";
+    private const string ModelSonnet = "sonnet";
+    private const string ModelClaudeSonnet45 = "claude-sonnet-4-5";
 
     private sealed record Entry(string Flag, string Lite, string Normal, string Ultra, string[] Models);
 

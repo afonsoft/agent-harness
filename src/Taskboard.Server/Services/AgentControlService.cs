@@ -30,10 +30,10 @@ public sealed record AgentControlResult(AgentControlStatus Status, object? Paylo
 public sealed class AgentControlService
 {
     private const string SteerMethod = "steer";
-        private const string StagePrefix = "stage:";
-        private const string StateRunning = "running";
-        private const string ErrNoActiveSession = "no-active-session";
-        private const string ErrNoSuchRun = "no-such-run";
+    private const string StagePrefix = "stage:";
+    private const string StateRunning = "running";
+    private const string ErrNoActiveSession = "no-active-session";
+    private const string ErrNoSuchRun = "no-such-run";
 
     private readonly IAgentOrchestrationService _orchestration;
     private readonly ISteerQueue _steer;
