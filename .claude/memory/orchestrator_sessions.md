@@ -114,3 +114,9 @@
 - **#413 log flood**: `Microsoft.EntityFrameworkCore.Database.Command: Warning` em appsettings.json + Production; Development mantém Information.
 - Commit `636ed80` no PR #415; unit 1343/1343.
 - **Lição**: caminhos de remoção "best-effort" precisam do MESMO registro de log que os caminhos explícitos — o incidente só foi diagnosticável pelo journal.
+
+## Sessão 2026-09-30 (cont. 2) — S3776 batch 1 (5/59 sites)
+
+- Sites leves resolvidos: AgentCliArgsTemplate.Split (ConsumeQuoted), SearchBackends.ParseResults (Str helper + LINQ), OpenAiCompatibleClient.GenerateImageAsync (ExtractImagePayloadAsync — prioridade b64/url por item preservada), EfCoreCliMetricsRepository (RecomputeDayAsync), FrontmatterReader (Builder/ApplyLine).
+- Commit `5d7d1e6` no PR #415; unit 1343/1343.
+- **Restante S3776**: 54 sites (16–61 pontos) + Program.cs top-level (350) — sessões dedicadas, um método por vez. Padrão que funcionou: extrair o corpo condicional para método privado com estado em classe privada (Builder) ou helper estático; preservar ordem de early-returns.
