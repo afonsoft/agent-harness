@@ -42,18 +42,30 @@ public sealed class ChatCapabilityRegistry(
 
         if (IsMasterOn(ChatCapabilityKind.Skill))
         {
+            // The same skill installed in several agent dirs arrives once per
+            // source — but `skill:{name}` is a single toggle key, so the
+            // catalog emits one row per id with the origins merged.
             var discovered = await skills.DiscoverAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var skill in discovered.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var group in discovered
+                .GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             {
-                var id = $"skill:{skill.Name}";
+                var first = group.First();
+                var id = $"skill:{first.Name}";
+                var origins = group
+                    .Select(s => s.Source)
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(s => s, StringComparer.Ordinal)
+                    .ToList();
                 list.Add(new ChatCapability(
                     id,
                     ChatCapabilityKind.Skill,
-                    skill.Name,
-                    skill.Description,
+                    first.Name,
+                    first.Description,
                     IsCapabilityEnabled(id),
                     RequiresConfirmation: false,
-                    Origin: skill.Source));
+                    Origin: origins.Count > 0 ? string.Join(", ", origins) : null));
             }
         }
 

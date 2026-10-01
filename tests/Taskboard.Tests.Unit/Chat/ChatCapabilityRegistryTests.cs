@@ -98,6 +98,26 @@ public class ChatCapabilityRegistryTests
     }
 
     [Fact]
+    public async Task Dado_MesmaSkillEmVariasOrigens_Quando_Lista_Entao_RowUnicaComOrigensAgregadas()
+    {
+        var registry = Build(
+            new Dictionary<string, IChatTool>(),
+            skills:
+            [
+                new SkillDto("abp-angular", "d", "claude", "/c/abp-angular"),
+                new SkillDto("abp-angular", "d", "devin", "/d/abp-angular"),
+                new SkillDto("abp-angular", "d", "claude", "/c2/abp-angular"),
+                new SkillDto("graphify", "knowledge", "devin", "/d/graphify"),
+            ]);
+
+        var list = await registry.ListAsync();
+
+        list.GroupBy(c => c.Id).ShouldAllBe(g => g.Count() == 1);
+        list.Single(c => c.Id == "skill:abp-angular").Origin.ShouldBe("claude, devin");
+        list.Count(c => c.Kind == ChatCapabilityKind.Skill).ShouldBe(2);
+    }
+
+    [Fact]
     public async Task Dado_SkillDesabilitada_Quando_Lista_Entao_EnabledFalse()
     {
         var registry = Build(

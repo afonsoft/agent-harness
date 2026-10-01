@@ -10,6 +10,78 @@
 (function () {
     "use strict";
 
+    // The WASM runtime reports unhandled errors via console.error and shows
+    // #blazor-error-ui, but never renders the exception text. Buffer the last
+    // errors so the banner's "Details" link can show what actually failed.
+    var errorLog = [];
+    var MAX_ERROR_LOG = 10;
+
+    function errorText(value) {
+        if (value === null || value === undefined) {
+            return "(null)";
+        }
+        return value.stack || value.message || String(value);
+    }
+
+    function renderErrorLog(panel) {
+        panel.textContent = errorLog.length === 0
+            ? "(no error details captured)"
+            : errorLog.map(function (e) { return "[" + e.at + "] " + e.text; }).join("\n\n");
+    }
+
+    function recordError(value) {
+        var text = errorText(value);
+        var last = errorLog[errorLog.length - 1];
+        if (last && last.text === text) {
+            return; // a renderer fault rethrows per dispatched event — keep one copy
+        }
+        errorLog.push({ at: new Date().toISOString(), text: text });
+        if (errorLog.length > MAX_ERROR_LOG) {
+            errorLog.shift();
+        }
+        var panel = document.querySelector("#blazor-error-ui .error-details");
+        if (panel && !panel.hidden) {
+            renderErrorLog(panel);
+        }
+    }
+
+    var originalConsoleError = console.error.bind(console);
+    console.error = function () {
+        for (var i = 0; i < arguments.length; i++) {
+            recordError(arguments[i]);
+        }
+        return originalConsoleError.apply(null, arguments);
+    };
+
+    window.addEventListener("error", function (event) {
+        recordError(event.error || event.message);
+    });
+    window.addEventListener("unhandledrejection", function (event) {
+        recordError(event.reason);
+    });
+
+    document.addEventListener("click", function (event) {
+        var target = event.target;
+        var toggle = target && target.closest
+            ? target.closest("#blazor-error-ui .error-details-toggle")
+            : null;
+        if (!toggle) {
+            return;
+        }
+        event.preventDefault();
+        var panel = document.querySelector("#blazor-error-ui .error-details");
+        if (!panel) {
+            return;
+        }
+        panel.hidden = !panel.hidden;
+        if (panel.hidden) {
+            toggle.textContent = "Details";
+        } else {
+            renderErrorLog(panel);
+            toggle.textContent = "Hide details";
+        }
+    });
+
     var frameworkSegment = "/_framework/";
     var mimeByExt = { wasm: "application/wasm", json: "application/json", js: "text/javascript" };
 

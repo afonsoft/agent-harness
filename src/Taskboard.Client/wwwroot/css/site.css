@@ -927,6 +927,22 @@ body {
     top: 0.5rem;
 }
 
+#blazor-error-ui .error-details-toggle {
+    margin-left: 0.75rem;
+}
+
+#blazor-error-ui .error-details {
+    background: var(--bs-dark, #212529);
+    color: var(--bs-light, #f8f9fa);
+    font-size: 0.75rem;
+    margin: 0.5rem 0 0;
+    max-height: 40vh;
+    overflow: auto;
+    padding: 0.5rem 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* Terminal page — fills the available height of .app-main */
 .terminal-page {
     display: flex;
