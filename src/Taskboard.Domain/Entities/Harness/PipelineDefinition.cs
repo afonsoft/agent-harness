@@ -23,13 +23,12 @@ public sealed record PipelineDefinition(
         }
 
         var keys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var stage in Stages)
+        var duplicate = Stages.Select(stage => stage.Key)
+            .FirstOrDefault(key => !keys.Add(key));
+        if (duplicate is not null)
         {
-            if (!keys.Add(stage.Key))
-            {
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidPipelineDag, $"Duplicate stage key '{stage.Key}'.");
-            }
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineDag, $"Duplicate stage key '{duplicate}'.");
         }
 
         var indegree = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -38,14 +37,12 @@ public sealed record PipelineDefinition(
         {
             indegree[stage.Key] = stage.DependsOn.Count;
             dependents[stage.Key] = [];
-            foreach (var dep in stage.DependsOn)
+            var unknown = stage.DependsOn.FirstOrDefault(dep => !keys.Contains(dep));
+            if (unknown is not null)
             {
-                if (!keys.Contains(dep))
-                {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.InvalidPipelineDag,
-                        $"Stage '{stage.Key}' depends on unknown stage '{dep}'.");
-                }
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidPipelineDag,
+                    $"Stage '{stage.Key}' depends on unknown stage '{unknown}'.");
             }
         }
 

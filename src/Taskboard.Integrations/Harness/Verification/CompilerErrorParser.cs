@@ -18,16 +18,14 @@ public static partial class CompilerErrorParser
             return [];
         }
 
-        var errors = new List<CompilationErrorDto>();
-        foreach (Match match in DiagnosticLineRegex().Matches(buildOutput))
-        {
-            errors.Add(new CompilationErrorDto(
+        var errors = DiagnosticLineRegex().Matches(buildOutput)
+            .Select(match => new CompilationErrorDto(
                 match.Groups["file"].Value,
                 int.Parse(match.Groups["line"].Value),
                 int.Parse(match.Groups["col"].Value),
                 match.Groups["code"].Value,
-                match.Groups["msg"].Value.Trim()));
-        }
+                match.Groups["msg"].Value.Trim()))
+            .ToList();
 
         return errors;
     }

@@ -34,17 +34,9 @@ public static class AgentModelListParser
 
     public static IReadOnlyList<string> Parse(AgentModelListFormat format, string output)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<string>();
-        foreach (var id in Enumerate(format, output))
-        {
-            if (seen.Add(id))
-            {
-                result.Add(id);
-            }
-        }
-
-        return result;
+        return Enumerate(format, output)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static IEnumerable<string> Enumerate(AgentModelListFormat format, string output) =>
@@ -100,12 +92,10 @@ public static class AgentModelListParser
                 if (trimmed.StartsWith("aliases:", StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (var alias in trimmed["aliases:".Length..]
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Where(IsId))
                     {
-                        if (IsId(alias))
-                        {
-                            yield return alias;
-                        }
+                        yield return alias;
                     }
                 }
                 else

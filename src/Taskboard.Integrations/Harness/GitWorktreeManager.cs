@@ -125,13 +125,7 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         var perFile = ParseNumstatPerFile(numstat.StandardOutput);
         var files = ParseNameStatus(nameStatus.StandardOutput);
         var known = new HashSet<string>(files.Select(f => f.Path), StringComparer.Ordinal);
-        foreach (var f in ParseStatus(status.StandardOutput))
-        {
-            if (known.Add(f.Path))
-            {
-                files.Add(f);
-            }
-        }
+        files.AddRange(ParseStatus(status.StandardOutput).Where(f => known.Add(f.Path)));
 
         files = files
             .Select(f => perFile.TryGetValue(f.Path, out var counts)

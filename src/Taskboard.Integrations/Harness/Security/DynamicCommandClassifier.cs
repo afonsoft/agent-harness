@@ -211,14 +211,12 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             return new(SecurityRiskLevel.Dangerous, "rm sem alvo — fail-closed.");
         }
 
-        foreach (var target in targets)
+        var outside = targets.FirstOrDefault(target => !TryResolveInsideJail(target, worktreePath));
+        if (outside is not null)
         {
-            if (!TryResolveInsideJail(target, worktreePath))
-            {
-                return new(SecurityRiskLevel.Dangerous,
-                    $"Alvo '{target}' fora ou irresolúvel no worktree — deleção negada.",
-                    EscapesSandbox: true);
-            }
+            return new(SecurityRiskLevel.Dangerous,
+                $"Alvo '{outside}' fora ou irresolúvel no worktree — deleção negada.",
+                EscapesSandbox: true);
         }
 
         return new(SecurityRiskLevel.WorkspaceWrite,

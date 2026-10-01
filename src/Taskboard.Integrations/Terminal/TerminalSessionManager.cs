@@ -182,12 +182,9 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             return null;
         }
 
-        foreach (var c in requested)
+        if (requested.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_' and not ':'))
         {
-            if (!char.IsLetterOrDigit(c) && c is not '-' and not '_' and not ':')
-            {
-                return null;
-            }
+            return null;
         }
 
         return requested;

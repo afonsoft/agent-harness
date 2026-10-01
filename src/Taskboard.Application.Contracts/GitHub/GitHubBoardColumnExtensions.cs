@@ -123,15 +123,9 @@ public static class GitHubBoardColumnExtensions
     /// </summary>
     public static string? NormalizePriority(string? value)
     {
-        foreach (var priority in SelectablePriorities)
-        {
-            if (string.Equals(priority, value?.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                return priority;
-            }
-        }
-
-        return null;
+        var trimmed = value?.Trim();
+        return SelectablePriorities.FirstOrDefault(priority =>
+            string.Equals(priority, trimmed, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -140,15 +134,10 @@ public static class GitHubBoardColumnExtensions
     /// </summary>
     public static string? ToPriorityLabel(string priority)
     {
-        foreach (var pair in PriorityMap)
-        {
-            if (string.Equals(pair.Value, priority, StringComparison.OrdinalIgnoreCase))
-            {
-                return pair.Key;
-            }
-        }
-
-        return null;
+        return PriorityMap
+            .Where(pair => string.Equals(pair.Value, priority, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Key)
+            .FirstOrDefault();
     }
 
     /// <summary>Indica se a label é uma label de prioridade (<c>priority:*</c>).</summary>

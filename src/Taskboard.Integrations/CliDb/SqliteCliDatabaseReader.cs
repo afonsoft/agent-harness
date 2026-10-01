@@ -179,12 +179,10 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             CancellationToken cancellationToken = default)
         {
             ValidateTable(table);
-            foreach (var col in columns)
+            var invalidColumn = columns.FirstOrDefault(col => !IdentifierPattern.IsMatch(col));
+            if (invalidColumn is not null)
             {
-                if (!IdentifierPattern.IsMatch(col))
-                {
-                    throw new CliDbAccessDeniedException($"Invalid column identifier: {col}");
-                }
+                throw new CliDbAccessDeniedException($"Invalid column identifier: {invalidColumn}");
             }
 
             // Secret-named columns are excluded even when an extractor lists them (RF-004).

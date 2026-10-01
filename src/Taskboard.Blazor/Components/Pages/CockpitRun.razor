@@ -246,13 +246,8 @@
             try
             {
                 var replay = await Client.GetRunEventsAsync(RunId);
-                foreach (var evt in replay)
-                {
-                    if (!_events.Any(e => e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title))
-                    {
-                        _events.Add(evt);
-                    }
-                }
+                _events.AddRange(replay.Where(evt => !_events.Any(e =>
+                    e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title)));
                 _events.Sort((a, b) => a.TimestampUtc.CompareTo(b.TimestampUtc));
                 _details = await Client.GetRunAsync(RunId);
                 await InvokeAsync(StateHasChanged);
