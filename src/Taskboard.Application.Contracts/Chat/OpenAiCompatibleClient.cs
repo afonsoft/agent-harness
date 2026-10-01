@@ -254,57 +254,8 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
 
     private static OpenAiStreamEvent? ParseChunk(JsonElement chunk)
     {
-        string? content = null;
-        List<OpenAiToolCallDelta>? toolDeltas = null;
-        OpenAiUsage? usage = null;
-        string? finish = null;
-
-        if (chunk.TryGetProperty("usage", out var usageEl) && usageEl.ValueKind == JsonValueKind.Object)
-        {
-            usage = new OpenAiUsage(
-                usageEl.TryGetProperty("prompt_tokens", out var p) && p.TryGetInt32(out var pi) ? pi : null,
-                usageEl.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var cv) ? cv : null);
-        }
-
-        if (chunk.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var choice in choices.EnumerateArray())
-            {
-                if (choice.TryGetProperty("finish_reason", out var fr) && fr.ValueKind == JsonValueKind.String)
-                {
-                    finish = fr.GetString();
-                }
-
-                if (!choice.TryGetProperty("delta", out var delta) || delta.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                if (delta.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String)
-                {
-                    content = contentEl.GetString();
-                }
-
-                if (delta.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array)
-                {
-                    toolDeltas ??= [];
-                    foreach (var tc in tcs.EnumerateArray())
-                    {
-                        var index = tc.TryGetProperty("index", out var idx) && idx.TryGetInt32(out var i) ? i : 0;
-                        string? id = tc.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
-                        string? name = null;
-                        string? args = null;
-                        if (tc.TryGetProperty(ToolTypeFunction, out var fn) && fn.ValueKind == JsonValueKind.Object)
-                        {
-                            name = fn.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                            args = fn.TryGetProperty("arguments", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
-                        }
-
-                        toolDeltas.Add(new OpenAiToolCallDelta(index, id, name, args));
-                    }
-                }
-            }
-        }
+        var usage = ParseUsage(chunk);
+        var (content, toolDeltas, finish) = ParseChoices(chunk);
 
         if (content is null && toolDeltas is null && usage is null && finish is null)
         {
@@ -312,6 +263,81 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
         }
 
         return new OpenAiStreamEvent(content, toolDeltas, usage, finish);
+    }
+
+    private static OpenAiUsage? ParseUsage(JsonElement chunk)
+    {
+        if (!chunk.TryGetProperty("usage", out var usageEl) || usageEl.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return new OpenAiUsage(
+            usageEl.TryGetProperty("prompt_tokens", out var p) && p.TryGetInt32(out var pi) ? pi : null,
+            usageEl.TryGetProperty("completion_tokens", out var c) && c.TryGetInt32(out var cv) ? cv : null);
+    }
+
+    private static (string? Content, List<OpenAiToolCallDelta>? ToolDeltas, string? Finish) ParseChoices(JsonElement chunk)
+    {
+        if (!chunk.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array)
+        {
+            return (null, null, null);
+        }
+
+        string? content = null;
+        List<OpenAiToolCallDelta>? toolDeltas = null;
+        string? finish = null;
+        foreach (var choice in choices.EnumerateArray())
+        {
+            if (choice.TryGetProperty("finish_reason", out var fr) && fr.ValueKind == JsonValueKind.String)
+            {
+                finish = fr.GetString();
+            }
+
+            if (!choice.TryGetProperty("delta", out var delta) || delta.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            if (delta.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String)
+            {
+                content = contentEl.GetString();
+            }
+
+            if (delta.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array)
+            {
+                toolDeltas = ParseToolCallDeltas(tcs, toolDeltas);
+            }
+        }
+
+        return (content, toolDeltas, finish);
+    }
+
+    private static List<OpenAiToolCallDelta> ParseToolCallDeltas(
+        JsonElement toolCalls, List<OpenAiToolCallDelta>? existing)
+    {
+        var deltas = existing ?? [];
+        foreach (var tc in toolCalls.EnumerateArray())
+        {
+            deltas.Add(ParseToolCallDelta(tc));
+        }
+
+        return deltas;
+    }
+
+    private static OpenAiToolCallDelta ParseToolCallDelta(JsonElement tc)
+    {
+        var index = tc.TryGetProperty("index", out var idx) && idx.TryGetInt32(out var i) ? i : 0;
+        var id = tc.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
+        string? name = null;
+        string? args = null;
+        if (tc.TryGetProperty(ToolTypeFunction, out var fn) && fn.ValueKind == JsonValueKind.Object)
+        {
+            name = fn.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            args = fn.TryGetProperty("arguments", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+        }
+
+        return new OpenAiToolCallDelta(index, id, name, args);
     }
 
     private static void AddAuth(HttpRequestMessage request, string apiKey)
