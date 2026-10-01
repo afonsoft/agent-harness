@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-reduce-cognitive-complexity` |
 | Ticket | SonarQube rule `csharpsquid:S3776` (59 issue(s)) |
-| Status | Approved |
+| Status | Done |
 | Sonar type | CODE_SMELL |
 | Severities | {'CRITICAL': 59} |
 | Estimated effort | ~354 min |
@@ -169,11 +169,11 @@ N/A — internal code quality fix; no public contract change expected.
 
 ## 7. Task Plan (agent execution)
 
-- [ ] **T1 — Discovery:** read each file+line in section 3 and understand local patterns.
-- [ ] **T2 — Tests:** add/adjust tests covering each changed line (xUnit; `Dado_Quando_Entao` naming).
-- [ ] **T3 — Implementation:** apply the per-rule fix at each location.
-- [ ] **T4 — Validation:** `dotnet build` (warnings as errors) + `dotnet test`; run `dotnet format` if touched.
-- [ ] **T5 — Done + PR:** set Status = Done, open PR to `develop` on `feature/devin-20260930-sonar-reduce-cognitive-complexity`.
+- [x] **T1 — Discovery:** read each file+line in section 3 and understand local patterns.
+- [x] **T2 — Tests:** add/adjust tests covering each changed line (xUnit; `Dado_Quando_Entao` naming).
+- [x] **T3 — Implementation:** apply the per-rule fix at each location.
+- [x] **T4 — Validation:** `dotnet build` (warnings as errors) + `dotnet test`; run `dotnet format` if touched.
+- [x] **T5 — Done + PR:** set Status = Done, open PR to `develop` on `feature/devin-20260930-sonar-reduce-cognitive-complexity`.
 
 ## 8. Organization Guardrails
 
