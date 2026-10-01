@@ -125,7 +125,12 @@ public sealed record ChatCapability(
     string? Origin);           // servidor MCP / fonte de skill / null
 ```
 
-`Id` é estável e usado na persistência do toggle.
+`Id` é estável e usado na persistência do toggle. O catálogo emite
+**uma linha por `Id`**: a mesma skill instalada em múltiplos agentes
+(claude, devin, cursor, ...) é deduplicada por nome (case-insensitive) e
+suas origens são agregadas em `Origin` (lista ordenada separada por
+`, `). Ids duplicados quebram o renderer do Blazor (`@key` repetido em
+`<tr>` → `InvalidOperationException` no diff).
 
 ### FR-002: Persistência dos toggles
 
@@ -205,6 +210,9 @@ Config endpoints ──► IChatCapabilityRegistry
 - Skills desabilitadas não aparecem como tools nem no slash palette.
 - `Disabled` com JSON inválido → validação rejeita no save.
 - Todas as capabilities off → provider recebe `tools: null`.
+- Skill instalada em N agentes → uma única linha `skill:{name}` com
+  `Origin` agregado ("claude, devin"); toggle vale para todas as
+  instalações (o `Id` é o nome lógico).
 
 ---
 
@@ -221,6 +229,7 @@ Config endpoints ──► IChatCapabilityRegistry
 - `Dado_MasterToolsOff_Quando_Resolve_Entao_SemTools`
 - `Dado_DisabledJsonInvalido_Quando_Valida_Entao_Rejeita`
 - `Dado_Catalogo_Quando_Get_Entao_AgrupaPorKindComOrigem`
+- `Dado_MesmaSkillEmVariasOrigens_Quando_Lista_Entao_RowUnicaComOrigensAgregadas`
 
 ---
 
