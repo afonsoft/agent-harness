@@ -147,6 +147,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
             // Optional estimation surface — a missing/drifted table must not
             // blank the sessions extraction.
             _logger.LogWarning(
+                ex,
                 "{Kind} rollup on {Table} skipped ({Message}); sessions keep null tokens.",
                 Kind, table, ex.Message);
             return null;
@@ -213,13 +214,13 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
                 }
                 catch (CliDbAccessDeniedException ex)
                 {
-                    _logger.LogWarning("CliDb access denied on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+                    _logger.LogWarning(ex, "CliDb access denied on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
                     reasons.Add($"{source.Name}: {ex.Message}");
                     sawError = true;
                 }
                 catch (CliDbReadException ex)
                 {
-                    _logger.LogWarning("CliDb read failed on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+                    _logger.LogWarning(ex, "CliDb read failed on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
                     reasons.Add($"{source.Name}: {ex.Message}");
                     sawError = true;
                 }

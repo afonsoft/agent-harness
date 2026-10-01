@@ -292,6 +292,7 @@
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         var token = _refreshCts.Token;
@@ -305,6 +306,7 @@
             }
             catch (OperationCanceledException)
             {
+                // Cancellation is the expected shutdown path — nothing to clean up.
             }
             catch (Exception ex)
             {
@@ -481,6 +483,7 @@
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         if (_hub is not null)

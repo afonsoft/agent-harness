@@ -6,6 +6,7 @@ using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using Taskboard.Application.Contracts.Specs;
 using Taskboard.Specs;
+using System.Globalization;
 
 namespace Taskboard.Integrations.Specs;
 
@@ -33,7 +34,7 @@ public sealed partial class MarkdigSpecParser : ISpecDocumentParser
             ?? Path.GetFileNameWithoutExtension(filePath);
         var rawStatus = GetMeta(metadata, "status");
         var status = NormalizeStatus(rawStatus, warnings);
-        var date = DateOnly.TryParse(GetMeta(metadata, "date"), out var d) ? d : (DateOnly?)null;
+        var date = DateOnly.TryParse(GetMeta(metadata, "date"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : (DateOnly?)null;
 
         var requirements = new List<SpecRequirement>();
         var criteria = new List<string>();
@@ -314,7 +315,7 @@ public sealed partial class MarkdigSpecParser : ISpecDocumentParser
     }
 
     private static bool LooksLikePath(string token) =>
-        token.StartsWith('[') is false && token.Contains('/') && !token.StartsWith("http");
+        !token.StartsWith('[') && token.Contains('/') && !token.StartsWith("http");
 
     private static string? FirstHeadingText(List<Block> blocks, int level) =>
         blocks.OfType<HeadingBlock>().FirstOrDefault(h => h.Level == level) is { } h

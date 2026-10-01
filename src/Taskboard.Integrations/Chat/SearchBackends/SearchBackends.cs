@@ -40,6 +40,9 @@ public sealed class SearxNgSearchBackend(HttpClient http, string baseUrl) : ISea
 /// <summary>Tavily API (key required) — <c>POST https://api.tavily.com/search</c> (RF-007).</summary>
 public sealed class TavilySearchBackend(HttpClient http, string apiKey) : ISearchBackend
 {
+    // Fixed API endpoint (S1075) — Tavily's documented endpoint.
+    internal const string TavilyApiUrl = "https://api.tavily.com/search";
+
     public async Task<IReadOnlyList<ChatSearchResult>> SearchAsync(
         string query, int maxResults, CancellationToken cancellationToken)
     {
@@ -49,7 +52,7 @@ public sealed class TavilySearchBackend(HttpClient http, string apiKey) : ISearc
             ["query"] = query,
             ["max_results"] = maxResults,
         };
-        using var response = await http.PostAsJsonAsync("https://api.tavily.com/search", payload, cancellationToken)
+        using var response = await http.PostAsJsonAsync(TavilyApiUrl, payload, cancellationToken)
             .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken)

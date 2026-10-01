@@ -53,6 +53,7 @@ public static class ProblemDetailReader
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         return null;

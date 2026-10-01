@@ -87,7 +87,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         var homeDir = Path.Combine(dataDir, "home");
         Directory.CreateDirectory(homeDir);
         builder.UseSetting("Taskboard:HomeDir", homeDir);
-        // Assistant runs keep the MockLLMProvider echo path in tests —
+        // Assistant runs keep the MockLlmProvider echo path in tests —
         // the real CLI backend (SPEC-20260921-ai-chat-cli-backend) is covered
         // by unit tests; integration tests must never spawn agent processes.
         builder.UseSetting("Taskboard:AiChat:MockProvider", "true");
@@ -281,7 +281,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     {
         private static string BinaryFor(AgentType type)
             => AgentCliMap.CliKindFor(type) is { } kind
-                ? AgentCliMap.All.First(kv => kv.Key == kind).Value.Binary
+                ? AgentCliMap.AllSpecs().First(kv => kv.Key == kind).Value.Binary
                 : type.ToString().ToLowerInvariant();
 
         public Task<IReadOnlyList<AgentInfo>> DiscoverAsync(CancellationToken cancellationToken = default) =>
@@ -306,7 +306,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     private sealed class FakeAgentCliStatusService : IAgentCliStatusService
     {
         public Task<IReadOnlyList<AgentCliStatus>> GetStatusAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<AgentCliStatus>>(AgentCliMap.All
+            Task.FromResult<IReadOnlyList<AgentCliStatus>>(AgentCliMap.AllSpecs()
                 .Select(kv => new AgentCliStatus(
                     kv.Key,
                     kv.Value.DisplayName,

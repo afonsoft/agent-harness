@@ -135,7 +135,7 @@
 
     private void UpdateTitle(string uri)
     {
-        var path = Nav.ToBaseRelativePath(uri).Split('?', '#')[0].TrimEnd('/');
+        var path = Nav.ToBaseRelativePath(uri).Split(['?', '#'])[0].TrimEnd('/');
         _pageTitle = PageTitles
             .FirstOrDefault(p => path.StartsWith(p.Prefix, StringComparison.OrdinalIgnoreCase))
             .Title ?? "Board";

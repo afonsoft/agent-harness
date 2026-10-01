@@ -103,9 +103,10 @@ var builder = WebApplication.CreateBuilder(args);
 var harnessEnvOverrides = Environment.GetEnvironmentVariables()
     .Cast<System.Collections.DictionaryEntry>()
     .Where(e => e.Key is string k && k.StartsWith("HARNESS__", StringComparison.Ordinal))
-    .ToDictionary(
-        e => "Taskboard:" + ((string)e.Key)["HARNESS__".Length..].Replace("__", ":", StringComparison.Ordinal),
-        e => (string?)e.Value?.ToString());
+    .Select(e => (
+        Key: "Taskboard:" + e.Key.ToString()!["HARNESS__".Length..].Replace("__", ":", StringComparison.Ordinal),
+        Value: (string?)e.Value?.ToString()))
+    .ToDictionary(kv => kv.Key, kv => kv.Value);
 if (harnessEnvOverrides.Count > 0)
 {
     builder.Configuration.AddInMemoryCollection(harnessEnvOverrides);
@@ -157,7 +158,7 @@ builder.Services.AddSingleton<IExecutableResolver, CodexExecutableResolver>();
 builder.Services.AddSingleton<IProcessTreeSignaler, ProcessTreeSignaler>();
 
 // AI Chat services
-builder.Services.AddSingleton<ILLMProvider, MockLLMProvider>();
+builder.Services.AddSingleton<ILlmProvider, MockLlmProvider>();
 builder.Services.AddScoped<AiChatService>();
 
 builder.Services.AddHttpClient<JiraService>();
@@ -787,7 +788,7 @@ builder.Services.AddSingleton<ITaskboardApiClient>(sp =>
     new TaskboardApiClient(
         HarnessEnv.Get("HARNESS_URL")
         ?? builder.Configuration["Taskboard:BaseUrl"]
-        ?? "http://127.0.0.1:47823",
+        ?? DefaultHarnessBaseUrl,
         sp.GetRequiredService<IConfiguration>()["Taskboard:ApiKey"]));
 
 builder.Services
@@ -1219,14 +1220,22 @@ specs.MapGet("drift-report", async Task<IResult> (
         ISpecDriftDetector detector,
         SpecDriftReportCache driftCache,
         CancellationToken ct) =>
+{
     // Sem ?repo= serve o cache do scan horário (SPEC-20260920-harness-maintenance-jobs
     // RF-003) com fallback ao scan ao vivo antes do primeiro tick; com ?repo= faz o
     // scan live no clone selecionado (SPEC-20260920-global-repo-selector RF-005).
-    !IsRepoShapeValid(repo)
-        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
-        : Results.Ok(repo is null
-            ? driftCache.Last ?? await detector.BuildReportAsync(null, ct)
-            : await detector.BuildReportAsync(repo, ct)));
+    if (!IsRepoShapeValid(repo))
+    {
+        return Results.BadRequest(new { error = "repo must have the 'owner/name' shape." });
+    }
+
+    if (repo is not null)
+    {
+        return Results.Ok(await detector.BuildReportAsync(repo, ct));
+    }
+
+    return Results.Ok(driftCache.Last ?? await detector.BuildReportAsync(null, ct));
+});
 specs.MapGet("{id}", async Task<IResult> (
         string id,
         string? repo,
@@ -3100,6 +3109,7 @@ static string ExtractOutputLine(AgentExecutionEvent e)
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
     }
 
@@ -3121,8 +3131,15 @@ static string ExtractBufferedOutput(CockpitEventDto e)
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
     }
 
     return e.Title;
+}
+
+public partial class Program
+{
+    // Fixed loopback default (S1075) — overridable via HARNESS_URL / Taskboard:BaseUrl.
+    internal const string DefaultHarnessBaseUrl = "http://127.0.0.1:47823";
 }

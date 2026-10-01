@@ -5,6 +5,7 @@ using Taskboard.CliMetrics;
 using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore.Data;
+using System.Globalization;
 
 namespace Taskboard.EntityFrameworkCore.CliMetrics;
 
@@ -137,7 +138,7 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
     {
         foreach (var day in days)
         {
-            if (!DateTime.TryParse(day, out var dayStart))
+            if (!DateTime.TryParse(day, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var dayStart))
             {
                 continue;
             }
@@ -230,8 +231,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
 
         static CliMetricsTotalsDto Totals(IReadOnlyCollection<UsageRow> xs) => new(
             xs.Count,
-            xs.Sum(x => (long)(x.MessageCount ?? 0)),
-            xs.Sum(x => (long)((x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0))),
+            xs.Sum(x => x.MessageCount ?? 0L),
+            xs.Sum(x => (x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0)),
             xs.Count > 0 ? xs.Max(x => x.StartedAtUtc) : null);
 
         var totals = Totals(rows);
@@ -242,8 +243,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
             .GroupBy(r => r.StartedAtUtc.ToString("yyyy-MM-dd"))
             .OrderBy(g => g.Key)
             .Select(g => new CliDayUsageDto(g.Key, g.Count(),
-                g.Sum(x => (long)(x.MessageCount ?? 0)),
-                g.Sum(x => (long)((x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0)))))
+                g.Sum(x => x.MessageCount ?? 0L),
+                g.Sum(x => (x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0))))
             .ToList();
 
         return new CliMetricsSummaryDto(period ?? "30d", totals, byKind, byDay);

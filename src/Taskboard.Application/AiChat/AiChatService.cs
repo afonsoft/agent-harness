@@ -22,7 +22,7 @@ public sealed class AiChatService
     private readonly IRepository<AiChatThread> _threadRepo;
     private readonly IRepository<AiChatRun> _runRepo;
     private readonly IRepository<AiChatEvent> _eventRepo;
-    private readonly ILLMProvider _llmProvider;
+    private readonly ILlmProvider _llmProvider;
     private readonly IThreadEventStreamService _threadEvents;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IAgentEligibilityService _eligibility;
@@ -40,7 +40,7 @@ public sealed class AiChatService
         IRepository<AiChatThread> threadRepo,
         IRepository<AiChatRun> runRepo,
         IRepository<AiChatEvent> eventRepo,
-        ILLMProvider llmProvider,
+        ILlmProvider llmProvider,
         IThreadEventStreamService threadEvents,
         IServiceScopeFactory serviceScopeFactory,
         IAgentEligibilityService eligibility,
@@ -78,6 +78,9 @@ public sealed class AiChatService
     /// that container — never against the host PATH. A container not seen by
     /// discovery (stopped, unknown name) fails closed.
     /// </summary>
+    private static string? ResolveOpenHandsBinary(AgentType agentType) =>
+        agentType == AgentType.OpenHands ? "openhands" : null;
+
     private async Task EnsureContainerCliAsync(string containerContext, AgentType agentType, CancellationToken ct)
     {
         var containers = await _containerDiscovery.ListContainersAsync(ct).ConfigureAwait(false);
@@ -92,7 +95,7 @@ public sealed class AiChatService
 
         var binary = AgentCliMap.CliKindFor(agentType) is { } kind
             ? AgentCliMap.GetSpec(kind)?.Binary
-            : agentType == AgentType.OpenHands ? "openhands" : null;
+            : ResolveOpenHandsBinary(agentType);
         if (binary is null || !container.AvailableClis.Contains(binary, StringComparer.Ordinal))
         {
             throw new DomainException(
@@ -216,9 +219,9 @@ public sealed class AiChatService
         }
 
         // SPEC-20260921-ai-code-thread-config RF-004: modelo explícito vence;
-        // vazio + tier → resolução via config service (override ?? curated);
-        // ambos vazios → CLI default. RF-006: a origem do modelo efetivo é
-        // auditada em ModelSource.
+        // vazio + tier → resolução via config service (override tem precedência
+        // sobre curated); ambos vazios → CLI default. RF-006: a origem do
+        // modelo efetivo é auditada em ModelSource.
         AgentModelTier? tier = null;
         if (!string.IsNullOrWhiteSpace(request.ModelTier))
         {
@@ -251,9 +254,16 @@ public sealed class AiChatService
                 _ => config.Normal,
             };
             modelName = string.IsNullOrWhiteSpace(resolved) ? "default" : resolved;
-            modelSource = string.IsNullOrWhiteSpace(resolved)
-                ? null
-                : string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase) ? "custom" : "curated";
+            if (string.IsNullOrWhiteSpace(resolved))
+            {
+                modelSource = null;
+            }
+            else
+            {
+                modelSource = string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase)
+                    ? "custom"
+                    : "curated";
+            }
         }
         else
         {
@@ -512,14 +522,14 @@ public sealed class AiChatService
             }
             else
             {
-                var messages = new List<LLMMessage>
+                var messages = new List<LlmMessage>
                 {
                     new("system", $"You are an AI assistant in sandbox mode: {thread.Sandbox.Value}.")
                 };
 
                 foreach (var ev in events)
                 {
-                    messages.Add(new LLMMessage(
+                    messages.Add(new LlmMessage(
                         ev.Role.Value switch
                         {
                             "user" => "user",

@@ -854,6 +854,7 @@ public sealed class TaskboardClient
         }
         catch (Exception)
         {
+            // Best-effort — failure here is non-fatal.
         }
 
         return ProblemDetailReader.TryRead(body)

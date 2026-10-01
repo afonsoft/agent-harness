@@ -35,9 +35,16 @@ public sealed record ToolCallRenderModel(
     /// </summary>
     public static ToolCallRenderModel Generic(string name, string? arguments, string? status, string? output)
     {
-        var combined = arguments is { Length: > 0 }
-            ? output is { Length: > 0 } ? $"{arguments}\n{output}" : arguments
-            : output;
+        string? combined;
+        if (arguments is { Length: > 0 })
+        {
+            combined = output is { Length: > 0 } ? $"{arguments}\n{output}" : arguments;
+        }
+        else
+        {
+            combined = output;
+        }
+
         return new ToolCallRenderModel(null, name, "other", status ?? "running", null, null, null, combined, null, 0, 0);
     }
 }
@@ -82,13 +89,77 @@ public static class ToolCallRender
         public int? ExitCode;
         public bool SawTerminal;
 
+        private string NormalizeKind()
+        {
+            var kind = RawKind?.ToLowerInvariant();
+            if (kind is "edit" or "write" or "delete" or "move")
+            {
+                return "edit";
+            }
+
+            if (kind is "execute" or "terminal")
+            {
+                return "execute";
+            }
+
+            if (kind is "read")
+            {
+                return "read";
+            }
+
+            // Kind missing — infer from payload shape.
+            if (kind is null)
+            {
+                if (OldText is not null || NewText is not null)
+                {
+                    return "edit";
+                }
+
+                if (SawTerminal || ExitCode is not null)
+                {
+                    return "execute";
+                }
+            }
+
+            return "other";
+        }
+
         public ToolCallRenderModel ToModel()
         {
-            var kind = NormalizeKind(this);
-            var (added, removed) = DiffCounts(OldText, NewText);
+            var kind = NormalizeKind();
+            var (added, removed) = DiffCounts();
             return new ToolCallRenderModel(
                 ToolCallId, Title, kind, Status, Path, OldText, NewText, Output, ExitCode,
                 added, removed);
+        }
+
+        private (int Added, int Removed) DiffCounts()
+        {
+            var oldLines = SplitLines(OldText);
+            var newLines = SplitLines(NewText);
+            if (oldLines.Length == 0 && newLines.Length == 0)
+            {
+                return (0, 0);
+            }
+
+            // Prefix/suffix trim: the differing "middle" lines are the +a/-d count.
+            var prefix = 0;
+            var max = Math.Min(oldLines.Length, newLines.Length);
+            while (prefix < max && oldLines[prefix] == newLines[prefix])
+            {
+                prefix++;
+            }
+
+            var suffix = 0;
+            while (suffix < max - prefix
+                && oldLines[oldLines.Length - 1 - suffix] == newLines[newLines.Length - 1 - suffix])
+            {
+                suffix++;
+            }
+
+            var removed = oldLines.Length - prefix - suffix;
+            var added = newLines.Length - prefix - suffix;
+            return (added, removed);
         }
     }
 
@@ -179,67 +250,7 @@ public static class ToolCallRender
         }
     }
 
-    private static string NormalizeKind(Accumulator acc)
-    {
-        var kind = acc.RawKind?.ToLowerInvariant();
-        if (kind is "edit" or "write" or "delete" or "move")
-        {
-            return "edit";
-        }
 
-        if (kind is "execute" or "terminal")
-        {
-            return "execute";
-        }
-
-        if (kind is "read")
-        {
-            return "read";
-        }
-
-        // Kind missing — infer from payload shape.
-        if (kind is null)
-        {
-            if (acc.OldText is not null || acc.NewText is not null)
-            {
-                return "edit";
-            }
-
-            if (acc.SawTerminal || acc.ExitCode is not null)
-            {
-                return "execute";
-            }
-        }
-
-        return "other";
-    }
-
-    private static (int Added, int Removed) DiffCounts(string? oldText, string? newText)
-    {
-        var oldLines = SplitLines(oldText);
-        var newLines = SplitLines(newText);
-        if (oldLines.Length == 0 && newLines.Length == 0)
-        {
-            return (0, 0);
-        }
-
-        // Prefix/suffix trim: the differing "middle" lines are the +a/-d count.
-        var prefix = 0;
-        var max = Math.Min(oldLines.Length, newLines.Length);
-        while (prefix < max && oldLines[prefix] == newLines[prefix])
-        {
-            prefix++;
-        }
-
-        var suffix = 0;
-        while (suffix < max - prefix
-            && oldLines[oldLines.Length - 1 - suffix] == newLines[newLines.Length - 1 - suffix])
-        {
-            suffix++;
-        }
-
-        return (newLines.Length - prefix - suffix, oldLines.Length - prefix - suffix);
-    }
 
     private static string[] SplitLines(string? text) =>
         string.IsNullOrEmpty(text) ? [] : text.Split('\n');

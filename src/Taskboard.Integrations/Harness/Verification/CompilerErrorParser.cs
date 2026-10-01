@@ -9,7 +9,7 @@ namespace Taskboard.Integrations.Harness.Verification;
 /// With <c>TreatWarningsAsErrors</c> warnings are also failures, so both are
 /// captured.
 /// </summary>
-public sealed partial class CompilerErrorParser
+public static partial class CompilerErrorParser
 {
     public static IReadOnlyList<CompilationErrorDto> Parse(string buildOutput)
     {

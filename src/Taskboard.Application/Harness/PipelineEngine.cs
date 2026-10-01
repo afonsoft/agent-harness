@@ -98,6 +98,7 @@ public sealed class PipelineEngine
             }
             catch (OperationCanceledException)
             {
+                // Cancellation is the expected shutdown path — nothing to clean up.
             }
         }
     }
@@ -151,7 +152,7 @@ public sealed class PipelineEngine
             // rotation, then terminal Failed.
             if (_autoRetry.Enabled && exec.Status is PipelineStatus.AwaitingRetry)
             {
-                await SweepAutoRetriesAsync(exec, eligibleAgents, cancellationToken).ConfigureAwait(false);
+                await SweepAutoRetriesAsync(exec, eligibleAgents).ConfigureAwait(false);
                 await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 if (exec.Status is PipelineStatus.Failed)
                 {
@@ -240,8 +241,7 @@ public sealed class PipelineEngine
     /// </summary>
     private async Task SweepAutoRetriesAsync(
         PipelineExecution exec,
-        IReadOnlySet<AgentType>? eligible,
-        CancellationToken cancellationToken)
+        IReadOnlySet<AgentType>? eligible)
     {
         var now = DateTime.UtcNow;
         foreach (var stage in exec.Stages.Where(s => s.Status is StageStatus.Failed).ToList())
@@ -440,6 +440,7 @@ public sealed class PipelineEngine
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
         catch (Exception ex)
         {

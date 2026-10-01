@@ -97,7 +97,7 @@ public sealed class DotNetVerificationEngine : IVerificationEngine
             true, nameof(VerificationStatus.Passed), [], summary, coverage ?? 0.0, null);
     }
 
-    private TestSummaryDto? ParseNewestTrx(string worktreePath)
+    private static TestSummaryDto? ParseNewestTrx(string worktreePath)
     {
         var trx = NewestFile(worktreePath, "results.trx");
         return trx is null ? null : TestFailureParser.Parse(File.ReadAllText(trx));

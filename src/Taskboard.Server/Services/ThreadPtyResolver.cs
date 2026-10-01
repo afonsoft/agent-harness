@@ -48,11 +48,19 @@ public sealed class ThreadPtyResolver(
         // Same workdir rule as AgentSessionManager.EnsureSessionAsync
         // (SPEC-20260929-pty-session-security RF-006): explicit workspace →
         // repo card dir → workspace root — never the bare user profile.
-        var workdir = !string.IsNullOrWhiteSpace(thread.WorkspacePath)
-            ? thread.WorkspacePath
-            : !string.IsNullOrWhiteSpace(thread.RepositoryFullName)
-                ? workspace.ResolveCardWorkdir(thread.RepositoryFullName, out _)
-                : workspace.EnsureRoot();
+        string workdir;
+        if (!string.IsNullOrWhiteSpace(thread.WorkspacePath))
+        {
+            workdir = thread.WorkspacePath;
+        }
+        else if (!string.IsNullOrWhiteSpace(thread.RepositoryFullName))
+        {
+            workdir = workspace.ResolveCardWorkdir(thread.RepositoryFullName, out _);
+        }
+        else
+        {
+            workdir = workspace.EnsureRoot();
+        }
 
         // Command: custom definition or builtin binary.
         List<string> argv;

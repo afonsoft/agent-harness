@@ -430,14 +430,14 @@
         optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
         || optionId.Contains("reject", StringComparison.OrdinalIgnoreCase);
 
-    private RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
+    private static RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
     {
         <div class="border rounded p-2 my-1 small">
             <strong>Plano do agente</strong>
             <ul class="mb-0 mt-1">
                 @foreach (var entry in ParsePlanEntries(evt.PayloadJson))
                 {
-                    <li class="@(entry.Status == "completed" ? "text-success" : entry.Status == "in_progress" ? "text-primary" : "")">
+                    <li class="@PlanEntryClass(entry.Status)">
                         @entry.Title <span class="text-body-secondary">(@entry.Status)</span>
                     </li>
                 }
@@ -445,7 +445,7 @@
         </div>
     };
 
-    private RenderFragment RenderMetric(AgentExecutionEvent evt) => __builder =>
+    private static RenderFragment RenderMetric(AgentExecutionEvent evt) => __builder =>
     {
         <span class="badge text-bg-light border my-1">⏱ @evt.Title @(PayloadText(evt))</span>
     };
@@ -481,6 +481,13 @@
     private sealed record PermOption(string Id, string Label);
     private sealed record PermPayload(string? Tool, string? Detail, IReadOnlyList<PermOption> Options);
     private sealed record PlanEntry(string Title, string Status);
+
+    private static string PlanEntryClass(string status) => status switch
+    {
+        "completed" => "text-success",
+        "in_progress" => "text-primary",
+        _ => string.Empty,
+    };
 
     private static ToolPayload ParseTool(string? json)
     {

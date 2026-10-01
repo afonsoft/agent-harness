@@ -39,8 +39,11 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
     public override int DataVersion => 2;
 
     // v1 reads only the summaries DB — per-conversation files stay status-only.
-    public override IReadOnlyList<CliDbSource> Sources =>
-        CliDatabaseMap.SourcesFor(Kind).Where(s => s.Name == "antigravity-summaries").ToList();
+    // Computed once: the property must not copy the collection on every access (S2365).
+    public override IReadOnlyList<CliDbSource> Sources { get; } =
+        CliDatabaseMap.SourcesFor(AgentCliKind.Antigravity)
+            .Where(s => s.Name == "antigravity-summaries")
+            .ToList();
 
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,

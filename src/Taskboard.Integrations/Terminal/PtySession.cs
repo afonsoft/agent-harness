@@ -294,6 +294,7 @@ public sealed class PtySession : IPtySession
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
         catch (Exception ex)
         {
@@ -308,6 +309,7 @@ public sealed class PtySession : IPtySession
             }
             catch
             {
+                // Best-effort — failure here is non-fatal.
             }
 
             Exited?.Invoke(exitCode);
@@ -329,6 +331,7 @@ public sealed class PtySession : IPtySession
         }
         catch
         {
+            // Best-effort — failure here is non-fatal.
         }
 
         if (_process is not null)
@@ -352,6 +355,7 @@ public sealed class PtySession : IPtySession
             }
             catch
             {
+                // Best-effort — failure here is non-fatal.
             }
 
             _process.Dispose();
@@ -365,6 +369,7 @@ public sealed class PtySession : IPtySession
             }
             catch
             {
+                // Best-effort — failure here is non-fatal.
             }
         }
     }

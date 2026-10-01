@@ -61,7 +61,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
 
     public async Task<JsonElement> HandleAsync(
         string threadId, string sessionId, string workspacePath,
-        string method, JsonElement p, CancellationToken cancellationToken)
+        string method, JsonElement @params, CancellationToken cancellationToken)
     {
         // The spawn workspace is authoritative — run-scoped sessions have no
         // AiChatThread row, so resolving by threadId would silently fall back
@@ -72,13 +72,13 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
 
         return method switch
         {
-            "fs/read_text_file" when _options.ClientFs => await ReadTextFile(root, p),
-            "fs/write_text_file" when _options.ClientFs => await WriteTextFile(threadId, root, p),
-            "terminal/create" when _options.ClientTerminal => await TerminalCreate(threadId, sessionId, root, p),
-            "terminal/output" when _options.ClientTerminal => TerminalOutput(p),
-            "terminal/wait_for_exit" when _options.ClientTerminal => await TerminalWaitForExit(p),
-            "terminal/kill" when _options.ClientTerminal => TerminalKill(p),
-            "terminal/release" when _options.ClientTerminal => TerminalRelease(p),
+            "fs/read_text_file" when _options.ClientFs => await ReadTextFile(root, @params),
+            "fs/write_text_file" when _options.ClientFs => await WriteTextFile(threadId, root, @params),
+            "terminal/create" when _options.ClientTerminal => await TerminalCreate(threadId, root, @params),
+            "terminal/output" when _options.ClientTerminal => TerminalOutput(@params),
+            "terminal/wait_for_exit" when _options.ClientTerminal => await TerminalWaitForExit(@params),
+            "terminal/kill" when _options.ClientTerminal => TerminalKill(@params),
+            "terminal/release" when _options.ClientTerminal => TerminalRelease(@params),
             _ => throw new AcpException(AcpErrorCode.MethodNotFound, method,
                 $"Method '{method}' not supported by this client."),
         };
@@ -128,7 +128,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         return full;
     }
 
-    private Task<JsonElement> ReadTextFile(string root, JsonElement p)
+    private static Task<JsonElement> ReadTextFile(string root, JsonElement p)
     {
         var path = SandboxPath(root, Required(p, "path"));
         if (!File.Exists(path))
@@ -181,7 +181,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         return JsonSerializer.SerializeToElement(new { });
     }
 
-    private async Task<JsonElement> TerminalCreate(string threadId, string sessionId, string root, JsonElement p)
+    private async Task<JsonElement> TerminalCreate(string threadId, string root, JsonElement p)
     {
         var command = Required(p, "command");
         var args = p.TryGetProperty("args", out var a) && a.ValueKind == JsonValueKind.Array

@@ -50,12 +50,12 @@ public sealed class CliMetricsService : ICliMetricsService
             }
             catch (CliDbAccessDeniedException ex)
             {
-                _logger.LogWarning("CLI metrics: {Kind} denied: {Message}", extractor.Kind, ex.Message);
+                _logger.LogWarning(ex, "CLI metrics: {Kind} denied: {Message}", extractor.Kind, ex.Message);
                 await MarkExtractorErrorAsync(extractor, "access denied", now, cancellationToken).ConfigureAwait(false);
             }
             catch (CliDbReadException ex)
             {
-                _logger.LogWarning("CLI metrics: {Kind} read failed: {Message}", extractor.Kind, ex.Message);
+                _logger.LogWarning(ex, "CLI metrics: {Kind} read failed: {Message}", extractor.Kind, ex.Message);
                 await MarkExtractorErrorAsync(extractor, ex.Message, now, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

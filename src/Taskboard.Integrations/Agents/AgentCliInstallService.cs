@@ -57,7 +57,7 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
                 return Task.FromResult(run.Snapshot(kind));
             }
 
-            run.Reset(kind);
+            run.Reset();
             if (_locator(spec.Install.RequiredTool) is null)
             {
                 run.Append("stderr", $"missing prerequisite: '{spec.Install.RequiredTool}' not found on PATH");
@@ -128,7 +128,7 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
 
         public AgentCliInstallState State => _state;
 
-        public void Reset(AgentCliKind kind)
+        public void Reset()
         {
             _lines.Clear();
             _state = AgentCliInstallState.Running;

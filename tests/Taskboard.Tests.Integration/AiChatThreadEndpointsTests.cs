@@ -227,7 +227,7 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
                 .Where(e => e?["role"]?.GetValue<string>() == "assistant")
                 .Select(e => e!["content"]!.GetValue<string>()));
 
-        // MockLLMProvider echoes the last user message — proves the run
+        // MockLlmProvider echoes the last user message — proves the run
         // consumed the real history instead of the fixed injected prompt.
         assistantContent.ShouldContain(userMessage);
         assistantContent.ShouldNotContain("Continue the conversation.");

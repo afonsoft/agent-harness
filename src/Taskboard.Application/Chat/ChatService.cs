@@ -125,10 +125,6 @@ public sealed class ChatService(
             var models = await client.ListModelsAsync(provider.BaseUrl, provider.ApiKey, ct).ConfigureAwait(false);
             return new ChatModelListDto(models, Cached: false);
         }
-        catch (ChatProviderException)
-        {
-            throw;
-        }
         catch (HttpRequestException ex)
         {
             throw new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
@@ -280,8 +276,7 @@ public sealed class ChatService(
         ChatProvider provider,
         string content,
         CancellationTokenSource cts,
-        CancellationToken requestAborted,
-        [EnumeratorCancellation] CancellationToken enumeratorCancelled = default)
+        [EnumeratorCancellation] CancellationToken requestAborted)
     {
         var ct = cts.Token;
         var userMessage = ChatMessage.CreateUser(conversation.Id, content, UtcNow);

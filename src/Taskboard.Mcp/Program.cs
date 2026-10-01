@@ -7,8 +7,11 @@ using Taskboard.Mcp.Services;
 
 namespace Taskboard.Mcp;
 
-class Program
+static class Program
 {
+    // Fixed loopback default (S1075) — overridable via HARNESS_URL / Taskboard:BaseUrl.
+    internal const string DefaultHarnessBaseUrl = "http://127.0.0.1:47823";
+
     static async Task Main(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
@@ -19,7 +22,7 @@ class Program
 
         var baseUrl = HarnessEnv.Get("HARNESS_URL")
             ?? builder.Configuration["Taskboard:BaseUrl"]
-            ?? "http://127.0.0.1:47823";
+            ?? DefaultHarnessBaseUrl;
 
         builder.Services.AddSingleton<ITaskboardApiClient>(new TaskboardApiClient(baseUrl));
 

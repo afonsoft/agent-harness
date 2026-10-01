@@ -236,7 +236,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         var level = baseLevel;
         var sawRedirect = false;
 
-        for (var i = 0; i < args.Count; i++)
+        var i = 0;
+        while (i < args.Count)
         {
             var arg = args[i];
             if (arg is ">" or ">>" or "1>" or "2>" or "&>")
@@ -254,11 +255,13 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
 
             if (arg.StartsWith('-') || arg == "--")
             {
+                i++;
                 continue;
             }
 
             if (!LooksLikePath(arg))
             {
+                i++;
                 continue;
             }
 
@@ -268,11 +271,19 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     $"Caminho '{arg}' escapa ou não resolve dentro do worktree.",
                     EscapesSandbox: true);
             }
+
+            i++;
         }
 
-        return sawRedirect
-            ? new(SecurityRiskLevel.WorkspaceWrite, "Escrita via redirect dentro do worktree.")
-            : new(level, baseLevel == SecurityRiskLevel.Safe ? "Leitura confinada ao worktree." : "Escrita confinada ao worktree.");
+        if (sawRedirect)
+        {
+            return new(SecurityRiskLevel.WorkspaceWrite, "Escrita via redirect dentro do worktree.");
+        }
+
+        var message = baseLevel == SecurityRiskLevel.Safe
+            ? "Leitura confinada ao worktree."
+            : "Escrita confinada ao worktree.";
+        return new(level, message);
     }
 
     private static bool LooksLikePath(string arg)
@@ -360,7 +371,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             }
         }
 
-        for (var i = 0; i < command.Length; i++)
+        var i = 0;
+        while (i < command.Length)
         {
             var c = command[i];
             if (inSingle)
@@ -374,6 +386,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     current.Append(c);
                 }
 
+                i++;
                 continue;
             }
 
@@ -388,6 +401,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     current.Append(c);
                 }
 
+                i++;
                 continue;
             }
 
@@ -432,6 +446,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     current.Append(c);
                     break;
             }
+
+            i++;
         }
 
         FlushSegment();

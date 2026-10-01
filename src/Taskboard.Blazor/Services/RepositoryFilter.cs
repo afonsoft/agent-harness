@@ -47,9 +47,12 @@ public static class RepositoryFilter
             return -1;
         }
 
-        return delta >= 0
-            ? (currentIndex + delta) % count
-            : currentIndex <= 0 ? count - 1 : currentIndex + delta;
+        if (delta >= 0)
+        {
+            return (currentIndex + delta) % count;
+        }
+
+        return currentIndex <= 0 ? count - 1 : currentIndex + delta;
     }
 
     /// <summary>

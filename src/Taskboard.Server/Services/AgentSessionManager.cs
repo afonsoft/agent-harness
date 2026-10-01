@@ -310,17 +310,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 return;
             }
 
-            if (evt is not null && eventRepo is not null)
+            if (evt is not null)
             {
                 evt.MarkDispatched();
-                await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await eventRepo!.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await _threadEvents.PublishAsync(
                     threadId,
                     new ServerSentEvent("ai_chat.event", evt.ToDto()),
                     cancellationToken).ConfigureAwait(false);
             }
 
-            scope?.Dispose();
+            scope!.Dispose();
         }
         catch (Exception ex)
         {
@@ -331,11 +331,19 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
     private Task<bool> ExecuteOneShotFallbackAsync(AiChatThread thread, string text, CancellationToken cancellationToken)
     {
-        var workdir = !string.IsNullOrWhiteSpace(thread.WorkspacePath)
-            ? thread.WorkspacePath
-            : (!string.IsNullOrWhiteSpace(thread.RepositoryFullName)
-                ? _workspaceService.ResolveCardWorkdir(thread.RepositoryFullName, out _)
-                : _workspaceService.EnsureRoot());
+        string workdir;
+        if (!string.IsNullOrWhiteSpace(thread.WorkspacePath))
+        {
+            workdir = thread.WorkspacePath;
+        }
+        else if (!string.IsNullOrWhiteSpace(thread.RepositoryFullName))
+        {
+            workdir = _workspaceService.ResolveCardWorkdir(thread.RepositoryFullName, out _);
+        }
+        else
+        {
+            workdir = _workspaceService.EnsureRoot();
+        }
 
         var req = new Taskboard.Agents.AgentExecutionRequest(
             thread.Id.Value,

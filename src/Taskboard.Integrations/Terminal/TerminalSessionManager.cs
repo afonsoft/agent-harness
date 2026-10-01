@@ -371,6 +371,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
     }
 
@@ -395,6 +396,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         }
         catch
         {
+            // Best-effort — failure here is non-fatal.
         }
 
         _sweepCts.Dispose();

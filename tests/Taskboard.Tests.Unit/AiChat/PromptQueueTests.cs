@@ -31,7 +31,7 @@ public class PromptQueueTests
         q.Enqueue("e1");
 
         q.TryDispatch(out _).ShouldBeFalse();
-        q.Pending.ShouldBe(["e1"]);
+        q.PendingIds().ShouldBe(["e1"]);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public class PromptQueueTests
         q.DispatchFailed(id!);
 
         q.TurnActive.ShouldBeFalse();
-        q.Pending.ShouldBe(["e1", "e2"]);
+        q.PendingIds().ShouldBe(["e1", "e2"]);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class PromptQueueTests
 
         q.Remove("e1").ShouldBeTrue();
 
-        q.Pending.ShouldBe(["e2"]);
+        q.PendingIds().ShouldBe(["e2"]);
         q.Remove("e1").ShouldBeFalse();
     }
 
@@ -90,7 +90,7 @@ public class PromptQueueTests
         q.Reset();
 
         q.TurnActive.ShouldBeFalse();
-        q.Pending.ShouldBe(["e2"]);
+        q.PendingIds().ShouldBe(["e2"]);
     }
 
     [Fact]

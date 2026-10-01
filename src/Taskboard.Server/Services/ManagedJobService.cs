@@ -71,6 +71,7 @@ public abstract class ManagedJobService : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
     }
 

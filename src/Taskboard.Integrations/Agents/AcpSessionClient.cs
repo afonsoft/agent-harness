@@ -279,7 +279,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         if (agentMethod is null)
         {
             // terminal-type methods need an interactive login outside the ACP channel.
-            var terminal = holder.Peer.AuthMethods.First();
+            var terminal = holder.Peer.AuthMethods[0];
             EmitEvent(holder.ThreadId, "error", "system",
                 $"Agent requires interactive login — run the agent CLI in a terminal ({terminal.Name}).",
                 JsonSerializer.Serialize(new { code = "auth_required", method = terminal.Id, args = terminal.Args }));
@@ -435,6 +435,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         return true;
@@ -511,9 +512,19 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             foreach (var opt in opts.EnumerateArray())
             {
                 // v1 uses "id"; v2-readiness accepts "configId" too.
-                var id = opt.TryGetProperty("id", out var i) ? i.GetString()
-                    : opt.TryGetProperty("configId", out var ci) ? ci.GetString()
-                    : null;
+                string? id;
+                if (opt.TryGetProperty("id", out var i))
+                {
+                    id = i.GetString();
+                }
+                else if (opt.TryGetProperty("configId", out var ci))
+                {
+                    id = ci.GetString();
+                }
+                else
+                {
+                    id = null;
+                }
                 if (id == configId)
                 {
                     return opt.TryGetProperty("type", out var t)
@@ -523,6 +534,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         return false;
@@ -625,7 +637,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
             // The spec requires answering every pending permission request with
             // the cancelled outcome so the agent can unwind its turn.
-            foreach (var (requestId, pending) in holder.PendingPermissions.ToArray())
+            foreach (var (requestId, _) in holder.PendingPermissions.ToArray())
             {
                 if (holder.PendingPermissions.TryRemove(requestId, out var removed))
                 {
@@ -690,7 +702,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             if (optionId is not null
                 && chosen?.Kind?.EndsWith("_always", StringComparison.OrdinalIgnoreCase) == true)
             {
-                var toolKey = ExtractToolKey(null, pending.RawLine);
+                var toolKey = ExtractToolKey(pending.RawLine);
                 if (toolKey is not null)
                 {
                     holder.AlwaysAnswers[toolKey] = optionId;
@@ -746,7 +758,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
 
         // Fallback for agents that don't tag kinds: match by id/name substring.
-        var probe = normalized == "deny" ? "reject" : normalized == "always" ? "allow" : normalized;
+        var probe = normalized switch
+        {
+            "deny" => "reject",
+            "always" => "allow",
+            _ => normalized,
+        };
         return options.FirstOrDefault(o =>
                 (o.OptionId.Contains(probe, StringComparison.OrdinalIgnoreCase))
                 || (o.Name?.Contains(probe, StringComparison.OrdinalIgnoreCase) ?? false)
@@ -833,6 +850,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
         catch (Exception ex)
         {
@@ -1113,6 +1131,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
     }
 
@@ -1120,12 +1139,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     {
         if (parsed.Method == "session/request_permission" && parsed.RequestId is { } rpcId)
         {
-            var options = ExtractPermissionOptions(parsed.PayloadJson, rawLine);
+            var options = ExtractPermissionOptions(rawLine);
             var effectiveId = ExtractPermissionRequestId(parsed.PayloadJson) ?? rpcId;
 
             // RF-006: allow_always/reject_always consent cache — identical tool
             // kinds are auto-answered and audited with auto:true.
-            var toolKey = ExtractToolKey(parsed.PayloadJson, rawLine);
+            var toolKey = ExtractToolKey(rawLine);
             if (toolKey is not null
                 && holder.AlwaysAnswers.TryGetValue(toolKey, out var cachedOptionId))
             {
@@ -1287,7 +1306,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     }
 
     /// <summary>Consent-cache key: toolCall.kind preferred, else title (RF-006).</summary>
-    private static string? ExtractToolKey(string? payloadJson, string rawLine)
+    private static string? ExtractToolKey(string rawLine)
     {
         try
         {
@@ -1308,6 +1327,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         return null;
@@ -1331,6 +1351,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         return payloadJson;
@@ -1344,7 +1365,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         _ => -32603,
     };
 
-    private static IReadOnlyList<AcpPermissionOption> ExtractPermissionOptions(string? payloadJson, string rawLine)
+    private static IReadOnlyList<AcpPermissionOption> ExtractPermissionOptions(string rawLine)
     {
         // The normalized payload carries plain option ids; the raw line keeps
         // the real ACP objects {optionId,name,kind} — parse the raw line first.
@@ -1379,6 +1400,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         return [new AcpPermissionOption("allow", "Allow", "allow_once"), new AcpPermissionOption("deny", "Deny", "reject_once")];

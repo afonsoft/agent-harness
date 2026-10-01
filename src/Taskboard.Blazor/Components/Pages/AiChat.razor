@@ -408,7 +408,12 @@ else
                 @if (Usage is { } usage)
                 {
                     var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
-                    var meterClass = percent >= 95 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-success";
+                    var meterClass = percent switch
+    {
+        >= 95 => "bg-danger",
+        >= 80 => "bg-warning",
+        _ => "bg-success",
+    };
                     <div class="d-flex align-items-center gap-2 ms-auto" title="@UsageTooltip(usage)">
                         <div class="progress ai-chat-meter" role="progressbar">
                             <div class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></div>
@@ -506,12 +511,12 @@ else
                 <label class="form-label" for="cmdbar-model">Model</label>
                 <select id="cmdbar-model" class="form-select" @bind="_cfgModelId">
                     <option value="">@(_cfgModelTier.Length == 0 ? "CLI default" : "Tier default")</option>
-                    @foreach (var model in ConfigAgentModels)
+                    @foreach (var model in ConfigAgentModels())
                     {
                         <option value="@model.Name">@ModelOptionLabel(model)</option>
                     }
                 </select>
-                @if (ConfigAgentModels.Count == 0)
+                @if (ConfigAgentModels().Count == 0)
                 {
                     <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
                 }
@@ -571,7 +576,7 @@ else
     private Modal _sandboxModal = default!;
     private Modal _runAgentModal = default!;
     private DotNetObjectReference<AiChat>? _dotNetRef;
-    private CancellationTokenSource _disposeCts = new();
+    private readonly CancellationTokenSource _disposeCts = new();
 
     // RF-006: unlocked command-bar configuration — survives "New conversation"
     // so the next thread starts from the last-used selections.
@@ -636,7 +641,7 @@ else
         : _cfgModelTier.Length > 0 ? _cfgModelTier
         : "model";
 
-    private IReadOnlyList<AiChatModelDto> ConfigAgentModels =>
+    private IReadOnlyList<AiChatModelDto> ConfigAgentModels() =>
         _catalog.Where(m => string.Equals(
             m.AgentType, SelectedCli?.AgentType?.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -677,7 +682,7 @@ else
             {
                 AgentType? type = null;
                 string? display = null;
-                foreach (var kv in AgentCliMap.All)
+                foreach (var kv in AgentCliMap.AllSpecs())
                 {
                     if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
                     {
@@ -1086,6 +1091,7 @@ else
             }
             catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
             {
+                // Best-effort — failure here is non-fatal.
             }
         }
         _cfgRepo = thread.RepositoryFullName ?? string.Empty;
@@ -1175,6 +1181,7 @@ else
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
     }
 
@@ -1236,7 +1243,12 @@ else
                     _running = run.Status == "running";
                     if (_activeThreadId == run.ThreadId && _activeThread is { } active)
                     {
-                        var status = run.Status == "failed" ? "failed" : run.Status == "running" ? "running" : "idle";
+                        var status = run.Status switch
+    {
+        "failed" => "failed",
+        "running" => "running",
+        _ => "idle",
+    };
                         _activeThread = active with { Status = status };
                         _threads = _threads?.Select(t => t.Id == run.ThreadId ? t with { Status = status } : t).ToList();
                     }
@@ -1247,6 +1259,7 @@ else
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         await InvokeAsync(StateHasChanged);
@@ -1650,6 +1663,7 @@ else
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
         catch (Exception)
         {
@@ -1667,6 +1681,7 @@ else
         }
         catch (JSDisconnectedException)
         {
+            // Best-effort — failure here is non-fatal.
         }
         _dotNetRef?.Dispose();
     }

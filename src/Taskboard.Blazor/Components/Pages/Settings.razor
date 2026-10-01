@@ -983,6 +983,7 @@
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
         finally
         {

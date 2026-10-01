@@ -94,15 +94,15 @@ public sealed class AcpV2Dialect : IAcpDialect
             ? peer.McpStdio
             : peer.McpHttp;
 
-    public AcpProtocolParser.Parsed ParseSessionUpdate(JsonElement p, string? requestId)
+    public AcpProtocolParser.Parsed ParseSessionUpdate(JsonElement updateParams, string? requestId)
     {
-        var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
+        var sessionId = updateParams.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
 
-        if (!p.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
+        if (!updateParams.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
         {
             return new AcpProtocolParser.Parsed(
                 AcpProtocolParser.MessageType.Notification, "session/update", "activity", null,
-                p.GetRawText(), SessionId: sessionId, RequestId: requestId);
+                updateParams.GetRawText(), SessionId: sessionId, RequestId: requestId);
         }
 
         var updateKind = update.TryGetProperty("sessionUpdate", out var su)
@@ -284,9 +284,17 @@ public sealed class AcpV2Dialect : IAcpDialect
         // tolerate the v1 toolCall shape for draft implementations.
         var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
         var tool = p.TryGetProperty("title", out var title) ? title.GetString() ?? string.Empty : string.Empty;
-        var detail = p.TryGetProperty("subject", out var subject)
-            ? subject.ValueKind == JsonValueKind.String ? subject.GetString() ?? string.Empty : subject.GetRawText()
-            : string.Empty;
+        string detail;
+        if (p.TryGetProperty("subject", out var subject))
+        {
+            detail = subject.ValueKind == JsonValueKind.String
+                ? subject.GetString() ?? string.Empty
+                : subject.GetRawText();
+        }
+        else
+        {
+            detail = string.Empty;
+        }
         var options = new List<string>();
 
         if (p.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == JsonValueKind.Object)
@@ -324,9 +332,17 @@ public sealed class AcpV2Dialect : IAcpDialect
             options.AddRange(["allow", "deny"]);
         }
 
-        var effectiveRequestId = isRequest
-            ? requestId ?? Guid.NewGuid().ToString("N")
-            : p.TryGetProperty("requestId", out var rid) ? rid.GetString() ?? string.Empty : string.Empty;
+        string effectiveRequestId;
+        if (isRequest)
+        {
+            effectiveRequestId = requestId ?? Guid.NewGuid().ToString("N");
+        }
+        else
+        {
+            effectiveRequestId = p.TryGetProperty("requestId", out var rid)
+                ? rid.GetString() ?? string.Empty
+                : string.Empty;
+        }
 
         var payload = JsonSerializer.Serialize(new
         {

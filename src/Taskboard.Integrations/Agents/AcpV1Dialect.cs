@@ -72,25 +72,25 @@ public sealed class AcpV1Dialect : IAcpDialect
     public bool SupportsMcpTransport(AcpPeerInfo peer, string transport) =>
         !string.Equals(transport, "http", StringComparison.OrdinalIgnoreCase) || peer.McpHttp;
 
-    public AcpProtocolParser.Parsed ParseSessionUpdate(JsonElement p, string? requestId)
+    public AcpProtocolParser.Parsed ParseSessionUpdate(JsonElement updateParams, string? requestId)
     {
-        var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
+        var sessionId = updateParams.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
 
-        if (!p.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
+        if (!updateParams.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
         {
             // Legacy shape: session/update with direct params.kind/content.
-            if (p.TryGetProperty("kind", out var legacyKind))
+            if (updateParams.TryGetProperty("kind", out var legacyKind))
             {
                 return new AcpProtocolParser.Parsed(
                     AcpProtocolParser.MessageType.Notification, "session/update",
                     legacyKind.GetString() ?? "message",
-                    p.TryGetProperty("content", out var lc) ? lc.GetString() : null,
-                    p.GetRawText(), sessionId, RequestId: requestId);
+                    updateParams.TryGetProperty("content", out var lc) ? lc.GetString() : null,
+                    updateParams.GetRawText(), sessionId, RequestId: requestId);
             }
 
             return new AcpProtocolParser.Parsed(
                 AcpProtocolParser.MessageType.Notification, "session/update", "activity", null,
-                p.GetRawText(), SessionId: sessionId, RequestId: requestId);
+                updateParams.GetRawText(), SessionId: sessionId, RequestId: requestId);
         }
 
         var updateKind = update.TryGetProperty("sessionUpdate", out var su)
@@ -188,9 +188,17 @@ public sealed class AcpV1Dialect : IAcpDialect
 
         // In real ACP the JSON-RPC request id is the reply correlation;
         // in the legacy shape, params.requestId.
-        var effectiveRequestId = isRequest
-            ? requestId ?? Guid.NewGuid().ToString("N")
-            : p.TryGetProperty("requestId", out var rid) ? rid.GetString() ?? string.Empty : string.Empty;
+        string effectiveRequestId;
+        if (isRequest)
+        {
+            effectiveRequestId = requestId ?? Guid.NewGuid().ToString("N");
+        }
+        else
+        {
+            effectiveRequestId = p.TryGetProperty("requestId", out var rid)
+                ? rid.GetString() ?? string.Empty
+                : string.Empty;
+        }
 
         var payload = JsonSerializer.Serialize(new
         {

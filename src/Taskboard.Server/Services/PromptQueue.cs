@@ -12,10 +12,10 @@ public sealed class PromptQueue
     private readonly Queue<string> _pending = new();
     private bool _turnActive;
 
-    /// <summary>Event ids still waiting for dispatch, FIFO order.</summary>
-    public IReadOnlyList<string> Pending
+    /// <summary>Event ids still waiting for dispatch, FIFO order (S2365: method, not copying property).</summary>
+    public IReadOnlyList<string> PendingIds()
     {
-        get { lock (_gate) { return _pending.ToList(); } }
+        lock (_gate) { return _pending.ToList(); }
     }
 
     public int Count

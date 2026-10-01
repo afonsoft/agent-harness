@@ -10,7 +10,7 @@ namespace Taskboard.Application.Contracts.Agents;
 /// </summary>
 public static class AgentCliModels
 {
-    private sealed record Entry(string Flag, string Lite, string Normal, string Ultra, string[] Catalog);
+    private sealed record Entry(string Flag, string Lite, string Normal, string Ultra, string[] Models);
 
     private static readonly Dictionary<AgentType, Entry> Entries = new()
     {
@@ -72,7 +72,7 @@ public static class AgentCliModels
 
     /// <summary>Known model names for the picker (curated + extras); empty when CLI-managed.</summary>
     public static IReadOnlyList<string> Catalog(AgentType agentType) =>
-        Entries.TryGetValue(agentType, out var entry) ? entry.Catalog : [];
+        Entries.TryGetValue(agentType, out var entry) ? entry.Models : [];
 
     /// <summary>Headless model-list probe for the CLI, or null when none is documented.</summary>
     public static AgentModelListProbe? ModelListProbe(AgentType agentType) =>

@@ -19,7 +19,8 @@ namespace Taskboard.EntityFrameworkCore.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-
+            // No-op by design: the data repair is idempotent — reverting the
+            // schema change is unnecessary, so Down has no statements.
         }
     }
 }

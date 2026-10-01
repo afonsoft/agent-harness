@@ -70,7 +70,7 @@ public sealed class GitHubService : IGitHubService
         var issues = await _client.Issue.GetAllForRepository(owner, name, request);
         var now = DateTimeOffset.UtcNow;
         return issues
-            .Select(i => MapToDto(i, repositoryFullName))
+            .Select(i => MapToDto(i))
             .Where(dto => GitHubBoardGrouper.IsVisible(dto, now))
             .ToList()
             .AsReadOnly();
@@ -88,7 +88,7 @@ public sealed class GitHubService : IGitHubService
         try
         {
             var issue = await _client.Issue.Get(owner, name, issueNumber);
-            return MapToDto(issue, repositoryFullName);
+            return MapToDto(issue);
         }
         catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
@@ -126,11 +126,11 @@ public sealed class GitHubService : IGitHubService
             }
         }
 
-        await EnsureLabelExistsAsync(owner, name, newLabel, cancellationToken);
+        await EnsureLabelExistsAsync(owner, name, newLabel);
         await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, [newLabel]);
 
         var updatedIssue = await _client.Issue.Get(owner, name, issueNumber);
-        return MapToDto(updatedIssue, repositoryFullName);
+        return MapToDto(updatedIssue);
     }
 
     /// <inheritdoc />
@@ -144,7 +144,7 @@ public sealed class GitHubService : IGitHubService
         EnsureAuthenticated();
         var (owner, name) = SplitRepositoryName(repositoryFullName);
 
-        await EnsureLabelExistsAsync(owner, name, initialColumn.ToLabel(), cancellationToken);
+        await EnsureLabelExistsAsync(owner, name, initialColumn.ToLabel());
 
         var newIssue = new NewIssue(title)
         {
@@ -153,7 +153,7 @@ public sealed class GitHubService : IGitHubService
         newIssue.Labels.Add(initialColumn.ToLabel());
 
         var issue = await _client.Issue.Create(owner, name, newIssue);
-        return MapToDto(issue, repositoryFullName);
+        return MapToDto(issue);
     }
 
     /// <inheritdoc />
@@ -173,7 +173,7 @@ public sealed class GitHubService : IGitHubService
 
         foreach (var label in labels)
         {
-            await EnsureLabelExistsAsync(owner, name, label, cancellationToken);
+            await EnsureLabelExistsAsync(owner, name, label);
         }
 
         await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, labels.ToArray());
@@ -197,7 +197,7 @@ public sealed class GitHubService : IGitHubService
         }
 
         var issue = await _client.Issue.Update(owner, name, issueNumber, update);
-        return MapToDto(issue, repositoryFullName);
+        return MapToDto(issue);
     }
 
     /// <inheritdoc />
@@ -228,12 +228,12 @@ public sealed class GitHubService : IGitHubService
         var newLabel = GitHubBoardColumnExtensions.ToPriorityLabel(normalized);
         if (newLabel is not null)
         {
-            await EnsureLabelExistsAsync(owner, name, newLabel, cancellationToken);
+            await EnsureLabelExistsAsync(owner, name, newLabel);
             await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, [newLabel]);
         }
 
         var updated = await _client.Issue.Get(owner, name, issueNumber);
-        return MapToDto(updated, repositoryFullName);
+        return MapToDto(updated);
     }
 
     /// <inheritdoc />
@@ -249,7 +249,7 @@ public sealed class GitHubService : IGitHubService
         if (string.Equals(resolution, "canceled", StringComparison.OrdinalIgnoreCase))
         {
             var label = GitHubBoardColumn.Canceled.ToLabel();
-            await EnsureLabelExistsAsync(owner, name, label, cancellationToken);
+            await EnsureLabelExistsAsync(owner, name, label);
             await _client.Issue.Labels.AddToIssue(owner, name, issueNumber, [label]);
         }
         else if (!string.Equals(resolution, "archived", StringComparison.OrdinalIgnoreCase))
@@ -259,7 +259,7 @@ public sealed class GitHubService : IGitHubService
 
         var closed = await _client.Issue.Update(owner, name, issueNumber,
             new IssueUpdate { State = ItemState.Closed });
-        return MapToDto(closed, repositoryFullName);
+        return MapToDto(closed);
     }
 
     /// <inheritdoc />
@@ -454,7 +454,15 @@ public sealed class GitHubService : IGitHubService
         comment.UpdatedAt,
         comment.HtmlUrl);
 
-    private async Task EnsureLabelExistsAsync(string owner, string name, string label, CancellationToken cancellationToken = default)
+    private static RepositoryDto MapToDto(Repository repository) => new(
+        repository.Id,
+        repository.FullName,
+        repository.Name,
+        repository.Description,
+        repository.HtmlUrl,
+        repository.Private);
+
+    private async Task EnsureLabelExistsAsync(string owner, string name, string label)
     {
         try
         {
@@ -466,15 +474,8 @@ public sealed class GitHubService : IGitHubService
         }
     }
 
-    private static RepositoryDto MapToDto(Repository repository) => new(
-        repository.Id,
-        repository.FullName,
-        repository.Name,
-        repository.Description,
-        repository.HtmlUrl,
-        repository.Private);
 
-    private static IssueDto MapToDto(Issue issue, string repositoryFullName)
+    private static IssueDto MapToDto(Issue issue)
     {
         var labels = issue.Labels?.Select(l => l.Name).ToList() ?? [];
 
