@@ -19,6 +19,8 @@ namespace Taskboard.Application.AiChat;
 
 public sealed class AiChatService
 {
+    private const string ModelTierDefault = "default";
+
     private readonly IRepository<AiChatThread> _threadRepo;
     private readonly IRepository<AiChatRun> _runRepo;
     private readonly IRepository<AiChatEvent> _eventRepo;
@@ -253,7 +255,7 @@ public sealed class AiChatService
                 AgentModelTier.Ultra => config.Ultra,
                 _ => config.Normal,
             };
-            modelName = string.IsNullOrWhiteSpace(resolved) ? "default" : resolved;
+            modelName = string.IsNullOrWhiteSpace(resolved) ? ModelTierDefault : resolved;
             if (string.IsNullOrWhiteSpace(resolved))
             {
                 modelSource = null;
@@ -268,7 +270,7 @@ public sealed class AiChatService
         else
         {
             // Tier without a builtin agent (custom CLI) → CLI default.
-            modelName = "default";
+            modelName = ModelTierDefault;
         }
 
         var model = ModelRef.From(modelName);
@@ -415,7 +417,7 @@ public sealed class AiChatService
                 // bound CLI; legacy provider names (gpt-4o, …) reset to default.
                 var model = AgentCliModels.Catalog(pick).Contains(thread.Model.Value, StringComparer.Ordinal)
                     ? thread.Model
-                    : ModelRef.From("default");
+                    : ModelRef.From(ModelTierDefault);
                 thread.BindAgent(pick, model);
                 await _threadRepo.UpdateAsync(thread, ct);
             }
@@ -494,7 +496,7 @@ public sealed class AiChatService
                     var prompt = AgentThreadPromptBuilder.BuildAssistantPrompt(
                         thread.Title,
                         events.Select(e => e.ToDto()).ToList());
-                    var modelName = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
+                    var modelName = string.Equals(thread.Model.Value, ModelTierDefault, StringComparison.OrdinalIgnoreCase)
                         ? null
                         : thread.Model.Value;
                     var progress = new SequentialEmitProgress(this, threadId);

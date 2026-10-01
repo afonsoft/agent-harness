@@ -18,6 +18,8 @@ namespace Taskboard.Integrations.Skills;
 /// </summary>
 public sealed class SkillsInstallerService : ISkillsInstallerService
 {
+    private const string InstallMethodScript = "install-sh";
+
     internal const string ManifestFileName = "skills-install.json";
 
     private static readonly string[] RequiredTools = ["npx", "git"];
@@ -175,12 +177,12 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
             if (steps[^1].State == SkillsInstallStepState.Failed)
             {
                 steps.Add(new SkillsInstallStep(
-                    "install-sh", SkillsInstallStepState.Skipped, null, null, "previous step failed"));
+                    InstallMethodScript, SkillsInstallStepState.Skipped, null, null, "previous step failed"));
             }
             else if (bash is null)
             {
                 steps.Add(new SkillsInstallStep(
-                    "install-sh", SkillsInstallStepState.Skipped, null, null, "bash not available"));
+                    InstallMethodScript, SkillsInstallStepState.Skipped, null, null, "bash not available"));
             }
             else
             {
@@ -214,15 +216,15 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
                     var script = Path.Join(_cacheDirectory, "install.sh");
                     steps.Add(!File.Exists(script)
                         ? new SkillsInstallStep(
-                            "install-sh", SkillsInstallStepState.Skipped, null, null, "no install.sh in repository")
+                            InstallMethodScript, SkillsInstallStepState.Skipped, null, null, "no install.sh in repository")
                         : await RunStepAsync(
-                            "install-sh", bash, _cacheDirectory, ["install.sh", "--all"], cancellationToken)
+                            InstallMethodScript, bash, _cacheDirectory, ["install.sh", "--all"], cancellationToken)
                             .ConfigureAwait(false));
                 }
                 else
                 {
                     steps.Add(new SkillsInstallStep(
-                        "install-sh", SkillsInstallStepState.Skipped, null, null,
+                        InstallMethodScript, SkillsInstallStepState.Skipped, null, null,
                         "cache-prepare failed"));
                 }
             }
@@ -273,7 +275,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
             SkillCount = total,
             State = _state.ToString(),
             NpxStep = steps.FirstOrDefault(s => s.Name == "npx-add"),
-            InstallShStep = steps.FirstOrDefault(s => s.Name == "install-sh")
+            InstallShStep = steps.FirstOrDefault(s => s.Name == InstallMethodScript)
         }.Save(_manifestPath);
 
         return GetStatus();

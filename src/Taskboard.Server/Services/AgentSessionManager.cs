@@ -20,6 +20,8 @@ namespace Taskboard.Server.Services;
 /// </summary>
 public sealed class AgentSessionManager : IAsyncDisposable
 {
+    private const string SseEventName = "ai_chat.event";
+
     private readonly AcpSessionClient _sessionClient;
     private readonly IAgentAcpClient _fallbackAcpClient;
     private readonly IEnumerable<IAgentAdapter> _adapters;
@@ -211,7 +213,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
         var dto = queued.ToDto();
         await _threadEvents.PublishAsync(
             threadId,
-            new ServerSentEvent("ai_chat.event", dto),
+            new ServerSentEvent(SseEventName, dto),
             cancellationToken).ConfigureAwait(false);
 
         _promptQueues.GetOrAdd(threadId, _ => new PromptQueue()).Enqueue(queued.Id.Value);
@@ -316,7 +318,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 await eventRepo!.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await _threadEvents.PublishAsync(
                     threadId,
-                    new ServerSentEvent("ai_chat.event", evt.ToDto()),
+                    new ServerSentEvent(SseEventName, evt.ToDto()),
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -371,7 +373,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 await eventRepo.AddAsync(evt, cancellationToken).ConfigureAwait(false);
                 await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-                await _threadEvents.PublishAsync(thread.Id.Value, new ServerSentEvent("ai_chat.event", evt.ToDto()), cancellationToken).ConfigureAwait(false);
+                await _threadEvents.PublishAsync(thread.Id.Value, new ServerSentEvent(SseEventName, evt.ToDto()), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -517,7 +519,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
                 await _threadEvents.PublishAsync(
                     threadId,
-                    new ServerSentEvent("ai_chat.event", chatEvent.ToDto()), _reaperCts.Token).ConfigureAwait(false);
+                    new ServerSentEvent(SseEventName, chatEvent.ToDto()), _reaperCts.Token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

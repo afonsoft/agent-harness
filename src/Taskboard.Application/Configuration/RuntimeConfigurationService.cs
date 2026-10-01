@@ -18,6 +18,8 @@ namespace Taskboard.Application.Configuration;
 /// </summary>
 public sealed class RuntimeConfigurationService
 {
+    private const string HttpsScheme = "https";
+
     private static readonly string[] LogLevels =
         ["Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"];
 
@@ -30,7 +32,7 @@ public sealed class RuntimeConfigurationService
                 : "Port must be an integer between 1 and 65535."),
         new("Taskboard:BaseUrl", "http://127.0.0.1:47823", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
             EnvAlias: "HARNESS_URL",
-            Validate: v => Uri.TryCreate(v, UriKind.Absolute, out var u) && u.Scheme is "http" or "https"
+            Validate: v => Uri.TryCreate(v, UriKind.Absolute, out var u) && u.Scheme is "http" or HttpsScheme
                 ? null
                 : "BaseUrl must be an absolute http(s) URL."),
         new("AllowedHosts", "*", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
@@ -312,7 +314,7 @@ public sealed class RuntimeConfigurationService
             return null; // empty disables provisioning
         }
 
-        return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+        return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or HttpsScheme
             ? null
             : "RAG URL must be an absolute http(s) URL, or empty to disable.";
     }
@@ -378,7 +380,7 @@ public sealed class RuntimeConfigurationService
 
     private static string? ValidateSearchUrl(string value) =>
         string.IsNullOrWhiteSpace(value)
-            || (Uri.TryCreate(value, UriKind.Absolute, out var u) && u.Scheme is "http" or "https")
+            || (Uri.TryCreate(value, UriKind.Absolute, out var u) && u.Scheme is "http" or HttpsScheme)
             ? null
             : "Search URL must be an absolute http(s) URL.";
 
@@ -396,7 +398,7 @@ public sealed class RuntimeConfigurationService
         }
 
         if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
-            && uri.Scheme is "https" or "http" or "file")
+            && uri.Scheme is HttpsScheme or "http" or "file")
         {
             return null;
         }

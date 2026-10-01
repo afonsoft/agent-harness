@@ -22,6 +22,9 @@ namespace Taskboard.Server.Services;
 /// </summary>
 public sealed class AcpClientToolHandler : IAcpClientToolHandler
 {
+    private const string TerminalCreateMethod = "terminal/create";
+        private const string DecisionAllow = "allow";
+
     private const int DefaultOutputByteLimit = 1024 * 1024;
 
     private sealed class TerminalEntry
@@ -74,7 +77,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         {
             "fs/read_text_file" when _options.ClientFs => await ReadTextFile(root, @params),
             "fs/write_text_file" when _options.ClientFs => await WriteTextFile(threadId, root, @params),
-            "terminal/create" when _options.ClientTerminal => await TerminalCreate(threadId, root, @params),
+            TerminalCreateMethod when _options.ClientTerminal => await TerminalCreate(threadId, root, @params),
             "terminal/output" when _options.ClientTerminal => TerminalOutput(@params),
             "terminal/wait_for_exit" when _options.ClientTerminal => await TerminalWaitForExit(@params),
             "terminal/kill" when _options.ClientTerminal => TerminalKill(@params),
@@ -162,14 +165,14 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         var content = Required(p, "content");
 
         var outcome = IsHeadlessScope(threadId)
-            ? "allow"
+            ? DecisionAllow
             : await _permissionGate.RequestPermissionAsync(
                 threadId,
                 "fs/write_text_file",
                 $"{path} ({content.Length} chars)",
-                ["allow", "deny"]).ConfigureAwait(false);
+                [DecisionAllow, "deny"]).ConfigureAwait(false);
 
-        if (!string.Equals(outcome, "allow", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(outcome, DecisionAllow, StringComparison.OrdinalIgnoreCase))
         {
             throw new AcpException(AcpErrorCode.RequestCancelled, "fs/write_text_file", "write denied by user.");
         }
@@ -193,16 +196,16 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         var byteLimit = OptInt(p, "outputByteLimit") ?? DefaultOutputByteLimit;
 
         var outcome = IsHeadlessScope(threadId)
-            ? "allow"
+            ? DecisionAllow
             : await _permissionGate.RequestPermissionAsync(
                 threadId,
-                "terminal/create",
+                TerminalCreateMethod,
                 $"{command} {string.Join(' ', args)} (cwd: {cwd})",
-                ["allow", "deny"]).ConfigureAwait(false);
+                [DecisionAllow, "deny"]).ConfigureAwait(false);
 
-        if (!string.Equals(outcome, "allow", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(outcome, DecisionAllow, StringComparison.OrdinalIgnoreCase))
         {
-            throw new AcpException(AcpErrorCode.RequestCancelled, "terminal/create", "command denied by user.");
+            throw new AcpException(AcpErrorCode.RequestCancelled, TerminalCreateMethod, "command denied by user.");
         }
 
         var startInfo = new ProcessStartInfo
@@ -234,7 +237,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         }
 
         var process = Process.Start(startInfo)
-            ?? throw new AcpException(AcpErrorCode.Internal, "terminal/create", $"failed to start '{command}'.");
+            ?? throw new AcpException(AcpErrorCode.Internal, TerminalCreateMethod, $"failed to start '{command}'.");
 
         var entry = new TerminalEntry
         {

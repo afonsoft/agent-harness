@@ -23,6 +23,8 @@ namespace Taskboard.Application.Harness;
 /// </summary>
 public sealed class PipelineEngine
 {
+    private const string EventKindStage = "stage";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IAgentAcpClient _acpClient;
     private readonly IVerificationEngine _verification;
@@ -211,7 +213,7 @@ public sealed class PipelineEngine
 
             foreach (var stage in toDispatch)
             {
-                await PublishAsync(exec, "stage", $"Stage '{stage.Name}' started", stage.StageKey)
+                await PublishAsync(exec, EventKindStage, $"Stage '{stage.Name}' started", stage.StageKey)
                     .ConfigureAwait(false);
             }
 
@@ -259,7 +261,7 @@ public sealed class PipelineEngine
                 }
 
                 exec.BeginStageAutoRetry(stage.StageKey, now);
-                await PublishAsync(exec, "stage",
+                await PublishAsync(exec, EventKindStage,
                     $"Stage '{stage.Name}' — auto-retry dispatched on {stage.Agent} (attempt {stage.Attempts})",
                     stage.StageKey,
                     new { stageKey = stage.StageKey, agent = stage.Agent?.ToString(), attempt = stage.Attempts })
@@ -287,7 +289,7 @@ public sealed class PipelineEngine
 
                 var previous = stage.Agent!.Value;
                 exec.RotateStageAgent(stage.StageKey, next.Value, now + _autoRetry.Interval);
-                await PublishAsync(exec, "stage",
+                await PublishAsync(exec, EventKindStage,
                     $"Stage '{stage.Name}' — {previous} exhausted {_autoRetry.AttemptsPerAgent} attempt(s) ({stage.LastError}); rotating to {next}",
                     stage.StageKey,
                     new
@@ -309,7 +311,7 @@ public sealed class PipelineEngine
             }
 
             exec.ScheduleStageAutoRetry(stage.StageKey, now + _autoRetry.Interval);
-            await PublishAsync(exec, "stage",
+            await PublishAsync(exec, EventKindStage,
                 $"Stage '{stage.Name}' — auto-retry scheduled (failure {stage.AutoRetryCount}/{_autoRetry.AttemptsPerAgent} on {stage.Agent?.ToString() ?? "step"})",
                 stage.StageKey,
                 new
@@ -626,7 +628,7 @@ public sealed class PipelineEngine
             {
                 exec.CompleteStage(
                     stageKey, PipelineContextSynthesizer.SummarizeOutput(chunks), DateTime.UtcNow);
-                await PublishAsync(exec, "stage", $"Stage '{stage.Name}' completed", stageKey,
+                await PublishAsync(exec, EventKindStage, $"Stage '{stage.Name}' completed", stageKey,
                         new { stageKey, agent = candidate.ToString(), attempt = stage.Attempts })
                     .ConfigureAwait(false);
                 return;
@@ -642,7 +644,7 @@ public sealed class PipelineEngine
                 retriedWithoutFlag = true;
                 omitFlag = true;
                 model = null;
-                await PublishAsync(exec, "stage",
+                await PublishAsync(exec, EventKindStage,
                     $"Stage '{stage.Name}' — {candidate} rejected the model; retrying with the CLI default",
                     stageKey).ConfigureAwait(false);
                 continue;
@@ -682,7 +684,7 @@ public sealed class PipelineEngine
                     exitCode,
                     error,
                 }, JsonOptions)));
-        await PublishAsync(exec, "stage", $"Stage '{stage.Name}' failed ({error})", stage.StageKey,
+        await PublishAsync(exec, EventKindStage, $"Stage '{stage.Name}' failed ({error})", stage.StageKey,
                 new { stageKey = stage.StageKey, agent, attempt = stage.Attempts, exitCode, error })
             .ConfigureAwait(false);
     }
@@ -724,7 +726,7 @@ public sealed class PipelineEngine
             _logger.LogWarning(
                 "Pipeline {Id} stage {Stage}: resolved model '{Model}' is not in {Agent}'s probed catalog — dispatching with the CLI default.",
                 exec.Id.Value, stageKey, resolved, candidate);
-            await PublishAsync(exec, "stage",
+            await PublishAsync(exec, EventKindStage,
                 $"Stage '{stageName}' — model '{resolved}' is not in {candidate}'s catalog; using the CLI default",
                 stageKey).ConfigureAwait(false);
             return (null, true);
@@ -905,7 +907,7 @@ public sealed class PipelineEngine
         // the normalized taxonomy — the durable event goes out even without a cockpit.
         var normalizedKind = kind switch
         {
-            "stage" or "status" or "run_status" => AgentEventKinds.Lifecycle,
+            EventKindStage or "status" or "run_status" => AgentEventKinds.Lifecycle,
             "verification" => AgentEventKinds.Verification,
             "steer" => AgentEventKinds.Steer,
             "diff" => AgentEventKinds.Diff,

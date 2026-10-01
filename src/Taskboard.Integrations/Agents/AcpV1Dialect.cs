@@ -10,6 +10,8 @@ namespace Taskboard.Integrations.Agents;
 /// </summary>
 public sealed class AcpV1Dialect : IAcpDialect
 {
+    private const string SessionUpdateMethod = "session/update";
+
     public int ProtocolVersion => 1;
 
     public string AuthenticateMethod => "authenticate";
@@ -82,14 +84,14 @@ public sealed class AcpV1Dialect : IAcpDialect
             if (updateParams.TryGetProperty("kind", out var legacyKind))
             {
                 return new AcpProtocolParser.Parsed(
-                    AcpProtocolParser.MessageType.Notification, "session/update",
+                    AcpProtocolParser.MessageType.Notification, SessionUpdateMethod,
                     legacyKind.GetString() ?? "message",
                     updateParams.TryGetProperty("content", out var lc) ? lc.GetString() : null,
                     updateParams.GetRawText(), sessionId, RequestId: requestId);
             }
 
             return new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", "activity", null,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, "activity", null,
                 updateParams.GetRawText(), SessionId: sessionId, RequestId: requestId);
         }
 
@@ -103,38 +105,38 @@ public sealed class AcpV1Dialect : IAcpDialect
         return updateKind switch
         {
             "agent_message_chunk" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Message,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Message,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId),
             "agent_thought_chunk" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Thought,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Thought,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId),
             // RF-007: replayed user messages (session/load) and agent-advertised
             // slash commands / mode / config / session metadata all get their
             // own normalized kinds instead of falling into generic activity.
             "user_message_chunk" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Message,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Message,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId),
             "available_commands_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Commands,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Commands,
                 null, payload, sessionId, RequestId: requestId),
             "current_mode_update" or "config_option_update" or "session_info_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.SessionInfo,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.SessionInfo,
                 null, payload, sessionId, RequestId: requestId),
             "tool_call" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.ToolCall,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.ToolCall,
                 update.TryGetProperty("title", out var t) ? t.GetString() : null,
                 payload, sessionId, toolCallId, requestId),
             "tool_call_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.ToolOutput,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.ToolOutput,
                 null, payload, sessionId, toolCallId, requestId),
             "plan" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Plan,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Plan,
                 null, payload, sessionId, RequestId: requestId),
             "usage_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Metric,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Metric,
                 null, payload, sessionId, RequestId: requestId),
             _ => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Activity,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Activity,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId)
         };
     }

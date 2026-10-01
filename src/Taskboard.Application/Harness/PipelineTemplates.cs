@@ -11,28 +11,34 @@ namespace Taskboard.Application.Harness;
 /// </summary>
 public static class PipelineTemplates
 {
+    private const string RoleBuilder = "builder";
+        private const string RoleBuilderDisplay = "Builder";
+        private const string RoleVerifier = "verifier";
+        private const string RoleVerifierDisplay = "Verifier";
+        private const string RoleArchitect = "architect";
+
     public static readonly PipelineDefinition StandardFeature = new(
         "standard-feature", "Standard Feature",
         [
-            new PipelineStage("architect", "Architect", PipelineStageKind.AgentWork,
+            new PipelineStage(RoleArchitect, "Architect", PipelineStageKind.AgentWork,
                 AgentRole.Architect, AgentType.Claude, AgentModelTier.Ultra, []),
             new PipelineStage("approve-plan", "Approval", PipelineStageKind.Approval,
-                null, null, AgentModelTier.Normal, ["architect"]),
-            new PipelineStage("builder", "Builder", PipelineStageKind.AgentWork,
+                null, null, AgentModelTier.Normal, [RoleArchitect]),
+            new PipelineStage(RoleBuilder, RoleBuilderDisplay, PipelineStageKind.AgentWork,
                 AgentRole.Builder, AgentType.OpenCode, AgentModelTier.Normal, ["approve-plan"]),
-            new PipelineStage("verifier", "Verifier", PipelineStageKind.Verification,
-                null, null, AgentModelTier.Normal, ["builder"]),
+            new PipelineStage(RoleVerifier, RoleVerifierDisplay, PipelineStageKind.Verification,
+                null, null, AgentModelTier.Normal, [RoleBuilder]),
             new PipelineStage("reviewer", "Reviewer", PipelineStageKind.AgentWork,
-                AgentRole.Reviewer, AgentType.Devin, AgentModelTier.Normal, ["verifier"]),
+                AgentRole.Reviewer, AgentType.Devin, AgentModelTier.Normal, [RoleVerifier]),
         ]);
 
     public static readonly PipelineDefinition QuickPatch = new(
         "quick-patch", "Quick Patch",
         [
-            new PipelineStage("builder", "Builder", PipelineStageKind.AgentWork,
+            new PipelineStage(RoleBuilder, RoleBuilderDisplay, PipelineStageKind.AgentWork,
                 AgentRole.Builder, AgentType.Codex, AgentModelTier.Normal, []),
-            new PipelineStage("verifier", "Verifier", PipelineStageKind.Verification,
-                null, null, AgentModelTier.Normal, ["builder"]),
+            new PipelineStage(RoleVerifier, RoleVerifierDisplay, PipelineStageKind.Verification,
+                null, null, AgentModelTier.Normal, [RoleBuilder]),
         ]);
 
     /// <summary>
@@ -45,23 +51,23 @@ public static class PipelineTemplates
     public static readonly PipelineDefinition SingleAgent = new(
         SingleAgentId, "Single Agent",
         [
-            new PipelineStage("builder", "Builder", PipelineStageKind.AgentWork,
+            new PipelineStage(RoleBuilder, RoleBuilderDisplay, PipelineStageKind.AgentWork,
                 AgentRole.Builder, AgentType.Codex, AgentModelTier.Normal, []),
-            new PipelineStage("verifier", "Verifier", PipelineStageKind.Verification,
-                null, null, AgentModelTier.Normal, ["builder"]),
+            new PipelineStage(RoleVerifier, RoleVerifierDisplay, PipelineStageKind.Verification,
+                null, null, AgentModelTier.Normal, [RoleBuilder]),
         ]);
 
     public static readonly PipelineDefinition TestDriven = new(
         "test-driven", "Test Driven",
         [
-            new PipelineStage("architect", "Architect", PipelineStageKind.AgentWork,
+            new PipelineStage(RoleArchitect, "Architect", PipelineStageKind.AgentWork,
                 AgentRole.Architect, AgentType.Claude, AgentModelTier.Normal, []),
             new PipelineStage("tester", "Tester", PipelineStageKind.AgentWork,
-                AgentRole.Tester, AgentType.Codex, AgentModelTier.Normal, ["architect"]),
-            new PipelineStage("builder", "Builder", PipelineStageKind.AgentWork,
+                AgentRole.Tester, AgentType.Codex, AgentModelTier.Normal, [RoleArchitect]),
+            new PipelineStage(RoleBuilder, RoleBuilderDisplay, PipelineStageKind.AgentWork,
                 AgentRole.Builder, AgentType.OpenCode, AgentModelTier.Normal, ["tester"]),
-            new PipelineStage("verifier", "Verifier", PipelineStageKind.Verification,
-                null, null, AgentModelTier.Normal, ["builder"]),
+            new PipelineStage(RoleVerifier, RoleVerifierDisplay, PipelineStageKind.Verification,
+                null, null, AgentModelTier.Normal, [RoleBuilder]),
         ]);
 
     public static IReadOnlyList<PipelineDefinition> All { get; } =

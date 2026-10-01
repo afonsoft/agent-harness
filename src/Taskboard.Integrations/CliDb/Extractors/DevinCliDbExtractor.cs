@@ -15,6 +15,12 @@ namespace Taskboard.Integrations.CliDb.Extractors;
 /// </summary>
 public sealed class DevinCliDbExtractor : CliDbExtractorBase
 {
+    private const string ColRowid = "rowid";
+        private const string ColTitle = "title";
+        private const string ColCreatedAt = "created_at";
+        private const string ColLastActivityAt = "last_activity_at";
+        private const string ColModel = "model";
+
     // Baseline captured 2026-09-19 (user_version=0, application_id=0) over the
     // drift-checked table only — message_nodes is an optional estimation
     // surface whose drift degrades to null-token sessions instead of
@@ -64,22 +70,22 @@ public sealed class DevinCliDbExtractor : CliDbExtractorBase
         long? maxRowid = rowCursor;
         var rows = await conn.QueryAsync(
             "sessions",
-            ["rowid", "id", "title", "created_at", "last_activity_at", "model"],
-            r => (Rowid: r.GetInt64("rowid") ?? 0,
+            [ColRowid, "id", ColTitle, ColCreatedAt, ColLastActivityAt, ColModel],
+            r => (Rowid: r.GetInt64(ColRowid) ?? 0,
                 Record: new CliSessionRecord(
                     source.Name,
                     r.GetString("id") ?? string.Empty,
-                    r.GetString("title"),
-                    CliDbTimestamps.EpochSeconds(r.GetInt64("created_at")),
-                    CliDbTimestamps.OptEpochSeconds(r.GetInt64("last_activity_at")),
+                    r.GetString(ColTitle),
+                    CliDbTimestamps.EpochSeconds(r.GetInt64(ColCreatedAt)),
+                    CliDbTimestamps.OptEpochSeconds(r.GetInt64(ColLastActivityAt)),
                     MessageCount: null,
-                    r.GetString("model"),
+                    r.GetString(ColModel),
                     // sessions.db has no usage columns — estimates come from
                     // the message_nodes rollup below.
                     TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
             whereClause: rowCursor is null ? null : "rowid > @cursor",
             parameters: rowCursor is null ? null : new Dictionary<string, object?> { ["@cursor"] = rowCursor },
-            orderBy: "rowid",
+            orderBy: ColRowid,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Refresh pass: the rowid watermark never re-reads an already-ingested
@@ -90,20 +96,20 @@ public sealed class DevinCliDbExtractor : CliDbExtractorBase
             .AddHours(-RefreshWindowHours).ToUnixTimeSeconds();
         var refreshed = await conn.QueryAsync(
             "sessions",
-            ["rowid", "id", "title", "created_at", "last_activity_at", "model"],
-            r => (Rowid: r.GetInt64("rowid") ?? 0,
+            [ColRowid, "id", ColTitle, ColCreatedAt, ColLastActivityAt, ColModel],
+            r => (Rowid: r.GetInt64(ColRowid) ?? 0,
                 Record: new CliSessionRecord(
                     source.Name,
                     r.GetString("id") ?? string.Empty,
-                    r.GetString("title"),
-                    CliDbTimestamps.EpochSeconds(r.GetInt64("created_at")),
-                    CliDbTimestamps.OptEpochSeconds(r.GetInt64("last_activity_at")),
+                    r.GetString(ColTitle),
+                    CliDbTimestamps.EpochSeconds(r.GetInt64(ColCreatedAt)),
+                    CliDbTimestamps.OptEpochSeconds(r.GetInt64(ColLastActivityAt)),
                     MessageCount: null,
-                    r.GetString("model"),
+                    r.GetString(ColModel),
                     TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
             whereClause: "last_activity_at IS NULL OR last_activity_at >= @since",
             parameters: new Dictionary<string, object?> { ["@since"] = refreshSince },
-            orderBy: "rowid",
+            orderBy: ColRowid,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var touchedById = new Dictionary<string, CliSessionRecord>(StringComparer.Ordinal);

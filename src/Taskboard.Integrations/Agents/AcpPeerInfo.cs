@@ -4,7 +4,7 @@ namespace Taskboard.Integrations.Agents;
 
 /// <summary>
 /// One auth method advertised by the agent in the initialize response.
-/// <see cref="Type"/> defaults to <c>"agent"</c> per ACP v1; <c>"terminal"</c>
+/// <see cref="Type"/> defaults to <c>RoleAgent</c> per ACP v1; <c>"terminal"</c>
 /// means the client must run the configured agent program interactively.
 /// </summary>
 public sealed record AcpAuthMethod(
@@ -22,6 +22,8 @@ public sealed record AcpAuthMethod(
 /// </summary>
 public sealed class AcpPeerInfo
 {
+    private const string RoleAgent = "agent";
+
     public int ProtocolVersion { get; set; } = 1;
     /// <summary>Agent-assigned session id once session/new or session/resume completes.</summary>
     public string? SessionId { get; set; }
@@ -122,7 +124,7 @@ public sealed class AcpPeerInfo
 
                 list.Add(new AcpAuthMethod(
                     id,
-                    m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
+                    m.TryGetProperty("type", out var t) ? t.GetString() ?? RoleAgent : RoleAgent,
                     m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
                     m.TryGetProperty("description", out var d) ? d.GetString() : null,
                     args));
@@ -207,7 +209,7 @@ public sealed class AcpPeerInfo
 
                 list.Add(new AcpAuthMethod(
                     id,
-                    m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
+                    m.TryGetProperty("type", out var t) ? t.GetString() ?? RoleAgent : RoleAgent,
                     m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
                     m.TryGetProperty("description", out var d) ? d.GetString() : null,
                     args));

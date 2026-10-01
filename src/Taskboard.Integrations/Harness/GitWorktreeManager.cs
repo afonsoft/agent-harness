@@ -13,6 +13,8 @@ namespace Taskboard.Integrations.Harness;
 /// </summary>
 public sealed class GitWorktreeManager : IWorkspaceIsolationService
 {
+    private const string WorktreePrefix = "worktree";
+
     private static readonly TimeSpan GitTimeout = TimeSpan.FromMinutes(2);
 
     /// <summary>Cap de entradas por diretório no explorer (RF-003).</summary>
@@ -268,14 +270,14 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         var session = await RequireSessionAsync(runId, cancellationToken);
 
         var args = force
-            ? new List<string> { "worktree", "remove", "--force", session.Path }
-            : new List<string> { "worktree", "remove", session.Path };
+            ? new List<string> { WorktreePrefix, "remove", "--force", session.Path }
+            : new List<string> { WorktreePrefix, "remove", session.Path };
 
         var remove = await _git.RunAsync(session.RepositoryPath, args, GitTimeout, cancellationToken);
         if (remove.ExitCode != 0)
         {
             _logger.LogWarning("git worktree remove failed ({ExitCode}); pruning and deleting directory.", remove.ExitCode);
-            await _git.RunAsync(session.RepositoryPath, ["worktree", "prune"], GitTimeout, cancellationToken);
+            await _git.RunAsync(session.RepositoryPath, [WorktreePrefix, "prune"], GitTimeout, cancellationToken);
             if (Directory.Exists(session.Path))
             {
                 Directory.Delete(session.Path, recursive: true);
@@ -352,7 +354,7 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
             var branch = attempt == 0 ? baseName : $"{baseName}-{attempt + 1}";
             var result = await _git.RunAsync(
                 repositoryPath,
-                ["worktree", "add", "-b", branch, path, baseBranch],
+                [WorktreePrefix, "add", "-b", branch, path, baseBranch],
                 GitTimeout,
                 cancellationToken);
 

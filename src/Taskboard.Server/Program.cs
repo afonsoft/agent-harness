@@ -185,11 +185,11 @@ builder.Services.AddSingleton<IGitHubService, GitHubService>();
 builder.Services.AddSingleton<IAgentDiscoveryService, AgentDiscoveryService>();
 builder.Services.AddSingleton<ISkillDiscoveryService>(sp => new SkillDiscoveryService(new[]
 {
-    new SkillDiscoverySource("claude", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "skills")),
-    new SkillDiscoverySource("devin", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".devin", "skills")),
-    new SkillDiscoverySource("cursor", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor", "skills")),
-    new SkillDiscoverySource("opencode", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".opencode", "skills")),
-    new SkillDiscoverySource("taskboard", Path.Join(AppContext.BaseDirectory, "skills"))
+    new SkillDiscoverySource("claude", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", SkillsSegment)),
+    new SkillDiscoverySource("devin", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".devin", SkillsSegment)),
+    new SkillDiscoverySource("cursor", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor", SkillsSegment)),
+    new SkillDiscoverySource("opencode", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".opencode", SkillsSegment)),
+    new SkillDiscoverySource("taskboard", Path.Join(AppContext.BaseDirectory, SkillsSegment))
 }));
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<RuntimeConfigurationService>();
@@ -643,8 +643,8 @@ builder.Services.AddReverseProxy()
                 Match = new RouteMatch { Path = "/vscode/{**catch-all}" },
                 Transforms =
                 [
-                    new Dictionary<string, string> { ["PathRemovePrefix"] = "/vscode" },
-                    new Dictionary<string, string> { ["RequestHeader"] = "X-Forwarded-Prefix", ["Set"] = "/vscode" }
+                    new Dictionary<string, string> { ["PathRemovePrefix"] = VscodePath },
+                    new Dictionary<string, string> { ["RequestHeader"] = "X-Forwarded-Prefix", ["Set"] = VscodePath }
                 ]
             }
         ],
@@ -1212,7 +1212,7 @@ specs.MapGet("", async Task<IResult> (
         ISpecAppService svc,
         CancellationToken ct) =>
     !IsRepoShapeValid(repo)
-        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        ? Results.BadRequest(new { error = RepoShapeMessage })
         : Results.Ok(await svc.ListAsync(status, q, repo, ct)));
 specs.MapGet("drift-report", async Task<IResult> (
         string? repo,
@@ -1225,7 +1225,7 @@ specs.MapGet("drift-report", async Task<IResult> (
     // scan live no clone selecionado (SPEC-20260920-global-repo-selector RF-005).
     if (!IsRepoShapeValid(repo))
     {
-        return Results.BadRequest(new { error = "repo must have the 'owner/name' shape." });
+        return Results.BadRequest(new { error = RepoShapeMessage });
     }
 
     if (repo is not null)
@@ -1241,7 +1241,7 @@ specs.MapGet("{id}", async Task<IResult> (
         ISpecAppService svc,
         CancellationToken ct) =>
     !IsRepoShapeValid(repo)
-        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        ? Results.BadRequest(new { error = RepoShapeMessage })
         : await svc.GetAsync(id, repo, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
 specs.MapPost("{id}/status", async Task<IResult> (
         string id,
@@ -1250,7 +1250,7 @@ specs.MapPost("{id}/status", async Task<IResult> (
         ISpecAppService svc,
         CancellationToken ct) =>
     !IsRepoShapeValid(repo)
-        ? Results.BadRequest(new { error = "repo must have the 'owner/name' shape." })
+        ? Results.BadRequest(new { error = RepoShapeMessage })
         : await svc.UpdateStatusAsync(id, request.Status, repo, ct) is { } dto
             ? Results.Ok(dto)
             : Results.NotFound());
@@ -1572,9 +1572,9 @@ api.MapPost("local/ai/threads/{id}/prompt", async (
     IConfiguration config,
     CancellationToken ct) =>
 {
-    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    if (!config.GetValue<bool>(WebCliAgentEnabledKey))
     {
-        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+        return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
     }
 
     var admitted = await sessionManager.PromptAsync(id, request.Text, request.Delivery ?? "queue", ct);
@@ -1590,9 +1590,9 @@ api.MapPost("local/ai/threads/{id}/queue", async (
     IConfiguration config,
     CancellationToken ct) =>
 {
-    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    if (!config.GetValue<bool>(WebCliAgentEnabledKey))
     {
-        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+        return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
     }
 
     var queued = await sessionManager.EnqueuePromptAsync(id, request.Text, ct);
@@ -1608,9 +1608,9 @@ api.MapDelete("local/ai/threads/{id}/queue/{eventId}", async (
     IConfiguration config,
     CancellationToken ct) =>
 {
-    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    if (!config.GetValue<bool>(WebCliAgentEnabledKey))
     {
-        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+        return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
     }
 
     var removed = await sessionManager.CancelQueuedPromptAsync(id, eventId, ct);
@@ -1635,9 +1635,9 @@ api.MapPost("local/ai/threads/{id}/retry", async (
     IConfiguration config,
     CancellationToken ct) =>
 {
-    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    if (!config.GetValue<bool>(WebCliAgentEnabledKey))
     {
-        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+        return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
     }
 
     var admitted = await sessionManager.RetryLastPromptAsync(id, ct);
@@ -1652,9 +1652,9 @@ api.MapPost("local/ai/threads/{id}/cancel", async (
     IConfiguration config,
     CancellationToken ct) =>
 {
-    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    if (!config.GetValue<bool>(WebCliAgentEnabledKey))
     {
-        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+        return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
     }
 
     var cancelled = await sessionManager.CancelAsync(id, ct);
@@ -1670,9 +1670,9 @@ api.MapPost("local/ai/threads/{id}/permissions/{requestId}/reply", (
     PermissionGate permissionGate,
     IConfiguration config) =>
 {
-    if (!config.GetValue<bool>("Taskboard:WebCliAgent:Enabled"))
+    if (!config.GetValue<bool>(WebCliAgentEnabledKey))
     {
-        return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Web CLI Agent feature is disabled." } });
+        return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
     }
 
     var ok = permissionGate.Reply(id, requestId, request.Outcome);
@@ -1765,15 +1765,15 @@ app.MapHub<HarnessCockpitHub>("/harness-cockpit-hub").RequireAuthorization();
 
 // SPEC-20260917-vscode-web-workspace RF-006: /vscode mount handling lives in
 // middleware (not an endpoint) because endpoint routing ignores the trailing
-// slash — MapGet("/vscode") would also match /vscode/ and redirect it to
-// itself forever. Exact "/vscode" redirects to "/vscode/" (code-server needs
+// slash — MapGet(VscodePath) would also match /vscode/ and redirect it to
+// itself forever. Exact VscodePath redirects to "/vscode/" (code-server needs
 // the trailing slash for relative URLs); everything else is ensured-started
 // then proxied; a friendly 503 beats a raw 502.
 app.UseWhen(
-    ctx => ctx.Request.Path.StartsWithSegments("/vscode", StringComparison.OrdinalIgnoreCase),
+    ctx => ctx.Request.Path.StartsWithSegments(VscodePath, StringComparison.OrdinalIgnoreCase),
     branch => branch.Use(async (ctx, next) =>
     {
-        if (string.Equals(ctx.Request.Path.Value, "/vscode", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ctx.Request.Path.Value, VscodePath, StringComparison.OrdinalIgnoreCase))
         {
             ctx.Response.Redirect($"/vscode/{ctx.Request.QueryString}");
             return;
@@ -1823,7 +1823,7 @@ chat.MapPost("providers", async (ChatProviderUpsertRequest request, ChatService 
     }
     catch (ChatValidationException ex)
     {
-        return Results.BadRequest(new { error = new { code = "VALIDATION", message = ex.Message } });
+        return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
     }
 });
 
@@ -1838,7 +1838,7 @@ chat.MapPut("providers/{id:guid}", async (Guid id, ChatProviderUpsertRequest req
     }
     catch (ChatValidationException ex)
     {
-        return Results.BadRequest(new { error = new { code = "VALIDATION", message = ex.Message } });
+        return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
     }
 });
 
@@ -1881,24 +1881,24 @@ chat.MapPost("conversations", async (CreateChatConversationRequest request, Chat
     }
     catch (ChatValidationException ex)
     {
-        return Results.BadRequest(new { error = new { code = "VALIDATION", message = ex.Message } });
+        return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
     }
 });
 
 chat.MapGet("conversations/{id}", async (string id, ChatService chatService, CancellationToken ct) =>
     await chatService.GetConversationAsync(id, ct) is { } detail
         ? Results.Ok(detail)
-        : Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Conversation '{id}' not found." } }));
+        : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
 
 chat.MapPatch("conversations/{id}", async (string id, PatchChatConversationRequest request, ChatService chatService, CancellationToken ct) =>
     await chatService.PatchConversationAsync(id, request, ct) is { } conversation
         ? Results.Ok(new { conversation })
-        : Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Conversation '{id}' not found." } }));
+        : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
 
 chat.MapDelete("conversations/{id}", async (string id, ChatService chatService, CancellationToken ct) =>
     await chatService.DeleteConversationAsync(id, ct)
         ? Results.NoContent()
-        : Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = $"Conversation '{id}' not found." } }));
+        : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
 
 chat.MapPost("conversations/{id}/messages", async (
     string id,
@@ -1909,7 +1909,7 @@ chat.MapPost("conversations/{id}/messages", async (
 {
     if (string.IsNullOrWhiteSpace(request.Content))
     {
-        return Results.BadRequest(new { error = new { code = "VALIDATION", message = "Content is required." } });
+        return Results.BadRequest(new { error = new { code = ErrValidation, message = "Content is required." } });
     }
 
     IAsyncEnumerable<ChatStreamEvent> stream;
@@ -1919,7 +1919,7 @@ chat.MapPost("conversations/{id}/messages", async (
     }
     catch (ChatValidationException ex)
     {
-        return Results.NotFound(new { error = new { code = "CONVERSATION_NOT_FOUND", message = ex.Message } });
+        return Results.NotFound(new { error = new { code = ErrConversationNotFound, message = ex.Message } });
     }
 
     http.Response.Headers.ContentType = "text/event-stream";
@@ -2009,7 +2009,7 @@ static IResult ConfigurationError(ConfigurationWriteResult result) => result.Err
     }),
     _ => Results.BadRequest(new
     {
-        error = new { code = "VALIDATION", message = result.Message }
+        error = new { code = ErrValidation, message = result.Message }
     })
 };
 
@@ -2054,7 +2054,7 @@ api.MapPost("jobs/{key}/run", (string key, JobRegistry jobs) =>
         })
     }).RequireAuthorization();
 
-api.MapGet("skills", async (ISkillDiscoveryService skills, CancellationToken ct) =>
+api.MapGet(SkillsSegment, async (ISkillDiscoveryService skills, CancellationToken ct) =>
 {
     var result = await skills.DiscoverAsync(ct);
     return Results.Ok(new { skills = result });
@@ -2195,7 +2195,7 @@ github.MapPatch("repos/{owner}/{repo}/issues/{number:int}", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "issue-not-found" });
+        return Results.NotFound(new { error = ErrIssueNotFound });
     }
 });
 
@@ -2220,7 +2220,7 @@ github.MapPut("repos/{owner}/{repo}/issues/{number:int}/priority", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "issue-not-found" });
+        return Results.NotFound(new { error = ErrIssueNotFound });
     }
 });
 
@@ -2249,7 +2249,7 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/close", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "issue-not-found" });
+        return Results.NotFound(new { error = ErrIssueNotFound });
     }
 });
 
@@ -2288,7 +2288,7 @@ github.MapPost("repos/{owner}/{repo}/issues/{number:int}/comments", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "issue-not-found" });
+        return Results.NotFound(new { error = ErrIssueNotFound });
     }
 });
 
@@ -2364,7 +2364,7 @@ github.MapGet("repos/{owner}/{repo}/timeline", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "repo-not-found" });
+        return Results.NotFound(new { error = ErrRepoNotFound });
     }
 });
 
@@ -2382,7 +2382,7 @@ github.MapGet("repos/{owner}/{repo}/metrics", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "repo-not-found" });
+        return Results.NotFound(new { error = ErrRepoNotFound });
     }
 });
 
@@ -2421,7 +2421,7 @@ github.MapGet("repos/{owner}/{repo}/workflows", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "repo-not-found" });
+        return Results.NotFound(new { error = ErrRepoNotFound });
     }
 });
 
@@ -2440,7 +2440,7 @@ github.MapGet("repos/{owner}/{repo}/workflows/{workflowId:long}/runs", async (
     }
     catch (Octokit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
     {
-        return Results.NotFound(new { error = "repo-not-found" });
+        return Results.NotFound(new { error = ErrRepoNotFound });
     }
 });
 
@@ -3141,4 +3141,16 @@ public partial class Program
 {
     // Fixed loopback default (S1075) — overridable via HARNESS_URL / Taskboard:BaseUrl.
     internal const string DefaultHarnessBaseUrl = "http://127.0.0.1:47823";
+
+    // Repeated literals (S1192).
+    private const string ErrValidation = "VALIDATION";
+    private const string ErrConversationNotFound = "CONVERSATION_NOT_FOUND";
+    private const string ErrFeatureDisabled = "FEATURE_DISABLED";
+    private const string ErrRepoNotFound = "repo-not-found";
+    private const string ErrIssueNotFound = "issue-not-found";
+    private const string WebCliAgentEnabledKey = "Taskboard:WebCliAgent:Enabled";
+    private const string WebCliAgentDisabledMessage = "Web CLI Agent feature is disabled.";
+    private const string RepoShapeMessage = "repo must have the 'owner/name' shape.";
+    private const string VscodePath = "/vscode";
+    private const string SkillsSegment = "skills";
 }

@@ -29,6 +29,12 @@ public sealed record AgentControlResult(AgentControlStatus Status, object? Paylo
 /// </summary>
 public sealed class AgentControlService
 {
+    private const string SteerMethod = "steer";
+        private const string StagePrefix = "stage:";
+        private const string StateRunning = "running";
+        private const string ErrNoActiveSession = "no-active-session";
+        private const string ErrNoSuchRun = "no-such-run";
+
     private readonly IAgentOrchestrationService _orchestration;
     private readonly ISteerQueue _steer;
     private readonly IPipelineOrchestrator _pipelines;
@@ -93,7 +99,7 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Accepted);
                 }
 
-            case (AgentEventScope.Issue, "steer") when !string.IsNullOrWhiteSpace(request.Content):
+            case (AgentEventScope.Issue, SteerMethod) when !string.IsNullOrWhiteSpace(request.Content):
                 {
                     var exec = await _pipelines.GetLatestByIssueAsync(request.ScopeId, cancellationToken);
                     if (exec is null || IsFinished(exec))
@@ -124,11 +130,11 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Ok, Payload: retried);
                 }
 
-            case (AgentEventScope.Run, "steer") when !string.IsNullOrWhiteSpace(request.Content):
+            case (AgentEventScope.Run, SteerMethod) when !string.IsNullOrWhiteSpace(request.Content):
                 {
                     if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
                     }
 
                     _steer.Enqueue(request.ScopeId, request.Content.Trim());
@@ -142,7 +148,7 @@ public sealed class AgentControlService
                     var exec = await _pipelines.GetAsync(request.ScopeId, cancellationToken);
                     if (exec is null)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
                     }
                     if (exec.Status is "Completed" or "Cancelled")
                     {
@@ -158,7 +164,7 @@ public sealed class AgentControlService
                 {
                     if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
                     }
 
                     var retried = await _pipelines.RetryStageAsync(request.ScopeId, request.StageId, request.Content, cancellationToken);
@@ -171,19 +177,19 @@ public sealed class AgentControlService
                     var cancelled = await _sessions.CancelAsync(request.ScopeId, cancellationToken);
                     if (!cancelled)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
                     }
 
                     await EmitAsync(request, AgentEventKinds.Lifecycle, "Cancel requested (thread)", cancellationToken);
                     return new AgentControlResult(AgentControlStatus.Accepted);
                 }
 
-            case (AgentEventScope.Thread, "steer") when !string.IsNullOrWhiteSpace(request.Content):
+            case (AgentEventScope.Thread, SteerMethod) when !string.IsNullOrWhiteSpace(request.Content):
                 {
-                    var sent = await _sessions.PromptAsync(request.ScopeId, request.Content.Trim(), "steer", cancellationToken);
+                    var sent = await _sessions.PromptAsync(request.ScopeId, request.Content.Trim(), SteerMethod, cancellationToken);
                     if (!sent)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
                     }
 
                     await EmitAsync(request, AgentEventKinds.Steer, "Steer sent (thread)",
@@ -200,7 +206,7 @@ public sealed class AgentControlService
                         request.ScopeId, request.ConfigId.Trim(), request.Content, cancellationToken);
                     if (!set)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
                     }
 
                     await EmitAsync(request, AgentEventKinds.Lifecycle, $"Config '{request.ConfigId}' → '{request.Content}'",
@@ -213,7 +219,7 @@ public sealed class AgentControlService
                     var set = await _sessions.SetModeAsync(request.ScopeId, request.Content.Trim(), cancellationToken);
                     if (!set)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-session");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
                     }
 
                     await EmitAsync(request, AgentEventKinds.Lifecycle, $"Mode → '{request.Content.Trim()}'", cancellationToken);
@@ -235,7 +241,7 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Accepted);
                 }
 
-            case (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, "steer"):
+            case (AgentEventScope.Thread, "retry") or (AgentEventScope.Run, SteerMethod):
                 return new AgentControlResult(AgentControlStatus.Conflict,
                     Error: $"action '{action}' is not supported for scope '{request.ScopeKind}' (content required or unsupported).");
 
@@ -266,12 +272,12 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Gone, Error: "request-expired-or-unknown");
                 }
 
-            case AgentEventScope.Run when request.RequestId.StartsWith("stage:", StringComparison.Ordinal):
+            case AgentEventScope.Run when request.RequestId.StartsWith(StagePrefix, StringComparison.Ordinal):
                 {
-                    var stageKey = request.RequestId["stage:".Length..];
+                    var stageKey = request.RequestId[StagePrefix.Length..];
                     if (await _pipelines.GetAsync(request.ScopeId, cancellationToken) is null)
                     {
-                        return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-such-run");
+                        return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoSuchRun);
                     }
 
                     var exec = string.Equals(request.Outcome, "deny", StringComparison.OrdinalIgnoreCase)
@@ -282,7 +288,7 @@ public sealed class AgentControlService
                     return new AgentControlResult(AgentControlStatus.Ok, Payload: exec);
                 }
 
-            case AgentEventScope.Issue when request.RequestId.StartsWith("stage:", StringComparison.Ordinal):
+            case AgentEventScope.Issue when request.RequestId.StartsWith(StagePrefix, StringComparison.Ordinal):
                 {
                     // Board runs are pipelines — a stage-gate reply on the
                     // issue scope resolves to the issue's execution.
@@ -292,7 +298,7 @@ public sealed class AgentControlService
                         return new AgentControlResult(AgentControlStatus.Conflict, Error: "no-active-run");
                     }
 
-                    var stageKey = request.RequestId["stage:".Length..];
+                    var stageKey = request.RequestId[StagePrefix.Length..];
                     var updated = string.Equals(request.Outcome, "deny", StringComparison.OrdinalIgnoreCase)
                         ? await _pipelines.RejectStageAsync(exec.PipelineExecutionId, stageKey, request.Comment, cancellationToken)
                         : await _pipelines.ApproveStageAsync(exec.PipelineExecutionId, stageKey, request.Comment, cancellationToken);
@@ -323,7 +329,7 @@ public sealed class AgentControlService
                     var exec = await _pipelines.GetAsync(scopeId, cancellationToken);
                     if (exec is null)
                     {
-                        return new AgentControlResult(AgentControlStatus.NotFound, Error: "no-such-run");
+                        return new AgentControlResult(AgentControlStatus.NotFound, Error: ErrNoSuchRun);
                     }
 
                     var state = MapPipelineState(exec.Status);
@@ -346,7 +352,7 @@ public sealed class AgentControlService
                         });
                     return new AgentControlResult(AgentControlStatus.Ok, Payload: new AgentScopeState(
                         scopeKind, scopeId,
-                        _sessionClient.IsSessionActive(scopeId) ? "running" : "idle",
+                        _sessionClient.IsSessionActive(scopeId) ? StateRunning : "idle",
                         LastEventSequence: lastSeq,
                         SessionId: peer?.SessionId,
                         SessionInfoJson: sessionInfo));
@@ -367,7 +373,7 @@ public sealed class AgentControlService
                         var latest = (await _orchestration.GetRunsAsync(scopeId, 1, cancellationToken)).FirstOrDefault();
                         issueState = latest?.State switch
                         {
-                            AgentRunState.Running => "running",
+                            AgentRunState.Running => StateRunning,
                             AgentRunState.Queued => "queued",
                             AgentRunState.Succeeded => "completed",
                             AgentRunState.Failed => "failed",
@@ -391,7 +397,7 @@ public sealed class AgentControlService
 
     private static string MapPipelineState(string status) => status.ToLowerInvariant() switch
     {
-        "running" or "inprogress" => "running",
+        StateRunning or "inprogress" => StateRunning,
         "waitingapproval" => "waiting_permission",
         "awaitingretry" => "awaiting_retry",
         "paused" => "paused",

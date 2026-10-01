@@ -21,6 +21,8 @@ public sealed class AiChatCatalogService(
     IAgentSessionModelCatalog sessionModels,
     ILogger<AiChatCatalogService> logger)
 {
+    private const string ProviderKindCustom = "custom";
+
     /// <summary>
     /// Lists the model catalog in source-priority order
     /// (SPEC-20260921-ai-code-thread-config RF-005): when
@@ -73,10 +75,10 @@ public sealed class AiChatCatalogService(
                 var config = await modelConfig.GetConfigAsync(agentType, cancellationToken).ConfigureAwait(false);
                 if (string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Saved tier overrides are user-chosen → "custom" provenance.
-                    if (config.Lite is not null) names.TryAdd(config.Lite, "custom");
-                    if (config.Normal is not null) names.TryAdd(config.Normal, "custom");
-                    if (config.Ultra is not null) names.TryAdd(config.Ultra, "custom");
+                    // Saved tier overrides are user-chosen → ProviderKindCustom provenance.
+                    if (config.Lite is not null) names.TryAdd(config.Lite, ProviderKindCustom);
+                    if (config.Normal is not null) names.TryAdd(config.Normal, ProviderKindCustom);
+                    if (config.Ultra is not null) names.TryAdd(config.Ultra, ProviderKindCustom);
                 }
             }
             catch (Exception ex)
@@ -103,7 +105,7 @@ public sealed class AiChatCatalogService(
         {
             if (Enum.TryParse<AgentType>(entry.AgentType, true, out var customType) && eligible.Contains(customType))
             {
-                models.Add(entry with { Source = "custom" });
+                models.Add(entry with { Source = ProviderKindCustom });
             }
         }
 

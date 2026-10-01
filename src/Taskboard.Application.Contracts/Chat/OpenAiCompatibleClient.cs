@@ -38,6 +38,8 @@ public sealed record OpenAiUsage(int? PromptTokens, int? CompletionTokens);
 /// </summary>
 public sealed class OpenAiCompatibleClient(HttpClient http)
 {
+    private const string ToolTypeFunction = "function";
+
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -93,8 +95,8 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
         {
             payload["tools"] = tools.Select(t => new Dictionary<string, object?>
             {
-                ["type"] = "function",
-                ["function"] = new Dictionary<string, object?>
+                ["type"] = ToolTypeFunction,
+                [ToolTypeFunction] = new Dictionary<string, object?>
                 {
                     ["name"] = t.Name,
                     ["description"] = t.Description,
@@ -231,8 +233,8 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
             wire["tool_calls"] = message.ToolCalls.Select(tc => new Dictionary<string, object?>
             {
                 ["id"] = tc.Id,
-                ["type"] = "function",
-                ["function"] = new Dictionary<string, object?>
+                ["type"] = ToolTypeFunction,
+                [ToolTypeFunction] = new Dictionary<string, object?>
                 {
                     ["name"] = tc.Name,
                     ["arguments"] = tc.ArgumentsJson,
@@ -285,7 +287,7 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
                         string? id = tc.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
                         string? name = null;
                         string? args = null;
-                        if (tc.TryGetProperty("function", out var fn) && fn.ValueKind == JsonValueKind.Object)
+                        if (tc.TryGetProperty(ToolTypeFunction, out var fn) && fn.ValueKind == JsonValueKind.Object)
                         {
                             name = fn.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
                             args = fn.TryGetProperty("arguments", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;

@@ -13,6 +13,8 @@ namespace Taskboard.Integrations.Vscode;
 /// </summary>
 public sealed class VscodeInstallService : IVscodeInstallService
 {
+    private const string StreamStderr = "stderr";
+
     private const int LineCapacity = 500;
     private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(10);
 
@@ -74,7 +76,7 @@ public sealed class VscodeInstallService : IVscodeInstallService
 
             if (_locator("curl") is null)
             {
-                Append("stderr", "missing prerequisite: 'curl' not found on PATH");
+                Append(StreamStderr, "missing prerequisite: 'curl' not found on PATH");
                 _state = AgentCliInstallState.Failed;
                 return Task.FromResult(Snapshot());
             }
@@ -112,19 +114,19 @@ public sealed class VscodeInstallService : IVscodeInstallService
             }
             else
             {
-                Append("stderr", $"install failed with exit code {exitCode}");
+                Append(StreamStderr, $"install failed with exit code {exitCode}");
                 Finish(AgentCliInstallState.Failed, exitCode);
             }
         }
         catch (OperationCanceledException)
         {
-            Append("stderr", "install timed out or was cancelled");
+            Append(StreamStderr, "install timed out or was cancelled");
             Finish(AgentCliInstallState.Failed, null);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "code-server install run failed.");
-            Append("stderr", Sanitize(ex.Message));
+            Append(StreamStderr, Sanitize(ex.Message));
             Finish(AgentCliInstallState.Failed, null);
         }
     }

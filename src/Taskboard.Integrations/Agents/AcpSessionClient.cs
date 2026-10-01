@@ -21,6 +21,13 @@ namespace Taskboard.Integrations.Agents;
 /// </summary>
 public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 {
+    // Event kinds/roles emitted through EmitEvent (S1192).
+    private const string EventKindError = "error";
+    private const string EventKindSession = "session";
+    private const string EventRoleSystem = "system";
+    private const string EventRoleAssistant = "assistant";
+    private const string OutcomeCancelled = "cancelled";
+
     internal sealed record AcpPermissionOption(string OptionId, string? Name, string? Kind);
 
     private sealed record PendingPermission(
@@ -157,7 +164,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
         if (initResult is null)
         {
-            EmitEvent(threadId, "error", "system",
+            EmitEvent(threadId, EventKindError, EventRoleSystem,
                 "Agent did not complete the ACP initialize handshake.", null);
             await StopSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
             return false;
@@ -173,7 +180,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         var dialect = answered <= requested ? AcpDialects.For(answered) : null;
         if (dialect is null)
         {
-            EmitEvent(threadId, "error", "system",
+            EmitEvent(threadId, EventKindError, EventRoleSystem,
                 $"Agent answered protocolVersion {answered}; this client speaks ACP up to v{requested}.",
                 JsonSerializer.Serialize(new { code = "unsupported_version", requested, answered }));
             await StopSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
@@ -204,7 +211,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
             if (newResult is null)
             {
-                EmitEvent(threadId, "error", "system", "Agent did not answer session/new.", null);
+                EmitEvent(threadId, EventKindError, EventRoleSystem, "Agent did not answer session/new.", null);
                 await StopSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
                 return false;
             }
@@ -223,7 +230,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             holder.Peer.SessionId = holder.SessionId;
         }
 
-        EmitEvent(threadId, "session", "system", "Session started",
+        EmitEvent(threadId, EventKindSession, EventRoleSystem, "Session started",
             JsonSerializer.Serialize(new { state = "ready", sessionId = holder.SessionId, resumed }));
         EmitSessionInfo(holder);
         return true;
@@ -280,7 +287,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             // terminal-type methods need an interactive login outside the ACP channel.
             var terminal = holder.Peer.AuthMethods[0];
-            EmitEvent(holder.ThreadId, "error", "system",
+            EmitEvent(holder.ThreadId, EventKindError, EventRoleSystem,
                 $"Agent requires interactive login — run the agent CLI in a terminal ({terminal.Name}).",
                 JsonSerializer.Serialize(new { code = "auth_required", method = terminal.Id, args = terminal.Args }));
             return false;
@@ -291,12 +298,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             _options.RequestTimeout, cancellationToken).ConfigureAwait(false);
         if (auth is null)
         {
-            EmitEvent(holder.ThreadId, "error", "system",
+            EmitEvent(holder.ThreadId, EventKindError, EventRoleSystem,
                 "Agent authentication failed.", JsonSerializer.Serialize(new { code = "auth_required" }));
             return false;
         }
 
-        EmitEvent(holder.ThreadId, "lifecycle", "system",
+        EmitEvent(holder.ThreadId, "lifecycle", EventRoleSystem,
             $"Authenticated via '{agentMethod.Id}'.", null);
         return true;
     }
@@ -379,7 +386,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             }
             else if (t.IsFaulted)
             {
-                EmitEvent(threadId, "error", "system",
+                EmitEvent(threadId, EventKindError, EventRoleSystem,
                     $"Prompt turn rejected: {t.Exception?.GetBaseException().Message}", null);
                 ClearTurn(holder, turn);
             }
@@ -416,7 +423,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return;
         }
 
-        EmitEvent(holder.ThreadId, "session", "system", "Prompt turn completed",
+        EmitEvent(holder.ThreadId, EventKindSession, EventRoleSystem, "Prompt turn completed",
             JsonSerializer.Serialize(new { state = "ready", stopReason, messageId = turn.MessageId }));
     }
 
@@ -460,11 +467,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             return;
         }
 
-        EmitEvent(holder.ThreadId, "error", "system",
+        EmitEvent(holder.ThreadId, EventKindError, EventRoleSystem,
             $"Prompt turn exceeded {_options.TurnTimeout}.",
             JsonSerializer.Serialize(new { code = "turn_timeout" }));
-        EmitEvent(holder.ThreadId, "session", "system", "Prompt turn completed",
-            JsonSerializer.Serialize(new { state = "ready", stopReason = "cancelled", turn.MessageId }));
+        EmitEvent(holder.ThreadId, EventKindSession, EventRoleSystem, "Prompt turn completed",
+            JsonSerializer.Serialize(new { state = "ready", stopReason = OutcomeCancelled, turn.MessageId }));
         _ = CancelAsync(holder.ThreadId);
     }
 
@@ -647,7 +654,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     {
                         jsonrpc = "2.0",
                         id = removed.JsonRpcId,
-                        result = new { outcome = new { outcome = "cancelled" } }
+                        result = new { outcome = new { outcome = OutcomeCancelled } }
                     }, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -658,8 +665,8 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             {
                 if (holder.OpenToolCalls.TryRemove(toolCallId, out _))
                 {
-                    EmitEvent(threadId, AgentEventKinds.ToolOutput, "assistant", null,
-                        JsonSerializer.Serialize(new { toolCallId, status = "cancelled" }),
+                    EmitEvent(threadId, AgentEventKinds.ToolOutput, EventRoleAssistant, null,
+                        JsonSerializer.Serialize(new { toolCallId, status = OutcomeCancelled }),
                         toolCallId: toolCallId);
                 }
             }
@@ -710,7 +717,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             }
 
             object result = optionId is null
-                ? new { outcome = new { outcome = "cancelled" } }
+                ? new { outcome = new { outcome = OutcomeCancelled } }
                 : new { outcome = new { outcome = "selected", optionId } };
 
             var response = new { jsonrpc = "2.0", id = pending.JsonRpcId, result };
@@ -734,7 +741,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     /// <summary>
     /// Maps a PermissionGate outcome (allow/deny/always) to an optionId among the
     /// options offered by the agent, preferring the ACP permission option
-    /// <c>kind</c> over substring matching; null → outcome "cancelled".
+    /// <c>kind</c> over substring matching; null → outcome OutcomeCancelled.
     /// </summary>
     internal static string? MapOutcomeToOption(string outcome, IReadOnlyList<AcpPermissionOption> options)
     {
@@ -825,7 +832,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             holder.Process?.Dispose();
             holder.Socket?.Dispose();
             holder.Cts.Dispose();
-            EmitEvent(threadId, "session", "system", "Session stopped", "{\"state\":\"dead\"}");
+            EmitEvent(threadId, EventKindSession, EventRoleSystem, "Session stopped", "{\"state\":\"dead\"}");
         }
     }
 
@@ -854,7 +861,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch (Exception ex)
         {
-            EmitEvent(holder.ThreadId, "error", "system", $"Agent channel read failed: {ex.Message}", null);
+            EmitEvent(holder.ThreadId, EventKindError, EventRoleSystem, $"Agent channel read failed: {ex.Message}", null);
         }
         finally
         {
@@ -880,7 +887,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
 
         CleanupPendingState(holder);
-        EmitEvent(holder.ThreadId, "lifecycle", "system", "Agent process exited",
+        EmitEvent(holder.ThreadId, "lifecycle", EventRoleSystem, "Agent process exited",
             JsonSerializer.Serialize(new { state = "dead", exitCode, sessionId = holder.SessionId }));
     }
 
@@ -950,7 +957,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             var parsed = AcpProtocolParser.ParseElement(doc.RootElement, holder.Dialect);
             if (parsed is null)
             {
-                EmitEvent(threadId, "message", "assistant", line, null);
+                EmitEvent(threadId, "message", EventRoleAssistant, line, null);
                 return;
             }
 
@@ -958,7 +965,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
         catch
         {
-            EmitEvent(threadId, "message", "assistant", line, null);
+            EmitEvent(threadId, "message", EventRoleAssistant, line, null);
         }
     }
 
@@ -1073,7 +1080,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     }
                 }
 
-                EmitEvent(threadId, kind, parsed.Role ?? "assistant", parsed.Content, parsed.PayloadJson,
+                EmitEvent(threadId, kind, parsed.Role ?? EventRoleAssistant, parsed.Content, parsed.PayloadJson,
                     parsed.SessionId, parsed.ToolCallId,
                     parsed.MessageId, parsed.PlanId, patchOp);
                 return;
@@ -1091,7 +1098,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             using var doc = JsonDocument.Parse(payloadJson);
             return doc.RootElement.TryGetProperty("status", out var s)
-                && s.GetString() is "completed" or "failed" or "cancelled";
+                && s.GetString() is "completed" or "failed" or OutcomeCancelled;
         }
         catch (JsonException)
         {
@@ -1148,7 +1155,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             if (toolKey is not null
                 && holder.AlwaysAnswers.TryGetValue(toolKey, out var cachedOptionId))
             {
-                EmitEvent(holder.ThreadId, "permission", "assistant", parsed.Content,
+                EmitEvent(holder.ThreadId, "permission", EventRoleAssistant, parsed.Content,
                     InjectAutoFlag(parsed.PayloadJson));
                 _ = WriteLineAsync(holder, new
                 {
@@ -1161,7 +1168,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
             var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(holder.Cts.Token);
             holder.PendingPermissions[effectiveId] = new PendingPermission(rpcId, options, timeoutCts, rawLine);
-            EmitEvent(holder.ThreadId, "permission", "assistant", parsed.Content, parsed.PayloadJson);
+            EmitEvent(holder.ThreadId, "permission", EventRoleAssistant, parsed.Content, parsed.PayloadJson);
 
             // RF-006: unanswered permissions auto-cancel after PermissionTimeout.
             timeoutCts.CancelAfter(_options.PermissionTimeout);
@@ -1173,7 +1180,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                     {
                         jsonrpc = "2.0",
                         id = expired.JsonRpcId,
-                        result = new { outcome = new { outcome = "cancelled" } }
+                        result = new { outcome = new { outcome = OutcomeCancelled } }
                     }, CancellationToken.None);
                 }
             });
@@ -1258,7 +1265,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                 requestCts?.Dispose();
             }
         });
-        EmitEvent(holder.ThreadId, "activity", "system",
+        EmitEvent(holder.ThreadId, "activity", EventRoleSystem,
             $"Agent request '{parsed.Method}'.", rawLine);
     }
 
@@ -1456,7 +1463,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             // The agent answered with a JSON-RPC error — surface it so the UI
             // shows the rejection reason instead of a silent failure.
-            EmitEvent(holder.ThreadId, "error", "system", ex.Message,
+            EmitEvent(holder.ThreadId, EventKindError, EventRoleSystem, ex.Message,
                 JsonSerializer.Serialize(new { code = ex.Code.ToString() }));
             return null;
         }
@@ -1483,7 +1490,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             if (!DockerCliSpawner.IsValidContainerName(spawn.ContainerContext))
             {
-                EmitEvent(threadId, "error", "system",
+                EmitEvent(threadId, EventKindError, EventRoleSystem,
                     $"Invalid container name '{spawn.ContainerContext}'.", null);
                 return null;
             }
@@ -1514,7 +1521,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             catch
             {
                 socket.Dispose();
-                EmitEvent(threadId, "error", "system", $"Could not connect to agent ACP server on 127.0.0.1:{port}.", null);
+                EmitEvent(threadId, EventKindError, EventRoleSystem, $"Could not connect to agent ACP server on 127.0.0.1:{port}.", null);
                 return null;
             }
 
@@ -1557,7 +1564,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             // Missing binary/bad workdir must degrade like the TCP path —
             // an error event + null, never an exception through the endpoint.
-            EmitEvent(threadId, "error", "system", $"Could not start agent process: {ex.Message}", null);
+            EmitEvent(threadId, EventKindError, EventRoleSystem, $"Could not start agent process: {ex.Message}", null);
             return null;
         }
 
@@ -1589,7 +1596,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                         break;
                     }
 
-                    EmitEvent(threadId, "output", "assistant", err, null);
+                    EmitEvent(threadId, "output", EventRoleAssistant, err, null);
                 }
             }
             catch (Exception)
@@ -1603,7 +1610,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     private void EmitPeerInfo(SessionHolder holder)
     {
-        EmitEvent(holder.ThreadId, "session_info", "system",
+        EmitEvent(holder.ThreadId, "session_info", EventRoleSystem,
             $"Connected to {holder.Peer.AgentName ?? "agent"} {holder.Peer.AgentVersion}".Trim(),
             JsonSerializer.Serialize(new
             {
@@ -1629,7 +1636,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     private void EmitSessionInfo(SessionHolder holder)
     {
-        EmitEvent(holder.ThreadId, "session_info", "system", "Session configuration",
+        EmitEvent(holder.ThreadId, "session_info", EventRoleSystem, "Session configuration",
             JsonSerializer.Serialize(new
             {
                 sessionId = holder.SessionId,
