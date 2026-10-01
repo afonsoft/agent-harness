@@ -161,37 +161,7 @@ else if (_agents is not null)
                 _selectedAgentType = first.Type;
             }
 
-            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
-            if (!string.IsNullOrWhiteSpace(saved))
-            {
-                _prompt = saved;
-            }
-            else
-            {
-                var template = await LoadTemplateAsync();
-                var commentLines = await BuildCommentLinesAsync();
-                if (!string.IsNullOrWhiteSpace(template))
-                {
-                    _prompt = AgentPromptTemplate.Render(
-                        template, RepoCloneUrl, Issue.Title, Issue.Body, commentLines);
-                    // Older overrides may lack {issueComments} — append so the
-                    // handoff channel still reaches the agent (SPEC-20260918-github-comments-history RF-005).
-                    if (!AgentPromptTemplate.HasCommentsPlaceholder(template) && commentLines is not null)
-                    {
-                        _prompt += $"\n\nComments:\n{commentLines}";
-                    }
-                }
-                else
-                {
-                    _prompt = string.IsNullOrWhiteSpace(Issue.Body)
-                        ? $"Resolve a issue #{Issue.Number}: {Issue.Title}"
-                        : Issue.Body;
-                    if (commentLines is not null)
-                    {
-                        _prompt += $"\n\nComments:\n{commentLines}";
-                    }
-                }
-            }
+            _prompt = await ResolveInitialPromptAsync();
         }
         catch (Exception ex)
         {
@@ -201,6 +171,42 @@ else if (_agents is not null)
         {
             _isLoading = false;
         }
+    }
+
+    private async Task<string> ResolveInitialPromptAsync()
+    {
+        var saved = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+        if (!string.IsNullOrWhiteSpace(saved))
+        {
+            return saved;
+        }
+
+        var issue = Issue!;
+        var template = await LoadTemplateAsync();
+        var commentLines = await BuildCommentLinesAsync();
+        if (!string.IsNullOrWhiteSpace(template))
+        {
+            var prompt = AgentPromptTemplate.Render(
+                template, RepoCloneUrl, issue.Title, issue.Body, commentLines);
+            // Older overrides may lack {issueComments} — append so the
+            // handoff channel still reaches the agent (SPEC-20260918-github-comments-history RF-005).
+            if (!AgentPromptTemplate.HasCommentsPlaceholder(template) && commentLines is not null)
+            {
+                prompt += $"\n\nComments:\n{commentLines}";
+            }
+
+            return prompt;
+        }
+
+        var fallback = string.IsNullOrWhiteSpace(issue.Body)
+            ? $"Resolve a issue #{issue.Number}: {issue.Title}"
+            : issue.Body;
+        if (commentLines is not null)
+        {
+            fallback += $"\n\nComments:\n{commentLines}";
+        }
+
+        return fallback;
     }
 
     // SPEC-20260918-github-comments-history RF-005: comments are the handoff
