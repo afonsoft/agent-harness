@@ -297,7 +297,14 @@ public static class ToolCallGrouper
 {
     public static IReadOnlyList<ChatRenderItem> Build(IReadOnlyList<AiChatEventDto> events)
     {
-        // First pass: merge each tool_call with its updates by toolCallId.
+        var (merged, order) = MergeEvents(events);
+        return GroupEdits(merged, order);
+    }
+
+    // First pass: merge each tool_call with its updates by toolCallId.
+    private static (List<ChatRenderItem> Merged, List<ToolAccumulator> Order) MergeEvents(
+        IReadOnlyList<AiChatEventDto> events)
+    {
         var merged = new List<ChatRenderItem>();
         var byCallId = new Dictionary<string, ToolAccumulator>(StringComparer.Ordinal);
         var order = new List<ToolAccumulator>();
@@ -313,29 +320,12 @@ public static class ToolCallGrouper
             var callId = ExtractCallId(ev.PayloadJson);
             if (callId is not null && byCallId.TryGetValue(callId, out var existing))
             {
-                // Out-of-order delivery: a late tool_call still plays the
-                // "call" role in the merge, never an update.
-                if (ev.Kind == "tool_call")
-                {
-                    existing.Call ??= ev.PayloadJson;
-                }
-                else
-                {
-                    existing.Updates.Add(ev.PayloadJson);
-                }
-
+                RecordEvent(existing, ev);
                 continue;
             }
 
             var acc = new ToolAccumulator(callId);
-            if (ev.Kind == "tool_call")
-            {
-                acc.Call = ev.PayloadJson;
-            }
-            else
-            {
-                acc.Updates.Add(ev.PayloadJson);
-            }
+            RecordEvent(acc, ev);
 
             if (callId is not null)
             {
@@ -346,8 +336,28 @@ public static class ToolCallGrouper
             merged.Add(new ChatRenderItem(Tool: null!)); // placeholder, fixed below
         }
 
-        // Second pass: resolve placeholders into models and aggregate
-        // consecutive file edits into changes groups.
+        return (merged, order);
+    }
+
+    private static void RecordEvent(ToolAccumulator acc, AiChatEventDto ev)
+    {
+        // Out-of-order delivery: a late tool_call still plays the
+        // "call" role in the merge, never an update.
+        if (ev.Kind == "tool_call")
+        {
+            acc.Call ??= ev.PayloadJson;
+        }
+        else
+        {
+            acc.Updates.Add(ev.PayloadJson);
+        }
+    }
+
+    // Second pass: resolve placeholders into models and aggregate
+    // consecutive file edits into changes groups.
+    private static IReadOnlyList<ChatRenderItem> GroupEdits(
+        List<ChatRenderItem> merged, List<ToolAccumulator> order)
+    {
         var result = new List<ChatRenderItem>();
         var accQueue = new Queue<ToolAccumulator>(order);
         List<ToolCallRenderModel>? pendingEdits = null;

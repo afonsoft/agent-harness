@@ -130,28 +130,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             case "status" or "diff" or "log" or "show" or "blame" or "rev-parse"
                 or "ls-files" or "ls-tree" or "describe" or "shortlog" or "reflog"
                 or "remote" or "config" or "branch" or "tag" or "stash":
-                // branch/tag/stash são Safe apenas sem flags destrutivas — checado abaixo.
-                if (sub is "branch" or "tag" && args.Any(a => a is "-D" or "--delete" or "-d"))
-                {
-                    return new(SecurityRiskLevel.Dangerous, "Deleção de ref local detectada.");
-                }
-
-                if (sub == "stash" && args.Any(a => a is "drop" or "clear"))
-                {
-                    return new(SecurityRiskLevel.Dangerous, "Descarte de stash detectado.");
-                }
-
-                if (sub == "remote" && args.Any(a => a is "add" or "remove" or "set-url"))
-                {
-                    return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.WorkspaceWrite);
-                }
-
-                if (sub == "config" && args.Any(a => a is "--global" or "--system"))
-                {
-                    return new(SecurityRiskLevel.Dangerous, "git config fora do repositório.");
-                }
-
-                return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.Safe);
+                return ClassifyReadOnlyGit(sub, args, worktreePath);
             case "push" or "pull" or "fetch" or "clone" or "remote-update":
                 return new(SecurityRiskLevel.Dangerous, $"git {sub} toca rede/remoto.");
             case "reset" when args.Any(a => a is "--hard"):
@@ -165,6 +144,33 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             default:
                 return new(SecurityRiskLevel.Dangerous, $"Subcomando git '{sub}' desconhecido — fail-closed.");
         }
+    }
+
+    private static CommandRiskAssessment ClassifyReadOnlyGit(
+        string sub, IReadOnlyList<string> args, string worktreePath)
+    {
+        // branch/tag/stash são Safe apenas sem flags destrutivas — checado abaixo.
+        if (sub is "branch" or "tag" && args.Any(a => a is "-D" or "--delete" or "-d"))
+        {
+            return new(SecurityRiskLevel.Dangerous, "Deleção de ref local detectada.");
+        }
+
+        if (sub == "stash" && args.Any(a => a is "drop" or "clear"))
+        {
+            return new(SecurityRiskLevel.Dangerous, "Descarte de stash detectado.");
+        }
+
+        if (sub == "remote" && args.Any(a => a is "add" or "remove" or "set-url"))
+        {
+            return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.WorkspaceWrite);
+        }
+
+        if (sub == "config" && args.Any(a => a is "--global" or "--system"))
+        {
+            return new(SecurityRiskLevel.Dangerous, "git config fora do repositório.");
+        }
+
+        return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.Safe);
     }
 
     private static CommandRiskAssessment ClassifyDotnet(
@@ -351,6 +357,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         var current = new System.Text.StringBuilder();
         var inSingle = false;
         var inDouble = false;
+        var i = 0;
 
         void FlushToken()
         {
@@ -371,40 +378,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             }
         }
 
-        var i = 0;
-        while (i < command.Length)
+        void ConsumeUnquoted(char c)
         {
-            var c = command[i];
-            if (inSingle)
-            {
-                if (c == '\'')
-                {
-                    inSingle = false;
-                }
-                else
-                {
-                    current.Append(c);
-                }
-
-                i++;
-                continue;
-            }
-
-            if (inDouble)
-            {
-                if (c == '"')
-                {
-                    inDouble = false;
-                }
-                else
-                {
-                    current.Append(c);
-                }
-
-                i++;
-                continue;
-            }
-
             switch (c)
             {
                 case '\'':
@@ -432,21 +407,46 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     FlushSegment();
                     break;
                 case '>' or '<':
-                    FlushToken();
-                    var op = c.ToString();
-                    while (i + 1 < command.Length && command[i + 1] == c)
-                    {
-                        op += c;
-                        i++;
-                    }
-
-                    tokens.Add(op);
+                    ConsumeRedirect(c);
                     break;
                 default:
                     current.Append(c);
                     break;
             }
+        }
 
+        void ConsumeRedirect(char c)
+        {
+            FlushToken();
+            var op = c.ToString();
+            while (i + 1 < command.Length && command[i + 1] == c)
+            {
+                op += c;
+                i++;
+            }
+
+            tokens.Add(op);
+        }
+
+        while (i < command.Length)
+        {
+            var c = command[i];
+            if (inSingle || inDouble)
+            {
+                if (c == (inSingle ? '\'' : '"'))
+                {
+                    inSingle = inDouble = false;
+                }
+                else
+                {
+                    current.Append(c);
+                }
+
+                i++;
+                continue;
+            }
+
+            ConsumeUnquoted(c);
             i++;
         }
 
