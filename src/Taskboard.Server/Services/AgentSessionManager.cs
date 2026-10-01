@@ -208,7 +208,18 @@ public sealed class AgentSessionManager : IAsyncDisposable
             text,
             AiChatEventKind.Message);
         await eventRepo.AddAsync(queued, cancellationToken).ConfigureAwait(false);
-        await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // B-13: "New conversation" threads derive their title from the first
+        // real prompt instead of keeping the placeholder forever.
+        if (AiChatThreadTitle.IsGeneric(thread.Title))
+        {
+            thread.UpdateTitle(AiChatThreadTitle.Derive(text));
+            await threadRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         var dto = queued.ToDto();
         await _threadEvents.PublishAsync(

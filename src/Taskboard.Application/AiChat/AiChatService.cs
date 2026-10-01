@@ -732,6 +732,14 @@ public sealed class AiChatService
             request.PayloadJson);
 
         thread.AddEvent(chatEvent);
+
+        // B-13: threads created via "New conversation" keep the placeholder
+        // title forever — derive it from the first real user prompt.
+        if (role == AiChatEventRole.User && AiChatThreadTitle.IsGeneric(thread.Title))
+        {
+            thread.UpdateTitle(AiChatThreadTitle.Derive(request.Content));
+        }
+
         await _eventRepo.AddAsync(chatEvent, ct);
         await _threadRepo.SaveChangesAsync(ct);
 

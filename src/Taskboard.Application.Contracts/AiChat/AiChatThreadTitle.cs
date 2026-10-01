@@ -9,6 +9,13 @@ public static class AiChatThreadTitle
 {
     public const int MaxLength = 60;
 
+    /// <summary>Placeholder used when a thread is created before any prompt.</summary>
+    public const string Default = "New conversation";
+
+    /// <summary>True when the title is still the placeholder (B-13).</summary>
+    public static bool IsGeneric(string? title) =>
+        string.Equals(title?.Trim(), Default, StringComparison.Ordinal);
+
     public static string Derive(string prompt)
     {
         var normalized = string.Join(' ', prompt.Split(
