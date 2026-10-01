@@ -134,19 +134,9 @@ public sealed class PipelineEngine
             var statusBefore = exec.Status;
             // E14 RF-003: nunca despacha estágios novos quando o custo
             // acumulado da execução já passou do teto.
-            if (exec.BudgetCapUsd is { } cap && finOpsDispatch is not null)
+            if (await CancelIfOverBudgetAsync(exec, repo, finOpsDispatch, cancellationToken).ConfigureAwait(false))
             {
-                var cumulative = await finOpsDispatch.GetCumulativeCostAsync(exec.Id.Value, cancellationToken).ConfigureAwait(false);
-                if (cumulative > cap)
-                {
-                    _logger.LogWarning(
-                        "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
-                        exec.Id.Value, cap, cumulative);
-                    exec.Cancel(DateTime.UtcNow);
-                    await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    await PublishRunStatusAsync(exec).ConfigureAwait(false);
-                    continue;
-                }
+                continue;
             }
 
             // SPEC-20260923-cockpit-run-hardening RF-002: failed stages are
@@ -168,28 +158,7 @@ public sealed class PipelineEngine
             }
 
             var eligible = exec.EligibleStages();
-            var toDispatch = new List<PipelineStageExecution>();
-            var approvals = new List<PipelineStageExecution>();
-            foreach (var stage in eligible)
-            {
-                if (stage.Kind is PipelineStageKind.Approval)
-                {
-                    exec.MarkStageWaitingApproval(stage.StageKey);
-                    approvals.Add(stage);
-                    continue;
-                }
-
-                var key = $"{exec.Id.Value}|{stage.StageKey}";
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                if (!_runningStages.TryAdd(key, cts))
-                {
-                    cts.Dispose();
-                    continue;
-                }
-
-                exec.MarkStageRunning(stage.StageKey, DateTime.UtcNow);
-                toDispatch.Add(stage);
-            }
+            var (toDispatch, approvals) = ClaimStages(exec, eligible, cancellationToken);
 
             // Persist transitions BEFORE spawning tasks — a task that reads the
             // execution before this save would see the stage still Pending.
@@ -204,33 +173,103 @@ public sealed class PipelineEngine
                 await PublishRunStatusAsync(exec).ConfigureAwait(false);
             }
 
-            // SPEC-20260919-ade-cockpit-hitl RF-001/RF-004: stage transitions
-            // and approval gates stream to the run's cockpit group.
-            foreach (var stage in approvals)
-            {
-                await PublishApprovalAsync(exec, stage).ConfigureAwait(false);
-            }
-
-            foreach (var stage in toDispatch)
-            {
-                await PublishAsync(exec, EventKindStage, $"Stage '{stage.Name}' started", stage.StageKey)
-                    .ConfigureAwait(false);
-            }
-
-            foreach (var stage in toDispatch)
-            {
-                var key = $"{exec.Id.Value}|{stage.StageKey}";
-                var cts = _runningStages[key];
-                dispatched++;
-                var task = RunStageAsync(exec.Id.Value, stage.StageKey, cts);
-                _stageTasks.TryAdd(task, 0);
-                _ = task.ContinueWith(
-                    (done, self) => _stageTasks.TryRemove((Task)self!, out _),
-                    task, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-            }
+            await PublishStageTransitionsAsync(exec, approvals, toDispatch).ConfigureAwait(false);
+            dispatched += SpawnStages(exec, toDispatch);
         }
 
         return dispatched;
+    }
+
+    private async Task<bool> CancelIfOverBudgetAsync(
+        PipelineExecution exec,
+        IRepository<PipelineExecution> repo,
+        IFinOpsService? finOpsDispatch,
+        CancellationToken cancellationToken)
+    {
+        if (exec.BudgetCapUsd is not { } cap || finOpsDispatch is null)
+        {
+            return false;
+        }
+
+        var cumulative = await finOpsDispatch.GetCumulativeCostAsync(exec.Id.Value, cancellationToken).ConfigureAwait(false);
+        if (cumulative <= cap)
+        {
+            return false;
+        }
+
+        _logger.LogWarning(
+            "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
+            exec.Id.Value, cap, cumulative);
+        exec.Cancel(DateTime.UtcNow);
+        await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishRunStatusAsync(exec).ConfigureAwait(false);
+        return true;
+    }
+
+    private (List<PipelineStageExecution> ToDispatch, List<PipelineStageExecution> Approvals) ClaimStages(
+        PipelineExecution exec,
+        IReadOnlyList<PipelineStageExecution> eligible,
+        CancellationToken cancellationToken)
+    {
+        var toDispatch = new List<PipelineStageExecution>();
+        var approvals = new List<PipelineStageExecution>();
+        foreach (var stage in eligible)
+        {
+            if (stage.Kind is PipelineStageKind.Approval)
+            {
+                exec.MarkStageWaitingApproval(stage.StageKey);
+                approvals.Add(stage);
+                continue;
+            }
+
+            var key = $"{exec.Id.Value}|{stage.StageKey}";
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if (!_runningStages.TryAdd(key, cts))
+            {
+                cts.Dispose();
+                continue;
+            }
+
+            exec.MarkStageRunning(stage.StageKey, DateTime.UtcNow);
+            toDispatch.Add(stage);
+        }
+
+        return (toDispatch, approvals);
+    }
+
+    // SPEC-20260919-ade-cockpit-hitl RF-001/RF-004: stage transitions
+    // and approval gates stream to the run's cockpit group.
+    private async Task PublishStageTransitionsAsync(
+        PipelineExecution exec,
+        List<PipelineStageExecution> approvals,
+        List<PipelineStageExecution> toDispatch)
+    {
+        foreach (var stage in approvals)
+        {
+            await PublishApprovalAsync(exec, stage).ConfigureAwait(false);
+        }
+
+        foreach (var stage in toDispatch)
+        {
+            await PublishAsync(exec, EventKindStage, $"Stage '{stage.Name}' started", stage.StageKey)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private int SpawnStages(PipelineExecution exec, List<PipelineStageExecution> toDispatch)
+    {
+        foreach (var stage in toDispatch)
+        {
+            var key = $"{exec.Id.Value}|{stage.StageKey}";
+            var cts = _runningStages[key];
+            var task = RunStageAsync(exec.Id.Value, stage.StageKey, cts);
+            _stageTasks.TryAdd(task, 0);
+            _ = task.ContinueWith(
+                (done, self) => _stageTasks.TryRemove((Task)self!, out _),
+                task, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+
+        return toDispatch.Count;
     }
 
     /// <summary>
@@ -490,41 +529,8 @@ public sealed class PipelineEngine
         var chunks = new List<string>();
         var runId = exec.Id.Value;
         var stageKey = stage.StageKey;
-        var progress = new SyncProgress(chunks, message =>
-        {
-            // SPEC-20260919-ade-cockpit-hitl RF-001: every agent output chunk is
-            // a cockpit event (fire-and-forget — a dead group never stalls a stage).
-            if (_cockpit is not null)
-            {
-                _ = _cockpit.PublishAsync(new CockpitEventDto(
-                    runId,
-                    message.Timestamp,
-                    "agent_output",
-                    stageKey,
-                    JsonSerializer.Serialize(
-                        new { stream = message.Stream.ToString(), content = message.Content },
-                        JsonOptions)), CancellationToken.None);
-            }
-
-            // SPEC-20260921-agent-execution-event-pipeline RF-003: durable
-            // normalized stream (tool_call/plan/output) alongside the cockpit.
-            EmitNormalized(exec, AgentEventNormalizer.FromLogMessage(
-                message, AgentEventScope.Run, runId, stageId: stageKey));
-        });
-
-        var instructions = PipelineContextSynthesizer.BuildStagePrompt(exec, stage);
-
-        // RF-003: queued human-steer instructions are folded into the next
-        // dispatched stage prompt (one-shot agents have no live injection).
-        if (_steer is not null)
-        {
-            var steers = _steer.Drain(runId);
-            if (steers.Count > 0)
-            {
-                instructions += "\n\n# Human steer (mid-run corrections)\n"
-                    + string.Join('\n', steers.Select(s => $"- {s}"));
-            }
-        }
+        var progress = CreateStageProgress(exec, stageKey, chunks);
+        var instructions = BuildStageInstructions(exec, stage);
 
         var eligibility = services.GetService<IAgentEligibilityService>();
         var modelConfig = services.GetService<IAgentModelConfigService>();
@@ -539,14 +545,8 @@ public sealed class PipelineEngine
 
         // Eligibility is dynamic — a CLI disabled mid-run fails the attempt;
         // the auto-retry sweep rotates to an untried eligible CLI on the next tick.
-        if (eligible is not null && !eligible.Contains(candidate))
+        if (await FailIfIneligibleAsync(exec, stage, candidate, eligible, repo).ConfigureAwait(false))
         {
-            var error = $"Agent {candidate} is not eligible (disabled or CLI not authenticated).";
-            exec.RecordStageAttemptFailure(stageKey, error);
-            await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
-            exec.FailStage(stageKey, error, DateTime.UtcNow);
-            await EmitStageFailureAsync(exec, stage, candidate.ToString(), error, exitCode: null)
-                .ConfigureAwait(false);
             return;
         }
 
@@ -592,46 +592,10 @@ public sealed class PipelineEngine
             // SPEC-20260922 §8: every attempt bills under the CLI that ran
             // it — usage from the result or scanned from the output tail.
             var attemptUsage = result?.Usage ?? ScanUsage(chunks, chunkOffset);
-            if (attemptUsage is not null && finOps is not null)
+            if (await BillAttemptAsync(exec, stage, candidate, result, attemptUsage, finOps, stageActivity)
+                    .ConfigureAwait(false))
             {
-                var metric = await finOps.RecordUsageAsync(
-                    runId, candidate, result?.ModelUsed, attemptUsage,
-                    stageKey: stageKey, budgetCapUsd: exec.BudgetCapUsd,
-                    CancellationToken.None).ConfigureAwait(false);
-                HarnessTelemetrySource.RecordUsage(stageActivity, attemptUsage, metric.CostUsd);
-
-                // RF-004: billed attempts emit a metric event so the run's
-                // durable stream carries cost, not only output lines.
-                var cumulativeUsd = await finOps.GetCumulativeCostAsync(runId, CancellationToken.None)
-                    .ConfigureAwait(false);
-                EmitNormalized(exec, new AgentExecutionEvent(
-                    string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
-                    AgentEventKinds.Metric, stageKey,
-                    Title: $"{candidate} usage — ${metric.CostUsd:F4} (cumulative ${cumulativeUsd:F4})",
-                    PayloadJson: JsonSerializer.Serialize(
-                        new
-                        {
-                            agent = candidate.ToString(),
-                            model = metric.ModelName,
-                            tokensIn = metric.InputTokens,
-                            tokensOut = metric.OutputTokens,
-                            costUsd = metric.CostUsd,
-                            cumulativeUsd,
-                            attempt = stage.Attempts,
-                        }, JsonOptions)));
-
-                // E14 RF-003: over-cap cancels the execution — no further
-                // attempt or dependent stage is dispatched.
-                if (exec.BudgetCapUsd is { } cap
-                    && exec.Status is not (PipelineStatus.Completed or PipelineStatus.Cancelled)
-                    && cumulativeUsd > cap)
-                {
-                    _logger.LogWarning(
-                        "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
-                        runId, cap, cumulativeUsd);
-                    exec.Cancel(DateTime.UtcNow);
-                    return;
-                }
+                return;
             }
 
             if (result is null)
@@ -673,6 +637,134 @@ public sealed class PipelineEngine
         exec.FailStage(stageKey, lastError ?? "Agent failed.", DateTime.UtcNow);
         await EmitStageFailureAsync(exec, stage, candidate.ToString(), lastError, lastExitCode)
             .ConfigureAwait(false);
+    }
+
+    private SyncProgress CreateStageProgress(PipelineExecution exec, string stageKey, List<string> chunks)
+    {
+        var runId = exec.Id.Value;
+        return new SyncProgress(chunks, message =>
+        {
+            // SPEC-20260919-ade-cockpit-hitl RF-001: every agent output chunk is
+            // a cockpit event (fire-and-forget — a dead group never stalls a stage).
+            if (_cockpit is not null)
+            {
+                _ = _cockpit.PublishAsync(new CockpitEventDto(
+                    runId,
+                    message.Timestamp,
+                    "agent_output",
+                    stageKey,
+                    JsonSerializer.Serialize(
+                        new { stream = message.Stream.ToString(), content = message.Content },
+                        JsonOptions)), CancellationToken.None);
+            }
+
+            // SPEC-20260921-agent-execution-event-pipeline RF-003: durable
+            // normalized stream (tool_call/plan/output) alongside the cockpit.
+            EmitNormalized(exec, AgentEventNormalizer.FromLogMessage(
+                message, AgentEventScope.Run, runId, stageId: stageKey));
+        });
+    }
+
+    private string BuildStageInstructions(PipelineExecution exec, PipelineStageExecution stage)
+    {
+        var instructions = PipelineContextSynthesizer.BuildStagePrompt(exec, stage);
+
+        // RF-003: queued human-steer instructions are folded into the next
+        // dispatched stage prompt (one-shot agents have no live injection).
+        if (_steer is null)
+        {
+            return instructions;
+        }
+
+        var steers = _steer.Drain(exec.Id.Value);
+        if (steers.Count > 0)
+        {
+            instructions += "\n\n# Human steer (mid-run corrections)\n"
+                + string.Join('\n', steers.Select(s => $"- {s}"));
+        }
+
+        return instructions;
+    }
+
+    private async Task<bool> FailIfIneligibleAsync(
+        PipelineExecution exec,
+        PipelineStageExecution stage,
+        AgentType candidate,
+        IReadOnlySet<AgentType>? eligible,
+        IRepository<PipelineExecution> repo)
+    {
+        if (eligible is null || eligible.Contains(candidate))
+        {
+            return false;
+        }
+
+        var error = $"Agent {candidate} is not eligible (disabled or CLI not authenticated).";
+        exec.RecordStageAttemptFailure(stage.StageKey, error);
+        await repo.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+        exec.FailStage(stage.StageKey, error, DateTime.UtcNow);
+        await EmitStageFailureAsync(exec, stage, candidate.ToString(), error, exitCode: null)
+            .ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// Bills a finished attempt under the CLI that ran it and cancels the
+    /// execution when the cumulative cost crosses the budget cap (E14 RF-003).
+    /// Returns true when the run was cancelled — the stage must stop.
+    /// </summary>
+    private async Task<bool> BillAttemptAsync(
+        PipelineExecution exec,
+        PipelineStageExecution stage,
+        AgentType candidate,
+        AgentExecutionResult? result,
+        TokenUsage? attemptUsage,
+        IFinOpsService? finOps,
+        Activity? stageActivity)
+    {
+        if (attemptUsage is null || finOps is null)
+        {
+            return false;
+        }
+
+        var runId = exec.Id.Value;
+        var metric = await finOps.RecordUsageAsync(
+            runId, candidate, result?.ModelUsed, attemptUsage,
+            stageKey: stage.StageKey, budgetCapUsd: exec.BudgetCapUsd,
+            CancellationToken.None).ConfigureAwait(false);
+        HarnessTelemetrySource.RecordUsage(stageActivity, attemptUsage, metric.CostUsd);
+
+        // RF-004: billed attempts emit a metric event so the run's
+        // durable stream carries cost, not only output lines.
+        var cumulativeUsd = await finOps.GetCumulativeCostAsync(runId, CancellationToken.None)
+            .ConfigureAwait(false);
+        EmitNormalized(exec, new AgentExecutionEvent(
+            string.Empty, AgentEventScope.Run, runId, 0, DateTimeOffset.UtcNow,
+            AgentEventKinds.Metric, stage.StageKey,
+            Title: $"{candidate} usage — ${metric.CostUsd:F4} (cumulative ${cumulativeUsd:F4})",
+            PayloadJson: JsonSerializer.Serialize(
+                new
+                {
+                    agent = candidate.ToString(),
+                    model = metric.ModelName,
+                    tokensIn = metric.InputTokens,
+                    tokensOut = metric.OutputTokens,
+                    costUsd = metric.CostUsd,
+                    cumulativeUsd,
+                    attempt = stage.Attempts,
+                }, JsonOptions)));
+
+        if (exec.BudgetCapUsd is not { } cap
+            || exec.Status is PipelineStatus.Completed or PipelineStatus.Cancelled
+            || cumulativeUsd <= cap)
+        {
+            return false;
+        }
+
+        _logger.LogWarning(
+            "Pipeline {Id} cancelled — budget cap ${Cap} exceeded (${Cost} cumulative)",
+            runId, cap, cumulativeUsd);
+        exec.Cancel(DateTime.UtcNow);
+        return true;
     }
 
     /// <summary>
