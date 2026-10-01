@@ -28,17 +28,10 @@ public sealed class PermissionGateway : IPermissionGateway
     };
 
     private readonly ICommandRiskClassifier _classifier;
-    private readonly PathJailValidator _jail;
-    private readonly SecretScrubber _scrubber;
 
-    public PermissionGateway(
-        ICommandRiskClassifier classifier,
-        PathJailValidator jail,
-        SecretScrubber scrubber)
+    public PermissionGateway(ICommandRiskClassifier classifier)
     {
         _classifier = classifier;
-        _jail = jail;
-        _scrubber = scrubber;
     }
 
     public Task<SecurityEvaluationDto> EvaluateAsync(
@@ -52,20 +45,20 @@ public sealed class PermissionGateway : IPermissionGateway
         return Task.FromResult(Decide(assessment, policy));
     }
 
-    public string ScrubSecrets(string output) => _scrubber.Scrub(output);
+    public string ScrubSecrets(string output) => SecretScrubber.Scrub(output);
 
     private CommandRiskAssessment Assess(string toolName, string command, string worktreePath)
     {
         if (ReadToolNames.Contains(toolName))
         {
             // Path jail: lança SecurityAccessDeniedException fora do worktree.
-            _jail.Validate(command, worktreePath);
+            PathJailValidator.Validate(command, worktreePath);
             return new(SecurityRiskLevel.Safe, "Leitura confinada ao worktree.");
         }
 
         if (WriteToolNames.Contains(toolName))
         {
-            _jail.Validate(command, worktreePath);
+            PathJailValidator.Validate(command, worktreePath);
             return new(SecurityRiskLevel.WorkspaceWrite, "Escrita confinada ao worktree.");
         }
 

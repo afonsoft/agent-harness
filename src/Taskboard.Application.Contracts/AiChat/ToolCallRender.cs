@@ -62,14 +62,14 @@ public static class ToolCallRender
 
         if (TryParse(toolCallJson, out var call))
         {
-            ApplyCall(acc, call);
+            acc.ApplyCall(call);
         }
 
         foreach (var uj in updateJsons)
         {
             if (TryParse(uj, out var update))
             {
-                ApplyUpdate(acc, update);
+                acc.ApplyUpdate(update);
             }
         }
 
@@ -88,6 +88,93 @@ public static class ToolCallRender
         public string? Output;
         public int? ExitCode;
         public bool SawTerminal;
+
+        public void ApplyCall(JsonElement el)
+        {
+            ToolCallId ??= Str(el, "toolCallId");
+            Title = Str(el, "title") is { Length: > 0 } t ? t : Title;
+            RawKind ??= Str(el, "kind");
+            Status = Str(el, "status") ?? Status;
+            Output ??= Str(el, "rawOutput");
+            ApplyLocations(el);
+            ApplyContentBlocks(el);
+        }
+
+        public void ApplyUpdate(JsonElement el)
+        {
+            ToolCallId ??= Str(el, "toolCallId");
+            RawKind ??= Str(el, "kind");
+            Status = Str(el, "status") ?? Status;
+            if (Str(el, "rawOutput") is { } ro)
+            {
+                Output = ro;
+            }
+
+            if (el.TryGetProperty("exitCode", out var ec) && ec.ValueKind == JsonValueKind.Number)
+            {
+                ExitCode = ec.GetInt32();
+            }
+            else if (el.TryGetProperty("exitStatus", out var es) && es.ValueKind == JsonValueKind.Object
+                && es.TryGetProperty("exitCode", out var nec) && nec.ValueKind == JsonValueKind.Number)
+            {
+                ExitCode = nec.GetInt32();
+            }
+
+            ApplyLocations(el);
+            ApplyContentBlocks(el);
+        }
+
+        private void ApplyLocations(JsonElement el)
+        {
+            if (Path is not null
+                || !el.TryGetProperty("locations", out var locs)
+                || locs.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (var loc in locs.EnumerateArray())
+            {
+                if (loc.TryGetProperty("path", out var p) && p.GetString() is { Length: > 0 } path)
+                {
+                    Path = path;
+                    return;
+                }
+            }
+        }
+
+        private void ApplyContentBlocks(JsonElement el)
+        {
+            if (!el.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (var block in content.EnumerateArray())
+            {
+                var type = Str(block, "type");
+                switch (type)
+                {
+                    case "diff":
+                        Path ??= Str(block, "path");
+                        OldText = Str(block, "oldText") ?? OldText;
+                        NewText = Str(block, "newText") ?? NewText;
+                        break;
+                    case "terminal":
+                        SawTerminal = true;
+                        break;
+                    case "content":
+                        if (block.TryGetProperty("content", out var inner)
+                            && inner.ValueKind == JsonValueKind.Object
+                            && inner.TryGetProperty("text", out var text)
+                            && text.GetString() is { } s)
+                        {
+                            Output = Output is null ? s : Output + "\n" + s;
+                        }
+                        break;
+                }
+            }
+        }
 
         private string NormalizeKind()
         {
@@ -161,104 +248,15 @@ public static class ToolCallRender
             var added = newLines.Length - prefix - suffix;
             return (added, removed);
         }
+
+        private static string[] SplitLines(string? text) =>
+            string.IsNullOrEmpty(text) ? [] : text.Split('\n');
+
+        private static string? Str(JsonElement el, string name) =>
+            el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetString()
+                : null;
     }
-
-    private static void ApplyCall(Accumulator acc, JsonElement el)
-    {
-        acc.ToolCallId ??= Str(el, "toolCallId");
-        acc.Title = Str(el, "title") is { Length: > 0 } t ? t : acc.Title;
-        acc.RawKind ??= Str(el, "kind");
-        acc.Status = Str(el, "status") ?? acc.Status;
-        acc.Output ??= Str(el, "rawOutput");
-        ApplyLocations(acc, el);
-        ApplyContentBlocks(acc, el);
-    }
-
-    private static void ApplyUpdate(Accumulator acc, JsonElement el)
-    {
-        acc.ToolCallId ??= Str(el, "toolCallId");
-        acc.RawKind ??= Str(el, "kind");
-        acc.Status = Str(el, "status") ?? acc.Status;
-        if (Str(el, "rawOutput") is { } ro)
-        {
-            acc.Output = ro;
-        }
-
-        if (el.TryGetProperty("exitCode", out var ec) && ec.ValueKind == JsonValueKind.Number)
-        {
-            acc.ExitCode = ec.GetInt32();
-        }
-        else if (el.TryGetProperty("exitStatus", out var es) && es.ValueKind == JsonValueKind.Object
-            && es.TryGetProperty("exitCode", out var nec) && nec.ValueKind == JsonValueKind.Number)
-        {
-            acc.ExitCode = nec.GetInt32();
-        }
-
-        ApplyLocations(acc, el);
-        ApplyContentBlocks(acc, el);
-    }
-
-    private static void ApplyLocations(Accumulator acc, JsonElement el)
-    {
-        if (acc.Path is not null
-            || !el.TryGetProperty("locations", out var locs)
-            || locs.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var loc in locs.EnumerateArray())
-        {
-            if (loc.TryGetProperty("path", out var p) && p.GetString() is { Length: > 0 } path)
-            {
-                acc.Path = path;
-                return;
-            }
-        }
-    }
-
-    private static void ApplyContentBlocks(Accumulator acc, JsonElement el)
-    {
-        if (!el.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
-        {
-            return;
-        }
-
-        foreach (var block in content.EnumerateArray())
-        {
-            var type = Str(block, "type");
-            switch (type)
-            {
-                case "diff":
-                    acc.Path ??= Str(block, "path");
-                    acc.OldText = Str(block, "oldText") ?? acc.OldText;
-                    acc.NewText = Str(block, "newText") ?? acc.NewText;
-                    break;
-                case "terminal":
-                    acc.SawTerminal = true;
-                    break;
-                case "content":
-                    if (block.TryGetProperty("content", out var inner)
-                        && inner.ValueKind == JsonValueKind.Object
-                        && inner.TryGetProperty("text", out var text)
-                        && text.GetString() is { } s)
-                    {
-                        acc.Output = acc.Output is null ? s : acc.Output + "\n" + s;
-                    }
-                    break;
-            }
-        }
-    }
-
-
-
-    private static string[] SplitLines(string? text) =>
-        string.IsNullOrEmpty(text) ? [] : text.Split('\n');
-
-    private static string? Str(JsonElement el, string name) =>
-        el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
-            ? p.GetString()
-            : null;
 
     private static bool TryParse(string? json, out JsonElement el)
     {

@@ -74,7 +74,7 @@ public sealed class ChatToolTests : IDisposable
     [Fact]
     public async Task Dado_PathForaDoWorkspace_Quando_WriteFile_Entao_BloqueadoPeloPathJail()
     {
-        var tool = new WriteFileTool(new PathJailValidator());
+        var tool = new WriteFileTool();
 
         var result = await tool.ExecuteAsync(
             JsonDocument.Parse($$"""{"path":"../../etc/evil.txt","content":"x"}""").RootElement,
@@ -88,8 +88,8 @@ public sealed class ChatToolTests : IDisposable
     [Fact]
     public async Task Dado_PathInterno_Quando_WriteFileReadFile_Entao_CicloCompleto()
     {
-        var write = new WriteFileTool(new PathJailValidator());
-        var read = new ReadFileTool(new PathJailValidator(), new SecretScrubber());
+        var write = new WriteFileTool();
+        var read = new ReadFileTool(new SecretScrubber());
 
         var written = await write.ExecuteAsync(
             JsonDocument.Parse("""{"path":"docs/nota.md","content":"conteudo"}""").RootElement,

@@ -7,7 +7,7 @@ using Taskboard.Integrations.Harness.Security;
 namespace Taskboard.Integrations.Chat.Tools;
 
 /// <summary>Reads a file inside the workspace — path-jailed (RF-006).</summary>
-public sealed class ReadFileTool(PathJailValidator jail, ISecretRedactor redactor) : IChatTool
+public sealed class ReadFileTool(ISecretRedactor redactor) : IChatTool
 {
     public string Name => "read_file";
     public string Description => "Read a text file inside the workspace (path-jailed).";
@@ -23,7 +23,7 @@ public sealed class ReadFileTool(PathJailValidator jail, ISecretRedactor redacto
             : string.Empty;
         try
         {
-            var full = jail.Validate(path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(path, context.WorkspacePath);
             var content = await File.ReadAllTextAsync(full, cancellationToken).ConfigureAwait(false);
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
@@ -42,7 +42,7 @@ public sealed class ReadFileTool(PathJailValidator jail, ISecretRedactor redacto
 }
 
 /// <summary>Writes a file inside the workspace — path-jailed (RF-006).</summary>
-public sealed class WriteFileTool(PathJailValidator jail) : IChatTool
+public sealed class WriteFileTool() : IChatTool
 {
     public string Name => "write_file";
     public string Description => "Create or overwrite a text file inside the workspace (path-jailed).";
@@ -61,7 +61,7 @@ public sealed class WriteFileTool(PathJailValidator jail) : IChatTool
             : string.Empty;
         try
         {
-            var full = jail.Validate(path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(path, context.WorkspacePath);
             var dir = Path.GetDirectoryName(full);
             if (!string.IsNullOrEmpty(dir))
             {
@@ -82,7 +82,7 @@ public sealed class WriteFileTool(PathJailValidator jail) : IChatTool
 }
 
 /// <summary>Lists a workspace directory — path-jailed (RF-006).</summary>
-public sealed class ListDirTool(PathJailValidator jail) : IChatTool
+public sealed class ListDirTool() : IChatTool
 {
     public string Name => "list_dir";
     public string Description => "List files and directories inside the workspace (path-jailed).";
@@ -98,7 +98,7 @@ public sealed class ListDirTool(PathJailValidator jail) : IChatTool
             : string.Empty;
         try
         {
-            var full = jail.Validate(string.IsNullOrWhiteSpace(path) ? "." : path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(string.IsNullOrWhiteSpace(path) ? "." : path, context.WorkspacePath);
             var entries = Directory
                 .EnumerateFileSystemEntries(full)
                 .Select(e => $"{(Directory.Exists(e) ? "d" : "-")} {Path.GetFileName(e)}")

@@ -14,7 +14,7 @@ public sealed partial class SecretScrubber : Taskboard.Agents.ISecretRedactor
     /// <inheritdoc />
     public string? Redact(string? text) => text is null ? null : Scrub(text);
 
-    public string Scrub(string output)
+    public static string Scrub(string output)
     {
         if (string.IsNullOrEmpty(output))
         {

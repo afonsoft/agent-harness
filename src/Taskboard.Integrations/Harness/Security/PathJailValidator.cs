@@ -15,7 +15,7 @@ public sealed class PathJailValidator
     /// Returns the canonical absolute path inside <paramref name="worktreePath"/>,
     /// or throws <see cref="SecurityAccessDeniedException"/>.
     /// </summary>
-    public string Validate(string path, string worktreePath)
+    public static string Validate(string path, string worktreePath)
     {
         if (string.IsNullOrWhiteSpace(path))
         {

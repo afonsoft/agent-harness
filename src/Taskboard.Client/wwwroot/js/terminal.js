@@ -9,7 +9,7 @@ window.taskboardTerminal = (() => {
         if (!text) {
             return;
         }
-        if (navigator.clipboard && navigator.clipboard.writeText) {
+        if (navigator.clipboard?.writeText) {
             navigator.clipboard.writeText(text).catch(() => { /* permission denied */ });
         }
     }
@@ -236,7 +236,7 @@ window.taskboardTerminal = (() => {
         if (!e) {
             return false;
         }
-        if (!navigator.clipboard || !navigator.clipboard.readText) {
+        if (!navigator.clipboard?.readText) {
             e.term.write('\r\n\x1b[33m[paste unavailable — use the browser context menu]\x1b[0m\r\n');
             return false;
         }
@@ -296,7 +296,7 @@ window.taskboardTerminal = (() => {
     }
 
     function disposeAll() {
-        for (const id of [...terms.keys()]) {
+        for (const id of terms.keys()) {
             dispose(id);
         }
     }

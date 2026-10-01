@@ -298,7 +298,6 @@ builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
 builder.Services.AddSingleton<IContextCompactor, ContextCompactor>();
 // SPEC-20260919-harness-security-permission-gateway: singletons puros (sem estado).
 builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>();
-builder.Services.AddSingleton<PathJailValidator>();
 builder.Services.AddSingleton<SecretScrubber>();
 builder.Services.AddSingleton<IPermissionGateway, PermissionGateway>();
 
@@ -339,9 +338,9 @@ builder.Services.AddSingleton<IReadOnlyDictionary<string, IChatTool>>(sp =>
         new ShellExecTool(
             sp.GetRequiredService<ICommandRiskClassifier>(),
             sp.GetRequiredService<ISecretRedactor>()),
-        new ReadFileTool(sp.GetRequiredService<PathJailValidator>(), sp.GetRequiredService<ISecretRedactor>()),
-        new WriteFileTool(sp.GetRequiredService<PathJailValidator>()),
-        new ListDirTool(sp.GetRequiredService<PathJailValidator>()),
+        new ReadFileTool(sp.GetRequiredService<ISecretRedactor>()),
+        new WriteFileTool(),
+        new ListDirTool(),
         new RunCliTool(sp.GetRequiredService<ISecretRedactor>()),
         new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
         new WebSearchTool(backends),

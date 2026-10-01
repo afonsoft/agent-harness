@@ -462,19 +462,6 @@ public sealed class GitHubService : IGitHubService
         repository.HtmlUrl,
         repository.Private);
 
-    private async Task EnsureLabelExistsAsync(string owner, string name, string label)
-    {
-        try
-        {
-            await _client.Issue.Labels.Get(owner, name, label);
-        }
-        catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            await _client.Issue.Labels.Create(owner, name, new NewLabel(label, "ededed"));
-        }
-    }
-
-
     private static IssueDto MapToDto(Issue issue)
     {
         var labels = issue.Labels?.Select(l => l.Name).ToList() ?? [];
@@ -498,6 +485,18 @@ public sealed class GitHubService : IGitHubService
             issue.Milestone?.DueOn);
 
         return dto with { Column = GitHubBoardGrouper.ResolveColumn(dto) };
+    }
+
+    private async Task EnsureLabelExistsAsync(string owner, string name, string label)
+    {
+        try
+        {
+            await _client.Issue.Labels.Get(owner, name, label);
+        }
+        catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            await _client.Issue.Labels.Create(owner, name, new NewLabel(label, "ededed"));
+        }
     }
 
     /// <inheritdoc />
