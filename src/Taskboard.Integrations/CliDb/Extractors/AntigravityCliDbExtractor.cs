@@ -14,6 +14,8 @@ namespace Taskboard.Integrations.CliDb.Extractors;
 /// </summary>
 public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
 {
+    private const string ColRowid = "rowid";
+
     // Baseline captured 2026-09-19 (user_version=3, application_id=0).
     private static readonly CliDbSchemaFingerprint Baseline = new(
         3, 0,
@@ -39,8 +41,11 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
     public override int DataVersion => 2;
 
     // v1 reads only the summaries DB — per-conversation files stay status-only.
-    public override IReadOnlyList<CliDbSource> Sources =>
-        CliDatabaseMap.SourcesFor(Kind).Where(s => s.Name == "antigravity-summaries").ToList();
+    // Computed once: the property must not copy the collection on every access (S2365).
+    public override IReadOnlyList<CliDbSource> Sources { get; } =
+        CliDatabaseMap.SourcesFor(AgentCliKind.Antigravity)
+            .Where(s => s.Name == "antigravity-summaries")
+            .ToList();
 
     protected override async Task<long?> ExtractSourceAsync(
         ICliDbConnection conn,
@@ -54,8 +59,8 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
         long? maxRowid = rowCursor;
         var rows = await conn.QueryAsync(
             "conversation_summaries",
-            ["rowid", "conversation_id", "title", "last_modified_time", "step_count", "status"],
-            r => (Rowid: r.GetInt64("rowid") ?? 0,
+            [ColRowid, "conversation_id", "title", "last_modified_time", "step_count", "status"],
+            r => (Rowid: r.GetInt64(ColRowid) ?? 0,
                 Record: new CliSessionRecord(
                     source.Name,
                     r.GetString("conversation_id") ?? string.Empty,
@@ -68,7 +73,7 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
                     TokensInput: null, TokensOutput: null, TokensCached: null, TokensEstimated: true)),
             whereClause: rowCursor is null ? null : "rowid > @cursor",
             parameters: rowCursor is null ? null : new Dictionary<string, object?> { ["@cursor"] = rowCursor },
-            orderBy: "rowid",
+            orderBy: ColRowid,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Per-row text-length totals over the same window — scalar-only, the
@@ -76,9 +81,9 @@ public sealed class AntigravityCliDbExtractor : CliDbExtractorBase
         var lengths = new Dictionary<long, long>();
         var rollup = await conn.QueryScalarRollupAsync(
             "conversation_summaries",
-            groupByColumn: "rowid",
+            groupByColumn: ColRowid,
             lengthColumns: ["title", "preview", "raw_summary"],
-            r => (Rowid: r.GetInt64("rowid") ?? 0,
+            r => (Rowid: r.GetInt64(ColRowid) ?? 0,
                 Chars: (r.GetInt64("len_title") ?? 0)
                     + (r.GetInt64("len_preview") ?? 0)
                     + (r.GetInt64("len_raw_summary") ?? 0)),

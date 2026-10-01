@@ -51,15 +51,7 @@ public static class AgentCliArgsTemplate
         {
             if (quote is not null)
             {
-                if (c == quote)
-                {
-                    quote = null;
-                }
-                else
-                {
-                    current.Append(c);
-                }
-
+                quote = ConsumeQuoted(current, c, quote);
                 continue;
             }
 
@@ -85,5 +77,16 @@ public static class AgentCliArgsTemplate
         {
             yield return current.ToString();
         }
+    }
+
+    private static char? ConsumeQuoted(System.Text.StringBuilder current, char c, char? quote)
+    {
+        if (c == quote)
+        {
+            return null;
+        }
+
+        current.Append(c);
+        return quote;
     }
 }

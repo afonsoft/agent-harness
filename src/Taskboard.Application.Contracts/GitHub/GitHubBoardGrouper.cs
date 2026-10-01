@@ -59,15 +59,10 @@ public static class GitHubBoardGrouper
             return GitHubBoardColumn.Archived;
         }
 
-        foreach (var column in OpenPrecedence)
-        {
-            if (HasLabel(issue, column))
-            {
-                return column;
-            }
-        }
-
-        return GitHubBoardColumn.Backlog;
+        return OpenPrecedence
+            .Where(column => HasLabel(issue, column))
+            .Cast<GitHubBoardColumn?>()
+            .FirstOrDefault() ?? GitHubBoardColumn.Backlog;
     }
 
     /// <summary>

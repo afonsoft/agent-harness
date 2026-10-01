@@ -324,22 +324,7 @@
                 return;
             }
 
-            _conversationId = detail.Conversation.Id;
-            _conversationTitle = detail.Conversation.Title;
-            _messages.Clear();
-            _messages.AddRange(detail.Messages);
-            _streaming = null;
-            if (_providerId != detail.Conversation.ProviderId)
-            {
-                _providerId = detail.Conversation.ProviderId;
-                await OnProviderChangedAsync();
-            }
-
-            if (_models.Contains(detail.Conversation.Model))
-            {
-                _model = detail.Conversation.Model;
-            }
-
+            await ApplyConversationAsync(detail);
             await ScrollToEndAsync();
         }
         catch (Exception ex)
@@ -349,6 +334,25 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    private async Task ApplyConversationAsync(ChatConversationDetailDto detail)
+    {
+        _conversationId = detail.Conversation.Id;
+        _conversationTitle = detail.Conversation.Title;
+        _messages.Clear();
+        _messages.AddRange(detail.Messages);
+        _streaming = null;
+        if (_providerId != detail.Conversation.ProviderId)
+        {
+            _providerId = detail.Conversation.ProviderId;
+            await OnProviderChangedAsync();
+        }
+
+        if (_models.Contains(detail.Conversation.Model))
+        {
+            _model = detail.Conversation.Model;
         }
     }
 

@@ -126,12 +126,22 @@ public sealed class AgentCliDefinition : Entity<string>
     public IReadOnlyList<string> BuildArgs(string? prompt = null, string? model = null) =>
         AgentCliArgsTemplate.Render(ArgsTemplate, ModelFlag, prompt, model);
 
-    private static string ValidateTransport(string transport) =>
-        string.Equals(transport, "acp", StringComparison.OrdinalIgnoreCase) ? "acp"
-        : string.Equals(transport, "pty", StringComparison.OrdinalIgnoreCase) ? "pty"
-        : throw new DomainException(
+    private static string ValidateTransport(string transport)
+    {
+        if (string.Equals(transport, "acp", StringComparison.OrdinalIgnoreCase))
+        {
+            return "acp";
+        }
+
+        if (string.Equals(transport, "pty", StringComparison.OrdinalIgnoreCase))
+        {
+            return "pty";
+        }
+
+        throw new DomainException(
             TaskboardDomainErrorCodes.InvalidValue,
             $"Invalid transport '{transport}' — expected 'acp' or 'pty'.");
+    }
 
     private static string RequireNonEmpty(string value, string field) =>
         !string.IsNullOrWhiteSpace(value)

@@ -60,7 +60,7 @@ else
         RepoService.Changed -= OnRepoChangedAsync;
     }
 
-    private string GetPrioritySwatchStyle(string priority)
+    private static string GetPrioritySwatchStyle(string priority)
     {
         var key = priority.ToLowerInvariant();
         return $"background-color: var(--priority-{key}-border);";

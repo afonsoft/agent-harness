@@ -66,9 +66,12 @@ public static class JsonConfigMerger
             return MergeOutcome.Repaired;
         }
 
-        return entry is null
-            ? MergeOutcome.Removed
-            : created ? MergeOutcome.Created : MergeOutcome.Updated;
+        if (entry is null)
+        {
+            return MergeOutcome.Removed;
+        }
+
+        return created ? MergeOutcome.Created : MergeOutcome.Updated;
     }
 
     /// <summary>
@@ -120,6 +123,7 @@ public static class JsonConfigMerger
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         File.Copy(path, path + ".corrupt-bak", overwrite: true);

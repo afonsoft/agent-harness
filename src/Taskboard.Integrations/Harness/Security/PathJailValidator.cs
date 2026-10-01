@@ -15,7 +15,7 @@ public sealed class PathJailValidator
     /// Returns the canonical absolute path inside <paramref name="worktreePath"/>,
     /// or throws <see cref="SecurityAccessDeniedException"/>.
     /// </summary>
-    public string Validate(string path, string worktreePath)
+    public static string Validate(string path, string worktreePath)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -84,9 +84,15 @@ public sealed class PathJailValidator
     {
         try
         {
-            FileSystemInfo info = Directory.Exists(path)
-                ? new DirectoryInfo(path)
-                : File.Exists(path) ? new FileInfo(path) : null!;
+            FileSystemInfo? info;
+            if (Directory.Exists(path))
+            {
+                info = new DirectoryInfo(path);
+            }
+            else
+            {
+                info = File.Exists(path) ? new FileInfo(path) : null;
+            }
 
             if (info?.LinkTarget is { } target)
             {
@@ -99,9 +105,11 @@ public sealed class PathJailValidator
         }
         catch (IOException)
         {
+            // Best-effort resolution — fall through on I/O errors.
         }
         catch (UnauthorizedAccessException)
         {
+            // Best-effort — failure here is non-fatal.
         }
 
         return path;

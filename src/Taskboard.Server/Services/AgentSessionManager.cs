@@ -20,6 +20,8 @@ namespace Taskboard.Server.Services;
 /// </summary>
 public sealed class AgentSessionManager : IAsyncDisposable
 {
+    private const string SseEventName = "ai_chat.event";
+
     private readonly AcpSessionClient _sessionClient;
     private readonly IAgentAcpClient _fallbackAcpClient;
     private readonly IEnumerable<IAgentAdapter> _adapters;
@@ -211,7 +213,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
         var dto = queued.ToDto();
         await _threadEvents.PublishAsync(
             threadId,
-            new ServerSentEvent("ai_chat.event", dto),
+            new ServerSentEvent(SseEventName, dto),
             cancellationToken).ConfigureAwait(false);
 
         _promptQueues.GetOrAdd(threadId, _ => new PromptQueue()).Enqueue(queued.Id.Value);
@@ -310,17 +312,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 return;
             }
 
-            if (evt is not null && eventRepo is not null)
+            if (evt is not null)
             {
                 evt.MarkDispatched();
-                await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await eventRepo!.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await _threadEvents.PublishAsync(
                     threadId,
-                    new ServerSentEvent("ai_chat.event", evt.ToDto()),
+                    new ServerSentEvent(SseEventName, evt.ToDto()),
                     cancellationToken).ConfigureAwait(false);
             }
 
-            scope?.Dispose();
+            scope!.Dispose();
         }
         catch (Exception ex)
         {
@@ -331,11 +333,19 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
     private Task<bool> ExecuteOneShotFallbackAsync(AiChatThread thread, string text, CancellationToken cancellationToken)
     {
-        var workdir = !string.IsNullOrWhiteSpace(thread.WorkspacePath)
-            ? thread.WorkspacePath
-            : (!string.IsNullOrWhiteSpace(thread.RepositoryFullName)
-                ? _workspaceService.ResolveCardWorkdir(thread.RepositoryFullName, out _)
-                : _workspaceService.EnsureRoot());
+        string workdir;
+        if (!string.IsNullOrWhiteSpace(thread.WorkspacePath))
+        {
+            workdir = thread.WorkspacePath;
+        }
+        else if (!string.IsNullOrWhiteSpace(thread.RepositoryFullName))
+        {
+            workdir = _workspaceService.ResolveCardWorkdir(thread.RepositoryFullName, out _);
+        }
+        else
+        {
+            workdir = _workspaceService.EnsureRoot();
+        }
 
         var req = new Taskboard.Agents.AgentExecutionRequest(
             thread.Id.Value,
@@ -363,7 +373,7 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 await eventRepo.AddAsync(evt, cancellationToken).ConfigureAwait(false);
                 await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-                await _threadEvents.PublishAsync(thread.Id.Value, new ServerSentEvent("ai_chat.event", evt.ToDto()), cancellationToken).ConfigureAwait(false);
+                await _threadEvents.PublishAsync(thread.Id.Value, new ServerSentEvent(SseEventName, evt.ToDto()), cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -450,72 +460,91 @@ public sealed class AgentSessionManager : IAsyncDisposable
             _ = Task.Run(() => TryDispatchNextAsync(threadId, _reaperCts.Token), _reaperCts.Token);
         }
 
-        _ = Task.Run(async () =>
+        _ = Task.Run(() => ProcessSessionEventAsync(threadId, e), _reaperCts.Token);
+    }
+
+    private async Task ProcessSessionEventAsync(string threadId, AgentSessionEvent e)
+    {
+        try
         {
-            try
+            // SPEC-20260921-agent-execution-event-pipeline RF-003: every
+            // session event also enters the durable normalized stream,
+            // keeping the ACP correlation fields (session/tool call).
+            if (_eventSink is not null)
             {
-                // SPEC-20260921-agent-execution-event-pipeline RF-003: every
-                // session event also enters the durable normalized stream,
-                // keeping the ACP correlation fields (session/tool call).
-                if (_eventSink is not null)
-                {
-                    await _eventSink.EmitAsync(new AgentExecutionEvent(
-                        string.Empty, AgentEventScope.Thread, threadId, 0,
-                        e.Timestamp,
-                        string.IsNullOrWhiteSpace(e.Kind) ? AgentEventKinds.Message : e.Kind,
-                        SessionId: e.SessionId,
-                        ToolCallId: e.ToolCallId,
-                        Title: e.Content,
-                        PayloadJson: e.PayloadJson,
-                        Stream: e.Kind == "error" ? "stderr" : "system",
-                        MessageId: e.MessageId,
-                        PlanId: e.PlanId,
-                        PatchOp: e.PatchOp), CancellationToken.None).ConfigureAwait(false);
-                }
-
-                if (e.Kind == "permission" && !string.IsNullOrWhiteSpace(e.PayloadJson))
-                {
-                    var req = AcpSessionMessageParser.ParsePermissionRequest(e.PayloadJson);
-                    if (req is not null)
-                    {
-                        var outcome = await _permissionGate.RequestPermissionAsync(
-                            threadId,
-                            req.Tool,
-                            req.Detail,
-                            req.Options, ct: _reaperCts.Token).ConfigureAwait(false);
-
-                        await _sessionClient.ReplyPermissionAsync(threadId, req.RequestId, outcome, _reaperCts.Token).ConfigureAwait(false);
-                        return;
-                    }
-                }
-
-                using var scope = _scopeFactory.CreateScope();
-                var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
-
-                var kind = AiChatEventKind.IsValid(e.Kind)
-                    ? AiChatEventKind.From(e.Kind)
-                    : AiChatEventKind.Message;
-
-                var chatEvent = AiChatEvent.CreateTyped(
-                    AiChatEventId.NewGuid(),
-                    AiChatThreadId.From(threadId),
-                    AiChatEventRole.Assistant,
-                    string.IsNullOrWhiteSpace(e.Content) ? "(tool output)" : e.Content,
-                    kind,
-                    e.PayloadJson);
-
-                await eventRepo.AddAsync(chatEvent, _reaperCts.Token).ConfigureAwait(false);
-                await eventRepo.SaveChangesAsync(_reaperCts.Token).ConfigureAwait(false);
-
-                await _threadEvents.PublishAsync(
-                    threadId,
-                    new ServerSentEvent("ai_chat.event", chatEvent.ToDto()), _reaperCts.Token).ConfigureAwait(false);
+                await _eventSink.EmitAsync(new AgentExecutionEvent(
+                    string.Empty, AgentEventScope.Thread, threadId, 0,
+                    e.Timestamp,
+                    string.IsNullOrWhiteSpace(e.Kind) ? AgentEventKinds.Message : e.Kind,
+                    SessionId: e.SessionId,
+                    ToolCallId: e.ToolCallId,
+                    Title: e.Content,
+                    PayloadJson: e.PayloadJson,
+                    Stream: e.Kind == "error" ? "stderr" : "system",
+                    MessageId: e.MessageId,
+                    PlanId: e.PlanId,
+                    PatchOp: e.PatchOp), CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception ex)
+
+            if (await TryReplyPermissionAsync(threadId, e).ConfigureAwait(false))
             {
-                _logger.LogError(ex, "Failed to persist and publish agent session event for thread '{ThreadId}'.", threadId);
+                return;
             }
-        }, _reaperCts.Token);
+
+            await PersistChatEventAsync(threadId, e).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist and publish agent session event for thread '{ThreadId}'.", threadId);
+        }
+    }
+
+    private async Task<bool> TryReplyPermissionAsync(string threadId, AgentSessionEvent e)
+    {
+        if (e.Kind != "permission" || string.IsNullOrWhiteSpace(e.PayloadJson))
+        {
+            return false;
+        }
+
+        var req = AcpSessionMessageParser.ParsePermissionRequest(e.PayloadJson);
+        if (req is null)
+        {
+            return false;
+        }
+
+        var outcome = await _permissionGate.RequestPermissionAsync(
+            threadId,
+            req.Tool,
+            req.Detail,
+            req.Options, ct: _reaperCts.Token).ConfigureAwait(false);
+
+        await _sessionClient.ReplyPermissionAsync(threadId, req.RequestId, outcome, _reaperCts.Token).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task PersistChatEventAsync(string threadId, AgentSessionEvent e)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+
+        var kind = AiChatEventKind.IsValid(e.Kind)
+            ? AiChatEventKind.From(e.Kind)
+            : AiChatEventKind.Message;
+
+        var chatEvent = AiChatEvent.CreateTyped(
+            AiChatEventId.NewGuid(),
+            AiChatThreadId.From(threadId),
+            AiChatEventRole.Assistant,
+            string.IsNullOrWhiteSpace(e.Content) ? "(tool output)" : e.Content,
+            kind,
+            e.PayloadJson);
+
+        await eventRepo.AddAsync(chatEvent, _reaperCts.Token).ConfigureAwait(false);
+        await eventRepo.SaveChangesAsync(_reaperCts.Token).ConfigureAwait(false);
+
+        await _threadEvents.PublishAsync(
+            threadId,
+            new ServerSentEvent(SseEventName, chatEvent.ToDto()), _reaperCts.Token).ConfigureAwait(false);
     }
 
     private async Task TryReconnectAsync(string threadId)

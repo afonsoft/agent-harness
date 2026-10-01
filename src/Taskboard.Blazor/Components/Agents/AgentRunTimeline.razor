@@ -430,14 +430,14 @@
         optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
         || optionId.Contains("reject", StringComparison.OrdinalIgnoreCase);
 
-    private RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
+    private static RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
     {
         <div class="border rounded p-2 my-1 small">
             <strong>Plano do agente</strong>
             <ul class="mb-0 mt-1">
                 @foreach (var entry in ParsePlanEntries(evt.PayloadJson))
                 {
-                    <li class="@(entry.Status == "completed" ? "text-success" : entry.Status == "in_progress" ? "text-primary" : "")">
+                    <li class="@PlanEntryClass(entry.Status)">
                         @entry.Title <span class="text-body-secondary">(@entry.Status)</span>
                     </li>
                 }
@@ -445,7 +445,7 @@
         </div>
     };
 
-    private RenderFragment RenderMetric(AgentExecutionEvent evt) => __builder =>
+    private static RenderFragment RenderMetric(AgentExecutionEvent evt) => __builder =>
     {
         <span class="badge text-bg-light border my-1">⏱ @evt.Title @(PayloadText(evt))</span>
     };
@@ -481,6 +481,13 @@
     private sealed record PermOption(string Id, string Label);
     private sealed record PermPayload(string? Tool, string? Detail, IReadOnlyList<PermOption> Options);
     private sealed record PlanEntry(string Title, string Status);
+
+    private static string PlanEntryClass(string status) => status switch
+    {
+        "completed" => "text-success",
+        "in_progress" => "text-primary",
+        _ => string.Empty,
+    };
 
     private static ToolPayload ParseTool(string? json)
     {
@@ -523,27 +530,7 @@
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            var options = new List<PermOption>();
-            if (root.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var o in opts.EnumerateArray())
-                {
-                    // Normalized ACP shape: { optionId, name, kind };
-                    // legacy/pipeline shape: plain strings.
-                    if (o.ValueKind == JsonValueKind.String && o.GetString() is { Length: > 0 } s)
-                    {
-                        options.Add(new PermOption(s, s));
-                    }
-                    else if (o.ValueKind == JsonValueKind.Object
-                             && o.TryGetProperty("optionId", out var oid)
-                             && oid.GetString() is { Length: > 0 } id)
-                    {
-                        var label = o.TryGetProperty("name", out var nm) ? nm.GetString() : null;
-                        options.Add(new PermOption(id, label ?? id));
-                    }
-                }
-            }
-
+            var options = ParsePermOptions(root);
             return new PermPayload(
                 root.TryGetProperty("tool", out var t) ? t.GetString() : null,
                 root.TryGetProperty("detail", out var d) ? d.GetString() : null,
@@ -553,6 +540,43 @@
         {
             return new PermPayload(null, json, fallback);
         }
+    }
+
+    private static List<PermOption> ParsePermOptions(JsonElement root)
+    {
+        var options = new List<PermOption>();
+        if (root.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var o in opts.EnumerateArray())
+            {
+                if (ParsePermOption(o) is { } option)
+                {
+                    options.Add(option);
+                }
+            }
+        }
+
+        return options;
+    }
+
+    // Normalized ACP shape: { optionId, name, kind };
+    // legacy/pipeline shape: plain strings.
+    private static PermOption? ParsePermOption(JsonElement o)
+    {
+        if (o.ValueKind == JsonValueKind.String && o.GetString() is { Length: > 0 } s)
+        {
+            return new PermOption(s, s);
+        }
+
+        if (o.ValueKind == JsonValueKind.Object
+            && o.TryGetProperty("optionId", out var oid)
+            && oid.GetString() is { Length: > 0 } id)
+        {
+            var label = o.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+            return new PermOption(id, label ?? id);
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<PlanEntry> ParsePlanEntries(string? json)

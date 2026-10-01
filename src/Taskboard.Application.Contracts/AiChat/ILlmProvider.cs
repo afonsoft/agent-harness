@@ -1,42 +1,42 @@
 namespace Taskboard.Application.Contracts.AiChat;
 
-public interface ILLMProvider
+public interface ILlmProvider
 {
     string ModelId { get; }
 
-    Task<LLMResponse> CompleteAsync(
-        IReadOnlyList<LLMMessage> messages,
-        LLMOptions? options = null,
+    Task<LlmResponse> CompleteAsync(
+        IReadOnlyList<LlmMessage> messages,
+        LlmOptions? options = null,
         CancellationToken cancellationToken = default);
 
-    IAsyncEnumerable<LLMStreamChunk> StreamAsync(
-        IReadOnlyList<LLMMessage> messages,
-        LLMOptions? options = null,
+    IAsyncEnumerable<LlmStreamChunk> StreamAsync(
+        IReadOnlyList<LlmMessage> messages,
+        LlmOptions? options = null,
         CancellationToken cancellationToken = default);
 }
 
-public sealed record LLMMessage(
+public sealed record LlmMessage(
     string Role,
     string Content,
     string? Name = null);
 
-public sealed record LLMOptions(
+public sealed record LlmOptions(
     double? Temperature = null,
     int? MaxTokens = null,
     double? TopP = null,
     IReadOnlyList<string>? StopSequences = null);
 
-public sealed record LLMResponse(
+public sealed record LlmResponse(
     string Content,
-    LLMUsage? Usage = null,
+    LlmUsage? Usage = null,
     string? FinishReason = null);
 
-public sealed record LLMUsage(
+public sealed record LlmUsage(
     int PromptTokens,
     int CompletionTokens,
     int TotalTokens);
 
-public sealed record LLMStreamChunk(
+public sealed record LlmStreamChunk(
     string? ContentDelta = null,
     bool IsComplete = false,
-    LLMUsage? Usage = null);
+    LlmUsage? Usage = null);

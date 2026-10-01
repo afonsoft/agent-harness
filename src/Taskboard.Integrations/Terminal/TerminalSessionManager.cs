@@ -182,12 +182,9 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             return null;
         }
 
-        foreach (var c in requested)
+        if (requested.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_' and not ':'))
         {
-            if (!char.IsLetterOrDigit(c) && c is not '-' and not '_' and not ':')
-            {
-                return null;
-            }
+            return null;
         }
 
         return requested;
@@ -320,13 +317,21 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 continue;
             }
 
-            if (_sessions.TryRemove(pair.Key, out var entry))
+            try
             {
-                var reason = orphanExpired ? "connection lost" : "idle-timeout";
-                _logger.LogInformation(
-                    "Terminal session {SessionId} closed ({Reason}).", pair.Key, reason);
-                await NotifyAsync(entry, pair.Key, reason).ConfigureAwait(false);
-                await DisposeEntryAsync(entry).ConfigureAwait(false);
+                if (_sessions.TryRemove(pair.Key, out var entry))
+                {
+                    var reason = orphanExpired ? "connection lost" : "idle-timeout";
+                    _logger.LogInformation(
+                        "Terminal session {SessionId} closed ({Reason}).", pair.Key, reason);
+                    await NotifyAsync(entry, pair.Key, reason).ConfigureAwait(false);
+                    await DisposeEntryAsync(entry).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                // One bad entry must not abort the sweep of the remaining ones.
+                _logger.LogWarning(ex, "Terminal sweep failed for session {SessionId}.", pair.Key);
             }
         }
     }
@@ -342,6 +347,8 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     {
         if (_sessions.TryRemove(sessionId, out var entry))
         {
+            _logger.LogInformation(
+                "Terminal session {SessionId} closed ({Reason}).", sessionId, reason);
             await NotifyAsync(entry, sessionId, reason).ConfigureAwait(false);
             await DisposeEntryAsync(entry).ConfigureAwait(false);
         }
@@ -366,11 +373,24 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         {
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                await SweepIdleAsync().ConfigureAwait(false);
+                try
+                {
+                    await SweepIdleAsync().ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // The reaper must survive a bad tick — log and keep sweeping.
+                    _logger.LogError(ex, "Terminal sweep tick failed.");
+                }
             }
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
     }
 
@@ -395,6 +415,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         }
         catch
         {
+            // Best-effort — failure here is non-fatal.
         }
 
         _sweepCts.Dispose();

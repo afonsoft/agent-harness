@@ -22,30 +22,40 @@ public sealed record PipelineDefinition(
                 TaskboardDomainErrorCodes.InvalidPipelineDag, "Pipeline must have an id and at least one stage.");
         }
 
+        var keys = CollectUniqueKeys();
+        var (indegree, dependents) = BuildGraph(keys);
+        AssertAcyclic(indegree, dependents);
+    }
+
+    private HashSet<string> CollectUniqueKeys()
+    {
         var keys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var stage in Stages)
+        var duplicate = Stages.Select(stage => stage.Key)
+            .FirstOrDefault(key => !keys.Add(key));
+        if (duplicate is not null)
         {
-            if (!keys.Add(stage.Key))
-            {
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidPipelineDag, $"Duplicate stage key '{stage.Key}'.");
-            }
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineDag, $"Duplicate stage key '{duplicate}'.");
         }
 
+        return keys;
+    }
+
+    private (Dictionary<string, int> Indegree, Dictionary<string, List<string>> Dependents) BuildGraph(
+        HashSet<string> keys)
+    {
         var indegree = new Dictionary<string, int>(StringComparer.Ordinal);
         var dependents = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var stage in Stages)
         {
             indegree[stage.Key] = stage.DependsOn.Count;
             dependents[stage.Key] = [];
-            foreach (var dep in stage.DependsOn)
+            var unknown = stage.DependsOn.FirstOrDefault(dep => !keys.Contains(dep));
+            if (unknown is not null)
             {
-                if (!keys.Contains(dep))
-                {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.InvalidPipelineDag,
-                        $"Stage '{stage.Key}' depends on unknown stage '{dep}'.");
-                }
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidPipelineDag,
+                    $"Stage '{stage.Key}' depends on unknown stage '{unknown}'.");
             }
         }
 
@@ -57,6 +67,13 @@ public sealed record PipelineDefinition(
             }
         }
 
+        return (indegree, dependents);
+    }
+
+    private void AssertAcyclic(
+        Dictionary<string, int> indegree,
+        Dictionary<string, List<string>> dependents)
+    {
         // Kahn's algorithm — any leftover indegree means a cycle.
         var queue = new Queue<string>(indegree.Where(kv => kv.Value == 0).Select(kv => kv.Key));
         var visited = 0;

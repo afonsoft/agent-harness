@@ -144,12 +144,10 @@ internal static class SkillsRepository
                 return false;
             }
 
-            foreach (var dir in Directory.EnumerateDirectories(cacheDirectory, "*", SearchOption.AllDirectories))
+            if (Directory.EnumerateDirectories(cacheDirectory, "*", SearchOption.AllDirectories)
+                .Any(dir => !CanWriteInside(dir)))
             {
-                if (!CanWriteInside(dir))
-                {
-                    return false;
-                }
+                return false;
             }
 
             foreach (var file in Directory.EnumerateFiles(cacheDirectory, "*", SearchOption.AllDirectories))

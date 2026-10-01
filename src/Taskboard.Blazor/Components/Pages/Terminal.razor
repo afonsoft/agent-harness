@@ -190,34 +190,7 @@
             return InvokeAsync(StateHasChanged);
         });
 
-        _hub.Reconnected += async _ =>
-        {
-            // Sessions survive the disconnect server-side (orphans). Reattach
-            // keeps the running shell AND the xterm buffer; only sessions that
-            // were reaped fall back to a fresh open.
-            foreach (var tab in _tabs.Where(t => t.State == TabState.Open && t.SessionId is not null).ToList())
-            {
-                var reattached = false;
-                try
-                {
-                    reattached = await _hub.InvokeAsync<bool>("Reattach", tab.SessionId);
-                }
-                catch
-                {
-                    // Fall through — reopen below.
-                }
-
-                if (reattached)
-                {
-                    await JS.InvokeVoidAsync("taskboardTerminal.fitNow", tab.ElementId);
-                    await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
-                }
-                else
-                {
-                    await InvokeAsync(() => ReopenTabAsync(tab));
-                }
-            }
-        };
+        _hub.Reconnected += _ => ReattachTabsAsync();
 
         _hub.Closed += _ =>
         {
@@ -237,6 +210,36 @@
         {
             _error = $"Could not open a terminal session: {ex.Message}";
             StateHasChanged();
+        }
+    }
+
+    // Sessions survive the disconnect server-side (orphans). Reattach
+    // keeps the running shell AND the xterm buffer; only sessions that
+    // were reaped fall back to a fresh open.
+    private async Task ReattachTabsAsync()
+    {
+        foreach (var tab in _tabs.Where(t => t.State == TabState.Open && t.SessionId is not null).ToList())
+        {
+            var reattached = false;
+            try
+            {
+                reattached = _hub is not null
+                    && await _hub.InvokeAsync<bool>("Reattach", tab.SessionId);
+            }
+            catch
+            {
+                // Fall through — reopen below.
+            }
+
+            if (reattached)
+            {
+                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", tab.ElementId);
+                await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
+            }
+            else
+            {
+                await InvokeAsync(() => ReopenTabAsync(tab));
+            }
         }
     }
 

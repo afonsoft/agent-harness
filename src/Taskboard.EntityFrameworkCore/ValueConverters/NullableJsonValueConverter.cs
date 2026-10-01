@@ -4,21 +4,25 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Taskboard.EntityFrameworkCore.ValueConverters;
 
-public sealed class NullableJsonValueConverter<T> : ValueConverter<T?, string?>
-    where T : class
+internal static class JsonConverterOptions
 {
-    private static readonly JsonSerializerOptions Options = new()
+    // Non-generic holder — a static field in a generic type is per-closed-type (S2743).
+    internal static readonly JsonSerializerOptions Options = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
+}
 
+public sealed class NullableJsonValueConverter<T> : ValueConverter<T?, string?>
+    where T : class
+{
     public NullableJsonValueConverter()
         : base(ToProvider(), FromProvider())
     {
     }
 
     private static Expression<Func<T?, string?>> ToProvider()
-        => v => v == null ? null : JsonSerializer.Serialize(v, Options);
+        => v => v == null ? null : JsonSerializer.Serialize(v, JsonConverterOptions.Options);
 
     private static Expression<Func<string?, T?>> FromProvider()
         => v => DeserializeOrNull(v);
@@ -32,7 +36,7 @@ public sealed class NullableJsonValueConverter<T> : ValueConverter<T?, string?>
 
         try
         {
-            return JsonSerializer.Deserialize<T>(value, Options);
+            return JsonSerializer.Deserialize<T>(value, JsonConverterOptions.Options);
         }
         catch (JsonException)
         {

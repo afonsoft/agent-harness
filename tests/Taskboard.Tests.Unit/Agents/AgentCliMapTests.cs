@@ -25,7 +25,7 @@ public class AgentCliMapTests
     [Fact]
     public void Dado_ListaAll_Quando_Invocada_Entao_ContemTodosOsTiposOrdenados()
     {
-        var all = AgentCliMap.All;
+        var all = AgentCliMap.AllSpecs();
 
         all.Count.ShouldBe(Enum.GetValues<AgentCliKind>().Length);
         all.Select(kv => kv.Key).ShouldBeSubsetOf(Enum.GetValues<AgentCliKind>());

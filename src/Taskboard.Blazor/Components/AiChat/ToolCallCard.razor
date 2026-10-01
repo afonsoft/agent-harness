@@ -114,10 +114,17 @@
 
     private (IReadOnlyList<string> OldLines, IReadOnlyList<string> NewLines) VisibleDiff()
     {
-        static IReadOnlyList<string> Lines(string? text, int budget) =>
-            text is null ? []
-                : text.Length <= budget ? text.Split('\n')
+        static IReadOnlyList<string> Lines(string? text, int budget)
+        {
+            if (text is null)
+            {
+                return [];
+            }
+
+            return text.Length <= budget
+                ? text.Split('\n')
                 : text[..budget].Split('\n');
+        }
 
         if (_expanded)
         {

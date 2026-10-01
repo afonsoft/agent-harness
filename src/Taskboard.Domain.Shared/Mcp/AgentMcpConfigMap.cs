@@ -62,35 +62,37 @@ public sealed record AgentMcpConfigTarget(
 /// </summary>
 public static class AgentMcpConfigMap
 {
+    private const string McpServersKey = "mcpServers";
+
     private static readonly IReadOnlyDictionary<AgentType, AgentMcpConfigTarget> Targets =
         new Dictionary<AgentType, AgentMcpConfigTarget>
         {
             [AgentType.Devin] = new(
-                ".config/devin/mcp_config.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Devin),
+                ".config/devin/mcp_config.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Devin),
             [AgentType.Claude] = new(
-                ".claude.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Claude),
+                ".claude.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Claude),
             [AgentType.Codex] = new(
                 ".codex/config.toml", McpConfigFormat.Toml, "mcp_servers", McpEntryStyle.Codex),
             [AgentType.OpenCode] = new(
                 ".config/opencode/opencode.json", McpConfigFormat.Json, "mcp", McpEntryStyle.OpenCode),
             [AgentType.OpenHands] = new(
-                ".openhands/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.OpenHands),
+                ".openhands/mcp.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.OpenHands),
             [AgentType.Antigravity] = new(
-                ".gemini/config/mcp_config.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Antigravity),
+                ".gemini/config/mcp_config.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Antigravity),
             [AgentType.Kimi] = new(
-                ".kimi-code/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Kimi),
+                ".kimi-code/mcp.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Kimi),
             [AgentType.Grok] = new(
                 ".grok/config.toml", McpConfigFormat.Toml, "mcp_servers", McpEntryStyle.Codex),
             [AgentType.Qwen] = new(
-                ".qwen/settings.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Qwen),
+                ".qwen/settings.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Qwen),
             [AgentType.Copilot] = new(
-                ".copilot/mcp-config.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Copilot),
+                ".copilot/mcp-config.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Copilot),
             [AgentType.Cline] = new(
-                ".cline/data/settings/cline_mcp_settings.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Cline),
+                ".cline/data/settings/cline_mcp_settings.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Cline),
             [AgentType.Continue] = new(
-                ".continue/mcpServers", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Continue),
+                ".continue/mcpServers", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Continue),
             [AgentType.Kiro] = new(
-                ".kiro/settings/mcp.json", McpConfigFormat.Json, "mcpServers", McpEntryStyle.Kiro),
+                ".kiro/settings/mcp.json", McpConfigFormat.Json, McpServersKey, McpEntryStyle.Kiro),
         };
 
     /// <summary>

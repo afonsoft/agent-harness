@@ -125,10 +125,6 @@ public sealed class ChatService(
             var models = await client.ListModelsAsync(provider.BaseUrl, provider.ApiKey, ct).ConfigureAwait(false);
             return new ChatModelListDto(models, Cached: false);
         }
-        catch (ChatProviderException)
-        {
-            throw;
-        }
         catch (HttpRequestException ex)
         {
             throw new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
@@ -280,8 +276,7 @@ public sealed class ChatService(
         ChatProvider provider,
         string content,
         CancellationTokenSource cts,
-        CancellationToken requestAborted,
-        [EnumeratorCancellation] CancellationToken enumeratorCancelled = default)
+        [EnumeratorCancellation] CancellationToken requestAborted)
     {
         var ct = cts.Token;
         var userMessage = ChatMessage.CreateUser(conversation.Id, content, UtcNow);
@@ -302,80 +297,35 @@ public sealed class ChatService(
 
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
-            var assistantContent = new System.Text.StringBuilder();
-            var toolAccumulator = new SortedDictionary<int, (string? Id, string? Name, System.Text.StringBuilder Args)>();
-            var pendingDeltas = new List<string>();
-            ChatProviderException? providerError = null;
+            var stream = await ConsumeStreamAsync(
+                provider, conversation, wire, toolDefs, cts, requestAborted, ct).ConfigureAwait(false);
 
-            try
-            {
-                await foreach (var chunk in client.StreamChatAsync(
-                        provider.BaseUrl, provider.ApiKey, conversation.Model, wire,
-                        toolDefs.Count > 0 ? toolDefs : null, ct)
-                    .ConfigureAwait(false))
-                {
-                    if (chunk.ContentDelta is { Length: > 0 } delta)
-                    {
-                        assistantContent.Append(delta);
-                        pendingDeltas.Add(delta);
-                    }
-
-                    if (chunk.ToolCallDeltas is { Count: > 0 })
-                    {
-                        foreach (var tc in chunk.ToolCallDeltas)
-                        {
-                            var current = toolAccumulator.TryGetValue(tc.Index, out var value)
-                                ? value
-                                : (null, null, new System.Text.StringBuilder());
-                            toolAccumulator[tc.Index] = (
-                                tc.Id ?? current.Item1,
-                                tc.Name ?? current.Item2,
-                                Append(current.Item3, tc.ArgumentsDelta));
-                        }
-                    }
-
-                    if (chunk.Usage is { } usage)
-                    {
-                        tokensIn = usage.PromptTokens ?? tokensIn;
-                        tokensOut = usage.CompletionTokens ?? tokensOut;
-                    }
-                }
-            }
-            catch (ChatProviderException ex)
-            {
-                providerError = ex;
-            }
-            catch (HttpRequestException ex)
-            {
-                providerError = new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
-            }
-            catch (OperationCanceledException) when (cts.IsCancellationRequested && !requestAborted.IsCancellationRequested)
-            {
-                error = "stopped by user";
-            }
-
-            foreach (var pending in pendingDeltas)
+            foreach (var pending in stream.PendingDeltas)
             {
                 yield return new ChatDeltaEvent(pending);
             }
 
-            pendingDeltas.Clear();
-
-            if (providerError is not null)
+            if (stream.Usage is { } usage)
             {
-                error = providerError.Message;
+                tokensIn = usage.PromptTokens ?? tokensIn;
+                tokensOut = usage.CompletionTokens ?? tokensOut;
+            }
+
+            if (stream.StoppedByUser)
+            {
+                error = "stopped by user";
+            }
+
+            if (stream.ProviderError is not null)
+            {
+                error = stream.ProviderError.Message;
                 break;
             }
 
-            var toolCalls = toolAccumulator
-                .Select(kv => new OpenAiToolCall(
-                    Id: kv.Value.Id ?? $"call_{kv.Key}",
-                    Name: kv.Value.Name ?? "unknown",
-                    ArgumentsJson: string.IsNullOrWhiteSpace(kv.Value.Args.ToString()) ? "{}" : kv.Value.Args.ToString()))
-                .ToList();
+            var toolCalls = stream.MaterializeToolCalls();
 
             var assistantMessage = ChatMessage.CreateAssistant(
-                conversation.Id, assistantContent.ToString(),
+                conversation.Id, stream.AssistantContent.ToString(),
                 toolCalls.Count > 0
                     ? JsonSerializer.Serialize(toolCalls.Select(tc => new { id = tc.Id, name = tc.Name, arguments = tc.ArgumentsJson }).ToList())
                     : null,
@@ -383,36 +333,17 @@ public sealed class ChatService(
             await messages.AddAsync(assistantMessage, ct).ConfigureAwait(false);
             await messages.SaveChangesAsync(ct).ConfigureAwait(false);
 
-            wire.Add(new OpenAiChatMessage("assistant", assistantContent.ToString(), toolCalls));
+            wire.Add(new OpenAiChatMessage("assistant", stream.AssistantContent.ToString(), toolCalls));
 
             if (toolCalls.Count == 0)
             {
                 break;
             }
 
-            foreach (var toolCall in toolCalls)
+            await foreach (var ev in RunToolCallsAsync(toolCalls, provider, toolSet, conversation, wire, ct)
+                .ConfigureAwait(false))
             {
-                // FR-003: live status — the "running" event reaches the client
-                // before the (possibly long) tool call completes; tool-reported
-                // activity is drained from a channel while it executes.
-                var activity = Channel.CreateUnbounded<ChatStreamEvent>();
-                yield return new ChatStatusEvent("running_tool", toolCall.Name);
-                var toolTask = ExecuteToolAsync(toolCall, provider, toolSet, conversation, activity.Writer, ct);
-                while (!toolTask.IsCompleted)
-                {
-                    while (activity.Reader.TryRead(out var progress)) yield return progress;
-                    await Task.Delay(150).ConfigureAwait(false);
-                }
-                while (activity.Reader.TryRead(out var progress)) yield return progress;
-                var (resultJson, refused, refusalReason) = await toolTask.ConfigureAwait(false);
-                yield return new ChatStatusEvent("idle", null);
-                yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
-                yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
-
-                var toolMessage = ChatMessage.CreateTool(conversation.Id, toolCall.Id, toolCall.Name, resultJson, refused, UtcNow);
-                await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
-                await messages.SaveChangesAsync(ct).ConfigureAwait(false);
-                wire.Add(new OpenAiChatMessage("tool", resultJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
+                yield return ev;
             }
 
             conversation.Touch(UtcNow);
@@ -422,6 +353,138 @@ public sealed class ChatService(
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
         _runs.TryRemove(conversation.Id.Value, out _);
         yield return new ChatDoneEvent(tokensIn, tokensOut, error is null ? "stop" : "error", error);
+    }
+
+    // Accumulated output of one provider stream pass: assistant text, streamed
+    // deltas to replay, tool-call fragments, usage, and the terminal failure.
+    private sealed class StreamOutcome
+    {
+        public System.Text.StringBuilder AssistantContent { get; } = new();
+
+        public SortedDictionary<int, (string? Id, string? Name, System.Text.StringBuilder Args)> ToolAccumulator { get; } = new();
+
+        public List<string> PendingDeltas { get; } = new();
+
+        public OpenAiUsage? Usage { get; private set; }
+
+        public ChatProviderException? ProviderError { get; set; }
+
+        public bool StoppedByUser { get; set; }
+
+        public void AccumulateChunk(OpenAiStreamEvent chunk)
+        {
+            if (chunk.ContentDelta is { Length: > 0 } delta)
+            {
+                AssistantContent.Append(delta);
+                PendingDeltas.Add(delta);
+            }
+
+            if (chunk.ToolCallDeltas is { Count: > 0 } deltas)
+            {
+                foreach (var tc in deltas)
+                {
+                    var current = ToolAccumulator.TryGetValue(tc.Index, out var value)
+                        ? value
+                        : (null, null, new System.Text.StringBuilder());
+                    ToolAccumulator[tc.Index] = (
+                        tc.Id ?? current.Item1,
+                        tc.Name ?? current.Item2,
+                        Append(current.Item3, tc.ArgumentsDelta));
+                }
+            }
+
+            if (chunk.Usage is { } usage)
+            {
+                Usage = usage;
+            }
+        }
+
+        public List<OpenAiToolCall> MaterializeToolCalls() =>
+            ToolAccumulator
+                .Select(kv => new OpenAiToolCall(
+                    Id: kv.Value.Id ?? $"call_{kv.Key}",
+                    Name: kv.Value.Name ?? "unknown",
+                    ArgumentsJson: string.IsNullOrWhiteSpace(kv.Value.Args.ToString()) ? "{}" : kv.Value.Args.ToString()))
+                .ToList();
+    }
+
+    private async Task<StreamOutcome> ConsumeStreamAsync(
+        ChatProvider provider,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        List<OpenAiToolDefinition> toolDefs,
+        CancellationTokenSource cts,
+        CancellationToken requestAborted,
+        CancellationToken ct)
+    {
+        var outcome = new StreamOutcome();
+        try
+        {
+            await foreach (var chunk in client.StreamChatAsync(
+                    provider.BaseUrl, provider.ApiKey, conversation.Model, wire,
+                    toolDefs.Count > 0 ? toolDefs : null, ct)
+                .ConfigureAwait(false))
+            {
+                outcome.AccumulateChunk(chunk);
+            }
+        }
+        catch (ChatProviderException ex)
+        {
+            outcome.ProviderError = ex;
+        }
+        catch (HttpRequestException ex)
+        {
+            outcome.ProviderError = new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested && !requestAborted.IsCancellationRequested)
+        {
+            outcome.StoppedByUser = true;
+        }
+
+        return outcome;
+    }
+
+    private async IAsyncEnumerable<ChatStreamEvent> RunToolCallsAsync(
+        List<OpenAiToolCall> toolCalls,
+        ChatProvider provider,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        foreach (var toolCall in toolCalls)
+        {
+            // FR-003: live status — the "running" event reaches the client
+            // before the (possibly long) tool call completes; tool-reported
+            // activity is drained from a channel while it executes.
+            var activity = Channel.CreateUnbounded<ChatStreamEvent>();
+            yield return new ChatStatusEvent("running_tool", toolCall.Name);
+            var toolTask = ExecuteToolAsync(toolCall, provider, toolSet, conversation, activity.Writer, ct);
+            while (!toolTask.IsCompleted)
+            {
+                while (activity.Reader.TryRead(out var progress))
+                {
+                    yield return progress;
+                }
+
+                await Task.Delay(150).ConfigureAwait(false);
+            }
+
+            while (activity.Reader.TryRead(out var progress))
+            {
+                yield return progress;
+            }
+
+            var (resultJson, refused, refusalReason) = await toolTask.ConfigureAwait(false);
+            yield return new ChatStatusEvent("idle", null);
+            yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
+            yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
+
+            var toolMessage = ChatMessage.CreateTool(conversation.Id, toolCall.Id, toolCall.Name, resultJson, refused, UtcNow);
+            await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
+            await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+            wire.Add(new OpenAiChatMessage("tool", resultJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
+        }
     }
 
     private async Task<(string Json, bool Refused, string? Reason)> ExecuteToolAsync(

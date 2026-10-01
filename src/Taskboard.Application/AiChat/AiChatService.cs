@@ -19,10 +19,12 @@ namespace Taskboard.Application.AiChat;
 
 public sealed class AiChatService
 {
+    private const string ModelTierDefault = "default";
+
     private readonly IRepository<AiChatThread> _threadRepo;
     private readonly IRepository<AiChatRun> _runRepo;
     private readonly IRepository<AiChatEvent> _eventRepo;
-    private readonly ILLMProvider _llmProvider;
+    private readonly ILlmProvider _llmProvider;
     private readonly IThreadEventStreamService _threadEvents;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IAgentEligibilityService _eligibility;
@@ -40,7 +42,7 @@ public sealed class AiChatService
         IRepository<AiChatThread> threadRepo,
         IRepository<AiChatRun> runRepo,
         IRepository<AiChatEvent> eventRepo,
-        ILLMProvider llmProvider,
+        ILlmProvider llmProvider,
         IThreadEventStreamService threadEvents,
         IServiceScopeFactory serviceScopeFactory,
         IAgentEligibilityService eligibility,
@@ -78,6 +80,9 @@ public sealed class AiChatService
     /// that container — never against the host PATH. A container not seen by
     /// discovery (stopped, unknown name) fails closed.
     /// </summary>
+    private static string? ResolveOpenHandsBinary(AgentType agentType) =>
+        agentType == AgentType.OpenHands ? "openhands" : null;
+
     private async Task EnsureContainerCliAsync(string containerContext, AgentType agentType, CancellationToken ct)
     {
         var containers = await _containerDiscovery.ListContainersAsync(ct).ConfigureAwait(false);
@@ -92,7 +97,7 @@ public sealed class AiChatService
 
         var binary = AgentCliMap.CliKindFor(agentType) is { } kind
             ? AgentCliMap.GetSpec(kind)?.Binary
-            : agentType == AgentType.OpenHands ? "openhands" : null;
+            : ResolveOpenHandsBinary(agentType);
         if (binary is null || !container.AvailableClis.Contains(binary, StringComparer.Ordinal))
         {
             throw new DomainException(
@@ -109,105 +114,7 @@ public sealed class AiChatService
         // SPEC-20260928-ai-code-generic-cli RF-002: a custom CLI definition
         // (AgentCliId) is a valid backing CLI — its def IS the eligibility
         // record (enabled + executable declared); no AgentType gate applies.
-        AgentType? agentType = null;
-        string? agentCliId = null;
-        string transport;
-        if (!string.IsNullOrWhiteSpace(request.AgentCliId))
-        {
-            var def = await _cliDefinitions.GetAsync(request.AgentCliId.Trim(), ct);
-            if (def is null)
-            {
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidValue,
-                    $"Custom CLI '{request.AgentCliId}' does not exist.");
-            }
-
-            if (!def.Enabled)
-            {
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidValue,
-                    $"Custom CLI '{def.DisplayName}' is disabled.");
-            }
-
-            agentCliId = def.Id;
-            // The declared transport is the def's; an explicit request value
-            // wins so ACP-capable defs can still open a terminal view (Q3).
-            transport = string.IsNullOrWhiteSpace(request.Transport)
-                ? def.Transport
-                : request.Transport.Trim().ToLowerInvariant();
-
-            // SPEC-20260929-ai-chat-capabilities RF-002: structured chat needs
-            // an AgentType-bound ACP adapter — custom defs spawn via argv only
-            // (PTY). Refuse the dead path at creation instead of a thread that
-            // can never execute a prompt.
-            if (transport is "acp")
-            {
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidValue,
-                    $"Custom CLI '{def.DisplayName}' cannot serve the chat view — ACP sessions require a builtin agent. Use the terminal view.");
-            }
-        }
-        else
-        {
-            // SPEC-20260921-ai-chat-cli-backend RF-002: every thread is backed
-            // by an eligible agent CLI — there is no direct-LLM provider.
-            if (string.IsNullOrWhiteSpace(request.AgentType) ||
-                !Enum.TryParse<AgentType>(request.AgentType, true, out var parsedType))
-            {
-                throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
-            }
-
-            agentType = parsedType;
-            transport = string.IsNullOrWhiteSpace(request.Transport)
-                ? "acp"
-                : request.Transport.Trim().ToLowerInvariant();
-
-            // Container context shifts availability checks to the binaries
-            // discovered inside the container (SPEC-20260929-docker-cli-context
-            // RF-002) — a host install is neither required nor sufficient.
-            var inContainer = !string.IsNullOrWhiteSpace(request.ContainerContext)
-                && !string.Equals(request.ContainerContext, "host", StringComparison.OrdinalIgnoreCase);
-            if (transport is "acp")
-            {
-                // SPEC-20260929-ai-chat-capabilities RF-001: chat requires a
-                // CLI that actually speaks ACP — eligibility alone must not
-                // admit PTY-only CLIs into structured threads.
-                if (!AgentCliMap.SupportsAcp(parsedType))
-                {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.InvalidValue,
-                        $"Agent '{parsedType}' has no structured chat (ACP) support — use the terminal view.");
-                }
-
-                if (inContainer)
-                {
-                    await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
-                }
-                else
-                {
-                    var eligible = await _eligibility.GetEligibleTypesAsync(ct);
-                    if (!eligible.Contains(parsedType))
-                    {
-                        throw new DomainException(
-                            TaskboardDomainErrorCodes.AgentNotEligible,
-                            $"Agent '{parsedType}' is not eligible — the CLI must be installed, authenticated and enabled.");
-                    }
-                }
-            }
-            else if (inContainer)
-            {
-                await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
-            }
-            else if (_discovery.ResolveExecutablePath(parsedType) is null)
-            {
-                // PTY threads only need the binary on PATH — authentication
-                // happens inside the terminal itself.
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidValue,
-                    $"CLI for agent '{parsedType}' is not installed — cannot open a terminal thread.");
-            }
-        }
-
+        var (agentType, agentCliId, transport) = await ResolveCliBindingAsync(request, ct);
         if (transport is not ("acp" or "pty"))
         {
             throw new DomainException(
@@ -215,10 +122,145 @@ public sealed class AiChatService
                 $"Invalid transport '{request.Transport}' — expected 'acp' or 'pty'.");
         }
 
-        // SPEC-20260921-ai-code-thread-config RF-004: modelo explícito vence;
-        // vazio + tier → resolução via config service (override ?? curated);
-        // ambos vazios → CLI default. RF-006: a origem do modelo efetivo é
-        // auditada em ModelSource.
+        var (modelName, tier, modelSource) = await ResolveModelChoiceAsync(request, agentType, ct);
+
+        var model = ModelRef.From(modelName);
+        var reasoningEffort = string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort;
+        var sandbox = string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox);
+
+        var thread = CreateThreadEntity(request, agentType, model, reasoningEffort, sandbox);
+
+        // SPEC-20260928-ai-code-generic-cli: transport/container/custom-CLI
+        // binding — immutable after creation (ConfigureCli is creation-time).
+        thread.ConfigureCli(transport, request.ContainerContext, agentCliId);
+        thread.SetModelChoice(tier?.ToString(), modelSource);
+
+        await _threadRepo.AddAsync(thread, ct);
+        await _threadRepo.SaveChangesAsync(ct);
+
+        return thread.ToDto();
+    }
+
+    private async Task<(AgentType? AgentType, string? AgentCliId, string Transport)> ResolveCliBindingAsync(
+        CreateAiChatThreadRequest request, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(request.AgentCliId))
+        {
+            var (cliId, customTransport) = await ResolveCustomCliAsync(request, ct);
+            return (null, cliId, customTransport);
+        }
+
+        // SPEC-20260921-ai-chat-cli-backend RF-002: every thread is backed
+        // by an eligible agent CLI — there is no direct-LLM provider.
+        if (string.IsNullOrWhiteSpace(request.AgentType) ||
+            !Enum.TryParse<AgentType>(request.AgentType, true, out var parsedType))
+        {
+            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Invalid agent type '{request.AgentType}'.");
+        }
+
+        var transport = string.IsNullOrWhiteSpace(request.Transport)
+            ? "acp"
+            : request.Transport.Trim().ToLowerInvariant();
+        await EnsureBuiltinCliAsync(request, parsedType, transport, ct);
+        return (parsedType, null, transport);
+    }
+
+    private async Task<(string AgentCliId, string Transport)> ResolveCustomCliAsync(
+        CreateAiChatThreadRequest request, CancellationToken ct)
+    {
+        var def = await _cliDefinitions.GetAsync(request.AgentCliId!.Trim(), ct);
+        if (def is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Custom CLI '{request.AgentCliId}' does not exist.");
+        }
+
+        if (!def.Enabled)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Custom CLI '{def.DisplayName}' is disabled.");
+        }
+
+        // The declared transport is the def's; an explicit request value
+        // wins so ACP-capable defs can still open a terminal view (Q3).
+        var transport = string.IsNullOrWhiteSpace(request.Transport)
+            ? def.Transport
+            : request.Transport.Trim().ToLowerInvariant();
+
+        // SPEC-20260929-ai-chat-capabilities RF-002: structured chat needs
+        // an AgentType-bound ACP adapter — custom defs spawn via argv only
+        // (PTY). Refuse the dead path at creation instead of a thread that
+        // can never execute a prompt.
+        if (transport is "acp")
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Custom CLI '{def.DisplayName}' cannot serve the chat view — ACP sessions require a builtin agent. Use the terminal view.");
+        }
+
+        return (def.Id, transport);
+    }
+
+    private async Task EnsureBuiltinCliAsync(
+        CreateAiChatThreadRequest request, AgentType parsedType, string transport, CancellationToken ct)
+    {
+        // Container context shifts availability checks to the binaries
+        // discovered inside the container (SPEC-20260929-docker-cli-context
+        // RF-002) — a host install is neither required nor sufficient.
+        var inContainer = !string.IsNullOrWhiteSpace(request.ContainerContext)
+            && !string.Equals(request.ContainerContext, "host", StringComparison.OrdinalIgnoreCase);
+        if (transport is "acp")
+        {
+            // SPEC-20260929-ai-chat-capabilities RF-001: chat requires a
+            // CLI that actually speaks ACP — eligibility alone must not
+            // admit PTY-only CLIs into structured threads.
+            if (!AgentCliMap.SupportsAcp(parsedType))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Agent '{parsedType}' has no structured chat (ACP) support — use the terminal view.");
+            }
+
+            if (inContainer)
+            {
+                await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
+                return;
+            }
+
+            var eligible = await _eligibility.GetEligibleTypesAsync(ct);
+            if (!eligible.Contains(parsedType))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.AgentNotEligible,
+                    $"Agent '{parsedType}' is not eligible — the CLI must be installed, authenticated and enabled.");
+            }
+
+            return;
+        }
+
+        if (inContainer)
+        {
+            await EnsureContainerCliAsync(request.ContainerContext!, parsedType, ct);
+        }
+        else if (_discovery.ResolveExecutablePath(parsedType) is null)
+        {
+            // PTY threads only need the binary on PATH — authentication
+            // happens inside the terminal itself.
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"CLI for agent '{parsedType}' is not installed — cannot open a terminal thread.");
+        }
+    }
+
+    // SPEC-20260921-ai-code-thread-config RF-004: modelo explícito vence;
+    // vazio + tier → resolução via config service (override tem precedência
+    // sobre curated); ambos vazios → CLI default. RF-006: a origem do
+    // modelo efetivo é auditada em ModelSource.
+    private async Task<(string ModelName, AgentModelTier? Tier, string? ModelSource)> ResolveModelChoiceAsync(
+        CreateAiChatThreadRequest request, AgentType? agentType, CancellationToken ct)
+    {
         AgentModelTier? tier = null;
         if (!string.IsNullOrWhiteSpace(request.ModelTier))
         {
@@ -232,16 +274,16 @@ public sealed class AiChatService
             tier = parsed;
         }
 
-        string? modelSource = null;
-        string modelName;
         if (!string.IsNullOrWhiteSpace(request.Model))
         {
-            modelName = request.Model.Trim();
-            modelSource = agentType is { } modelType
+            var modelName = request.Model.Trim();
+            var modelSource = agentType is { } modelType
                 ? await ResolveModelSourceAsync(modelType, modelName, ct)
                 : "custom";
+            return (modelName, tier, modelSource);
         }
-        else if (tier is not null && agentType is { } configType)
+
+        if (tier is not null && agentType is { } configType)
         {
             var config = await _modelConfig.GetConfigAsync(configType, ct);
             var resolved = tier switch
@@ -250,54 +292,28 @@ public sealed class AiChatService
                 AgentModelTier.Ultra => config.Ultra,
                 _ => config.Normal,
             };
-            modelName = string.IsNullOrWhiteSpace(resolved) ? "default" : resolved;
-            modelSource = string.IsNullOrWhiteSpace(resolved)
-                ? null
-                : string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase) ? "custom" : "curated";
-        }
-        else
-        {
-            // Tier without a builtin agent (custom CLI) → CLI default.
-            modelName = "default";
-        }
-
-        var model = ModelRef.From(modelName);
-        var reasoningEffort = string.IsNullOrWhiteSpace(request.ReasoningEffort) ? "medium" : request.ReasoningEffort;
-        var sandbox = string.IsNullOrWhiteSpace(request.Sandbox) ? Sandbox.WorkspaceWrite : Sandbox.From(request.Sandbox);
-
-        AiChatThread thread;
-        if (string.Equals(request.Mode, "agent", StringComparison.OrdinalIgnoreCase))
-        {
-            // SPEC-20260921-ai-code-thread-config RF-003: o repositório resolve
-            // ~/repos/<name> quando WorkspacePath não é informado; o path manual
-            // sempre vence; falha de resolução é 400, nunca fallback silencioso.
-            var workspacePath = request.WorkspacePath;
-            if (string.IsNullOrWhiteSpace(workspacePath) && !string.IsNullOrWhiteSpace(request.RepositoryFullName))
+            if (string.IsNullOrWhiteSpace(resolved))
             {
-                var resolved = _workspace.ResolveCardWorkdir(request.RepositoryFullName, out var exists);
-                if (!exists)
-                {
-                    throw new DomainException(
-                        TaskboardDomainErrorCodes.InvalidValue,
-                        $"Repository '{request.RepositoryFullName}' has no local workspace — clone it under the workspace root or provide an explicit WorkspacePath.");
-                }
-
-                workspacePath = resolved;
+                return (ModelTierDefault, tier, null);
             }
 
-            thread = AiChatThread.CreateAgentThread(
-                AiChatThreadId.NewGuid(),
-                request.Title,
-                model,
-                reasoningEffort,
-                sandbox,
-                agentType,
-                workspacePath,
-                request.RepositoryFullName);
+            var source = string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase)
+                ? "custom"
+                : "curated";
+            return (resolved, tier, source);
         }
-        else
+
+        // Tier without a builtin agent (custom CLI) → CLI default.
+        return (ModelTierDefault, tier, null);
+    }
+
+    private AiChatThread CreateThreadEntity(
+        CreateAiChatThreadRequest request, AgentType? agentType,
+        ModelRef model, string reasoningEffort, Sandbox sandbox)
+    {
+        if (!string.Equals(request.Mode, "agent", StringComparison.OrdinalIgnoreCase))
         {
-            thread = AiChatThread.Create(
+            return AiChatThread.Create(
                 AiChatThreadId.NewGuid(),
                 request.Title,
                 model,
@@ -307,15 +323,32 @@ public sealed class AiChatService
                 repositoryFullName: request.RepositoryFullName);
         }
 
-        // SPEC-20260928-ai-code-generic-cli: transport/container/custom-CLI
-        // binding — immutable after creation (ConfigureCli is creation-time).
-        thread.ConfigureCli(transport, request.ContainerContext, agentCliId);
-        thread.SetModelChoice(tier?.ToString(), modelSource);
+        // SPEC-20260921-ai-code-thread-config RF-003: o repositório resolve
+        // ~/repos/<name> quando WorkspacePath não é informado; o path manual
+        // sempre vence; falha de resolução é 400, nunca fallback silencioso.
+        var workspacePath = request.WorkspacePath;
+        if (string.IsNullOrWhiteSpace(workspacePath) && !string.IsNullOrWhiteSpace(request.RepositoryFullName))
+        {
+            var resolved = _workspace.ResolveCardWorkdir(request.RepositoryFullName, out var exists);
+            if (!exists)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"Repository '{request.RepositoryFullName}' has no local workspace — clone it under the workspace root or provide an explicit WorkspacePath.");
+            }
 
-        await _threadRepo.AddAsync(thread, ct);
-        await _threadRepo.SaveChangesAsync(ct);
+            workspacePath = resolved;
+        }
 
-        return thread.ToDto();
+        return AiChatThread.CreateAgentThread(
+            AiChatThreadId.NewGuid(),
+            request.Title,
+            model,
+            reasoningEffort,
+            sandbox,
+            agentType,
+            workspacePath,
+            request.RepositoryFullName);
     }
 
     /// <summary>
@@ -405,7 +438,7 @@ public sealed class AiChatService
                 // bound CLI; legacy provider names (gpt-4o, …) reset to default.
                 var model = AgentCliModels.Catalog(pick).Contains(thread.Model.Value, StringComparer.Ordinal)
                     ? thread.Model
-                    : ModelRef.From("default");
+                    : ModelRef.From(ModelTierDefault);
                 thread.BindAgent(pick, model);
                 await _threadRepo.UpdateAsync(thread, ct);
             }
@@ -466,97 +499,13 @@ public sealed class AiChatService
             }
             else if (!mockEnabled && thread.AgentType is not null)
             {
-                // Eligibility is dynamic (installed + authenticated + enabled) —
-                // re-check at run time so disabling an agent in Settings stops
-                // existing threads from executing.
-                var eligibleNow = await _eligibility.GetEligibleTypesAsync(ct);
-                if (!eligibleNow.Contains(thread.AgentType.GetValueOrDefault()))
-                {
-                    await EmitCliEventAsync(
-                        threadId,
-                        $"Agent '{thread.AgentType}' is no longer eligible — it was disabled or its CLI lost authentication after this thread was created.",
-                        AiChatEventKind.Error);
-                    run.Fail(-1);
-                    thread.SetStatus(AiChatThreadStatus.Failed);
-                }
-                else
-                {
-                    var prompt = AgentThreadPromptBuilder.BuildAssistantPrompt(
-                        thread.Title,
-                        events.Select(e => e.ToDto()).ToList());
-                    var modelName = string.Equals(thread.Model.Value, "default", StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : thread.Model.Value;
-                    var progress = new SequentialEmitProgress(this, threadId);
-
-                    var result = await _cliChatRunner.RunAsync(
-                        thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct,
-                        thread.ContainerContext);
-
-                    // Drain every queued write before closing the run — the run
-                    // record must not complete while response lines are pending.
-                    await progress.Completion;
-
-                    if (result.IsSuccess)
-                    {
-                        run.Complete((int)(result.Usage?.TotalTokens ?? 0));
-                        thread.SetStatus(AiChatThreadStatus.Idle);
-                    }
-                    else
-                    {
-                        run.Fail(result.ExitCode);
-                        thread.SetStatus(AiChatThreadStatus.Failed);
-                        await EmitCliEventAsync(threadId, $"Agent CLI exited with code {result.ExitCode}.", AiChatEventKind.Error);
-                    }
-                }
+                await RunCliAssistantAsync(threadId, run, thread, events, ct);
             }
             else
             {
-                var messages = new List<LLMMessage>
-                {
-                    new("system", $"You are an AI assistant in sandbox mode: {thread.Sandbox.Value}.")
-                };
-
-                foreach (var ev in events)
-                {
-                    messages.Add(new LLMMessage(
-                        ev.Role.Value switch
-                        {
-                            "user" => "user",
-                            "assistant" => "assistant",
-                            _ => "system"
-                        },
-                        ev.Content));
-                }
-
-                await foreach (var chunk in _llmProvider.StreamAsync(messages, cancellationToken: ct))
-                {
-                    if (chunk.IsComplete)
-                    {
-                        run.Complete(chunk.Usage?.TotalTokens ?? 0);
-                        break;
-                    }
-
-                    if (!string.IsNullOrEmpty(chunk.ContentDelta))
-                    {
-                        var chatEvent = AiChatEvent.Create(
-                            AiChatEventId.NewGuid(),
-                            threadId,
-                            AiChatEventRole.Assistant,
-                            chunk.ContentDelta);
-
-                        thread.AddEvent(chatEvent);
-                        await _eventRepo.AddAsync(chatEvent, ct);
-
-                        await _threadEvents.PublishAsync(
-                            threadId.Value,
-                            new ServerSentEvent("ai_chat.event", chatEvent.ToDto()),
-                            ct);
-                    }
-                }
-
-                thread.SetStatus(AiChatThreadStatus.Idle);
+                await RunMockProviderAsync(threadId, run, thread, events, ct);
             }
+
             await _runRepo.UpdateAsync(run, ct);
             await _threadRepo.UpdateAsync(thread, ct);
             await _threadRepo.SaveChangesAsync(ct);
@@ -568,32 +517,135 @@ public sealed class AiChatService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AI chat run '{RunId}' on thread '{ThreadId}' failed.", runId.Value, threadId.Value);
+            await HandleRunFailureAsync(threadId, runId, ex, ct);
+        }
+    }
 
-            var run = await _runRepo.GetAsync(runId, ct);
-            var thread = await _threadRepo.GetAsync(threadId, ct);
+    private async Task RunCliAssistantAsync(
+        AiChatThreadId threadId, AiChatRun run, AiChatThread thread,
+        List<AiChatEvent> events, CancellationToken ct)
+    {
+        // Eligibility is dynamic (installed + authenticated + enabled) —
+        // re-check at run time so disabling an agent in Settings stops
+        // existing threads from executing.
+        var eligibleNow = await _eligibility.GetEligibleTypesAsync(ct);
+        if (!eligibleNow.Contains(thread.AgentType.GetValueOrDefault()))
+        {
+            await EmitCliEventAsync(
+                threadId,
+                $"Agent '{thread.AgentType}' is no longer eligible — it was disabled or its CLI lost authentication after this thread was created.",
+                AiChatEventKind.Error);
+            run.Fail(-1);
+            thread.SetStatus(AiChatThreadStatus.Failed);
+            return;
+        }
 
-            if (run != null)
+        var prompt = AgentThreadPromptBuilder.BuildAssistantPrompt(
+            thread.Title,
+            events.Select(e => e.ToDto()).ToList());
+        var modelName = string.Equals(thread.Model.Value, ModelTierDefault, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : thread.Model.Value;
+        var progress = new SequentialEmitProgress(this, threadId);
+
+        var result = await _cliChatRunner.RunAsync(
+            thread.Id.Value, thread.AgentType.GetValueOrDefault(), modelName, prompt, progress, ct,
+            thread.ContainerContext);
+
+        // Drain every queued write before closing the run — the run
+        // record must not complete while response lines are pending.
+        await progress.Completion;
+
+        if (result.IsSuccess)
+        {
+            run.Complete((int)(result.Usage?.TotalTokens ?? 0));
+            thread.SetStatus(AiChatThreadStatus.Idle);
+            return;
+        }
+
+        run.Fail(result.ExitCode);
+        thread.SetStatus(AiChatThreadStatus.Failed);
+        await EmitCliEventAsync(threadId, $"Agent CLI exited with code {result.ExitCode}.", AiChatEventKind.Error);
+    }
+
+    private async Task RunMockProviderAsync(
+        AiChatThreadId threadId, AiChatRun run, AiChatThread thread,
+        List<AiChatEvent> events, CancellationToken ct)
+    {
+        var messages = new List<LlmMessage>
+        {
+            new("system", $"You are an AI assistant in sandbox mode: {thread.Sandbox.Value}.")
+        };
+
+        foreach (var ev in events)
+        {
+            messages.Add(new LlmMessage(
+                ev.Role.Value switch
+                {
+                    "user" => "user",
+                    "assistant" => "assistant",
+                    _ => "system"
+                },
+                ev.Content));
+        }
+
+        await foreach (var chunk in _llmProvider.StreamAsync(messages, cancellationToken: ct))
+        {
+            if (chunk.IsComplete)
             {
-                run.Fail(-1);
-                await _runRepo.UpdateAsync(run, ct);
+                run.Complete(chunk.Usage?.TotalTokens ?? 0);
+                break;
             }
 
-            if (thread != null)
+            if (!string.IsNullOrEmpty(chunk.ContentDelta))
             {
-                thread.SetStatus(AiChatThreadStatus.Failed);
-                await _threadRepo.UpdateAsync(thread, ct);
-            }
+                var chatEvent = AiChatEvent.Create(
+                    AiChatEventId.NewGuid(),
+                    threadId,
+                    AiChatEventRole.Assistant,
+                    chunk.ContentDelta);
 
-            await _threadRepo.SaveChangesAsync(ct);
+                thread.AddEvent(chatEvent);
+                await _eventRepo.AddAsync(chatEvent, ct);
 
-            if (run != null)
-            {
                 await _threadEvents.PublishAsync(
                     threadId.Value,
-                    new ServerSentEvent("ai_chat.run", run.ToDto()),
-                    CancellationToken.None);
+                    new ServerSentEvent("ai_chat.event", chatEvent.ToDto()),
+                    ct);
             }
+        }
+
+        thread.SetStatus(AiChatThreadStatus.Idle);
+    }
+
+    private async Task HandleRunFailureAsync(
+        AiChatThreadId threadId, AiChatRunId runId, Exception ex, CancellationToken ct)
+    {
+        _logger.LogError(ex, "AI chat run '{RunId}' on thread '{ThreadId}' failed.", runId.Value, threadId.Value);
+
+        var run = await _runRepo.GetAsync(runId, ct);
+        var thread = await _threadRepo.GetAsync(threadId, ct);
+
+        if (run != null)
+        {
+            run.Fail(-1);
+            await _runRepo.UpdateAsync(run, ct);
+        }
+
+        if (thread != null)
+        {
+            thread.SetStatus(AiChatThreadStatus.Failed);
+            await _threadRepo.UpdateAsync(thread, ct);
+        }
+
+        await _threadRepo.SaveChangesAsync(ct);
+
+        if (run != null)
+        {
+            await _threadEvents.PublishAsync(
+                threadId.Value,
+                new ServerSentEvent("ai_chat.run", run.ToDto()),
+                CancellationToken.None);
         }
     }
 

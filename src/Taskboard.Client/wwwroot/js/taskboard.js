@@ -1,7 +1,7 @@
 window.taskboard = {
     closeSidebar: function () {
         var el = document.getElementById('appSidebar');
-        if (el && window.bootstrap && window.bootstrap.Offcanvas) {
+        if (el && window.bootstrap?.Offcanvas) {
             var instance = window.bootstrap.Offcanvas.getInstance(el);
             if (instance) {
                 instance.hide();
@@ -193,7 +193,7 @@ window.taskboardSse = {
 
     disconnectAll: function () {
         for (var key in this._sources) {
-            if (Object.prototype.hasOwnProperty.call(this._sources, key)) {
+            if (Object.hasOwn(this._sources, key)) {
                 this._sources[key].close();
             }
         }

@@ -47,7 +47,7 @@ public sealed class ExecutableCommand
         }
         catch (OperationCanceledException)
         {
-            try { process.Kill(entireProcessTree: true); } catch { }
+            try { process.Kill(entireProcessTree: true); } catch { /* best-effort kill — the original exception propagates */ }
             throw;
         }
 

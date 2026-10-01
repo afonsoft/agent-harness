@@ -2,7 +2,7 @@ using System;
 
 namespace Taskboard;
 
-public abstract class Entity<TKey> where TKey : notnull
+public abstract class Entity<TKey> : IEquatable<Entity<TKey>> where TKey : notnull
 {
     public TKey Id { get; protected set; } = default!;
 
@@ -35,9 +35,8 @@ public abstract class Entity<TKey> where TKey : notnull
         return EqualityComparer<TKey>.Default.Equals(Id, other.Id);
     }
 
+    // S3875: operator == requires the type to implement IEquatable<T>.
+    public bool Equals(Entity<TKey>? other) => object.Equals(this, other);
+
     public override int GetHashCode() => Id is null ? 0 : EqualityComparer<TKey>.Default.GetHashCode(Id);
-
-    public static bool operator ==(Entity<TKey>? left, Entity<TKey>? right) => object.Equals(left, right);
-
-    public static bool operator !=(Entity<TKey>? left, Entity<TKey>? right) => !object.Equals(left, right);
 }

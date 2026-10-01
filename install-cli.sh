@@ -133,7 +133,8 @@ add_alias() {
 
 main() {
     while [[ $# -gt 0 ]]; do
-        case "$1" in
+        local arg="$1"
+        case "$arg" in
             --dry-run)
                 DRY_RUN=true
                 shift
@@ -143,7 +144,7 @@ main() {
                 exit 0
                 ;;
             *)
-                echo "Unknown option: $1" >&2
+                echo "Unknown option: $arg" >&2
                 exit 1
                 ;;
         esac

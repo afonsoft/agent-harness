@@ -160,22 +160,37 @@ else
                 section?.Body.Split('\n')));
         }
 
-        var others = sections.Where(s => !matched.Contains(s)).ToList();
-        foreach (var other in others)
-        {
-            cards.Add(new FileCard(other.Path ?? "(outros)", null, 0, 0, other.Body.Split('\n')));
-        }
+        cards.AddRange(sections
+            .Where(s => !matched.Contains(s))
+            .Select(s => new FileCard(s.Path ?? "(outros)", null, 0, 0, s.Body.Split('\n'))));
 
         return cards;
     }
 
-    private static string LineClass(string line) =>
-        line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal) ? "diff-file"
-        : line.StartsWith("@@", StringComparison.Ordinal) ? "diff-hunk"
-        : line.StartsWith('+') ? "diff-add"
-        : line.StartsWith('-') ? "diff-del"
-        : line.StartsWith("diff --git", StringComparison.Ordinal) ? "diff-file"
-        : "diff-ctx";
+    private static string LineClass(string line)
+    {
+        if (line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal))
+        {
+            return "diff-file";
+        }
+
+        if (line.StartsWith("@@", StringComparison.Ordinal))
+        {
+            return "diff-hunk";
+        }
+
+        if (line.StartsWith('+'))
+        {
+            return "diff-add";
+        }
+
+        if (line.StartsWith('-'))
+        {
+            return "diff-del";
+        }
+
+        return line.StartsWith("diff --git", StringComparison.Ordinal) ? "diff-file" : "diff-ctx";
+    }
 
     private sealed record FileCard(
         string Path, string? Status, int Insertions, int Deletions, string[]? Lines);

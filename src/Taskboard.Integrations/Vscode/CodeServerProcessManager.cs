@@ -37,7 +37,6 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
     private Process? _process;
     private Task? _pumpTask;
     private Task<VscodeStatus>? _restartInFlight;
-    private bool _lastStartFailed;
     private bool _listening;
 
     public CodeServerProcessManager(
@@ -248,11 +247,9 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
         {
             _listening = false;
             _process = _processStarter(startInfo);
-            _lastStartFailed = _process is null;
         }
         catch (Exception ex)
         {
-            _lastStartFailed = true;
             _logger.LogWarning(ex, "code-server failed to start.");
             return;
         }
@@ -292,11 +289,12 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
                 await Task.Delay(ReadyPollInterval, timeout.Token).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             if (!cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning(
+                    ex,
                     "code-server did not listen on {Url} within {Seconds}s.",
                     BaseUrl, _readyTimeout.TotalSeconds);
             }
@@ -392,6 +390,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
                 }
                 catch
                 {
+                    // Best-effort — failure here is non-fatal.
                 }
             }
         }

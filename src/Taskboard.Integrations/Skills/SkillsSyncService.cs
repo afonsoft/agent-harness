@@ -225,50 +225,67 @@ public sealed class SkillsSyncService : ISkillsSyncService
 
         foreach (var targetRoot in AgentSkillDirectoryMap.GetSkillDirectories(agent, _homeDirectory))
         {
-            Directory.CreateDirectory(targetRoot);
-            var manifestPath = Path.Join(targetRoot, ManifestFileName);
-            var manifest = SkillsManifest.Load(manifestPath);
-
-            foreach (var name in manifest.Skills.Keys.ToList())
-            {
-                manifest.Skills[name] = manifest.Skills[name] with
-                {
-                    RemovedFromSource = !sourceNames.Contains(name)
-                };
-            }
-
-            foreach (var skill in skills)
-            {
-                var targetDirectory = Path.Join(targetRoot, skill.Name);
-                var exists = manifest.Skills.TryGetValue(skill.Name, out var entry);
-                if (exists && entry!.Hash == skill.Hash && Directory.Exists(targetDirectory))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (Directory.Exists(targetDirectory))
-                {
-                    Directory.Delete(targetDirectory, recursive: true);
-                }
-
-                CopyDirectory(skill.Directory, targetDirectory);
-                manifest.Skills[skill.Name] = new SkillsManifestEntry(
-                    skill.Hash, DateTimeOffset.UtcNow, repository, RemovedFromSource: false);
-                if (exists)
-                {
-                    updated++;
-                }
-                else
-                {
-                    installed++;
-                }
-            }
-
-            manifest.Save(manifestPath);
+            var (i, u, s) = SyncTargetRoot(targetRoot, skills, sourceNames, repository);
+            installed += i;
+            updated += u;
+            skipped += s;
         }
 
         return new AgentSyncResult(agent.ToString(), installed, updated, skipped, null);
+    }
+
+    private static (int Installed, int Updated, int Skipped) SyncTargetRoot(
+        string targetRoot,
+        List<SourceSkill> skills,
+        HashSet<string> sourceNames,
+        string repository)
+    {
+        var installed = 0;
+        var updated = 0;
+        var skipped = 0;
+
+        Directory.CreateDirectory(targetRoot);
+        var manifestPath = Path.Join(targetRoot, ManifestFileName);
+        var manifest = SkillsManifest.Load(manifestPath);
+
+        foreach (var name in manifest.Skills.Keys.ToList())
+        {
+            manifest.Skills[name] = manifest.Skills[name] with
+            {
+                RemovedFromSource = !sourceNames.Contains(name)
+            };
+        }
+
+        foreach (var skill in skills)
+        {
+            var targetDirectory = Path.Join(targetRoot, skill.Name);
+            var exists = manifest.Skills.TryGetValue(skill.Name, out var entry);
+            if (exists && entry!.Hash == skill.Hash && Directory.Exists(targetDirectory))
+            {
+                skipped++;
+                continue;
+            }
+
+            if (Directory.Exists(targetDirectory))
+            {
+                Directory.Delete(targetDirectory, recursive: true);
+            }
+
+            CopyDirectory(skill.Directory, targetDirectory);
+            manifest.Skills[skill.Name] = new SkillsManifestEntry(
+                skill.Hash, DateTimeOffset.UtcNow, repository, RemovedFromSource: false);
+            if (exists)
+            {
+                updated++;
+            }
+            else
+            {
+                installed++;
+            }
+        }
+
+        manifest.Save(manifestPath);
+        return (installed, updated, skipped);
     }
 
     internal static string ComputeSkillHash(string skillDirectory)

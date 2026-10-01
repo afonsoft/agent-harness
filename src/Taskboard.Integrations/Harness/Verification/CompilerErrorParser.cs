@@ -9,7 +9,7 @@ namespace Taskboard.Integrations.Harness.Verification;
 /// With <c>TreatWarningsAsErrors</c> warnings are also failures, so both are
 /// captured.
 /// </summary>
-public sealed partial class CompilerErrorParser
+public static partial class CompilerErrorParser
 {
     public static IReadOnlyList<CompilationErrorDto> Parse(string buildOutput)
     {
@@ -18,16 +18,14 @@ public sealed partial class CompilerErrorParser
             return [];
         }
 
-        var errors = new List<CompilationErrorDto>();
-        foreach (Match match in DiagnosticLineRegex().Matches(buildOutput))
-        {
-            errors.Add(new CompilationErrorDto(
+        var errors = DiagnosticLineRegex().Matches(buildOutput)
+            .Select(match => new CompilationErrorDto(
                 match.Groups["file"].Value,
                 int.Parse(match.Groups["line"].Value),
                 int.Parse(match.Groups["col"].Value),
                 match.Groups["code"].Value,
-                match.Groups["msg"].Value.Trim()));
-        }
+                match.Groups["msg"].Value.Trim()))
+            .ToList();
 
         return errors;
     }

@@ -45,17 +45,42 @@ public sealed class ThreadPtyResolver(
             return (null, "Thread is not a terminal (pty) thread.");
         }
 
-        // Same workdir rule as AgentSessionManager.EnsureSessionAsync
-        // (SPEC-20260929-pty-session-security RF-006): explicit workspace →
-        // repo card dir → workspace root — never the bare user profile.
-        var workdir = !string.IsNullOrWhiteSpace(thread.WorkspacePath)
-            ? thread.WorkspacePath
-            : !string.IsNullOrWhiteSpace(thread.RepositoryFullName)
-                ? workspace.ResolveCardWorkdir(thread.RepositoryFullName, out _)
-                : workspace.EnsureRoot();
+        var workdir = ResolveWorkdir(thread);
 
-        // Command: custom definition or builtin binary.
-        List<string> argv;
+        var (argv, argvError) = await ResolveArgvAsync(thread, ct).ConfigureAwait(false);
+        if (argv is null)
+        {
+            return (null, argvError);
+        }
+
+        var (wrapped, wrapError) = await WrapForContainerAsync(thread, argv, ct).ConfigureAwait(false);
+        if (wrapped is null)
+        {
+            return (null, wrapError);
+        }
+
+        return (new Resolution(workdir, wrapped), null);
+    }
+
+    // Same workdir rule as AgentSessionManager.EnsureSessionAsync
+    // (SPEC-20260929-pty-session-security RF-006): explicit workspace →
+    // repo card dir → workspace root — never the bare user profile.
+    private string ResolveWorkdir(AiChatThreadDto thread)
+    {
+        if (!string.IsNullOrWhiteSpace(thread.WorkspacePath))
+        {
+            return thread.WorkspacePath;
+        }
+
+        return !string.IsNullOrWhiteSpace(thread.RepositoryFullName)
+            ? workspace.ResolveCardWorkdir(thread.RepositoryFullName, out _)
+            : workspace.EnsureRoot();
+    }
+
+    // Command: custom definition or builtin binary.
+    private async Task<(List<string>? Argv, string? Error)> ResolveArgvAsync(
+        AiChatThreadDto thread, CancellationToken ct)
+    {
         if (!string.IsNullOrWhiteSpace(thread.AgentCliId))
         {
             var def = await cliDefinitions.GetAsync(thread.AgentCliId, ct).ConfigureAwait(false);
@@ -69,14 +94,16 @@ public sealed class ThreadPtyResolver(
                 return (null, $"Custom CLI '{def.DisplayName}' is disabled.");
             }
 
-            argv = [def.Executable];
+            var argv = new List<string> { def.Executable };
             var model = string.Equals(thread.Model, "default", StringComparison.Ordinal)
                 ? null
                 : thread.Model;
             argv.AddRange(AgentCliArgsTemplate.Render(def.ArgsTemplate, def.ModelFlag, model: model));
+            return (argv, null);
         }
-        else if (!string.IsNullOrWhiteSpace(thread.AgentType)
-                 && Enum.TryParse<AgentType>(thread.AgentType, ignoreCase: true, out var agentType))
+
+        if (!string.IsNullOrWhiteSpace(thread.AgentType)
+            && Enum.TryParse<AgentType>(thread.AgentType, ignoreCase: true, out var agentType))
         {
             var kind = AgentCliMap.CliKindFor(agentType);
             var spec = kind is null ? null : AgentCliMap.GetSpec(kind.Value);
@@ -90,34 +117,38 @@ public sealed class ThreadPtyResolver(
             // would not exist there (SPEC-20260929-docker-cli-context RF-001).
             var inContainer = !string.IsNullOrWhiteSpace(thread.ContainerContext);
             var path = inContainer ? null : discovery.ResolveExecutablePath(agentType);
-            argv = [path ?? binary];
+            return ([path ?? binary], null);
         }
-        else
+
+        return (null, "Thread has no CLI binding.");
+    }
+
+    // Docker context: wrap argv in `docker exec -it <container>` — but
+    // only for containers the discovery actually sees running. A persisted
+    // name passing only syntax validation would let a caller exec into any
+    // container the daemon can reach (SPEC-20260929-pty-session-security
+    // RF-002).
+    private async Task<(List<string>? Argv, string? Error)> WrapForContainerAsync(
+        AiChatThreadDto thread, List<string> argv, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(thread.ContainerContext))
         {
-            return (null, "Thread has no CLI binding.");
+            return (argv, null);
         }
 
-        // Docker context: wrap argv in `docker exec -it <container>` — but
-        // only for containers the discovery actually sees running. A persisted
-        // name passing only syntax validation would let a caller exec into any
-        // container the daemon can reach (SPEC-20260929-pty-session-security
-        // RF-002).
-        if (!string.IsNullOrWhiteSpace(thread.ContainerContext))
+        if (!DockerCliSpawner.IsValidContainerName(thread.ContainerContext))
         {
-            if (!DockerCliSpawner.IsValidContainerName(thread.ContainerContext))
-            {
-                return (null, $"Invalid container name '{thread.ContainerContext}'.");
-            }
-
-            var containers = await dockerDiscovery.ListContainersAsync(ct).ConfigureAwait(false);
-            if (containers.All(c => !string.Equals(c.Name, thread.ContainerContext, StringComparison.Ordinal)))
-            {
-                return (null, $"Container '{thread.ContainerContext}' is not running or not allowed.");
-            }
-
-            argv = ["docker", .. DockerCliSpawner.BuildExecArgs(thread.ContainerContext, argv, interactive: true)];
+            return (null, $"Invalid container name '{thread.ContainerContext}'.");
         }
 
-        return (new Resolution(workdir, argv), null);
+        var containers = await dockerDiscovery.ListContainersAsync(ct).ConfigureAwait(false);
+        if (containers.All(c => !string.Equals(c.Name, thread.ContainerContext, StringComparison.Ordinal)))
+        {
+            return (null, $"Container '{thread.ContainerContext}' is not running or not allowed.");
+        }
+
+        List<string> wrapped =
+            ["docker", .. DockerCliSpawner.BuildExecArgs(thread.ContainerContext, argv, interactive: true)];
+        return (wrapped, null);
     }
 }

@@ -18,6 +18,8 @@ namespace Taskboard.Integrations.Skills;
 /// </summary>
 public sealed class SkillsInstallerService : ISkillsInstallerService
 {
+    private const string InstallMethodScript = "install-sh";
+
     internal const string ManifestFileName = "skills-install.json";
 
     private static readonly string[] RequiredTools = ["npx", "git"];
@@ -172,73 +174,10 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
                 ["skills", "add", repository, "-g", "--all", "--copy"],
                 cancellationToken).ConfigureAwait(false));
 
-            if (steps[^1].State == SkillsInstallStepState.Failed)
-            {
-                steps.Add(new SkillsInstallStep(
-                    "install-sh", SkillsInstallStepState.Skipped, null, null, "previous step failed"));
-            }
-            else if (bash is null)
-            {
-                steps.Add(new SkillsInstallStep(
-                    "install-sh", SkillsInstallStepState.Skipped, null, null, "bash not available"));
-            }
-            else
-            {
-                var cacheStopwatch = Stopwatch.StartNew();
-                var cacheReady = false;
-                try
-                {
-                    var prepare = await SkillsRepository
-                        .EnsureCacheAsync(_cacheDirectory, repository, token, GitExec, _logger, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (prepare == CachePrepareResult.Recovered)
-                    {
-                        steps.Add(new SkillsInstallStep(
-                            "cache-prepare", SkillsInstallStepState.Succeeded, null,
-                            cacheStopwatch.ElapsedMilliseconds,
-                            "recovered from inaccessible cache — stale clone moved aside"));
-                    }
+            await RunScriptStepAsync(steps, bash, repository, token, cancellationToken)
+                .ConfigureAwait(false);
 
-                    cacheReady = true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Skills cache refresh failed for {Repository}.", repository);
-                    steps.Add(new SkillsInstallStep(
-                        "cache-prepare", SkillsInstallStepState.Failed, null, cacheStopwatch.ElapsedMilliseconds,
-                        Sanitize(ex.Message)));
-                }
-
-                if (cacheReady)
-                {
-                    var script = Path.Join(_cacheDirectory, "install.sh");
-                    steps.Add(!File.Exists(script)
-                        ? new SkillsInstallStep(
-                            "install-sh", SkillsInstallStepState.Skipped, null, null, "no install.sh in repository")
-                        : await RunStepAsync(
-                            "install-sh", bash, _cacheDirectory, ["install.sh", "--all"], cancellationToken)
-                            .ConfigureAwait(false));
-                }
-                else
-                {
-                    steps.Add(new SkillsInstallStep(
-                        "install-sh", SkillsInstallStepState.Skipped, null, null,
-                        "cache-prepare failed"));
-                }
-            }
-
-            foreach (var step in steps)
-            {
-                var line = $"Step {step.Name}: {step.State}";
-                if (step.State == SkillsInstallStepState.Failed)
-                {
-                    _log?.Error($"{line} — {Sanitize(step.Message)}");
-                }
-                else
-                {
-                    _log?.Info(step.Message is null ? line : $"{line} — {step.Message}");
-                }
-            }
+            LogSteps(steps);
 
             _state = steps.Any(s => s.State == SkillsInstallStepState.Failed)
                 ? SkillsSyncState.Failed
@@ -273,10 +212,96 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
             SkillCount = total,
             State = _state.ToString(),
             NpxStep = steps.FirstOrDefault(s => s.Name == "npx-add"),
-            InstallShStep = steps.FirstOrDefault(s => s.Name == "install-sh")
+            InstallShStep = steps.FirstOrDefault(s => s.Name == InstallMethodScript)
         }.Save(_manifestPath);
 
         return GetStatus();
+    }
+
+    private async Task RunScriptStepAsync(
+        List<SkillsInstallStep> steps,
+        string? bash,
+        string repository,
+        string? token,
+        CancellationToken cancellationToken)
+    {
+        if (steps[^1].State == SkillsInstallStepState.Failed)
+        {
+            steps.Add(new SkillsInstallStep(
+                InstallMethodScript, SkillsInstallStepState.Skipped, null, null, "previous step failed"));
+            return;
+        }
+
+        if (bash is null)
+        {
+            steps.Add(new SkillsInstallStep(
+                InstallMethodScript, SkillsInstallStepState.Skipped, null, null, "bash not available"));
+            return;
+        }
+
+        if (!await EnsureCacheReadyAsync(steps, repository, token, cancellationToken).ConfigureAwait(false))
+        {
+            steps.Add(new SkillsInstallStep(
+                InstallMethodScript, SkillsInstallStepState.Skipped, null, null,
+                "cache-prepare failed"));
+            return;
+        }
+
+        var script = Path.Join(_cacheDirectory, "install.sh");
+        steps.Add(!File.Exists(script)
+            ? new SkillsInstallStep(
+                InstallMethodScript, SkillsInstallStepState.Skipped, null, null, "no install.sh in repository")
+            : await RunStepAsync(
+                InstallMethodScript, bash, _cacheDirectory, ["install.sh", "--all"], cancellationToken)
+                .ConfigureAwait(false));
+    }
+
+    private async Task<bool> EnsureCacheReadyAsync(
+        List<SkillsInstallStep> steps,
+        string repository,
+        string? token,
+        CancellationToken cancellationToken)
+    {
+        var cacheStopwatch = Stopwatch.StartNew();
+        try
+        {
+            var prepare = await SkillsRepository
+                .EnsureCacheAsync(_cacheDirectory, repository, token, GitExec, _logger, cancellationToken)
+                .ConfigureAwait(false);
+            if (prepare == CachePrepareResult.Recovered)
+            {
+                steps.Add(new SkillsInstallStep(
+                    "cache-prepare", SkillsInstallStepState.Succeeded, null,
+                    cacheStopwatch.ElapsedMilliseconds,
+                    "recovered from inaccessible cache — stale clone moved aside"));
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Skills cache refresh failed for {Repository}.", repository);
+            steps.Add(new SkillsInstallStep(
+                "cache-prepare", SkillsInstallStepState.Failed, null, cacheStopwatch.ElapsedMilliseconds,
+                Sanitize(ex.Message)));
+            return false;
+        }
+    }
+
+    private void LogSteps(List<SkillsInstallStep> steps)
+    {
+        foreach (var step in steps)
+        {
+            var line = $"Step {step.Name}: {step.State}";
+            if (step.State == SkillsInstallStepState.Failed)
+            {
+                _log?.Error($"{line} — {Sanitize(step.Message)}");
+            }
+            else
+            {
+                _log?.Info(step.Message is null ? line : $"{line} — {step.Message}");
+            }
+        }
     }
 
     private async Task<SkillsInstallStep> RunStepAsync(

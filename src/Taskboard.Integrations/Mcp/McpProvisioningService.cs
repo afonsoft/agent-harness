@@ -162,9 +162,15 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 config = config with { Url = null, ApiKey = null };
             }
 
-            var mode = string.IsNullOrWhiteSpace(config.Url)
-                ? forceRemove ? "remove (explicit)" : "remove"
-                : "configure";
+            string mode;
+            if (!string.IsNullOrWhiteSpace(config.Url))
+            {
+                mode = "configure";
+            }
+            else
+            {
+                mode = forceRemove ? "remove (explicit)" : "remove";
+            }
             _log?.Info(
                 $"MCP provision started — name '{config.Name}', {mode} mode, " +
                 $"{targets.Count} target(s).");
@@ -265,10 +271,10 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             args.Add(config.Url!);
 
             var (exitCode, output) = await _agyRunner(agy, args, cancellationToken).ConfigureAwait(false);
+            var agyState = existing is null ? McpAgentState.Configured : McpAgentState.Updated;
             return exitCode == 0
                 ? new McpAgentResult(
-                    AgentType.Antigravity, true, displayPath, "http",
-                    existing is null ? McpAgentState.Configured : McpAgentState.Updated, null)
+                    AgentType.Antigravity, true, displayPath, "http", agyState, null)
                 : new McpAgentResult(
                     AgentType.Antigravity, false, displayPath, null, McpAgentState.Failed,
                     Sanitize(output, config.ApiKey));
@@ -339,10 +345,10 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             args.Add(config.Url!);
 
             var (exitCode, output) = await _agyRunner(cline, args, cancellationToken).ConfigureAwait(false);
+            var clineState = existing is null ? McpAgentState.Configured : McpAgentState.Updated;
             return exitCode == 0
                 ? new McpAgentResult(
-                    AgentType.Cline, true, displayPath, "http",
-                    existing is null ? McpAgentState.Configured : McpAgentState.Updated, null)
+                    AgentType.Cline, true, displayPath, "http", clineState, null)
                 : new McpAgentResult(
                     AgentType.Cline, false, displayPath, null, McpAgentState.Failed,
                     Sanitize(output, config.ApiKey));
@@ -474,13 +480,17 @@ public sealed class McpProvisioningService : IMcpProvisioningService
 
         try
         {
-            var outcome = target.Format == McpConfigFormat.Json
-                ? JsonConfigMerger.Merge(
-                    path,
-                    target.ContainerKey,
-                    config.Name,
-                    removing ? null : BuildJsonEntry(target.Style, config.Url!, config.ApiKey))
-                : TomlConfigMerger.Merge(path, config.Name, removing ? null : config.Url, config.ApiKey);
+            MergeOutcome outcome;
+            if (target.Format == McpConfigFormat.Json)
+            {
+                var jsonEntry = removing ? null : BuildJsonEntry(target.Style, config.Url!, config.ApiKey);
+                outcome = JsonConfigMerger.Merge(path, target.ContainerKey, config.Name, jsonEntry);
+            }
+            else
+            {
+                var tomlUrl = removing ? null : config.Url;
+                outcome = TomlConfigMerger.Merge(path, config.Name, tomlUrl, config.ApiKey);
+            }
 
             var state = outcome switch
             {
@@ -523,17 +533,22 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                     "config path is a directory");
             }
 
-            var url = target.Format == McpConfigFormat.Json
-                ? JsonConfigMerger.ReadManagedUrl(
-                    readPath, target.ContainerKey, config.Name,
-                    target.Style switch
-                    {
-                        McpEntryStyle.Antigravity => "serverUrl",
-                        McpEntryStyle.Qwen => "httpUrl",
-                        _ => "url"
-                    },
-                    target.Style == McpEntryStyle.Cline ? "transport" : null)
-                : TomlConfigMerger.ReadManagedUrl(readPath, config.Name);
+            string? url;
+            if (target.Format == McpConfigFormat.Json)
+            {
+                var urlKey = target.Style switch
+                {
+                    McpEntryStyle.Antigravity => "serverUrl",
+                    McpEntryStyle.Qwen => "httpUrl",
+                    _ => "url"
+                };
+                var transportKey = target.Style == McpEntryStyle.Cline ? "transport" : null;
+                url = JsonConfigMerger.ReadManagedUrl(readPath, target.ContainerKey, config.Name, urlKey, transportKey);
+            }
+            else
+            {
+                url = TomlConfigMerger.ReadManagedUrl(readPath, config.Name);
+            }
 
             var configured = url is not null
                 && config.Url is not null
@@ -565,6 +580,7 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 entry["transport"] = "http";
                 break;
             case McpEntryStyle.Claude:
+            case McpEntryStyle.Copilot:
                 entry["type"] = "http";
                 entry["url"] = url;
                 break;
@@ -580,10 +596,6 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 break;
             case McpEntryStyle.Qwen:
                 entry["httpUrl"] = url;
-                break;
-            case McpEntryStyle.Copilot:
-                entry["type"] = "http";
-                entry["url"] = url;
                 break;
             default:
                 throw new InvalidOperationException($"No JSON entry shape for style '{style}'.");

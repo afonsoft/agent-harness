@@ -201,67 +201,11 @@
                 TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
             .Build();
 
-        _hub.On<CockpitEventDto>("ReceiveCockpitEvent", async evt =>
-        {
-            // Dedup: replayed buffered events may race with live events after reconnect.
-            if (!_events.Any(e => e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title))
-            {
-                _events.Add(evt);
-            }
+        _hub.On<CockpitEventDto>("ReceiveCockpitEvent", OnCockpitEventAsync);
 
-            // RF-002: refresh the diff automatically when a stage completes.
-            if (_diffLoaded && evt.Kind == "stage" && evt.Title.Contains("completed", StringComparison.OrdinalIgnoreCase))
-            {
-                _diff = await Client.GetWorktreeDiffAsync(RunId);
-            }
+        _hub.On<ApprovalRequestDto>("RequireApproval", RequireApprovalAsync);
 
-            // SPEC-20260923-cockpit-run-hardening RF-003: every transition
-            // refreshes the execution snapshot — debounced so an event burst
-            // collapses into one fetch (agent_output is per-line, skipped).
-            if (evt.Kind is "run_status" or "status" or "stage" or "verification" or "error" or "approval" or "lifecycle")
-            {
-                ScheduleDetailsRefresh();
-            }
-
-            await InvokeAsync(StateHasChanged);
-        });
-
-        _hub.On<ApprovalRequestDto>("RequireApproval", async request =>
-        {
-            _pendingApproval = request;
-            // RF-005: toast + browser notification além do modal — o resumo
-            // chega mesmo com a página fora de foco.
-            await ToastService.NotifyAsync(new ToastMessage(
-                ToastType.Warning, request.Summary ?? request.Description));
-            _ = JS.InvokeVoidAsync("taskboardNotify.notify",
-                request.Title,
-                request.Summary ?? request.Description,
-                NavigationManager.ToAbsoluteUri($"/cockpit/runs/{request.RunId}").ToString());
-            await InvokeAsync(() => _approvalModal.ShowAsync(request));
-        });
-
-        _hub.Reconnected += async _ =>
-        {
-            // Replay buffered events after reconnect — dedup handles overlap.
-            try
-            {
-                var replay = await Client.GetRunEventsAsync(RunId);
-                foreach (var evt in replay)
-                {
-                    if (!_events.Any(e => e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title))
-                    {
-                        _events.Add(evt);
-                    }
-                }
-                _events.Sort((a, b) => a.TimestampUtc.CompareTo(b.TimestampUtc));
-                _details = await Client.GetRunAsync(RunId);
-                await InvokeAsync(StateHasChanged);
-            }
-            catch
-            {
-                // Reconnect replay is best-effort; next event will refresh.
-            }
-        };
+        _hub.Reconnected += _ => ReplayBufferedAsync();
 
         _hub.Reconnecting += _ => InvokeAsync(StateHasChanged);
 
@@ -273,6 +217,65 @@
         catch (Exception ex)
         {
             await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Hub indisponível: {ex.Message}"));
+        }
+    }
+
+    // Dedup: replayed buffered events may race with live events after reconnect.
+    private bool IsNew(CockpitEventDto evt)
+        => !_events.Any(e => e.TimestampUtc == evt.TimestampUtc && e.Kind == evt.Kind && e.Title == evt.Title);
+
+    private async Task OnCockpitEventAsync(CockpitEventDto evt)
+    {
+        if (IsNew(evt))
+        {
+            _events.Add(evt);
+        }
+
+        // RF-002: refresh the diff automatically when a stage completes.
+        if (_diffLoaded && evt.Kind == "stage" && evt.Title.Contains("completed", StringComparison.OrdinalIgnoreCase))
+        {
+            _diff = await Client.GetWorktreeDiffAsync(RunId);
+        }
+
+        // SPEC-20260923-cockpit-run-hardening RF-003: every transition
+        // refreshes the execution snapshot — debounced so an event burst
+        // collapses into one fetch (agent_output is per-line, skipped).
+        if (evt.Kind is "run_status" or "status" or "stage" or "verification" or "error" or "approval" or "lifecycle")
+        {
+            ScheduleDetailsRefresh();
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RequireApprovalAsync(ApprovalRequestDto request)
+    {
+        _pendingApproval = request;
+        // RF-005: toast + browser notification além do modal — o resumo
+        // chega mesmo com a página fora de foco.
+        await ToastService.NotifyAsync(new ToastMessage(
+            ToastType.Warning, request.Summary ?? request.Description));
+        _ = JS.InvokeVoidAsync("taskboardNotify.notify",
+            request.Title,
+            request.Summary ?? request.Description,
+            NavigationManager.ToAbsoluteUri($"/cockpit/runs/{request.RunId}").ToString());
+        await InvokeAsync(() => _approvalModal.ShowAsync(request));
+    }
+
+    // Replay buffered events after reconnect — dedup handles overlap.
+    private async Task ReplayBufferedAsync()
+    {
+        try
+        {
+            var replay = await Client.GetRunEventsAsync(RunId);
+            _events.AddRange(replay.Where(IsNew));
+            _events.Sort((a, b) => a.TimestampUtc.CompareTo(b.TimestampUtc));
+            _details = await Client.GetRunAsync(RunId);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Reconnect replay is best-effort; next event will refresh.
         }
     }
 
@@ -292,6 +295,7 @@
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         var token = _refreshCts.Token;
@@ -305,6 +309,7 @@
             }
             catch (OperationCanceledException)
             {
+                // Cancellation is the expected shutdown path — nothing to clean up.
             }
             catch (Exception ex)
             {
@@ -481,6 +486,7 @@
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         if (_hub is not null)

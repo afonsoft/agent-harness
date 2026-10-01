@@ -88,14 +88,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         process.BeginErrorReadLine();
 
         var stopwatch = Stopwatch.StartNew();
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
         // RF-004: telemetry — duration and resolved model flow into the result.
         if (tcs.Task.IsCompleted)
@@ -196,6 +189,11 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         }
     }
 
+    private static string GetParamsText(JsonElement root)
+    {
+        return root.TryGetProperty("params", out var paramsElement) ? paramsElement.GetRawText() : string.Empty;
+    }
+
     private static int TryGetExitCode(JsonElement result)
     {
         if (result.ValueKind == JsonValueKind.Number)
@@ -209,10 +207,5 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         }
 
         return 0;
-    }
-
-    private static string GetParamsText(JsonElement root)
-    {
-        return root.TryGetProperty("params", out var paramsElement) ? paramsElement.GetRawText() : string.Empty;
     }
 }

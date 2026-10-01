@@ -177,6 +177,7 @@
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
     }
 

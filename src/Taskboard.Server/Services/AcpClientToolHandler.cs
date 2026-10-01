@@ -22,6 +22,9 @@ namespace Taskboard.Server.Services;
 /// </summary>
 public sealed class AcpClientToolHandler : IAcpClientToolHandler
 {
+    private const string TerminalCreateMethod = "terminal/create";
+    private const string DecisionAllow = "allow";
+
     private const int DefaultOutputByteLimit = 1024 * 1024;
 
     private sealed class TerminalEntry
@@ -61,7 +64,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
 
     public async Task<JsonElement> HandleAsync(
         string threadId, string sessionId, string workspacePath,
-        string method, JsonElement p, CancellationToken cancellationToken)
+        string method, JsonElement @params, CancellationToken cancellationToken)
     {
         // The spawn workspace is authoritative — run-scoped sessions have no
         // AiChatThread row, so resolving by threadId would silently fall back
@@ -72,13 +75,13 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
 
         return method switch
         {
-            "fs/read_text_file" when _options.ClientFs => await ReadTextFile(root, p),
-            "fs/write_text_file" when _options.ClientFs => await WriteTextFile(threadId, root, p),
-            "terminal/create" when _options.ClientTerminal => await TerminalCreate(threadId, sessionId, root, p),
-            "terminal/output" when _options.ClientTerminal => TerminalOutput(p),
-            "terminal/wait_for_exit" when _options.ClientTerminal => await TerminalWaitForExit(p),
-            "terminal/kill" when _options.ClientTerminal => TerminalKill(p),
-            "terminal/release" when _options.ClientTerminal => TerminalRelease(p),
+            "fs/read_text_file" when _options.ClientFs => await ReadTextFile(root, @params),
+            "fs/write_text_file" when _options.ClientFs => await WriteTextFile(threadId, root, @params),
+            TerminalCreateMethod when _options.ClientTerminal => await TerminalCreate(threadId, root, @params),
+            "terminal/output" when _options.ClientTerminal => TerminalOutput(@params),
+            "terminal/wait_for_exit" when _options.ClientTerminal => await TerminalWaitForExit(@params),
+            "terminal/kill" when _options.ClientTerminal => TerminalKill(@params),
+            "terminal/release" when _options.ClientTerminal => TerminalRelease(@params),
             _ => throw new AcpException(AcpErrorCode.MethodNotFound, method,
                 $"Method '{method}' not supported by this client."),
         };
@@ -128,7 +131,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         return full;
     }
 
-    private Task<JsonElement> ReadTextFile(string root, JsonElement p)
+    private static Task<JsonElement> ReadTextFile(string root, JsonElement p)
     {
         var path = SandboxPath(root, Required(p, "path"));
         if (!File.Exists(path))
@@ -162,14 +165,14 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         var content = Required(p, "content");
 
         var outcome = IsHeadlessScope(threadId)
-            ? "allow"
+            ? DecisionAllow
             : await _permissionGate.RequestPermissionAsync(
                 threadId,
                 "fs/write_text_file",
                 $"{path} ({content.Length} chars)",
-                ["allow", "deny"]).ConfigureAwait(false);
+                [DecisionAllow, "deny"]).ConfigureAwait(false);
 
-        if (!string.Equals(outcome, "allow", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(outcome, DecisionAllow, StringComparison.OrdinalIgnoreCase))
         {
             throw new AcpException(AcpErrorCode.RequestCancelled, "fs/write_text_file", "write denied by user.");
         }
@@ -181,7 +184,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         return JsonSerializer.SerializeToElement(new { });
     }
 
-    private async Task<JsonElement> TerminalCreate(string threadId, string sessionId, string root, JsonElement p)
+    private async Task<JsonElement> TerminalCreate(string threadId, string root, JsonElement p)
     {
         var command = Required(p, "command");
         var args = p.TryGetProperty("args", out var a) && a.ValueKind == JsonValueKind.Array
@@ -193,48 +196,22 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         var byteLimit = OptInt(p, "outputByteLimit") ?? DefaultOutputByteLimit;
 
         var outcome = IsHeadlessScope(threadId)
-            ? "allow"
+            ? DecisionAllow
             : await _permissionGate.RequestPermissionAsync(
                 threadId,
-                "terminal/create",
+                TerminalCreateMethod,
                 $"{command} {string.Join(' ', args)} (cwd: {cwd})",
-                ["allow", "deny"]).ConfigureAwait(false);
+                [DecisionAllow, "deny"]).ConfigureAwait(false);
 
-        if (!string.Equals(outcome, "allow", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(outcome, DecisionAllow, StringComparison.OrdinalIgnoreCase))
         {
-            throw new AcpException(AcpErrorCode.RequestCancelled, "terminal/create", "command denied by user.");
+            throw new AcpException(AcpErrorCode.RequestCancelled, TerminalCreateMethod, "command denied by user.");
         }
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = command,
-            WorkingDirectory = cwd,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = false,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var arg in args)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
-
-        if (p.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var e in env.EnumerateArray())
-            {
-                var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
-                var value = e.TryGetProperty("value", out var v) ? v.GetString() : null;
-                if (name is not null)
-                {
-                    startInfo.Environment[name] = value;
-                }
-            }
-        }
+        var startInfo = BuildStartInfo(command, args, cwd, p);
 
         var process = Process.Start(startInfo)
-            ?? throw new AcpException(AcpErrorCode.Internal, "terminal/create", $"failed to start '{command}'.");
+            ?? throw new AcpException(AcpErrorCode.Internal, TerminalCreateMethod, $"failed to start '{command}'.");
 
         var entry = new TerminalEntry
         {
@@ -280,6 +257,40 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         _logger.LogInformation("ACP terminal/create: '{Command}' approved for thread {ThreadId} → {TerminalId}.",
             command, threadId, entry.TerminalId);
         return JsonSerializer.SerializeToElement(new { terminalId = entry.TerminalId });
+    }
+
+    private static ProcessStartInfo BuildStartInfo(
+        string command, string[] args, string cwd, JsonElement p)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = command,
+            WorkingDirectory = cwd,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = false,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        if (p.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in env.EnumerateArray())
+            {
+                var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var value = e.TryGetProperty("value", out var v) ? v.GetString() : null;
+                if (name is not null)
+                {
+                    startInfo.Environment[name] = value;
+                }
+            }
+        }
+
+        return startInfo;
     }
 
     private JsonElement TerminalOutput(JsonElement p)

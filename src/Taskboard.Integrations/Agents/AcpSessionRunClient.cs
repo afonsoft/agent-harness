@@ -33,56 +33,9 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
     {
         var key = $"run:{request.IssueId}:{Guid.NewGuid():N}";
         var stopwatch = Stopwatch.StartNew();
-        var turnDone = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        TokenUsage? latestUsage = null;
+        var listener = new TurnListener(_sessions, key, request, progress);
 
-        void OnEvent(AgentSessionEvent e)
-        {
-            progress?.Report(new AgentLogMessage(
-                e.Timestamp,
-                request.IssueId,
-                e.Kind == "error" ? AgentLogStream.StdErr : AgentLogStream.System,
-                e.Content ?? e.PayloadJson ?? string.Empty,
-                e.Kind,
-                e.PayloadJson));
-
-            switch (e.Kind)
-            {
-                case "permission":
-                    // Headless run: auto-allow — the args-mode path already runs
-                    // every CLI with bypass flags; here we keep the audit trail.
-                    var requestId = ExtractRequestId(e.PayloadJson);
-                    if (requestId is not null)
-                    {
-                        _ = _sessions.ReplyPermissionAsync(key, requestId, "allow", CancellationToken.None);
-                    }
-                    break;
-                case AgentEventKinds.Metric:
-                    // ACP usage_update carries { used, size, cost? } — context
-                    // window consumption. Best-effort map onto TokenUsage so
-                    // AgentExecutionResult.Usage is populated like args-mode.
-                    if (ExtractUsage(e.PayloadJson) is { } usage)
-                    {
-                        latestUsage = usage;
-                    }
-                    break;
-                case "session" when e.Content == "Prompt turn completed":
-                    turnDone.TrySetResult(ExtractStopReason(e.PayloadJson));
-                    break;
-                case "lifecycle" when e.PayloadJson?.Contains("\"dead\"") == true:
-                    turnDone.TrySetException(new AcpException(AcpErrorCode.ProcessDied, "run", "agent process exited"));
-                    break;
-                case "error":
-                    if (e.Content?.Contains("handshake", StringComparison.OrdinalIgnoreCase) == true
-                        || e.Content?.Contains("session/new", StringComparison.OrdinalIgnoreCase) == true)
-                    {
-                        turnDone.TrySetException(new AcpException(AcpErrorCode.Internal, "run", e.Content));
-                    }
-                    break;
-            }
-        }
-
-        _sessions.RegisterEventListener(key, OnEvent);
+        _sessions.RegisterEventListener(key, listener.OnEvent);
         try
         {
             var started = await _sessions.StartSessionAsync(
@@ -114,16 +67,16 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
                 _ = _sessions.CancelAsync(key, CancellationToken.None);
                 // The run is over from our side whether or not the agent still
                 // answers the pending prompt — complete so the caller unwinds.
-                turnDone.TrySetResult("cancelled");
+                listener.CompleteCancelled();
             });
 
-            var stopReason = await turnDone.Task.ConfigureAwait(false);
+            var stopReason = await listener.TurnDone.ConfigureAwait(false);
             await _sessions.StopSessionAsync(key, cancellationToken).ConfigureAwait(false);
 
             return new AgentExecutionResult(
                 stopReason is "cancelled" ? 130 : 0,
                 stopReason is not "cancelled",
-                Usage: latestUsage,
+                Usage: listener.LatestUsage,
                 Duration: stopwatch.Elapsed,
                 ModelUsed: request.ResolvedModelName);
         }
@@ -140,6 +93,86 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
         finally
         {
             _sessions.UnregisterEventListener(key);
+        }
+    }
+
+    // Tracks a single prompt turn: forwards events to the progress log and
+    // completes TurnDone when the turn ends, the process dies, or the run is
+    // cancelled.
+    private sealed class TurnListener(
+        AcpSessionClient sessions,
+        string key,
+        AgentExecutionRequest request,
+        IProgress<AgentLogMessage>? progress)
+    {
+        private readonly TaskCompletionSource<string?> _turnDone =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TokenUsage? LatestUsage { get; private set; }
+
+        public Task<string?> TurnDone => _turnDone.Task;
+
+        public void CompleteCancelled() => _turnDone.TrySetResult("cancelled");
+
+        public void OnEvent(AgentSessionEvent e)
+        {
+            progress?.Report(new AgentLogMessage(
+                e.Timestamp,
+                request.IssueId,
+                e.Kind == "error" ? AgentLogStream.StdErr : AgentLogStream.System,
+                e.Content ?? e.PayloadJson ?? string.Empty,
+                e.Kind,
+                e.PayloadJson));
+
+            switch (e.Kind)
+            {
+                case "permission":
+                    HandlePermission(e);
+                    break;
+                case AgentEventKinds.Metric:
+                    HandleMetric(e);
+                    break;
+                case "session" when e.Content == "Prompt turn completed":
+                    _turnDone.TrySetResult(ExtractStopReason(e.PayloadJson));
+                    break;
+                case "lifecycle" when e.PayloadJson?.Contains("\"dead\"") == true:
+                    _turnDone.TrySetException(new AcpException(AcpErrorCode.ProcessDied, "run", "agent process exited"));
+                    break;
+                case "error":
+                    HandleError(e);
+                    break;
+            }
+        }
+
+        private void HandlePermission(AgentSessionEvent ev)
+        {
+            // Headless run: auto-allow — the args-mode path already runs
+            // every CLI with bypass flags; here we keep the audit trail.
+            var requestId = ExtractRequestId(ev.PayloadJson);
+            if (requestId is not null)
+            {
+                _ = sessions.ReplyPermissionAsync(key, requestId, "allow", CancellationToken.None);
+            }
+        }
+
+        private void HandleMetric(AgentSessionEvent ev)
+        {
+            // ACP usage_update carries { used, size, cost? } — context
+            // window consumption. Best-effort map onto TokenUsage so
+            // AgentExecutionResult.Usage is populated like args-mode.
+            if (ExtractUsage(ev.PayloadJson) is { } usage)
+            {
+                LatestUsage = usage;
+            }
+        }
+
+        private void HandleError(AgentSessionEvent ev)
+        {
+            if (ev.Content?.Contains("handshake", StringComparison.OrdinalIgnoreCase) == true
+                || ev.Content?.Contains("session/new", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _turnDone.TrySetException(new AcpException(AcpErrorCode.Internal, "run", ev.Content));
+            }
         }
     }
 

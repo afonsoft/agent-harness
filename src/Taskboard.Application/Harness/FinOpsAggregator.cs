@@ -67,11 +67,19 @@ public sealed class FinOpsAggregator
             // SPEC-20260922 RF-007: CLI sessions whose model only matches the
             // "*" wildcard have no real price coverage — fall back to the flat
             // $9.5/1M rate; the cost is flagged as estimated downstream.
-            var cost = usage.TotalTokens == 0
-                ? 0m
-                : TokenCostCalculator.ResolveSpecific(rates, model) is not null
-                    ? TokenCostCalculator.Calculate(rates, model, usage)
-                    : usage.TotalTokens * FinOpsPricing.FallbackUsdPerMTok / 1_000_000m;
+            decimal cost;
+            if (usage.TotalTokens == 0)
+            {
+                cost = 0m;
+            }
+            else if (TokenCostCalculator.ResolveSpecific(rates, model) is not null)
+            {
+                cost = TokenCostCalculator.Calculate(rates, model, usage);
+            }
+            else
+            {
+                cost = usage.TotalTokens * FinOpsPricing.FallbackUsdPerMTok / 1_000_000m;
+            }
             session.SetCost(cost);
         }
 

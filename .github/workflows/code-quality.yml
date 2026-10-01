@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -53,20 +53,20 @@ jobs:
 
       - name: Setup .NET (global.json)
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           global-json-file: global.json
 
       - name: Setup Java
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
         with:
           java-version: '17'
           distribution: 'zulu'
 
       - name: Cache NuGet packages
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj', 'global.json') }}
@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache SonarCloud packages
         if: steps.sonar.outputs.enabled == 'true'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.sonar/cache
           key: sonar-${{ runner.os }}
@@ -103,7 +103,8 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml"
           /d:sonar.cs.vstest.reportsPaths="TestResults/**/*.trx"
           /d:sonar.coverage.exclusions="tests/**,**/Migrations/**,**/*.razor,**/wwwroot/**"
-          /d:sonar.exclusions="**/wwwroot/**,**/Migrations/**,**/bin/**,**/obj/**"
+          /d:sonar.exclusions="**/wwwroot/**,**/Migrations/**,**/bin/**,**/obj/**,docs/**"
+          /d:sonar.cpd.exclusions="docs/**"
 
       - name: Build
         if: steps.sonar.outputs.enabled == 'true'

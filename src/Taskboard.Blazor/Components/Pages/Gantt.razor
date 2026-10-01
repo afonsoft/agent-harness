@@ -221,7 +221,7 @@ else
     private string GetBarStyle(IssueTimelineDto issue) =>
         $"left: {Percent(GetBarLeft(issue))}%; width: {Percent(GetBarWidth(issue))}%";
 
-    private string GetBarClass(IssueTimelineDto issue)
+    private static string GetBarClass(IssueTimelineDto issue)
     {
         var open = issue.ClosedAt is null ? " gantt-bar-open" : string.Empty;
         return $"gantt-col-{issue.Column.ToLowerInvariant()}{open}";

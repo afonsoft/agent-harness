@@ -10,6 +10,8 @@ namespace Taskboard.Integrations.Agents;
 /// </summary>
 public sealed class AcpV1Dialect : IAcpDialect
 {
+    private const string SessionUpdateMethod = "session/update";
+
     public int ProtocolVersion => 1;
 
     public string AuthenticateMethod => "authenticate";
@@ -72,25 +74,25 @@ public sealed class AcpV1Dialect : IAcpDialect
     public bool SupportsMcpTransport(AcpPeerInfo peer, string transport) =>
         !string.Equals(transport, "http", StringComparison.OrdinalIgnoreCase) || peer.McpHttp;
 
-    public AcpProtocolParser.Parsed ParseSessionUpdate(JsonElement p, string? requestId)
+    public AcpProtocolParser.Parsed ParseSessionUpdate(JsonElement updateParams, string? requestId)
     {
-        var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
+        var sessionId = updateParams.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
 
-        if (!p.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
+        if (!updateParams.TryGetProperty("update", out var update) || update.ValueKind != JsonValueKind.Object)
         {
             // Legacy shape: session/update with direct params.kind/content.
-            if (p.TryGetProperty("kind", out var legacyKind))
+            if (updateParams.TryGetProperty("kind", out var legacyKind))
             {
                 return new AcpProtocolParser.Parsed(
-                    AcpProtocolParser.MessageType.Notification, "session/update",
+                    AcpProtocolParser.MessageType.Notification, SessionUpdateMethod,
                     legacyKind.GetString() ?? "message",
-                    p.TryGetProperty("content", out var lc) ? lc.GetString() : null,
-                    p.GetRawText(), sessionId, RequestId: requestId);
+                    updateParams.TryGetProperty("content", out var lc) ? lc.GetString() : null,
+                    updateParams.GetRawText(), sessionId, RequestId: requestId);
             }
 
             return new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", "activity", null,
-                p.GetRawText(), SessionId: sessionId, RequestId: requestId);
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, "activity", null,
+                updateParams.GetRawText(), SessionId: sessionId, RequestId: requestId);
         }
 
         var updateKind = update.TryGetProperty("sessionUpdate", out var su)
@@ -103,38 +105,38 @@ public sealed class AcpV1Dialect : IAcpDialect
         return updateKind switch
         {
             "agent_message_chunk" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Message,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Message,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId),
             "agent_thought_chunk" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Thought,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Thought,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId),
             // RF-007: replayed user messages (session/load) and agent-advertised
             // slash commands / mode / config / session metadata all get their
             // own normalized kinds instead of falling into generic activity.
             "user_message_chunk" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Message,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Message,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId),
             "available_commands_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Commands,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Commands,
                 null, payload, sessionId, RequestId: requestId),
             "current_mode_update" or "config_option_update" or "session_info_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.SessionInfo,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.SessionInfo,
                 null, payload, sessionId, RequestId: requestId),
             "tool_call" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.ToolCall,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.ToolCall,
                 update.TryGetProperty("title", out var t) ? t.GetString() : null,
                 payload, sessionId, toolCallId, requestId),
             "tool_call_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.ToolOutput,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.ToolOutput,
                 null, payload, sessionId, toolCallId, requestId),
             "plan" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Plan,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Plan,
                 null, payload, sessionId, RequestId: requestId),
             "usage_update" => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Metric,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Metric,
                 null, payload, sessionId, RequestId: requestId),
             _ => new AcpProtocolParser.Parsed(
-                AcpProtocolParser.MessageType.Notification, "session/update", AgentEventKinds.Activity,
+                AcpProtocolParser.MessageType.Notification, SessionUpdateMethod, AgentEventKinds.Activity,
                 AcpProtocolParser.ExtractText(update), payload, sessionId, RequestId: requestId)
         };
     }
@@ -144,26 +146,50 @@ public sealed class AcpV1Dialect : IAcpDialect
         // Shape real ACP: params { sessionId, toolCall: {...}, options: [{optionId, name, kind}] }
         // Legacy shape: params { requestId, tool, detail, options: ["allow","deny"] }
         var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
-        var tool = string.Empty;
-        var detail = string.Empty;
-        var options = new List<string>();
+        var (tool, detail) = ExtractToolDetail(p);
+        var options = ExtractOptionIds(p);
+        var effectiveRequestId = ResolveRequestId(p, requestId, isRequest);
 
+        var payload = JsonSerializer.Serialize(new
+        {
+            requestId = effectiveRequestId,
+            tool,
+            detail,
+            options
+        });
+
+        return new AcpProtocolParser.Parsed(
+            isRequest ? AcpProtocolParser.MessageType.Request : AcpProtocolParser.MessageType.Notification,
+            "session/request_permission",
+            AgentEventKinds.Permission,
+            detail,
+            payload,
+            sessionId,
+            RequestId: requestId);
+    }
+
+    private static (string Tool, string Detail) ExtractToolDetail(JsonElement p)
+    {
         if (p.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == JsonValueKind.Object)
         {
-            tool = toolCall.TryGetProperty("title", out var tt) ? tt.GetString() ?? string.Empty : string.Empty;
+            var tool = toolCall.TryGetProperty("title", out var tt) ? tt.GetString() ?? string.Empty : string.Empty;
             if (string.IsNullOrEmpty(tool))
             {
                 tool = toolCall.TryGetProperty("kind", out var tk) ? tk.GetString() ?? string.Empty : string.Empty;
             }
 
-            detail = toolCall.TryGetProperty("rawInput", out var ri) ? ri.GetRawText() : tool;
-        }
-        else
-        {
-            tool = p.TryGetProperty("tool", out var t) ? t.GetString() ?? string.Empty : string.Empty;
-            detail = p.TryGetProperty("detail", out var d) ? d.GetString() ?? string.Empty : string.Empty;
+            var detail = toolCall.TryGetProperty("rawInput", out var ri) ? ri.GetRawText() : tool;
+            return (tool, detail);
         }
 
+        return (
+            p.TryGetProperty("tool", out var t) ? t.GetString() ?? string.Empty : string.Empty,
+            p.TryGetProperty("detail", out var d) ? d.GetString() ?? string.Empty : string.Empty);
+    }
+
+    private static List<string> ExtractOptionIds(JsonElement p)
+    {
+        var options = new List<string>();
         if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
         {
             foreach (var opt in opts.EnumerateArray())
@@ -186,28 +212,21 @@ public sealed class AcpV1Dialect : IAcpDialect
             options.AddRange(["allow", "deny"]);
         }
 
-        // In real ACP the JSON-RPC request id is the reply correlation;
-        // in the legacy shape, params.requestId.
-        var effectiveRequestId = isRequest
-            ? requestId ?? Guid.NewGuid().ToString("N")
-            : p.TryGetProperty("requestId", out var rid) ? rid.GetString() ?? string.Empty : string.Empty;
+        return options;
+    }
 
-        var payload = JsonSerializer.Serialize(new
+    // In real ACP the JSON-RPC request id is the reply correlation;
+    // in the legacy shape, params.requestId.
+    private static string ResolveRequestId(JsonElement p, string? requestId, bool isRequest)
+    {
+        if (isRequest)
         {
-            requestId = effectiveRequestId,
-            tool,
-            detail,
-            options
-        });
+            return requestId ?? Guid.NewGuid().ToString("N");
+        }
 
-        return new AcpProtocolParser.Parsed(
-            isRequest ? AcpProtocolParser.MessageType.Request : AcpProtocolParser.MessageType.Notification,
-            "session/request_permission",
-            AgentEventKinds.Permission,
-            detail,
-            payload,
-            sessionId,
-            RequestId: requestId);
+        return p.TryGetProperty("requestId", out var rid)
+            ? rid.GetString() ?? string.Empty
+            : string.Empty;
     }
 
     public ITurnTracker CreateTurnTracker() => new AcpV1TurnTracker();

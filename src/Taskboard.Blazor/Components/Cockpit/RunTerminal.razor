@@ -95,20 +95,7 @@
     {
         if (firstRender)
         {
-            try
-            {
-                _initialized = await JS.InvokeAsync<bool>("taskboardTerminal.initReadOnly", _elementId);
-                _initFailed = !_initialized;
-                if (_initialized)
-                {
-                    await JS.InvokeVoidAsync("taskboardTerminal.watchScroll", _elementId, _pillId);
-                }
-            }
-            catch
-            {
-                _initFailed = true;
-            }
-
+            await InitializeTerminalAsync();
             if (_initFailed)
             {
                 StateHasChanged();
@@ -121,6 +108,28 @@
             return;
         }
 
+        await WritePendingEventsAsync();
+    }
+
+    private async Task InitializeTerminalAsync()
+    {
+        try
+        {
+            _initialized = await JS.InvokeAsync<bool>("taskboardTerminal.initReadOnly", _elementId);
+            _initFailed = !_initialized;
+            if (_initialized)
+            {
+                await JS.InvokeVoidAsync("taskboardTerminal.watchScroll", _elementId, _pillId);
+            }
+        }
+        catch
+        {
+            _initFailed = true;
+        }
+    }
+
+    private async Task WritePendingEventsAsync()
+    {
         foreach (var evt in Events.Where(Matches).OrderBy(e => e.TimestampUtc))
         {
             var key = $"{evt.TimestampUtc:O}|{evt.Title}|{evt.PayloadJson}";

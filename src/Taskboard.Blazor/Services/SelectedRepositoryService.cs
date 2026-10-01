@@ -136,7 +136,7 @@ public sealed class SelectedRepositoryService
             return;
         }
 
-        foreach (Func<Task> handler in handlers.GetInvocationList())
+        foreach (var handler in handlers.GetInvocationList().Cast<Func<Task>>())
         {
             await handler().ConfigureAwait(false);
         }

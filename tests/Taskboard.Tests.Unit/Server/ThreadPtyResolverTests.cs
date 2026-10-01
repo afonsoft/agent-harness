@@ -70,7 +70,7 @@ public class ThreadPtyResolverTests
             threadRepo,
             Substitute.For<IRepository<AiChatRun>>(),
             Substitute.For<IRepository<AiChatEvent>>(),
-            Substitute.For<ILLMProvider>(),
+            Substitute.For<ILlmProvider>(),
             Substitute.For<IThreadEventStreamService>(),
             Substitute.For<IServiceScopeFactory>(),
             eligibility,

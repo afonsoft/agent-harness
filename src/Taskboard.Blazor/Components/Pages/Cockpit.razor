@@ -266,7 +266,7 @@ else if (_runs is not null)
     private readonly RunStartForm _start = new();
     private readonly Dictionary<string, StageOption> _stageOptions = new(StringComparer.Ordinal);
     private bool _optionsOpen;
-    private CancellationTokenSource _cts = new();
+    private readonly CancellationTokenSource _cts = new();
     private HubConnection? _hub;
     private CancellationTokenSource _rowRefreshCts = new();
 
@@ -359,6 +359,7 @@ else if (_runs is not null)
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         var token = _rowRefreshCts.Token;
@@ -392,6 +393,7 @@ else if (_runs is not null)
             }
             catch (OperationCanceledException)
             {
+                // Cancellation is the expected shutdown path — nothing to clean up.
             }
             catch (Exception ex) when (ex is not JSDisconnectedException)
             {
@@ -603,10 +605,17 @@ else if (_runs is not null)
         }
     }
 
-    private StageOption StageOptionFor(string stageKey) =>
-        _stageOptions.TryGetValue(stageKey, out var option)
-            ? option
-            : _stageOptions[stageKey] = new StageOption();
+    private StageOption StageOptionFor(string stageKey)
+    {
+        if (_stageOptions.TryGetValue(stageKey, out var option))
+        {
+            return option;
+        }
+
+        var created = new StageOption();
+        _stageOptions[stageKey] = created;
+        return created;
+    }
 
     private IReadOnlyDictionary<string, PipelineStageOverrideDto>? BuildStageOverrides()
     {
@@ -657,6 +666,7 @@ else if (_runs is not null)
         }
         catch (ObjectDisposedException)
         {
+            // Already disposed — nothing to do.
         }
 
         if (_hub is not null)

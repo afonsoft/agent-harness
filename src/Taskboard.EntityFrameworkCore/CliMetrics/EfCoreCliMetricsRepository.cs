@@ -5,6 +5,7 @@ using Taskboard.CliMetrics;
 using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore.Data;
+using System.Globalization;
 
 namespace Taskboard.EntityFrameworkCore.CliMetrics;
 
@@ -137,60 +138,67 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
     {
         foreach (var day in days)
         {
-            if (!DateTime.TryParse(day, out var dayStart))
-            {
-                continue;
-            }
-
-            var start = DateTime.SpecifyKind(dayStart.Date, DateTimeKind.Utc);
-            var end = start.AddDays(1);
-            var sessions = await _context.CliSessionMetrics
-                .Where(s => s.Kind == kind && s.StartedAtUtc >= start && s.StartedAtUtc < end)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            var aggregate = await _context.CliDailyUsageAggregates
-                .FirstOrDefaultAsync(a => a.Kind == kind && a.Day == day, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (sessions.Count == 0)
-            {
-                if (aggregate is not null)
-                {
-                    _context.CliDailyUsageAggregates.Remove(aggregate);
-                }
-                continue;
-            }
-
-            // Recompute idempotently — survives re-ingestion and updates.
-            if (aggregate is null)
-            {
-                aggregate = _context.CliDailyUsageAggregates
-                    .Add(CliDailyUsageAggregate.Register(kind, day, now)).Entity;
-            }
-            else
-            {
-                aggregate.Reset(now);
-            }
-
-            var groups = sessions
-                .GroupBy(s => s.ModelName ?? string.Empty)
-                .Select(g => (Model: g.Key, Sessions: g.Count(), Messages: g.Sum(s => s.MessageCount ?? 0),
-                    In: g.Sum(s => s.TokensInput ?? 0), Out: g.Sum(s => s.TokensOutput ?? 0),
-                    Cached: g.Sum(s => s.TokensCached ?? 0)));
-
-            foreach (var g in groups)
-            {
-                aggregate.Add(g.Sessions, g.Messages, g.In, g.Out, g.Cached,
-                    g.Model.Length > 0 ? g.Model : null, now);
-            }
-
-            // SPEC-20260922 RF-006: the bucket is estimated only when every
-            // contributing session carries estimated (not vendor) tokens.
-            aggregate.SetTokensEstimated(sessions.All(s => s.TokensEstimated), now);
+            await RecomputeDayAsync(kind, day, now, cancellationToken).ConfigureAwait(false);
         }
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RecomputeDayAsync(
+        AgentCliKind kind, string day, DateTime now, CancellationToken cancellationToken)
+    {
+        if (!DateTime.TryParse(day, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var dayStart))
+        {
+            return;
+        }
+
+        var start = DateTime.SpecifyKind(dayStart.Date, DateTimeKind.Utc);
+        var end = start.AddDays(1);
+        var sessions = await _context.CliSessionMetrics
+            .Where(s => s.Kind == kind && s.StartedAtUtc >= start && s.StartedAtUtc < end)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var aggregate = await _context.CliDailyUsageAggregates
+            .FirstOrDefaultAsync(a => a.Kind == kind && a.Day == day, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (sessions.Count == 0)
+        {
+            if (aggregate is not null)
+            {
+                _context.CliDailyUsageAggregates.Remove(aggregate);
+            }
+
+            return;
+        }
+
+        // Recompute idempotently — survives re-ingestion and updates.
+        if (aggregate is null)
+        {
+            aggregate = _context.CliDailyUsageAggregates
+                .Add(CliDailyUsageAggregate.Register(kind, day, now)).Entity;
+        }
+        else
+        {
+            aggregate.Reset(now);
+        }
+
+        var groups = sessions
+            .GroupBy(s => s.ModelName ?? string.Empty)
+            .Select(g => (Model: g.Key, Sessions: g.Count(), Messages: g.Sum(s => s.MessageCount ?? 0),
+                In: g.Sum(s => s.TokensInput ?? 0), Out: g.Sum(s => s.TokensOutput ?? 0),
+                Cached: g.Sum(s => s.TokensCached ?? 0)));
+
+        foreach (var g in groups)
+        {
+            aggregate.Add(g.Sessions, g.Messages, g.In, g.Out, g.Cached,
+                g.Model.Length > 0 ? g.Model : null, now);
+        }
+
+        // SPEC-20260922 RF-006: the bucket is estimated only when every
+        // contributing session carries estimated (not vendor) tokens.
+        aggregate.SetTokensEstimated(sessions.All(s => s.TokensEstimated), now);
     }
 
     public async Task<IReadOnlyList<CliMetricSourceDto>> ListSourcesAsync(CancellationToken cancellationToken = default)
@@ -230,8 +238,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
 
         static CliMetricsTotalsDto Totals(IReadOnlyCollection<UsageRow> xs) => new(
             xs.Count,
-            xs.Sum(x => (long)(x.MessageCount ?? 0)),
-            xs.Sum(x => (long)((x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0))),
+            xs.Sum(x => x.MessageCount ?? 0L),
+            xs.Sum(x => (x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0)),
             xs.Count > 0 ? xs.Max(x => x.StartedAtUtc) : null);
 
         var totals = Totals(rows);
@@ -242,8 +250,8 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
             .GroupBy(r => r.StartedAtUtc.ToString("yyyy-MM-dd"))
             .OrderBy(g => g.Key)
             .Select(g => new CliDayUsageDto(g.Key, g.Count(),
-                g.Sum(x => (long)(x.MessageCount ?? 0)),
-                g.Sum(x => (long)((x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0)))))
+                g.Sum(x => x.MessageCount ?? 0L),
+                g.Sum(x => (x.TokensInput ?? 0) + (x.TokensOutput ?? 0) + (x.TokensCached ?? 0))))
             .ToList();
 
         return new CliMetricsSummaryDto(period ?? "30d", totals, byKind, byDay);

@@ -58,15 +58,15 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
         return Task.FromResult<IReadOnlyList<SkillDto>>(skills.AsReadOnly());
     }
 
-    public Task<SkillDetailDto?> GetDetailAsync(string sourceName, string name, CancellationToken cancellationToken = default)
+    public Task<SkillDetailDto?> GetDetailAsync(string source, string name, CancellationToken cancellationToken = default)
     {
-        var match = FindSkill(sourceName, name);
+        var match = FindSkill(source, name);
         if (match is null)
         {
             return Task.FromResult<SkillDetailDto?>(null);
         }
 
-        var (source, directory, frontmatter) = match.Value;
+        var (skill, directory, frontmatter) = match.Value;
         var skillFile = Path.Join(directory, "SKILL.md");
         var content = File.ReadAllText(skillFile);
         var (references, scripts) = ExtractSections(content);
@@ -74,7 +74,7 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
         return Task.FromResult<SkillDetailDto?>(new SkillDetailDto(
             frontmatter.Name,
             frontmatter.Description,
-            source.Source,
+            skill.Source,
             directory,
             frontmatter.Tools,
             references,
@@ -83,9 +83,9 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
             ListFiles(directory)));
     }
 
-    public Task<SkillFileResult> GetFileAsync(string sourceName, string name, string relativePath, CancellationToken cancellationToken = default)
+    public Task<SkillFileResult> GetFileAsync(string source, string name, string relativePath, CancellationToken cancellationToken = default)
     {
-        var match = FindSkill(sourceName, name);
+        var match = FindSkill(source, name);
         if (match is null)
         {
             return Task.FromResult(SkillFileResult.Fail(SkillFileError.NotFound));
@@ -185,7 +185,7 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
     }
 
     private static bool HasHiddenSegment(string relativePath) =>
-        relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+        relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
             .Any(segment => segment.StartsWith('.'));
 
     private static bool TryResolveInsideRoot(string root, string relativePath, out FileInfo file)
@@ -200,13 +200,19 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
 
         // Resolve every path segment: a symlinked file OR directory escaping the root is rejected.
         var resolved = root;
-        foreach (var segment in relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+        foreach (var segment in relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]))
         {
             var candidate = Path.Join(resolved, segment);
             var target = new FileInfo(candidate).LinkTarget ?? new DirectoryInfo(candidate).LinkTarget;
-            resolved = target is null
-                ? candidate
-                : Path.GetFullPath(Path.IsPathRooted(target) ? target : Path.Join(resolved, target));
+            if (target is null)
+            {
+                resolved = candidate;
+            }
+            else
+            {
+                var effective = Path.IsPathRooted(target) ? target : Path.Join(resolved, target);
+                resolved = Path.GetFullPath(effective);
+            }
 
             if (!resolved.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             {

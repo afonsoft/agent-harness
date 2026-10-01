@@ -408,7 +408,12 @@ else
                 @if (Usage is { } usage)
                 {
                     var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
-                    var meterClass = percent >= 95 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-success";
+                    var meterClass = percent switch
+    {
+        >= 95 => "bg-danger",
+        >= 80 => "bg-warning",
+        _ => "bg-success",
+    };
                     <div class="d-flex align-items-center gap-2 ms-auto" title="@UsageTooltip(usage)">
                         <div class="progress ai-chat-meter" role="progressbar">
                             <div class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></div>
@@ -506,12 +511,12 @@ else
                 <label class="form-label" for="cmdbar-model">Model</label>
                 <select id="cmdbar-model" class="form-select" @bind="_cfgModelId">
                     <option value="">@(_cfgModelTier.Length == 0 ? "CLI default" : "Tier default")</option>
-                    @foreach (var model in ConfigAgentModels)
+                    @foreach (var model in ConfigAgentModels())
                     {
                         <option value="@model.Name">@ModelOptionLabel(model)</option>
                     }
                 </select>
-                @if (ConfigAgentModels.Count == 0)
+                @if (ConfigAgentModels().Count == 0)
                 {
                     <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
                 }
@@ -571,7 +576,7 @@ else
     private Modal _sandboxModal = default!;
     private Modal _runAgentModal = default!;
     private DotNetObjectReference<AiChat>? _dotNetRef;
-    private CancellationTokenSource _disposeCts = new();
+    private readonly CancellationTokenSource _disposeCts = new();
 
     // RF-006: unlocked command-bar configuration — survives "New conversation"
     // so the next thread starts from the last-used selections.
@@ -636,7 +641,7 @@ else
         : _cfgModelTier.Length > 0 ? _cfgModelTier
         : "model";
 
-    private IReadOnlyList<AiChatModelDto> ConfigAgentModels =>
+    private IReadOnlyList<AiChatModelDto> ConfigAgentModels() =>
         _catalog.Where(m => string.Equals(
             m.AgentType, SelectedCli?.AgentType?.ToString(), StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -673,34 +678,48 @@ else
         var container = _dockerContainers?.FirstOrDefault(c => c.Name == _cfgContext);
         if (container is not null)
         {
-            foreach (var bin in container.AvailableClis)
-            {
-                AgentType? type = null;
-                string? display = null;
-                foreach (var kv in AgentCliMap.All)
-                {
-                    if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
-                    {
-                        type = AgentCliMap.AgentTypeFor(kv.Key);
-                        display = kv.Value.DisplayName;
-                        break;
-                    }
-                }
-
-                type ??= bin == "openhands" ? AgentType.OpenHands : null;
-                if (type is null || !covered.Add(type.Value))
-                {
-                    continue;
-                }
-
-                options.Add(new CliOption(
-                    $"agent:{type.Value}", display ?? bin, type.Value, null,
-                    SupportsChat: AgentCliMap.SupportsAcp(type.Value), Selectable: true));
-            }
+            AddContainerOptions(options, covered, container);
         }
         else
         {
+            AddHostOptions(options, covered);
+        }
 
+        AddCustomDefOptions(options);
+        _cliOptions = options;
+    }
+
+    private void AddContainerOptions(List<CliOption> options, HashSet<AgentType> covered, DockerContainerDto container)
+    {
+        foreach (var bin in container.AvailableClis)
+        {
+            var (type, display) = ResolveContainerBinary(bin);
+            if (type is null || !covered.Add(type.Value))
+            {
+                continue;
+            }
+
+            options.Add(new CliOption(
+                $"agent:{type.Value}", display ?? bin, type.Value, null,
+                SupportsChat: AgentCliMap.SupportsAcp(type.Value), Selectable: true));
+        }
+    }
+
+    private static (AgentType? Type, string? Display) ResolveContainerBinary(string bin)
+    {
+        foreach (var kv in AgentCliMap.AllSpecs())
+        {
+            if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
+            {
+                return (AgentCliMap.AgentTypeFor(kv.Key), kv.Value.DisplayName);
+            }
+        }
+
+        return (bin == "openhands" ? AgentType.OpenHands : null, null);
+    }
+
+    private void AddHostOptions(List<CliOption> options, HashSet<AgentType> covered)
+    {
         foreach (var agent in _agents ?? [])
         {
             if (agent.Status != AgentStatus.Available || !covered.Add(agent.Type))
@@ -728,8 +747,10 @@ else
                 $"agent:{type}", status.DisplayName, type, null,
                 SupportsChat: false, Selectable: true));
         }
-        }
+    }
 
+    private void AddCustomDefOptions(List<CliOption> options)
+    {
         foreach (var def in _customDefs.Where(d => d.Enabled))
         {
             var label = def.Resolved ? def.DisplayName : $"{def.DisplayName} (not on PATH)";
@@ -740,8 +761,6 @@ else
                 SupportsChat: false,
                 Selectable: def.Resolved));
         }
-
-        _cliOptions = options;
     }
 
     /// <summary>Display name for the CLI backing a thread (builtin type or custom def).</summary>
@@ -797,6 +816,7 @@ else
     {
         get
         {
+            var groups = new List<(string Role, string Text)>();
             string? role = null;
             var buffer = new System.Text.StringBuilder();
             foreach (var ev in _events)
@@ -804,27 +824,31 @@ else
                 var normalized = ev.Role is "user" or "assistant" ? ev.Role : null;
                 if (normalized is null)
                 {
-                    if (role is not null)
-                    {
-                        yield return (role, buffer.ToString());
-                        buffer.Clear();
-                        role = null;
-                    }
-                    yield return (ev.Role, ev.Content);
+                    Flush();
+                    groups.Add((ev.Role, ev.Content));
                     continue;
                 }
 
                 if (role is not null && normalized != role)
                 {
-                    yield return (role, buffer.ToString());
-                    buffer.Clear();
+                    Flush();
                 }
+
                 role = normalized;
                 buffer.Append(normalized == "assistant" ? ev.Content : ev.Content + "\n");
             }
-            if (role is not null)
+
+            Flush();
+            return groups;
+
+            void Flush()
             {
-                yield return (role, buffer.ToString());
+                if (role is not null)
+                {
+                    groups.Add((role, buffer.ToString()));
+                    buffer.Clear();
+                    role = null;
+                }
             }
         }
     }
@@ -1056,6 +1080,14 @@ else
 
     private async Task SelectThreadAsync(AiChatThreadDto thread)
     {
+        ResetThreadState(thread);
+        await SyncBarDefaultsAsync(thread);
+        await ConnectThreadSseAsync(thread);
+        await LoadAgentScopeAsync(thread);
+    }
+
+    private void ResetThreadState(AiChatThreadDto thread)
+    {
         _activeThread = thread;
         _activeThreadId = thread.Id;
         _events.Clear();
@@ -1069,7 +1101,10 @@ else
         _running = thread.Status == "running";
         _sseError = false;
         _scrollPending = true;
+    }
 
+    private async Task SyncBarDefaultsAsync(AiChatThreadDto thread)
+    {
         // Keep the bar defaults in sync so "New" starts from this config.
         _cfgMode = thread.Mode;
         var cliOption = !string.IsNullOrWhiteSpace(thread.AgentCliId)
@@ -1086,13 +1121,17 @@ else
             }
             catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
             {
+                // Best-effort — failure here is non-fatal.
             }
         }
+
         _cfgRepo = thread.RepositoryFullName ?? string.Empty;
         _cfgModelTier = thread.ModelTier ?? string.Empty;
         _cfgModelId = string.Empty;
         _cfgSandbox = thread.Sandbox;
+    }
 
+    private async Task ConnectThreadSseAsync(AiChatThreadDto thread) =>
         await JS.InvokeVoidAsync(
             "taskboardSse.connect",
             "ai-chat",
@@ -1100,20 +1139,24 @@ else
             _dotNetRef,
             new[] { "ai_chat.event", "ai_chat.run", "ai_chat.session", "ai_chat.permission" });
 
+    private async Task LoadAgentScopeAsync(AiChatThreadDto thread)
+    {
         // RF-005: quick-switch controls appear only when the peer advertised
         // model configOptions / modes in the negotiated session info.
-        if (thread.Mode == "agent")
+        if (thread.Mode != "agent")
         {
-            try
-            {
-                var state = await Client.GetAgentScopeStateAsync("thread", thread.Id);
-                ParseSessionInfo(state?.SessionInfoJson);
-                _running = state?.State == "running" || _running;
-            }
-            catch (Exception)
-            {
-                // Controls are optional — session info may be absent.
-            }
+            return;
+        }
+
+        try
+        {
+            var state = await Client.GetAgentScopeStateAsync("thread", thread.Id);
+            ParseSessionInfo(state?.SessionInfoJson);
+            _running = state?.State == "running" || _running;
+        }
+        catch (Exception)
+        {
+            // Controls are optional — session info may be absent.
         }
     }
 
@@ -1128,53 +1171,71 @@ else
         {
             using var doc = JsonDocument.Parse(sessionInfoJson);
             var root = doc.RootElement;
+            ParseModelConfigOptions(root);
+            ParseSessionModes(root);
+        }
+        catch (JsonException)
+        {
+            // Malformed payload — treated as absent.
+        }
+    }
 
-            if (root.TryGetProperty("configOptions", out var options) && options.ValueKind == JsonValueKind.Array)
+    private void ParseModelConfigOptions(JsonElement root)
+    {
+        if (!root.TryGetProperty("configOptions", out var options) || options.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var option in options.EnumerateArray())
+        {
+            var category = option.TryGetProperty("category", out var c) ? c.GetString() : null;
+            if (!string.Equals(category, "model", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var option in options.EnumerateArray())
-                {
-                    var category = option.TryGetProperty("category", out var c) ? c.GetString() : null;
-                    if (!string.Equals(category, "model", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    _modelConfigId = option.TryGetProperty("id", out var oid) ? oid.GetString() : "model";
-                    _currentModel = option.TryGetProperty("value", out var v) ? v.GetString() : null;
-                    if (option.TryGetProperty("options", out var values) && values.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var entry in values.EnumerateArray())
-                        {
-                            var val = entry.TryGetProperty("value", out var ev) ? ev.GetString()
-                                : entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
-                            if (val is { Length: > 0 } && !_modelOptions.Contains(val))
-                            {
-                                _modelOptions.Add(val);
-                            }
-                        }
-                    }
-                }
+                continue;
             }
 
-            if (root.TryGetProperty("modes", out var modes) && modes.ValueKind == JsonValueKind.Object)
+            _modelConfigId = option.TryGetProperty("id", out var oid) ? oid.GetString() : "model";
+            _currentModel = option.TryGetProperty("value", out var v) ? v.GetString() : null;
+            if (option.TryGetProperty("options", out var values) && values.ValueKind == JsonValueKind.Array)
             {
-                _currentMode = modes.TryGetProperty("currentModeId", out var cm) ? cm.GetString() : null;
-                if (modes.TryGetProperty("availableModes", out var available) && available.ValueKind == JsonValueKind.Array)
+                foreach (var entry in values.EnumerateArray())
                 {
-                    foreach (var mode in available.EnumerateArray())
+                    var val = ExtractOptionValue(entry);
+                    if (val is { Length: > 0 } && !_modelOptions.Contains(val))
                     {
-                        var id = mode.TryGetProperty("id", out var mid) ? mid.GetString() : null;
-                        if (id is { Length: > 0 })
-                        {
-                            var name = mode.TryGetProperty("name", out var mn) ? mn.GetString() : null;
-                            _modes.Add((id, name ?? id));
-                        }
+                        _modelOptions.Add(val);
                     }
                 }
             }
         }
-        catch (JsonException)
+    }
+
+    private static string? ExtractOptionValue(JsonElement entry) =>
+        entry.TryGetProperty("value", out var ev) ? ev.GetString()
+            : entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+
+    private void ParseSessionModes(JsonElement root)
+    {
+        if (!root.TryGetProperty("modes", out var modes) || modes.ValueKind != JsonValueKind.Object)
         {
+            return;
+        }
+
+        _currentMode = modes.TryGetProperty("currentModeId", out var cm) ? cm.GetString() : null;
+        if (!modes.TryGetProperty("availableModes", out var available) || available.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var mode in available.EnumerateArray())
+        {
+            var id = mode.TryGetProperty("id", out var mid) ? mid.GetString() : null;
+            if (id is { Length: > 0 })
+            {
+                var name = mode.TryGetProperty("name", out var mn) ? mn.GetString() : null;
+                _modes.Add((id, name ?? id));
+            }
         }
     }
 
@@ -1183,73 +1244,101 @@ else
     {
         try
         {
-            if (eventType == "ai_chat.permission")
+            switch (eventType)
             {
-                var permission = JsonSerializer.Deserialize<PermissionRequestInfo>(data, SseJson);
-                if (permission is not null && !_permissions.Any(p => p.RequestId == permission.RequestId))
-                {
-                    _permissions.Add(permission);
+                case "ai_chat.permission":
+                    OnPermissionSse(data);
+                    break;
+                case "ai_chat.event":
+                    OnChatEventSse(data);
+                    break;
+                case "ai_chat.session":
                     _scrollPending = true;
-                }
-                _sseError = false;
-            }
-            else if (eventType == "ai_chat.event")
-            {
-                var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
-                if (ev is not null)
-                {
-                    if (_seenEventIds.Add(ev.Id))
-                    {
-                        _events.Add(ev);
-                        _scrollPending = true;
-                    }
-                    else
-                    {
-                        // Re-published event (e.g. queued → dispatched user):
-                        // update in place rather than skip.
-                        var index = _events.FindIndex(e => e.Id == ev.Id);
-                        if (index >= 0)
-                        {
-                            _events[index] = ev;
-                        }
-                    }
-
-                    // Turn ends on session/prompt stopReason or session death.
-                    if (ev.Kind == "session"
-                        && (ev.PayloadJson?.Contains("\"stopReason\"") == true
-                            || ev.PayloadJson?.Contains("\"dead\"") == true))
-                    {
-                        _running = false;
-                    }
-                }
-                _sseError = false;
-            }
-            else if (eventType == "ai_chat.session")
-            {
-                _scrollPending = true;
-            }
-            else if (eventType == "ai_chat.run")
-            {
-                var run = JsonSerializer.Deserialize<AiChatRunDto>(data, SseJson);
-                if (run is not null)
-                {
-                    _running = run.Status == "running";
-                    if (_activeThreadId == run.ThreadId && _activeThread is { } active)
-                    {
-                        var status = run.Status == "failed" ? "failed" : run.Status == "running" ? "running" : "idle";
-                        _activeThread = active with { Status = status };
-                        _threads = _threads?.Select(t => t.Id == run.ThreadId ? t with { Status = status } : t).ToList();
-                    }
-                    _scrollPending = true;
-                }
-                _sseError = false;
+                    break;
+                case "ai_chat.run":
+                    OnRunSse(data);
+                    break;
             }
         }
         catch (JsonException)
         {
+            // Malformed payload — treated as absent.
         }
 
         await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnPermissionSse(string data)
+    {
+        var permission = JsonSerializer.Deserialize<PermissionRequestInfo>(data, SseJson);
+        if (permission is not null && !_permissions.Any(p => p.RequestId == permission.RequestId))
+        {
+            _permissions.Add(permission);
+            _scrollPending = true;
+        }
+
+        _sseError = false;
+    }
+
+    private void OnChatEventSse(string data)
+    {
+        var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
+        if (ev is not null)
+        {
+            UpsertEvent(ev);
+
+            // Turn ends on session/prompt stopReason or session death.
+            if (ev.Kind == "session"
+                && (ev.PayloadJson?.Contains("\"stopReason\"") == true
+                    || ev.PayloadJson?.Contains("\"dead\"") == true))
+            {
+                _running = false;
+            }
+        }
+
+        _sseError = false;
+    }
+
+    private void UpsertEvent(AiChatEventDto ev)
+    {
+        if (_seenEventIds.Add(ev.Id))
+        {
+            _events.Add(ev);
+            _scrollPending = true;
+            return;
+        }
+
+        // Re-published event (e.g. queued → dispatched user):
+        // update in place rather than skip.
+        var index = _events.FindIndex(e => e.Id == ev.Id);
+        if (index >= 0)
+        {
+            _events[index] = ev;
+        }
+    }
+
+    private void OnRunSse(string data)
+    {
+        var run = JsonSerializer.Deserialize<AiChatRunDto>(data, SseJson);
+        if (run is not null)
+        {
+            _running = run.Status == "running";
+            if (_activeThreadId == run.ThreadId && _activeThread is { } active)
+            {
+                var status = run.Status switch
+                {
+                    "failed" => "failed",
+                    "running" => "running",
+                    _ => "idle",
+                };
+                _activeThread = active with { Status = status };
+                _threads = _threads?.Select(t => t.Id == run.ThreadId ? t with { Status = status } : t).ToList();
+            }
+
+            _scrollPending = true;
+        }
+
+        _sseError = false;
     }
 
     [JSInvokable]
@@ -1650,6 +1739,7 @@ else
         }
         catch (OperationCanceledException)
         {
+            // Cancellation is the expected shutdown path — nothing to clean up.
         }
         catch (Exception)
         {
@@ -1667,6 +1757,7 @@ else
         }
         catch (JSDisconnectedException)
         {
+            // Best-effort — failure here is non-fatal.
         }
         _dotNetRef?.Dispose();
     }

@@ -314,11 +314,14 @@ body {
     width: 18rem;
     flex-shrink: 0;
     flex-direction: column;
-    border-radius: var(--bs-border-radius-lg);
+    border-radius: var(--bs-border-radius);
     background-color: var(--bs-tertiary-bg);
     padding: 0.75rem;
     border: 1px solid var(--bs-border-color);
     min-height: 25rem;
+    transition: background-color 0.15s ease, outline-color 0.15s ease;
+    outline: 2px dashed transparent;
+    outline-offset: -2px;
 }
 
 .kanban-column-header {
@@ -416,7 +419,7 @@ body {
     border-radius: var(--bs-border-radius);
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    transition: box-shadow 0.15s ease;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
     cursor: pointer;
 }
 
@@ -563,6 +566,7 @@ body {
     background-color: var(--bs-body-bg);
     color: var(--bs-body-color);
     border: 1px solid var(--bs-border-color);
+    min-height: 44px;
     cursor: pointer;
     transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
@@ -1282,10 +1286,6 @@ html[data-terminal-focus] .terminal-focus-exit {
     }
 }
 
-.filter-chip {
-    min-height: 44px;
-}
-
 @media (max-width: 767.98px) {
     .kanban-board {
         scroll-snap-type: x mandatory;
@@ -1312,22 +1312,11 @@ html[data-terminal-focus] .terminal-focus-exit {
 
 /* SPEC-20260918-kanban-card-ux — drag animations, rich card, move sheet, markdown */
 
-.task-card {
-    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
-}
-
 .task-card-dragging {
     transform: scale(1.02) rotate(0.5deg);
     opacity: 0.85;
     box-shadow: var(--bs-box-shadow-lg);
     cursor: grabbing;
-}
-
-.kanban-column {
-    transition: background-color 0.15s ease, outline-color 0.15s ease;
-    border-radius: var(--bs-border-radius);
-    outline: 2px dashed transparent;
-    outline-offset: -2px;
 }
 
 .kanban-column-drop-target {

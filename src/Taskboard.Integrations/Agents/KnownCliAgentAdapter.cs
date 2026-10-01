@@ -52,7 +52,7 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
                    ?? throw new NotSupportedException($"Agent type {agentType} is not supported.");
 
         var executablePath = PathSearch.FindExecutable(name) ?? name;
-        var arguments = BuildSessionArguments(agentType, sandbox, modelName);
+        var arguments = BuildSessionArguments(agentType, modelName);
         var workingDirectory = !string.IsNullOrWhiteSpace(workdir)
             ? workdir
             : _workspace?.EnsureRoot() ?? Environment.CurrentDirectory;
@@ -60,7 +60,7 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         return new AgentCommand(executablePath, arguments, workingDirectory);
     }
 
-    private static IReadOnlyList<string> BuildSessionArguments(AgentType agentType, Sandbox sandbox, string? modelName)
+    private static IReadOnlyList<string> BuildSessionArguments(AgentType agentType, string? modelName)
     {
         // Explicit model only — sessions never inject the curated Normal model.
         var flag = AgentCliModels.ModelFlag(agentType);

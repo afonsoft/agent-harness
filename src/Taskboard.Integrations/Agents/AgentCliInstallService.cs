@@ -13,6 +13,8 @@ namespace Taskboard.Integrations.Agents;
 /// </summary>
 public sealed class AgentCliInstallService : IAgentCliInstallService
 {
+    private const string StreamStderr = "stderr";
+
     private const int LineCapacity = 500;
     private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(10);
 
@@ -57,10 +59,10 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
                 return Task.FromResult(run.Snapshot(kind));
             }
 
-            run.Reset(kind);
+            run.Reset();
             if (_locator(spec.Install.RequiredTool) is null)
             {
-                run.Append("stderr", $"missing prerequisite: '{spec.Install.RequiredTool}' not found on PATH");
+                run.Append(StreamStderr, $"missing prerequisite: '{spec.Install.RequiredTool}' not found on PATH");
                 run.Finish(AgentCliInstallState.Failed, null);
                 return Task.FromResult(run.Snapshot(kind));
             }
@@ -95,19 +97,19 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
             }
             else
             {
-                run.Append("stderr", $"install failed with exit code {exitCode}");
+                run.Append(StreamStderr, $"install failed with exit code {exitCode}");
                 run.Finish(AgentCliInstallState.Failed, exitCode);
             }
         }
         catch (OperationCanceledException)
         {
-            run.Append("stderr", "install timed out or was cancelled");
+            run.Append(StreamStderr, "install timed out or was cancelled");
             run.Finish(AgentCliInstallState.Failed, null);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Install run failed for {Kind}.", kind);
-            run.Append("stderr", Sanitize(ex.Message));
+            run.Append(StreamStderr, Sanitize(ex.Message));
             run.Finish(AgentCliInstallState.Failed, null);
         }
     }
@@ -128,7 +130,7 @@ public sealed class AgentCliInstallService : IAgentCliInstallService
 
         public AgentCliInstallState State => _state;
 
-        public void Reset(AgentCliKind kind)
+        public void Reset()
         {
             _lines.Clear();
             _state = AgentCliInstallState.Running;

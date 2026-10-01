@@ -180,6 +180,7 @@ public class CloudLoginCommand : AsyncCommand<CloudLoginSettings>
 
 public class CloudStatusSettings : GlobalSettings
 {
+    public override string ToString() => "cloud status";
 }
 
 public class CloudStatusCommand : AsyncCommand<CloudStatusSettings>
@@ -194,6 +195,7 @@ public class CloudStatusCommand : AsyncCommand<CloudStatusSettings>
 
 public class CloudLogoutSettings : GlobalSettings
 {
+    public override string ToString() => "cloud logout";
 }
 
 public class CloudLogoutCommand : AsyncCommand<CloudLogoutSettings>
@@ -212,6 +214,7 @@ public class CloudLogoutCommand : AsyncCommand<CloudLogoutSettings>
 
 public class ContextCurrentSettings : GlobalSettings
 {
+    public override string ToString() => "context current";
 }
 
 public class ContextCurrentCommand : AsyncCommand<ContextCurrentSettings>

@@ -147,6 +147,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
             // Optional estimation surface — a missing/drifted table must not
             // blank the sessions extraction.
             _logger.LogWarning(
+                ex,
                 "{Kind} rollup on {Table} skipped ({Message}); sessions keep null tokens.",
                 Kind, table, ex.Message);
             return null;
@@ -155,15 +156,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
 
     public async Task<CliExtractionResult> ExtractSinceAsync(string? cursor, CancellationToken cancellationToken = default)
     {
-        var sessions = new List<CliSessionRecord>();
-        var usage = new List<CliUsageRecord>();
-        var statuses = new List<CliDbSourceStatus>();
-        var reasons = new List<string>();
-        var copied = false;
-        var sawDrift = false;
-        var sawError = false;
-        var sawAny = false;
-        string? nextCursor = cursor;
+        var ctx = new ExtractionContext { NextCursor = cursor };
 
         TryParseCursor(cursor, out var cursorFile, out var cursorRowid);
         var hasCursorFile = !string.IsNullOrEmpty(cursorFile);
@@ -173,62 +166,87 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
             var paths = _locator.Resolve(source);
             if (paths.Count == 0)
             {
-                statuses.Add(CliDbSourceStatus.Missing);
+                ctx.Statuses.Add(CliDbSourceStatus.Missing);
                 continue;
             }
 
             foreach (var path in paths)
             {
-                sawAny = true;
+                ctx.SawAny = true;
                 // Resume semantics: skip files strictly before the cursor file.
                 if (hasCursorFile && string.CompareOrdinal(path, cursorFile) < 0)
                 {
                     continue;
                 }
 
-                try
-                {
-                    await using var conn = await _reader.OpenAsync(source, path, cancellationToken)
-                        .ConfigureAwait(false);
-                    copied |= conn.CopiedToTemp;
-
-                    var fingerprint = await conn.GetSchemaFingerprintAsync(
-                        DriftCheckedTables(source), cancellationToken).ConfigureAwait(false);
-                    if (!CliDbSchemaFingerprinter.Matches(ExpectedFingerprint, fingerprint, out var diff))
-                    {
-                        // Schema metadata only — row content is never logged.
-                        _logger.LogWarning(
-                            "CliDb schema drift on {Kind}/{Source}: {Diff}", Kind, source.Name, diff);
-                        reasons.Add($"{source.Name}: schema drifted ({diff})");
-                        sawDrift = true;
-                        continue;
-                    }
-
-                    var rowCursor = hasCursorFile && path == cursorFile ? cursorRowid : (long?)null;
-                    var lastRowid = await ExtractSourceAsync(
-                            conn, path, source, rowCursor, sessions, usage, cancellationToken)
-                        .ConfigureAwait(false);
-                    nextCursor = FormatCursor(path, lastRowid ?? rowCursor ?? 0);
-                    statuses.Add(CliDbSourceStatus.Available);
-                }
-                catch (CliDbAccessDeniedException ex)
-                {
-                    _logger.LogWarning("CliDb access denied on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
-                    reasons.Add($"{source.Name}: {ex.Message}");
-                    sawError = true;
-                }
-                catch (CliDbReadException ex)
-                {
-                    _logger.LogWarning("CliDb read failed on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
-                    reasons.Add($"{source.Name}: {ex.Message}");
-                    sawError = true;
-                }
+                await ExtractPathAsync(ctx, source, path, cursorFile, cursorRowid, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
 
-        var status = ResolveAggregate(sawAny, sawDrift, sawError, copied, statuses);
-        return new CliExtractionResult(sessions, usage, nextCursor, status,
-            reasons.Count > 0 ? string.Join("; ", reasons) : null);
+        var status = ResolveAggregate(ctx.SawAny, ctx.SawDrift, ctx.SawError, ctx.Copied, ctx.Statuses);
+        return new CliExtractionResult(ctx.Sessions, ctx.Usage, ctx.NextCursor, status,
+            ctx.Reasons.Count > 0 ? string.Join("; ", ctx.Reasons) : null);
+    }
+
+    private async Task ExtractPathAsync(
+        ExtractionContext ctx,
+        CliDbSource source,
+        string path,
+        string? cursorFile,
+        long? cursorRowid,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var conn = await _reader.OpenAsync(source, path, cancellationToken)
+                .ConfigureAwait(false);
+            ctx.Copied |= conn.CopiedToTemp;
+
+            var fingerprint = await conn.GetSchemaFingerprintAsync(
+                DriftCheckedTables(source), cancellationToken).ConfigureAwait(false);
+            if (!CliDbSchemaFingerprinter.Matches(ExpectedFingerprint, fingerprint, out var diff))
+            {
+                // Schema metadata only — row content is never logged.
+                _logger.LogWarning(
+                    "CliDb schema drift on {Kind}/{Source}: {Diff}", Kind, source.Name, diff);
+                ctx.Reasons.Add($"{source.Name}: schema drifted ({diff})");
+                ctx.SawDrift = true;
+                return;
+            }
+
+            var rowCursor = cursorFile is not null && path == cursorFile ? cursorRowid : (long?)null;
+            var lastRowid = await ExtractSourceAsync(
+                    conn, path, source, rowCursor, ctx.Sessions, ctx.Usage, cancellationToken)
+                .ConfigureAwait(false);
+            ctx.NextCursor = FormatCursor(path, lastRowid ?? rowCursor ?? 0);
+            ctx.Statuses.Add(CliDbSourceStatus.Available);
+        }
+        catch (CliDbAccessDeniedException ex)
+        {
+            _logger.LogWarning(ex, "CliDb access denied on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+            ctx.Reasons.Add($"{source.Name}: {ex.Message}");
+            ctx.SawError = true;
+        }
+        catch (CliDbReadException ex)
+        {
+            _logger.LogWarning(ex, "CliDb read failed on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+            ctx.Reasons.Add($"{source.Name}: {ex.Message}");
+            ctx.SawError = true;
+        }
+    }
+
+    private sealed class ExtractionContext
+    {
+        public List<CliSessionRecord> Sessions { get; } = [];
+        public List<CliUsageRecord> Usage { get; } = [];
+        public List<CliDbSourceStatus> Statuses { get; } = [];
+        public List<string> Reasons { get; } = [];
+        public bool Copied;
+        public bool SawDrift;
+        public bool SawError;
+        public bool SawAny;
+        public string? NextCursor;
     }
 
     private static CliDbSourceStatus ResolveAggregate(

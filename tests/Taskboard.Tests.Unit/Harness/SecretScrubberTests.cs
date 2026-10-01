@@ -7,7 +7,7 @@ namespace Taskboard.Tests.Unit.Harness;
 /// <summary>SPEC-20260919-harness-security-permission-gateway RF-003 — secret scrubbing.</summary>
 public class SecretScrubberTests
 {
-    private readonly SecretScrubber _sut = new();
+
 
     [Theory]
     [InlineData("token: ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8")]
@@ -19,7 +19,7 @@ public class SecretScrubberTests
     [InlineData("-----BEGIN RSA PRIVATE KEY-----")]
     public void Dado_OutputComSegredo_Quando_Scrub_Entao_Redacted(string output)
     {
-        var result = _sut.Scrub(output);
+        var result = SecretScrubber.Scrub(output);
 
         result.ShouldContain("[REDACTED_SECRET]");
         result.ShouldNotBe(output);
@@ -30,7 +30,7 @@ public class SecretScrubberTests
     {
         const string secret = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
 
-        var result = _sut.Scrub($"GITHUB_TOKEN={secret} ok");
+        var result = SecretScrubber.Scrub($"GITHUB_TOKEN={secret} ok");
 
         result.ShouldNotContain(secret);
     }
@@ -40,13 +40,13 @@ public class SecretScrubberTests
     {
         const string clean = "Build succeeded. 0 Warning(s) 0 Error(s)";
 
-        _sut.Scrub(clean).ShouldBe(clean);
+        SecretScrubber.Scrub(clean).ShouldBe(clean);
     }
 
     [Fact]
     public void Dado_VariosSegredos_Quando_Scrub_Entao_TodosRedacted()
     {
-        var result = _sut.Scrub(
+        var result = SecretScrubber.Scrub(
             "a ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 b AKIAIOSFODNN7EXAMPLE c");
 
         result.ShouldNotContain("ghp_");
@@ -56,6 +56,6 @@ public class SecretScrubberTests
     [Fact]
     public void Dado_NuloOuVazio_Quando_Scrub_Entao_RetornaEntrada()
     {
-        _sut.Scrub(string.Empty).ShouldBe(string.Empty);
+        SecretScrubber.Scrub(string.Empty).ShouldBe(string.Empty);
     }
 }

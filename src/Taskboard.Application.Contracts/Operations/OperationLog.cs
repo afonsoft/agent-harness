@@ -49,9 +49,21 @@ public class OperationLog
 /// <summary>Log lines produced by MCP provisioning runs.</summary>
 public sealed class McpOperationLog : OperationLog
 {
+    public McpOperationLog(int capacity = DefaultCapacity)
+        : base(capacity)
+    {
+    }
+
+    public override string ToString() => "mcp-provisioning";
 }
 
 /// <summary>Log lines produced by skills install and sync runs (shared).</summary>
 public sealed class SkillsOperationLog : OperationLog
 {
+    public SkillsOperationLog(int capacity = DefaultCapacity)
+        : base(capacity)
+    {
+    }
+
+    public override string ToString() => "skills-install-sync";
 }

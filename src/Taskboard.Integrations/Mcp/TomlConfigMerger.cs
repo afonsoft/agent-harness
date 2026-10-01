@@ -60,9 +60,12 @@ public static class TomlConfigMerger
             return MergeOutcome.Repaired;
         }
 
-        return removing
-            ? MergeOutcome.Removed
-            : created ? MergeOutcome.Created : MergeOutcome.Updated;
+        if (removing)
+        {
+            return MergeOutcome.Removed;
+        }
+
+        return created ? MergeOutcome.Created : MergeOutcome.Updated;
     }
 
     /// <summary>
@@ -140,6 +143,7 @@ public static class TomlConfigMerger
         }
         catch (TomlException)
         {
+            // Malformed config — treated as absent.
         }
 
         File.Copy(path, path + ".corrupt-bak", overwrite: true);

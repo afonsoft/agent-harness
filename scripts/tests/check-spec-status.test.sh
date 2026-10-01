@@ -9,13 +9,14 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 PASS=0; FAIL=0
 
-ok()   { PASS=$((PASS+1)); echo "PASS: $1"; }
-bad()  { FAIL=$((FAIL+1)); echo "FAIL: $1"; }
+ok()   { local msg="$1"; PASS=$((PASS+1)); echo "PASS: $msg"; }
+bad()  { local msg="$1"; FAIL=$((FAIL+1)); echo "FAIL: $msg"; }
 check() { # name expected actual
-    if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1 (expected $2, got $3)"; fi
+    local name="$1" expected="$2" actual="$3"
+    if [[ "$expected" == "$actual" ]]; then ok "$name"; else bad "$name (expected $expected, got $actual)"; fi
 }
-assert_contains()    { if [[ "$2" == *"$1"* ]]; then ok "$3"; else bad "$3 -> $2"; fi; }
-assert_not_contains(){ if [[ "$2" != *"$1"* ]]; then ok "$3"; else bad "$3 -> $2"; fi; }
+assert_contains()    { local needle="$1" haystack="$2" label="$3"; if [[ "$haystack" == *"$needle"* ]]; then ok "$label"; else bad "$label -> $haystack"; fi; }
+assert_not_contains(){ local needle="$1" haystack="$2" label="$3"; if [[ "$haystack" != *"$needle"* ]]; then ok "$label"; else bad "$label -> $haystack"; fi; }
 
 cd "$TMP"
 git init -q . && git config user.email t@t && git config user.name t

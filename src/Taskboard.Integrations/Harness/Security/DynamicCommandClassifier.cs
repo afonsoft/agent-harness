@@ -130,28 +130,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             case "status" or "diff" or "log" or "show" or "blame" or "rev-parse"
                 or "ls-files" or "ls-tree" or "describe" or "shortlog" or "reflog"
                 or "remote" or "config" or "branch" or "tag" or "stash":
-                // branch/tag/stash são Safe apenas sem flags destrutivas — checado abaixo.
-                if (sub is "branch" or "tag" && args.Any(a => a is "-D" or "--delete" or "-d"))
-                {
-                    return new(SecurityRiskLevel.Dangerous, "Deleção de ref local detectada.");
-                }
-
-                if (sub == "stash" && args.Any(a => a is "drop" or "clear"))
-                {
-                    return new(SecurityRiskLevel.Dangerous, "Descarte de stash detectado.");
-                }
-
-                if (sub == "remote" && args.Any(a => a is "add" or "remove" or "set-url"))
-                {
-                    return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.WorkspaceWrite);
-                }
-
-                if (sub == "config" && args.Any(a => a is "--global" or "--system"))
-                {
-                    return new(SecurityRiskLevel.Dangerous, "git config fora do repositório.");
-                }
-
-                return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.Safe);
+                return ClassifyReadOnlyGit(sub, args, worktreePath);
             case "push" or "pull" or "fetch" or "clone" or "remote-update":
                 return new(SecurityRiskLevel.Dangerous, $"git {sub} toca rede/remoto.");
             case "reset" when args.Any(a => a is "--hard"):
@@ -165,6 +144,33 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             default:
                 return new(SecurityRiskLevel.Dangerous, $"Subcomando git '{sub}' desconhecido — fail-closed.");
         }
+    }
+
+    private static CommandRiskAssessment ClassifyReadOnlyGit(
+        string sub, IReadOnlyList<string> args, string worktreePath)
+    {
+        // branch/tag/stash são Safe apenas sem flags destrutivas — checado abaixo.
+        if (sub is "branch" or "tag" && args.Any(a => a is "-D" or "--delete" or "-d"))
+        {
+            return new(SecurityRiskLevel.Dangerous, "Deleção de ref local detectada.");
+        }
+
+        if (sub == "stash" && args.Any(a => a is "drop" or "clear"))
+        {
+            return new(SecurityRiskLevel.Dangerous, "Descarte de stash detectado.");
+        }
+
+        if (sub == "remote" && args.Any(a => a is "add" or "remove" or "set-url"))
+        {
+            return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.WorkspaceWrite);
+        }
+
+        if (sub == "config" && args.Any(a => a is "--global" or "--system"))
+        {
+            return new(SecurityRiskLevel.Dangerous, "git config fora do repositório.");
+        }
+
+        return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.Safe);
     }
 
     private static CommandRiskAssessment ClassifyDotnet(
@@ -211,14 +217,12 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             return new(SecurityRiskLevel.Dangerous, "rm sem alvo — fail-closed.");
         }
 
-        foreach (var target in targets)
+        var outside = targets.FirstOrDefault(target => !TryResolveInsideJail(target, worktreePath));
+        if (outside is not null)
         {
-            if (!TryResolveInsideJail(target, worktreePath))
-            {
-                return new(SecurityRiskLevel.Dangerous,
-                    $"Alvo '{target}' fora ou irresolúvel no worktree — deleção negada.",
-                    EscapesSandbox: true);
-            }
+            return new(SecurityRiskLevel.Dangerous,
+                $"Alvo '{outside}' fora ou irresolúvel no worktree — deleção negada.",
+                EscapesSandbox: true);
         }
 
         return new(SecurityRiskLevel.WorkspaceWrite,
@@ -236,29 +240,26 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         var level = baseLevel;
         var sawRedirect = false;
 
-        for (var i = 0; i < args.Count; i++)
+        var i = 0;
+        while (i < args.Count)
         {
             var arg = args[i];
-            if (arg is ">" or ">>" or "1>" or "2>" or "&>")
+            if (IsRedirect(arg))
             {
-                sawRedirect = true;
-                if (i + 1 >= args.Count || !TryResolveInsideJail(args[i + 1], worktreePath))
+                if (RedirectEscapes(args, i, worktreePath))
                 {
                     return new(SecurityRiskLevel.Dangerous, "Redirect para fora do worktree.", EscapesSandbox: true);
                 }
 
+                sawRedirect = true;
                 level = SecurityRiskLevel.WorkspaceWrite;
                 i++;
                 continue;
             }
 
-            if (arg.StartsWith('-') || arg == "--")
+            if (IsSkippableArg(arg))
             {
-                continue;
-            }
-
-            if (!LooksLikePath(arg))
-            {
+                i++;
                 continue;
             }
 
@@ -268,12 +269,28 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     $"Caminho '{arg}' escapa ou não resolve dentro do worktree.",
                     EscapesSandbox: true);
             }
+
+            i++;
         }
 
-        return sawRedirect
-            ? new(SecurityRiskLevel.WorkspaceWrite, "Escrita via redirect dentro do worktree.")
-            : new(level, baseLevel == SecurityRiskLevel.Safe ? "Leitura confinada ao worktree." : "Escrita confinada ao worktree.");
+        if (sawRedirect)
+        {
+            return new(SecurityRiskLevel.WorkspaceWrite, "Escrita via redirect dentro do worktree.");
+        }
+
+        var message = baseLevel == SecurityRiskLevel.Safe
+            ? "Leitura confinada ao worktree."
+            : "Escrita confinada ao worktree.";
+        return new(level, message);
     }
+
+    private static bool IsRedirect(string arg) => arg is ">" or ">>" or "1>" or "2>" or "&>";
+
+    private static bool RedirectEscapes(IReadOnlyList<string> args, int i, string worktreePath)
+        => i + 1 >= args.Count || !TryResolveInsideJail(args[i + 1], worktreePath);
+
+    private static bool IsSkippableArg(string arg)
+        => arg.StartsWith('-') || arg == "--" || !LooksLikePath(arg);
 
     private static bool LooksLikePath(string arg)
         => arg.Contains('/') || arg.Contains('\\') || arg.StartsWith('~')
@@ -340,6 +357,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         var current = new System.Text.StringBuilder();
         var inSingle = false;
         var inDouble = false;
+        var i = 0;
 
         void FlushToken()
         {
@@ -360,37 +378,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             }
         }
 
-        for (var i = 0; i < command.Length; i++)
+        void ConsumeUnquoted(char c)
         {
-            var c = command[i];
-            if (inSingle)
-            {
-                if (c == '\'')
-                {
-                    inSingle = false;
-                }
-                else
-                {
-                    current.Append(c);
-                }
-
-                continue;
-            }
-
-            if (inDouble)
-            {
-                if (c == '"')
-                {
-                    inDouble = false;
-                }
-                else
-                {
-                    current.Append(c);
-                }
-
-                continue;
-            }
-
             switch (c)
             {
                 case '\'':
@@ -418,20 +407,47 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     FlushSegment();
                     break;
                 case '>' or '<':
-                    FlushToken();
-                    var op = c.ToString();
-                    while (i + 1 < command.Length && command[i + 1] == c)
-                    {
-                        op += c;
-                        i++;
-                    }
-
-                    tokens.Add(op);
+                    ConsumeRedirect(c);
                     break;
                 default:
                     current.Append(c);
                     break;
             }
+        }
+
+        void ConsumeRedirect(char c)
+        {
+            FlushToken();
+            var op = c.ToString();
+            while (i + 1 < command.Length && command[i + 1] == c)
+            {
+                op += c;
+                i++;
+            }
+
+            tokens.Add(op);
+        }
+
+        while (i < command.Length)
+        {
+            var c = command[i];
+            if (inSingle || inDouble)
+            {
+                if (c == (inSingle ? '\'' : '"'))
+                {
+                    inSingle = inDouble = false;
+                }
+                else
+                {
+                    current.Append(c);
+                }
+
+                i++;
+                continue;
+            }
+
+            ConsumeUnquoted(c);
+            i++;
         }
 
         FlushSegment();

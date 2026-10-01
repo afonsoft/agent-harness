@@ -117,7 +117,7 @@ public sealed class DockerCliDiscovery : IContainerCliDiscovery
                 .Where(line => line.Contains('|'))
                 .ToList();
 
-            var binaries = AgentCliMap.All
+            var binaries = AgentCliMap.AllSpecs()
                 .Select(kv => kv.Value.Binary)
                 .Append("openhands")
                 .Distinct(StringComparer.Ordinal)

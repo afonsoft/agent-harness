@@ -14,12 +14,14 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// </summary>
 public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
 {
+    private const string FilePlaceholder = "{file}";
+
     private static readonly IReadOnlyDictionary<string, (string FileName, string ArgsPrefix)> Runtimes =
         new Dictionary<string, (string, string)>(StringComparer.Ordinal)
         {
-            ["python3"] = ("python3", "{file}"),
-            ["python"] = ("python", "{file}"),
-            ["node"] = ("node", "{file}"),
+            ["python3"] = ("python3", FilePlaceholder),
+            ["python"] = ("python", FilePlaceholder),
+            ["node"] = ("node", FilePlaceholder),
             ["dotnet"] = ("dotnet", "script {file}"),
         };
 
@@ -53,7 +55,7 @@ public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
         try
         {
             await File.WriteAllTextAsync(file, code, cancellationToken).ConfigureAwait(false);
-            var args = runtime.ArgsPrefix.Replace("{file}", file).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            var args = runtime.ArgsPrefix.Replace(FilePlaceholder, file).Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .ToList();
             var result = await ChatProcessRunner.RunAsync(runtime.FileName, args, tmpDir,
                 TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);

@@ -9,7 +9,7 @@ namespace Taskboard.Tests.Unit.Harness;
 public class PathJailValidatorTests : IDisposable
 {
     private readonly string _worktree;
-    private readonly PathJailValidator _sut = new();
+
 
     public PathJailValidatorTests()
     {
@@ -22,14 +22,14 @@ public class PathJailValidatorTests : IDisposable
     [Fact]
     public void Dado_PathDentroDoWorktree_Quando_Validate_Entao_RetornaCanonico()
     {
-        var result = _sut.Validate("src/Foo.cs", _worktree);
+        var result = PathJailValidator.Validate("src/Foo.cs", _worktree);
 
         result.ShouldBe(Path.GetFullPath(Path.Combine(_worktree, "src/Foo.cs")));
     }
 
     [Fact]
     public void Dado_PathAbsolutoDentro_Quando_Validate_Entao_Aceita()
-        => _sut.Validate(Path.Combine(_worktree, "a.txt"), _worktree)
+        => PathJailValidator.Validate(Path.Combine(_worktree, "a.txt"), _worktree)
             .ShouldBe(Path.Combine(_worktree, "a.txt"));
 
     [Theory]
@@ -40,7 +40,7 @@ public class PathJailValidatorTests : IDisposable
     [InlineData("~/segredo")]
     [InlineData("$HOME/x")]
     public void Dado_PathForaDoWorktree_Quando_Validate_Entao_SecurityAccessDenied(string path)
-        => Should.Throw<SecurityAccessDeniedException>(() => _sut.Validate(path, _worktree))
+        => Should.Throw<SecurityAccessDeniedException>(() => PathJailValidator.Validate(path, _worktree))
             .Code.ShouldBe(TaskboardDomainErrorCodes.SecurityAccessDenied);
 
     [Fact]
@@ -51,7 +51,7 @@ public class PathJailValidatorTests : IDisposable
         var link = Path.Combine(_worktree, "link.txt");
         File.CreateSymbolicLink(link, outside);
 
-        Should.Throw<SecurityAccessDeniedException>(() => _sut.Validate("link.txt", _worktree));
+        Should.Throw<SecurityAccessDeniedException>(() => PathJailValidator.Validate("link.txt", _worktree));
     }
 
     [Fact]
@@ -62,16 +62,16 @@ public class PathJailValidatorTests : IDisposable
         var link = Path.Combine(_worktree, "alias.txt");
         File.CreateSymbolicLink(link, inside);
 
-        _sut.Validate("alias.txt", _worktree).ShouldBe(inside);
+        PathJailValidator.Validate("alias.txt", _worktree).ShouldBe(inside);
     }
 
     [Fact]
     public void Dado_PathComTraversalDisfarcado_Quando_Validate_Entao_SecurityAccessDenied()
         => Should.Throw<SecurityAccessDeniedException>(
-            () => _sut.Validate("src/../../etc/passwd", _worktree));
+            () => PathJailValidator.Validate("src/../../etc/passwd", _worktree));
 
     [Fact]
     public void Dado_NovoArquivoInexistenteDentro_Quando_Validate_Entao_Aceita()
-        => _sut.Validate("novo/dir/arquivo.txt", _worktree)
+        => PathJailValidator.Validate("novo/dir/arquivo.txt", _worktree)
             .ShouldContain("novo");
 }

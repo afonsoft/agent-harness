@@ -34,17 +34,9 @@ public static class AgentModelListParser
 
     public static IReadOnlyList<string> Parse(AgentModelListFormat format, string output)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<string>();
-        foreach (var id in Enumerate(format, output))
-        {
-            if (seen.Add(id))
-            {
-                result.Add(id);
-            }
-        }
-
-        return result;
+        return Enumerate(format, output)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static IEnumerable<string> Enumerate(AgentModelListFormat format, string output) =>
@@ -89,47 +81,53 @@ public static class AgentModelListParser
     {
         foreach (var raw in output.Split('\n'))
         {
-            if (raw.Length == 0)
+            foreach (var id in ExtractDevinLineIds(raw))
             {
-                continue;
+                yield return id;
+            }
+        }
+    }
+
+    private static IEnumerable<string> ExtractDevinLineIds(string raw)
+    {
+        if (raw.Length == 0)
+        {
+            yield break;
+        }
+
+        if (!char.IsWhiteSpace(raw[0]))
+        {
+            var open = raw.LastIndexOf('(');
+            var close = raw.LastIndexOf(')');
+            if (open >= 0 && close > open)
+            {
+                var id = raw[(open + 1)..close].Trim();
+                if (IsId(id))
+                {
+                    yield return id;
+                }
             }
 
-            if (char.IsWhiteSpace(raw[0]))
+            yield break;
+        }
+
+        var trimmed = raw.TrimStart();
+        if (trimmed.StartsWith("aliases:", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var alias in trimmed["aliases:".Length..]
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(IsId))
             {
-                var trimmed = raw.TrimStart();
-                if (trimmed.StartsWith("aliases:", StringComparison.OrdinalIgnoreCase))
-                {
-                    foreach (var alias in trimmed["aliases:".Length..]
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    {
-                        if (IsId(alias))
-                        {
-                            yield return alias;
-                        }
-                    }
-                }
-                else
-                {
-                    var first = trimmed.Split(' ', 2)[0];
-                    if (IsId(first))
-                    {
-                        yield return first;
-                    }
-                }
+                yield return alias;
             }
-            else
-            {
-                var open = raw.LastIndexOf('(');
-                var close = raw.LastIndexOf(')');
-                if (open >= 0 && close > open)
-                {
-                    var id = raw[(open + 1)..close].Trim();
-                    if (IsId(id))
-                    {
-                        yield return id;
-                    }
-                }
-            }
+
+            yield break;
+        }
+
+        var first = trimmed.Split(' ', 2)[0];
+        if (IsId(first))
+        {
+            yield return first;
         }
     }
 

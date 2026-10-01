@@ -53,7 +53,7 @@ public sealed class AgentCliStatusService : IAgentCliStatusService
         _snapshot?.EnsureFresh(_refreshTtl);
 
         var results = new List<AgentCliStatus>();
-        foreach (var (kind, spec) in AgentCliMap.All)
+        foreach (var (kind, spec) in AgentCliMap.AllSpecs())
         {
             results.Add(ProbeInline(kind, spec));
         }

@@ -80,6 +80,7 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
         catch (SqliteException ex)
         {
             _logger.LogInformation(
+                ex,
                 "Direct ro open failed for {Path} ({Code}); falling back to temp copy.",
                 path, ex.SqliteErrorCode);
             return Task.FromResult(OpenCopy(source, path));
@@ -117,7 +118,7 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             }
         }
 
-        throw new CliDbReadException($"Failed to read database via temp copy: {path} ({lastError?.Message})");
+        throw new CliDbReadException($"Failed to read database via temp copy: {path} ({lastError!.Message})");
     }
 
     private SqliteConnection OpenReadOnly(string path)
@@ -178,12 +179,10 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             CancellationToken cancellationToken = default)
         {
             ValidateTable(table);
-            foreach (var col in columns)
+            var invalidColumn = columns.FirstOrDefault(col => !IdentifierPattern.IsMatch(col));
+            if (invalidColumn is not null)
             {
-                if (!IdentifierPattern.IsMatch(col))
-                {
-                    throw new CliDbAccessDeniedException($"Invalid column identifier: {col}");
-                }
+                throw new CliDbAccessDeniedException($"Invalid column identifier: {invalidColumn}");
             }
 
             // Secret-named columns are excluded even when an extractor lists them (RF-004).
@@ -309,7 +308,7 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             return rows;
         }
 
-        private void ValidateRollupColumn(string column)
+        private static void ValidateRollupColumn(string column)
         {
             if (!IdentifierPattern.IsMatch(column))
             {

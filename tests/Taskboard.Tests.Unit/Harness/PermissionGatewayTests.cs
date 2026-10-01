@@ -11,8 +11,7 @@ public class PermissionGatewayTests
     private static readonly string Worktree =
         Path.Combine(Path.GetTempPath(), $"tb-jail-{Guid.NewGuid():N}");
 
-    private readonly PermissionGateway _sut = new(
-        new DynamicCommandClassifier(), new PathJailValidator(), new SecretScrubber());
+    private readonly PermissionGateway _sut = new(new DynamicCommandClassifier());
 
     // AC-01: rm -rf / → Dangerous, bloqueado imediatamente (sem approval).
     [Fact]

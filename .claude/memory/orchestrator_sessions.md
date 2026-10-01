@@ -92,3 +92,46 @@
 - **Lições**: `signals.ReadAsync()` já consome o item — ler `signalTask.Result` antes do drain `TryRead` (bug real pego por teste de trigger manual). Ports de persistência em Contracts retornam DTOs, nunca entidades (Contracts só vê Domain.Shared). Merge de features concorrentes em `AiChat.razor` + docs: resolver mantendo ambas as descrições.
 - **Lição flake**: assert de paralelismo por `maxInFlight` em vez de wall-clock (CI mediu 1.163s vs limite 1.1s).
 - **Estado**: unit 1267 · integration 302 · spec-drift OK. #385/#387 merged.
+
+## Sessão 2026-09-30 — Sonar backlog #410 (batch 1) + crash fix #414
+
+- **Origem**: continuação da sessão `pickle-thing` (Sonar autofix + chat UX, PR #411 merged). Branch `fix/devin-20260930-sonar-code-smells` tinha ~76 arquivos em voo (S101 naming etc.) sem commit.
+- **Crash fix (#414)**: callback `Progress<AgentLogMessage>` em `AgentOrchestrationService.RunAsync` é async void e tocava `cts.Token`/`CancelAsync` após o `finally` descartar o CTS → `ObjectDisposedException` derrubava o processo (test host abort). Fix: token capturado uma vez + try/catch no callback. Teste de regressão `Dado_LogReportadoAposFimDoRun_...` (crashava antes, passa depois).
+- **Entregas** (5 commits → PR #415):
+  - `ff278f3` batch 1 C# — S101/S1075/S2365/S2743/S3875 + ternários/blocos (75 arquivos).
+  - `9b409e6` crash fix + teste de regressão.
+  - `c33c917` batch 2 — Dockerfile (S7031/S7020), shell (S7679), CSS (S4666), JS (S6582/S6653/S7747/S7758/S7765/S4138), S2325 (PathJailValidator/SecretScrubber static + DI limpo), S3398 (ToolCallRender Accumulator), S4136, S2486.
+  - `1841f56` S3267 — loops→LINQ (12 arquivos).
+  - `0622adc` S1192 — 55 literais repetidos → constantes (23 arquivos).
+- **Validação**: build 0 warnings; unit 1341/1341; integration 307/307.
+- **Restante #410**: S3776 (59 sites CRITICAL, complexidade 16–66 — refactor por método, sessão dedicada); S7637 bloqueado (workflow protegido); exclusão docs geradas (1.007 findings) precisa token admin SonarCloud OU aprovação humana p/ workflow; S8970 falso-positivo documentado.
+- **Lições**: sed de literais quebra as próprias declarações de const (circular CS0110) — fazer sed primeiro, inserir consts depois; `Progress<T>` callback é async void — qualquer exceção derruba o processo, sempre guardar; `Cast<T?>().FirstOrDefault() ?? fallback` para enums em LINQ; testes de corrida com CTS: esperar live-id sumir + delay antes do Report tardio.
+- **PR**: #415 aberto (não mergeado — aguarda CI/revisão).
+
+## Sessão 2026-09-30 (cont.) — Issues #412/#413 (incidente de memória)
+
+- **#412 PTY órfã**: `NotifyClosedAsync` agora loga fechamento (mesmo formato dos outros caminhos); `SweepLoopAsync` sobrevive a ticks ruins (catch por tick + log); `SweepIdleAsync` isola cada entrada. Testes: ambas as rotas de fechamento emitem registro (RecordingLogger no harness).
+- **#413 log flood**: `Microsoft.EntityFrameworkCore.Database.Command: Warning` em appsettings.json + Production; Development mantém Information.
+- Commit `636ed80` no PR #415; unit 1343/1343.
+- **Lição**: caminhos de remoção "best-effort" precisam do MESMO registro de log que os caminhos explícitos — o incidente só foi diagnosticável pelo journal.
+
+## Sessão 2026-09-30 (cont. 2) — S3776 batch 1 (5/59 sites)
+
+- Sites leves resolvidos: AgentCliArgsTemplate.Split (ConsumeQuoted), SearchBackends.ParseResults (Str helper + LINQ), OpenAiCompatibleClient.GenerateImageAsync (ExtractImagePayloadAsync — prioridade b64/url por item preservada), EfCoreCliMetricsRepository (RecomputeDayAsync), FrontmatterReader (Builder/ApplyLine).
+- Commit `5d7d1e6` no PR #415; unit 1343/1343.
+- **Restante S3776**: 54 sites (16–61 pontos) + Program.cs top-level (350) — sessões dedicadas, um método por vez. Padrão que funcionou: extrair o corpo condicional para método privado com estado em classe privada (Builder) ou helper estático; preservar ordem de early-returns.
+
+## Session continuation (2026-10-01, thread 2)
+
+- CI failure on `5d7d1e6` diagnosed: `dotnet format --verify` gate — const blocks inserted with wrong indent. Fixed via `dotnet format`, pushed `c39d513` → all checks green (Build/Test/Coverage, SonarCloud, CodeQL, GitGuardian).
+- **Lesson reaffirmed:** run `dotnet format Taskboard.sln` before every push after scripted/bulk edits.
+- S3776 batches 2-5 pushed: `7ed26f7` (7 sites: CliMetricsService, PipelineDefinition, CheckPaths, AcpSessionRunClient, SkillsSyncService, AcpProtocolParser, ProjectContextCompiler), `3d7de51` (FinOpsService, CliDbExtractorBase→ExtractionContext, AcpSessionModelCatalog), `b0feca3` (ClassifyGit, SplitSegments→local fns — **CS0841 gotcha: declare captured locals BEFORE local fn declarations**), `4c80466` (SweepAutoRetries, InstallCoreAsync), `fd89058` (TerminalCreate→BuildStartInfo, ExtractPermissionOptions), `01f7123` (ThreadPtyResolver, AiChatCatalogService), `d313a92` (AcpV1Dialect.ParsePermission, EnumerateDevin).
+- Progress: ~28/59 S3776 sites. Remaining: 11 razor sites + high-complexity cores (AiChatService 61, ChatService 45, AiChat.razor 66, OpenAiCompatibleClient 66, AcpPeerInfo 49/42, Program.cs 350 — needs dedicated slice).
+- Validation per batch: build 0/0 + full unit 1343 + integration 307 green.
+
+## Session continuation (2026-10-01, thread 3) — S3776 completo (59/59)
+
+- Lotes finais: `b50107d` (razor: GitDiffViewer, Terminal), `20bed71` (RunTerminal, CockpitRun), `735e906` (AgentConfigTab, AgentRunTimeline, ProviderChat), `29f0945` (Settings, AiChat GroupedEvents), `3d87e35` (AcpPeerInfo×2, AcpV2Dialect, AgentControlService, MarkdigSpecParser, AgentOrchestrationService.RunAsync→RunBudgetState), `23891b4` (PipelineEngine×3, AgentSessionManager.HandleSessionEvent), `5fe4fdd` (PipelineExecutionAppService, AcpSessionClient DispatchParsed/HandleAgentRequest), `6ca3962` (ChatService StreamTurnAsync→StreamOutcome, AiChatService CreateThreadAsync+ExecuteRunAsync, OpenAiCompatibleClient.ParseChunk, AcpSessionRunClient→TurnListener), `a5dc984` (AiChat.razor ×4 + **Program.cs 350** → Register*/Map* local functions), `00c6a8e` (SPEC marcada Done).
+- **S3776: 59/59 resolvidos.** Restante #410: S7637 + exclusão docs gerados (bloqueados — aprovação humana).
+- **Lições**: local functions em top-level podem ser declaradas no fim do arquivo e capturam `app`/`api`/`builder` (não-static); extrair blocos de endpoints via ranges de linha requer checar vars usadas cross-region (vscodePort) e local functions compartilhadas (ConfigurationError→file scope); erros CS4010/Task<?> eram cascata de CS0103.
+- SPEC-20261001-terminal-memory-mobile criada (Draft) — scrollback adaptativo do terminal + mobile.

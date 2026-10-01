@@ -4,7 +4,7 @@ namespace Taskboard.Integrations.Agents;
 
 /// <summary>
 /// One auth method advertised by the agent in the initialize response.
-/// <see cref="Type"/> defaults to <c>"agent"</c> per ACP v1; <c>"terminal"</c>
+/// <see cref="Type"/> defaults to <c>RoleAgent</c> per ACP v1; <c>"terminal"</c>
 /// means the client must run the configured agent program interactively.
 /// </summary>
 public sealed record AcpAuthMethod(
@@ -22,6 +22,8 @@ public sealed record AcpAuthMethod(
 /// </summary>
 public sealed class AcpPeerInfo
 {
+    private const string RoleAgent = "agent";
+
     public int ProtocolVersion { get; set; } = 1;
     /// <summary>Agent-assigned session id once session/new or session/resume completes.</summary>
     public string? SessionId { get; set; }
@@ -60,78 +62,54 @@ public sealed class AcpPeerInfo
 
         if (result.TryGetProperty("agentInfo", out var ai) && ai.ValueKind == JsonValueKind.Object)
         {
-            info.AgentName = ai.TryGetProperty("name", out var n) ? n.GetString() : null;
-            info.AgentVersion = ai.TryGetProperty("version", out var v) ? v.GetString() : null;
+            ApplyAgentInfo(info, ai);
         }
 
         if (result.TryGetProperty("agentCapabilities", out var caps) && caps.ValueKind == JsonValueKind.Object)
         {
-            info.LoadSession = GetBool(caps, "loadSession");
-
-            if (caps.TryGetProperty("promptCapabilities", out var pc) && pc.ValueKind == JsonValueKind.Object)
-            {
-                info.PromptImage = GetBool(pc, "image");
-                info.PromptAudio = GetBool(pc, "audio");
-                info.PromptEmbeddedContext = GetBool(pc, "embeddedContext");
-            }
-
-            if (caps.TryGetProperty("mcpCapabilities", out var mc) && mc.ValueKind == JsonValueKind.Object)
-            {
-                info.McpHttp = GetBool(mc, "http");
-                info.McpSse = GetBool(mc, "sse");
-            }
-
-            if (caps.TryGetProperty("sessionCapabilities", out var sc) && sc.ValueKind == JsonValueKind.Object)
-            {
-                info.SessionResume = HasObject(sc, "resume");
-                info.SessionClose = HasObject(sc, "close");
-                info.SessionDelete = HasObject(sc, "delete");
-                info.SessionList = HasObject(sc, "list");
-                info.AdditionalDirectories = HasObject(sc, "additionalDirectories");
-            }
-
-            if (caps.TryGetProperty("auth", out var auth) && auth.ValueKind == JsonValueKind.Object)
-            {
-                info.AuthLogout = HasObject(auth, "logout") || GetBool(auth, "logout");
-            }
+            ApplyV1Capabilities(info, caps);
         }
 
-        if (result.TryGetProperty("authMethods", out var methods) && methods.ValueKind == JsonValueKind.Array)
-        {
-            var list = new List<AcpAuthMethod>();
-            foreach (var m in methods.EnumerateArray())
-            {
-                if (m.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                var id = m.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-                if (id is null)
-                {
-                    continue;
-                }
-
-                var args = new List<string>();
-                if (m.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
-                {
-                    args.AddRange(argsEl.EnumerateArray()
-                        .Select(a => a.GetString())
-                        .Where(a => a is not null)!);
-                }
-
-                list.Add(new AcpAuthMethod(
-                    id,
-                    m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
-                    m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
-                    m.TryGetProperty("description", out var d) ? d.GetString() : null,
-                    args));
-            }
-
-            info.AuthMethods = list;
-        }
-
+        info.AuthMethods = ParseAuthMethods(result, "id");
         return info;
+    }
+
+    private static void ApplyAgentInfo(AcpPeerInfo info, JsonElement ai)
+    {
+        info.AgentName = ai.TryGetProperty("name", out var n) ? n.GetString() : null;
+        info.AgentVersion = ai.TryGetProperty("version", out var v) ? v.GetString() : null;
+    }
+
+    private static void ApplyV1Capabilities(AcpPeerInfo info, JsonElement caps)
+    {
+        info.LoadSession = GetBool(caps, "loadSession");
+
+        if (caps.TryGetProperty("promptCapabilities", out var pc) && pc.ValueKind == JsonValueKind.Object)
+        {
+            info.PromptImage = GetBool(pc, "image");
+            info.PromptAudio = GetBool(pc, "audio");
+            info.PromptEmbeddedContext = GetBool(pc, "embeddedContext");
+        }
+
+        if (caps.TryGetProperty("mcpCapabilities", out var mc) && mc.ValueKind == JsonValueKind.Object)
+        {
+            info.McpHttp = GetBool(mc, "http");
+            info.McpSse = GetBool(mc, "sse");
+        }
+
+        if (caps.TryGetProperty("sessionCapabilities", out var sc) && sc.ValueKind == JsonValueKind.Object)
+        {
+            info.SessionResume = HasObject(sc, "resume");
+            info.SessionClose = HasObject(sc, "close");
+            info.SessionDelete = HasObject(sc, "delete");
+            info.SessionList = HasObject(sc, "list");
+            info.AdditionalDirectories = HasObject(sc, "additionalDirectories");
+        }
+
+        if (caps.TryGetProperty("auth", out var auth) && auth.ValueKind == JsonValueKind.Object)
+        {
+            info.AuthLogout = HasObject(auth, "logout") || GetBool(auth, "logout");
+        }
     }
 
     /// <summary>
@@ -153,72 +131,95 @@ public sealed class AcpPeerInfo
 
         if (result.TryGetProperty("info", out var ai) && ai.ValueKind == JsonValueKind.Object)
         {
-            info.AgentName = ai.TryGetProperty("name", out var n) ? n.GetString() : null;
-            info.AgentVersion = ai.TryGetProperty("version", out var v) ? v.GetString() : null;
+            ApplyAgentInfo(info, ai);
         }
 
         if (result.TryGetProperty("capabilities", out var caps) && caps.ValueKind == JsonValueKind.Object
             && caps.TryGetProperty("session", out var s) && s.ValueKind == JsonValueKind.Object)
         {
-            // Baseline in v2 once the agent advertises the session group.
-            info.SessionResume = true;
-            info.SessionClose = true;
-            info.SessionList = true;
-            info.SessionDelete = HasObject(s, "delete");
-            info.AdditionalDirectories = HasObject(s, "additionalDirectories");
-
-            if (s.TryGetProperty("prompt", out var p) && p.ValueKind == JsonValueKind.Object)
-            {
-                info.PromptImage = HasObject(p, "image");
-                info.PromptAudio = HasObject(p, "audio");
-                info.PromptEmbeddedContext = HasObject(p, "embeddedContext");
-            }
-
-            if (s.TryGetProperty("mcp", out var m) && m.ValueKind == JsonValueKind.Object)
-            {
-                info.McpStdio = HasObject(m, "stdio");
-                info.McpHttp = HasObject(m, "http");
-            }
+            ApplyV2SessionCapabilities(info, s);
         }
 
-        if (result.TryGetProperty("authMethods", out var methods) && methods.ValueKind == JsonValueKind.Array)
-        {
-            var list = new List<AcpAuthMethod>();
-            foreach (var m in methods.EnumerateArray())
-            {
-                if (m.ValueKind != JsonValueKind.Object)
-                {
-                    continue;
-                }
-
-                var id = m.TryGetProperty("methodId", out var idEl) ? idEl.GetString() : null;
-                if (id is null)
-                {
-                    continue;
-                }
-
-                var args = new List<string>();
-                if (m.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
-                {
-                    args.AddRange(argsEl.EnumerateArray()
-                        .Select(a => a.GetString())
-                        .Where(a => a is not null)!);
-                }
-
-                list.Add(new AcpAuthMethod(
-                    id,
-                    m.TryGetProperty("type", out var t) ? t.GetString() ?? "agent" : "agent",
-                    m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
-                    m.TryGetProperty("description", out var d) ? d.GetString() : null,
-                    args));
-            }
-
-            info.AuthMethods = list;
-            // v2: advertising methods requires both auth/login and auth/logout.
-            info.AuthLogout = list.Count > 0;
-        }
-
+        info.AuthMethods = ParseAuthMethods(result, "methodId");
+        // v2: advertising methods requires both auth/login and auth/logout.
+        info.AuthLogout = info.AuthMethods.Count > 0;
         return info;
+    }
+
+    private static void ApplyV2SessionCapabilities(AcpPeerInfo info, JsonElement s)
+    {
+        // Baseline in v2 once the agent advertises the session group.
+        info.SessionResume = true;
+        info.SessionClose = true;
+        info.SessionList = true;
+        info.SessionDelete = HasObject(s, "delete");
+        info.AdditionalDirectories = HasObject(s, "additionalDirectories");
+
+        if (s.TryGetProperty("prompt", out var p) && p.ValueKind == JsonValueKind.Object)
+        {
+            info.PromptImage = HasObject(p, "image");
+            info.PromptAudio = HasObject(p, "audio");
+            info.PromptEmbeddedContext = HasObject(p, "embeddedContext");
+        }
+
+        if (s.TryGetProperty("mcp", out var m) && m.ValueKind == JsonValueKind.Object)
+        {
+            info.McpStdio = HasObject(m, "stdio");
+            info.McpHttp = HasObject(m, "http");
+        }
+    }
+
+    private static IReadOnlyList<AcpAuthMethod> ParseAuthMethods(JsonElement result, string idProperty)
+    {
+        if (!result.TryGetProperty("authMethods", out var methods) || methods.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var list = new List<AcpAuthMethod>();
+        foreach (var m in methods.EnumerateArray())
+        {
+            if (ParseAuthMethod(m, idProperty) is { } method)
+            {
+                list.Add(method);
+            }
+        }
+
+        return list;
+    }
+
+    private static AcpAuthMethod? ParseAuthMethod(JsonElement m, string idProperty)
+    {
+        if (m.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var id = m.TryGetProperty(idProperty, out var idEl) ? idEl.GetString() : null;
+        if (id is null)
+        {
+            return null;
+        }
+
+        return new AcpAuthMethod(
+            id,
+            m.TryGetProperty("type", out var t) ? t.GetString() ?? RoleAgent : RoleAgent,
+            m.TryGetProperty("name", out var nm) ? nm.GetString() ?? id : id,
+            m.TryGetProperty("description", out var d) ? d.GetString() : null,
+            ParseArgs(m));
+    }
+
+    private static List<string> ParseArgs(JsonElement m)
+    {
+        var args = new List<string>();
+        if (m.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Array)
+        {
+            args.AddRange(argsEl.EnumerateArray()
+                .Select(a => a.GetString())
+                .Where(a => a is not null)!);
+        }
+
+        return args;
     }
 
     /// <summary>Merges <c>modes</c>/<c>configOptions</c> from a session lifecycle response.</summary>

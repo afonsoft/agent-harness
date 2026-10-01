@@ -56,6 +56,16 @@ public static class AgentCliMap
     private static AgentCliInstallSpec ScriptInstall(string url) =>
         new("bash", ["-c", $"curl -fsSL {url} | bash"], "curl");
 
+    private static AgentCliInstallSpec CurlInstall(string url) =>
+        new("bash", ["-c", $"curl -fsSL {url} | bash"], "curl");
+
+    // Install script endpoints (S1075: fixed endpoints live in named constants).
+    internal const string DevinInstallUrl = "https://cli.devin.ai/install.sh";
+    internal const string AntigravityInstallUrl = "https://antigravity.google/cli/install.sh";
+    internal const string KimiInstallUrl = "https://code.kimi.com/kimi-code/install.sh";
+    internal const string GrokInstallUrl = "https://x.ai/cli/install.sh";
+    internal const string KiroInstallUrl = "https://cli.kiro.dev/install";
+
     private static readonly IReadOnlyDictionary<AgentCliKind, AgentCliSpec> Specs =
         new Dictionary<AgentCliKind, AgentCliSpec>
         {
@@ -89,32 +99,32 @@ public static class AgentCliMap
                 "~/.config/devin",
                 ".local/share/devin/credentials.toml",
                 "devin auth login",
-                "curl -fsSL https://cli.devin.ai/install.sh | bash",
-                ScriptInstall("https://cli.devin.ai/install.sh")),
+                $"curl -fsSL {DevinInstallUrl} | bash",
+                ScriptInstall(DevinInstallUrl)),
             [AgentCliKind.Antigravity] = new(
                 "Antigravity (agy)",
                 "agy",
                 "~/.gemini/antigravity-cli",
                 ".gemini/antigravity-cli/antigravity-oauth-token",
                 "agy",
-                "curl -fsSL https://antigravity.google/cli/install.sh | bash",
-                ScriptInstall("https://antigravity.google/cli/install.sh")),
+                $"curl -fsSL {AntigravityInstallUrl} | bash",
+                ScriptInstall(AntigravityInstallUrl)),
             [AgentCliKind.Kimi] = new(
                 "Kimi Code",
                 "kimi",
                 "~/.kimi-code",
                 null,
                 "kimi",
-                "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
-                ScriptInstall("https://code.kimi.com/kimi-code/install.sh")),
+                $"curl -fsSL {KimiInstallUrl} | bash",
+                ScriptInstall(KimiInstallUrl)),
             [AgentCliKind.Grok] = new(
                 "Grok (x.ai)",
                 "grok",
                 "~/.grok",
                 null,
                 "grok",
-                "curl -fsSL https://x.ai/cli/install.sh | bash",
-                ScriptInstall("https://x.ai/cli/install.sh")),
+                $"curl -fsSL {GrokInstallUrl} | bash",
+                ScriptInstall(GrokInstallUrl)),
             [AgentCliKind.Aider] = new(
                 "Aider",
                 "aider",
@@ -161,8 +171,8 @@ public static class AgentCliMap
                 "~/.kiro",
                 null,
                 "kiro-cli login",
-                "curl -fsSL https://cli.kiro.dev/install | bash",
-                ScriptInstall("https://cli.kiro.dev/install")),
+                $"curl -fsSL {KiroInstallUrl} | bash",
+                ScriptInstall(KiroInstallUrl)),
         };
 
     /// <summary>
@@ -178,7 +188,7 @@ public static class AgentCliMap
         Specs.TryGetValue(kind, out var spec) ? spec : null;
 
     /// <summary>All known CLIs in display order.</summary>
-    public static IReadOnlyList<KeyValuePair<AgentCliKind, AgentCliSpec>> All =>
+    public static IReadOnlyList<KeyValuePair<AgentCliKind, AgentCliSpec>> AllSpecs() =>
         Specs.OrderBy(kv => kv.Value.DisplayName).ToList();
 
     private static readonly IReadOnlyDictionary<AgentCliKind, AgentType> CliToType =

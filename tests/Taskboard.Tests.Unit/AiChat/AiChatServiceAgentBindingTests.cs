@@ -404,7 +404,7 @@ public class AiChatServiceAgentBindingTests
             threadRepo ?? Substitute.For<IRepository<AiChatThread>>(),
             Substitute.For<IRepository<AiChatRun>>(),
             eventRepo ?? Substitute.For<IRepository<AiChatEvent>>(),
-            Substitute.For<ILLMProvider>(),
+            Substitute.For<ILlmProvider>(),
             Substitute.For<IThreadEventStreamService>(),
             Substitute.For<IServiceScopeFactory>(),
             eligibility,

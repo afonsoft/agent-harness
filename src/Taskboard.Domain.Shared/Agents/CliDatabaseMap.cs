@@ -91,7 +91,4 @@ public static class CliDatabaseMap
     public static IReadOnlyList<CliDbSource> SourcesFor(AgentCliKind kind) =>
         Sources.TryGetValue(kind, out var list) ? list : Empty;
 
-    /// <summary>All kinds that register at least one database source.</summary>
-    public static IReadOnlyList<KeyValuePair<AgentCliKind, IReadOnlyList<CliDbSource>>> All =>
-        Sources.Where(kv => kv.Value.Count > 0).OrderBy(kv => kv.Key.ToString()).ToList();
 }

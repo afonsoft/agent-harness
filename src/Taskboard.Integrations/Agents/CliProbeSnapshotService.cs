@@ -139,7 +139,7 @@ public sealed class CliProbeSnapshotService
             using var timeout = new CancellationTokenSource(RefreshTimeout);
             var tasks = new List<Task>();
 
-            foreach (var (kind, spec) in AgentCliMap.All)
+            foreach (var (kind, spec) in AgentCliMap.AllSpecs())
             {
                 var path = _locator(spec.Binary);
                 if (path is not null)
