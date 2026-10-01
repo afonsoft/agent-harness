@@ -146,26 +146,50 @@ public sealed class AcpV1Dialect : IAcpDialect
         // Shape real ACP: params { sessionId, toolCall: {...}, options: [{optionId, name, kind}] }
         // Legacy shape: params { requestId, tool, detail, options: ["allow","deny"] }
         var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
-        var tool = string.Empty;
-        var detail = string.Empty;
-        var options = new List<string>();
+        var (tool, detail) = ExtractToolDetail(p);
+        var options = ExtractOptionIds(p);
+        var effectiveRequestId = ResolveRequestId(p, requestId, isRequest);
 
+        var payload = JsonSerializer.Serialize(new
+        {
+            requestId = effectiveRequestId,
+            tool,
+            detail,
+            options
+        });
+
+        return new AcpProtocolParser.Parsed(
+            isRequest ? AcpProtocolParser.MessageType.Request : AcpProtocolParser.MessageType.Notification,
+            "session/request_permission",
+            AgentEventKinds.Permission,
+            detail,
+            payload,
+            sessionId,
+            RequestId: requestId);
+    }
+
+    private static (string Tool, string Detail) ExtractToolDetail(JsonElement p)
+    {
         if (p.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == JsonValueKind.Object)
         {
-            tool = toolCall.TryGetProperty("title", out var tt) ? tt.GetString() ?? string.Empty : string.Empty;
+            var tool = toolCall.TryGetProperty("title", out var tt) ? tt.GetString() ?? string.Empty : string.Empty;
             if (string.IsNullOrEmpty(tool))
             {
                 tool = toolCall.TryGetProperty("kind", out var tk) ? tk.GetString() ?? string.Empty : string.Empty;
             }
 
-            detail = toolCall.TryGetProperty("rawInput", out var ri) ? ri.GetRawText() : tool;
-        }
-        else
-        {
-            tool = p.TryGetProperty("tool", out var t) ? t.GetString() ?? string.Empty : string.Empty;
-            detail = p.TryGetProperty("detail", out var d) ? d.GetString() ?? string.Empty : string.Empty;
+            var detail = toolCall.TryGetProperty("rawInput", out var ri) ? ri.GetRawText() : tool;
+            return (tool, detail);
         }
 
+        return (
+            p.TryGetProperty("tool", out var t) ? t.GetString() ?? string.Empty : string.Empty,
+            p.TryGetProperty("detail", out var d) ? d.GetString() ?? string.Empty : string.Empty);
+    }
+
+    private static List<string> ExtractOptionIds(JsonElement p)
+    {
+        var options = new List<string>();
         if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
         {
             foreach (var opt in opts.EnumerateArray())
@@ -188,36 +212,21 @@ public sealed class AcpV1Dialect : IAcpDialect
             options.AddRange(["allow", "deny"]);
         }
 
-        // In real ACP the JSON-RPC request id is the reply correlation;
-        // in the legacy shape, params.requestId.
-        string effectiveRequestId;
+        return options;
+    }
+
+    // In real ACP the JSON-RPC request id is the reply correlation;
+    // in the legacy shape, params.requestId.
+    private static string ResolveRequestId(JsonElement p, string? requestId, bool isRequest)
+    {
         if (isRequest)
         {
-            effectiveRequestId = requestId ?? Guid.NewGuid().ToString("N");
-        }
-        else
-        {
-            effectiveRequestId = p.TryGetProperty("requestId", out var rid)
-                ? rid.GetString() ?? string.Empty
-                : string.Empty;
+            return requestId ?? Guid.NewGuid().ToString("N");
         }
 
-        var payload = JsonSerializer.Serialize(new
-        {
-            requestId = effectiveRequestId,
-            tool,
-            detail,
-            options
-        });
-
-        return new AcpProtocolParser.Parsed(
-            isRequest ? AcpProtocolParser.MessageType.Request : AcpProtocolParser.MessageType.Notification,
-            "session/request_permission",
-            AgentEventKinds.Permission,
-            detail,
-            payload,
-            sessionId,
-            RequestId: requestId);
+        return p.TryGetProperty("requestId", out var rid)
+            ? rid.GetString() ?? string.Empty
+            : string.Empty;
     }
 
     public ITurnTracker CreateTurnTracker() => new AcpV1TurnTracker();
