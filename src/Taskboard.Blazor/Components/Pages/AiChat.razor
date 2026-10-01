@@ -678,34 +678,48 @@ else
         var container = _dockerContainers?.FirstOrDefault(c => c.Name == _cfgContext);
         if (container is not null)
         {
-            foreach (var bin in container.AvailableClis)
-            {
-                AgentType? type = null;
-                string? display = null;
-                foreach (var kv in AgentCliMap.AllSpecs())
-                {
-                    if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
-                    {
-                        type = AgentCliMap.AgentTypeFor(kv.Key);
-                        display = kv.Value.DisplayName;
-                        break;
-                    }
-                }
-
-                type ??= bin == "openhands" ? AgentType.OpenHands : null;
-                if (type is null || !covered.Add(type.Value))
-                {
-                    continue;
-                }
-
-                options.Add(new CliOption(
-                    $"agent:{type.Value}", display ?? bin, type.Value, null,
-                    SupportsChat: AgentCliMap.SupportsAcp(type.Value), Selectable: true));
-            }
+            AddContainerOptions(options, covered, container);
         }
         else
         {
+            AddHostOptions(options, covered);
+        }
 
+        AddCustomDefOptions(options);
+        _cliOptions = options;
+    }
+
+    private void AddContainerOptions(List<CliOption> options, HashSet<AgentType> covered, DockerContainerDto container)
+    {
+        foreach (var bin in container.AvailableClis)
+        {
+            var (type, display) = ResolveContainerBinary(bin);
+            if (type is null || !covered.Add(type.Value))
+            {
+                continue;
+            }
+
+            options.Add(new CliOption(
+                $"agent:{type.Value}", display ?? bin, type.Value, null,
+                SupportsChat: AgentCliMap.SupportsAcp(type.Value), Selectable: true));
+        }
+    }
+
+    private static (AgentType? Type, string? Display) ResolveContainerBinary(string bin)
+    {
+        foreach (var kv in AgentCliMap.AllSpecs())
+        {
+            if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
+            {
+                return (AgentCliMap.AgentTypeFor(kv.Key), kv.Value.DisplayName);
+            }
+        }
+
+        return (bin == "openhands" ? AgentType.OpenHands : null, null);
+    }
+
+    private void AddHostOptions(List<CliOption> options, HashSet<AgentType> covered)
+    {
         foreach (var agent in _agents ?? [])
         {
             if (agent.Status != AgentStatus.Available || !covered.Add(agent.Type))
@@ -733,8 +747,10 @@ else
                 $"agent:{type}", status.DisplayName, type, null,
                 SupportsChat: false, Selectable: true));
         }
-        }
+    }
 
+    private void AddCustomDefOptions(List<CliOption> options)
+    {
         foreach (var def in _customDefs.Where(d => d.Enabled))
         {
             var label = def.Resolved ? def.DisplayName : $"{def.DisplayName} (not on PATH)";
@@ -745,8 +761,6 @@ else
                 SupportsChat: false,
                 Selectable: def.Resolved));
         }
-
-        _cliOptions = options;
     }
 
     /// <summary>Display name for the CLI backing a thread (builtin type or custom def).</summary>
@@ -1066,6 +1080,14 @@ else
 
     private async Task SelectThreadAsync(AiChatThreadDto thread)
     {
+        ResetThreadState(thread);
+        await SyncBarDefaultsAsync(thread);
+        await ConnectThreadSseAsync(thread);
+        await LoadAgentScopeAsync(thread);
+    }
+
+    private void ResetThreadState(AiChatThreadDto thread)
+    {
         _activeThread = thread;
         _activeThreadId = thread.Id;
         _events.Clear();
@@ -1079,7 +1101,10 @@ else
         _running = thread.Status == "running";
         _sseError = false;
         _scrollPending = true;
+    }
 
+    private async Task SyncBarDefaultsAsync(AiChatThreadDto thread)
+    {
         // Keep the bar defaults in sync so "New" starts from this config.
         _cfgMode = thread.Mode;
         var cliOption = !string.IsNullOrWhiteSpace(thread.AgentCliId)
@@ -1099,11 +1124,14 @@ else
                 // Best-effort — failure here is non-fatal.
             }
         }
+
         _cfgRepo = thread.RepositoryFullName ?? string.Empty;
         _cfgModelTier = thread.ModelTier ?? string.Empty;
         _cfgModelId = string.Empty;
         _cfgSandbox = thread.Sandbox;
+    }
 
+    private async Task ConnectThreadSseAsync(AiChatThreadDto thread) =>
         await JS.InvokeVoidAsync(
             "taskboardSse.connect",
             "ai-chat",
@@ -1111,20 +1139,24 @@ else
             _dotNetRef,
             new[] { "ai_chat.event", "ai_chat.run", "ai_chat.session", "ai_chat.permission" });
 
+    private async Task LoadAgentScopeAsync(AiChatThreadDto thread)
+    {
         // RF-005: quick-switch controls appear only when the peer advertised
         // model configOptions / modes in the negotiated session info.
-        if (thread.Mode == "agent")
+        if (thread.Mode != "agent")
         {
-            try
-            {
-                var state = await Client.GetAgentScopeStateAsync("thread", thread.Id);
-                ParseSessionInfo(state?.SessionInfoJson);
-                _running = state?.State == "running" || _running;
-            }
-            catch (Exception)
-            {
-                // Controls are optional — session info may be absent.
-            }
+            return;
+        }
+
+        try
+        {
+            var state = await Client.GetAgentScopeStateAsync("thread", thread.Id);
+            ParseSessionInfo(state?.SessionInfoJson);
+            _running = state?.State == "running" || _running;
+        }
+        catch (Exception)
+        {
+            // Controls are optional — session info may be absent.
         }
     }
 
@@ -1139,54 +1171,71 @@ else
         {
             using var doc = JsonDocument.Parse(sessionInfoJson);
             var root = doc.RootElement;
-
-            if (root.TryGetProperty("configOptions", out var options) && options.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var option in options.EnumerateArray())
-                {
-                    var category = option.TryGetProperty("category", out var c) ? c.GetString() : null;
-                    if (!string.Equals(category, "model", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    _modelConfigId = option.TryGetProperty("id", out var oid) ? oid.GetString() : "model";
-                    _currentModel = option.TryGetProperty("value", out var v) ? v.GetString() : null;
-                    if (option.TryGetProperty("options", out var values) && values.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var entry in values.EnumerateArray())
-                        {
-                            var val = entry.TryGetProperty("value", out var ev) ? ev.GetString()
-                                : entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
-                            if (val is { Length: > 0 } && !_modelOptions.Contains(val))
-                            {
-                                _modelOptions.Add(val);
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (root.TryGetProperty("modes", out var modes) && modes.ValueKind == JsonValueKind.Object)
-            {
-                _currentMode = modes.TryGetProperty("currentModeId", out var cm) ? cm.GetString() : null;
-                if (modes.TryGetProperty("availableModes", out var available) && available.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var mode in available.EnumerateArray())
-                    {
-                        var id = mode.TryGetProperty("id", out var mid) ? mid.GetString() : null;
-                        if (id is { Length: > 0 })
-                        {
-                            var name = mode.TryGetProperty("name", out var mn) ? mn.GetString() : null;
-                            _modes.Add((id, name ?? id));
-                        }
-                    }
-                }
-            }
+            ParseModelConfigOptions(root);
+            ParseSessionModes(root);
         }
         catch (JsonException)
         {
             // Malformed payload — treated as absent.
+        }
+    }
+
+    private void ParseModelConfigOptions(JsonElement root)
+    {
+        if (!root.TryGetProperty("configOptions", out var options) || options.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var option in options.EnumerateArray())
+        {
+            var category = option.TryGetProperty("category", out var c) ? c.GetString() : null;
+            if (!string.Equals(category, "model", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _modelConfigId = option.TryGetProperty("id", out var oid) ? oid.GetString() : "model";
+            _currentModel = option.TryGetProperty("value", out var v) ? v.GetString() : null;
+            if (option.TryGetProperty("options", out var values) && values.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in values.EnumerateArray())
+                {
+                    var val = ExtractOptionValue(entry);
+                    if (val is { Length: > 0 } && !_modelOptions.Contains(val))
+                    {
+                        _modelOptions.Add(val);
+                    }
+                }
+            }
+        }
+    }
+
+    private static string? ExtractOptionValue(JsonElement entry) =>
+        entry.TryGetProperty("value", out var ev) ? ev.GetString()
+            : entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+
+    private void ParseSessionModes(JsonElement root)
+    {
+        if (!root.TryGetProperty("modes", out var modes) || modes.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        _currentMode = modes.TryGetProperty("currentModeId", out var cm) ? cm.GetString() : null;
+        if (!modes.TryGetProperty("availableModes", out var available) || available.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var mode in available.EnumerateArray())
+        {
+            var id = mode.TryGetProperty("id", out var mid) ? mid.GetString() : null;
+            if (id is { Length: > 0 })
+            {
+                var name = mode.TryGetProperty("name", out var mn) ? mn.GetString() : null;
+                _modes.Add((id, name ?? id));
+            }
         }
     }
 
@@ -1195,71 +1244,20 @@ else
     {
         try
         {
-            if (eventType == "ai_chat.permission")
+            switch (eventType)
             {
-                var permission = JsonSerializer.Deserialize<PermissionRequestInfo>(data, SseJson);
-                if (permission is not null && !_permissions.Any(p => p.RequestId == permission.RequestId))
-                {
-                    _permissions.Add(permission);
+                case "ai_chat.permission":
+                    OnPermissionSse(data);
+                    break;
+                case "ai_chat.event":
+                    OnChatEventSse(data);
+                    break;
+                case "ai_chat.session":
                     _scrollPending = true;
-                }
-                _sseError = false;
-            }
-            else if (eventType == "ai_chat.event")
-            {
-                var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
-                if (ev is not null)
-                {
-                    if (_seenEventIds.Add(ev.Id))
-                    {
-                        _events.Add(ev);
-                        _scrollPending = true;
-                    }
-                    else
-                    {
-                        // Re-published event (e.g. queued → dispatched user):
-                        // update in place rather than skip.
-                        var index = _events.FindIndex(e => e.Id == ev.Id);
-                        if (index >= 0)
-                        {
-                            _events[index] = ev;
-                        }
-                    }
-
-                    // Turn ends on session/prompt stopReason or session death.
-                    if (ev.Kind == "session"
-                        && (ev.PayloadJson?.Contains("\"stopReason\"") == true
-                            || ev.PayloadJson?.Contains("\"dead\"") == true))
-                    {
-                        _running = false;
-                    }
-                }
-                _sseError = false;
-            }
-            else if (eventType == "ai_chat.session")
-            {
-                _scrollPending = true;
-            }
-            else if (eventType == "ai_chat.run")
-            {
-                var run = JsonSerializer.Deserialize<AiChatRunDto>(data, SseJson);
-                if (run is not null)
-                {
-                    _running = run.Status == "running";
-                    if (_activeThreadId == run.ThreadId && _activeThread is { } active)
-                    {
-                        var status = run.Status switch
-    {
-        "failed" => "failed",
-        "running" => "running",
-        _ => "idle",
-    };
-                        _activeThread = active with { Status = status };
-                        _threads = _threads?.Select(t => t.Id == run.ThreadId ? t with { Status = status } : t).ToList();
-                    }
-                    _scrollPending = true;
-                }
-                _sseError = false;
+                    break;
+                case "ai_chat.run":
+                    OnRunSse(data);
+                    break;
             }
         }
         catch (JsonException)
@@ -1268,6 +1266,79 @@ else
         }
 
         await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnPermissionSse(string data)
+    {
+        var permission = JsonSerializer.Deserialize<PermissionRequestInfo>(data, SseJson);
+        if (permission is not null && !_permissions.Any(p => p.RequestId == permission.RequestId))
+        {
+            _permissions.Add(permission);
+            _scrollPending = true;
+        }
+
+        _sseError = false;
+    }
+
+    private void OnChatEventSse(string data)
+    {
+        var ev = JsonSerializer.Deserialize<AiChatEventDto>(data, SseJson);
+        if (ev is not null)
+        {
+            UpsertEvent(ev);
+
+            // Turn ends on session/prompt stopReason or session death.
+            if (ev.Kind == "session"
+                && (ev.PayloadJson?.Contains("\"stopReason\"") == true
+                    || ev.PayloadJson?.Contains("\"dead\"") == true))
+            {
+                _running = false;
+            }
+        }
+
+        _sseError = false;
+    }
+
+    private void UpsertEvent(AiChatEventDto ev)
+    {
+        if (_seenEventIds.Add(ev.Id))
+        {
+            _events.Add(ev);
+            _scrollPending = true;
+            return;
+        }
+
+        // Re-published event (e.g. queued → dispatched user):
+        // update in place rather than skip.
+        var index = _events.FindIndex(e => e.Id == ev.Id);
+        if (index >= 0)
+        {
+            _events[index] = ev;
+        }
+    }
+
+    private void OnRunSse(string data)
+    {
+        var run = JsonSerializer.Deserialize<AiChatRunDto>(data, SseJson);
+        if (run is not null)
+        {
+            _running = run.Status == "running";
+            if (_activeThreadId == run.ThreadId && _activeThread is { } active)
+            {
+                var status = run.Status switch
+                {
+                    "failed" => "failed",
+                    "running" => "running",
+                    _ => "idle",
+                };
+                _activeThread = active with { Status = status };
+                _threads = _threads?.Select(t => t.Id == run.ThreadId ? t with { Status = status } : t).ToList();
+            }
+
+            _scrollPending = true;
+        }
+
+        _sseError = false;
     }
 
     [JSInvokable]
