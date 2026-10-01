@@ -776,24 +776,33 @@
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender)
         {
-            // ?tab= deep link — refresh/URL preserves the selected tab.
-            var query = new Uri(Navigation.Uri).Query;
-            if (query.Length > 1)
-            {
-                var tab = query[1..].Split('&')
-                    .Select(pair => pair.Split('=', 2))
-                    .Where(pair => pair.Length == 2 && pair[0] == "tab")
-                    .Select(pair => Uri.UnescapeDataString(pair[1]))
-                    .FirstOrDefault();
-                if (tab is not null && SettingsTabs.Any(t => t.Id == tab))
-                {
-                    _activeTab = tab;
-                    StateHasChanged();
-                }
-            }
+            return;
         }
+
+        // ?tab= deep link — refresh/URL preserves the selected tab.
+        var tab = ResolveTabFromQuery();
+        if (tab is not null && SettingsTabs.Any(t => t.Id == tab))
+        {
+            _activeTab = tab;
+            StateHasChanged();
+        }
+    }
+
+    private string? ResolveTabFromQuery()
+    {
+        var query = new Uri(Navigation.Uri).Query;
+        if (query.Length <= 1)
+        {
+            return null;
+        }
+
+        return query[1..].Split('&')
+            .Select(pair => pair.Split('=', 2))
+            .Where(pair => pair.Length == 2 && pair[0] == "tab")
+            .Select(pair => Uri.UnescapeDataString(pair[1]))
+            .FirstOrDefault();
     }
 
     private void SelectTab(string id)

@@ -802,6 +802,7 @@ else
     {
         get
         {
+            var groups = new List<(string Role, string Text)>();
             string? role = null;
             var buffer = new System.Text.StringBuilder();
             foreach (var ev in _events)
@@ -809,27 +810,31 @@ else
                 var normalized = ev.Role is "user" or "assistant" ? ev.Role : null;
                 if (normalized is null)
                 {
-                    if (role is not null)
-                    {
-                        yield return (role, buffer.ToString());
-                        buffer.Clear();
-                        role = null;
-                    }
-                    yield return (ev.Role, ev.Content);
+                    Flush();
+                    groups.Add((ev.Role, ev.Content));
                     continue;
                 }
 
                 if (role is not null && normalized != role)
                 {
-                    yield return (role, buffer.ToString());
-                    buffer.Clear();
+                    Flush();
                 }
+
                 role = normalized;
                 buffer.Append(normalized == "assistant" ? ev.Content : ev.Content + "\n");
             }
-            if (role is not null)
+
+            Flush();
+            return groups;
+
+            void Flush()
             {
-                yield return (role, buffer.ToString());
+                if (role is not null)
+                {
+                    groups.Add((role, buffer.ToString()));
+                    buffer.Clear();
+                    role = null;
+                }
             }
         }
     }
