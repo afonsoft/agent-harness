@@ -1734,10 +1734,10 @@ void MapAiChatEndpoints()
         string id,
         PromptAgentThreadRequest request,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1752,10 +1752,10 @@ void MapAiChatEndpoints()
         string id,
         PromptAgentThreadRequest request,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1770,10 +1770,10 @@ void MapAiChatEndpoints()
         string id,
         string eventId,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1797,10 +1797,10 @@ void MapAiChatEndpoints()
     api.MapPost("local/ai/threads/{id}/retry", async (
         string id,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1814,10 +1814,10 @@ void MapAiChatEndpoints()
     api.MapPost("local/ai/threads/{id}/cancel", async (
         string id,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1833,9 +1833,9 @@ void MapAiChatEndpoints()
         string requestId,
         PermissionReplyRequest request,
         PermissionGate permissionGate,
-        IConfiguration config) =>
+        RuntimeConfigurationService runtimeConfig) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }

@@ -115,7 +115,10 @@ public sealed class FinOpsService : IFinOpsService
             .ConfigureAwait(false);
         var cliSessions = await _cliSessions.Query
             .Where(s => s.StartedAtUtc >= scanSince
-                || (s.EndedAtUtc != null && s.EndedAtUtc >= scanSince))
+                // B-23: open sessions are live regardless of age — a session
+                // started >30d ago still belongs in the active scan.
+                || s.EndedAtUtc == null
+                || s.EndedAtUtc >= scanSince)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         var cliSources = await _cliSources.Query
@@ -123,6 +126,8 @@ public sealed class FinOpsService : IFinOpsService
             .ConfigureAwait(false);
         var runs = await _runs.Query
             .Where(r => r.StartedAt >= new DateTimeOffset(scanSince, TimeSpan.Zero)
+                // B-23: Running rows are live regardless of StartedAt.
+                || r.State == AgentRunState.Running
                 || (r.FinishedAt != null && r.FinishedAt >= new DateTimeOffset(scanSince, TimeSpan.Zero)))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

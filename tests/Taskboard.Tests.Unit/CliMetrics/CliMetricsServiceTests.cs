@@ -201,7 +201,9 @@ public class CliMetricsServiceTests : IDisposable
         var extractor = new FakeExtractor
         {
             OnExtract = _ => new CliExtractionResult(
-                [Session("old", antiga)], [], "c1", CliDbSourceStatus.Available, null),
+                // B-23: a sessão precisa estar FECHADA para a retenção purgar —
+                // sessões abertas recém-ingeridas são preservadas.
+                [Session("old", antiga) with { EndedAtUtc = antiga.AddHours(1) }], [], "c1", CliDbSourceStatus.Available, null),
         };
         var service = new CliMetricsService(
             new EfCoreCliMetricsRepository(_context), [extractor], _locator,
@@ -214,6 +216,29 @@ public class CliMetricsServiceTests : IDisposable
             customMessage: "raw >90d purgado");
         (await _context.CliDailyUsageAggregates.CountAsync()).ShouldBe(1,
             customMessage: "agregado retido indefinidamente");
+    }
+
+    [Fact]
+    public async Task Dado_SessaoAbertaAntiga_Quando_Sync_Entao_RetencaoPreservaRaw()
+    {
+        // B-23: sessão aberta (EndedAtUtc null) ainda vista pelo ingest não
+        // pode ser apagada pela retenção — era o falso "sessão ativa sumiu".
+        WriteDbFile();
+        var antiga = DateTimeOffset.UtcNow.AddDays(-120);
+        var extractor = new FakeExtractor
+        {
+            OnExtract = _ => new CliExtractionResult(
+                [Session("live-open", antiga)], [], "c1", CliDbSourceStatus.Available, null),
+        };
+        var service = new CliMetricsService(
+            new EfCoreCliMetricsRepository(_context), [extractor], _locator,
+            new CliMetricsOptions { RetentionDays = 90 },
+            Substitute.For<ILogger<CliMetricsService>>());
+
+        await service.SyncAsync();
+
+        (await _context.CliSessionMetrics.CountAsync()).ShouldBe(1,
+            customMessage: "sessão aberta recém-ingerida sobrevive à retenção");
     }
 
     [Fact]
