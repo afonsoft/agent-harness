@@ -1,5 +1,4 @@
 @using System.Text.Json
-@using System.Text.RegularExpressions
 @using Taskboard.Application.Contracts.Chat
 @using Taskboard.Rendering
 @inject TaskboardClient Client
@@ -74,11 +73,12 @@
         </div>
 
         <div class="provider-chat-messages flex-grow-1 overflow-auto px-3 py-3" id="provider-chat-scroll">
+            <div class="provider-chat-thread">
             @if (_messages.Count == 0 && !_running && string.IsNullOrEmpty(_streaming))
             {
-                <div class="text-center text-body-secondary py-5">
-                    <p class="mb-1 fw-semibold">Provider Chat</p>
-                    <p class="small mb-0">Escolha um provider e um modelo, depois envie uma mensagem. Tools de host (shell, arquivos, CLIs), busca web, código e imagem ficam disponíveis ao modelo — confinadas pelo security gateway.</p>
+                <div class="provider-chat-empty">
+                    <p class="provider-chat-empty-title">How can I help you today?</p>
+                    <p class="small text-body-secondary mb-0">Escolha um provider e um modelo, depois envie uma mensagem. Tools de host (shell, arquivos, CLIs), busca web, código e imagem ficam disponíveis ao modelo — confinadas pelo security gateway.</p>
                 </div>
             }
             @foreach (var message in _messages)
@@ -88,14 +88,19 @@
                     {
                         <details class="provider-tool-card" open="@message.Refused">
                             <summary>
-                                <span class="badge @(message.Refused ? "text-bg-danger" : "text-bg-secondary")">tool</span>
+                                <span class="provider-tool-icon"><Icon Name="IconName.Terminal" /></span>
                                 <code>@message.ToolName</code>
                                 @if (message.Refused)
                                 {
                                     <span class="badge text-bg-warning ms-1">refused</span>
                                 }
+                                <span class="provider-tool-hint ms-auto">result</span>
                             </summary>
-                            <pre class="chat-mini-terminal small mb-0"><code>@MiniTerminalContent(message.Content)</code></pre>
+                            <pre class="chat-mini-terminal small mb-0"><code>@ToolResultFormatter.FormatForTerminal(message.Content)</code></pre>
+                            @if (message.ImageUrl is not null)
+                            {
+                                <img src="@message.ImageUrl" alt="tool output" class="provider-chat-image img-fluid rounded mt-2" />
+                            }
                         </details>
                     }
                     else
@@ -112,6 +117,16 @@
                         @if (message.ImageUrl is not null)
                         {
                             <img src="@message.ImageUrl" alt="generated" class="provider-chat-image img-fluid rounded mt-2" />
+                        }
+                        @if (message.Role == "assistant")
+                        {
+                            @* open-webui message actions — copy the markdown source. *@
+                            <div class="provider-chat-actions">
+                                <button type="button" class="provider-chat-action" title="Copiar resposta"
+                                        @onclick="() => CopyMessageAsync(message.Id, message.Content)">
+                                    <Icon Name="@(_copiedId == message.Id ? IconName.CheckLg : IconName.Clipboard)" />
+                                </button>
+                            </div>
                         }
                     }
                 </div>
@@ -156,6 +171,7 @@
                     }
                 </div>
             }
+            </div>
         </div>
 
         <div class="provider-chat-composer border-top px-3 py-2">
@@ -176,18 +192,27 @@
             <SlashCommandPalette Items="SlashItems" Filter="@SlashFilter"
                                  Open="SlashOpen" ActiveIndex="_slashIndex"
                                  OnSelect="OnSlashSelect" />
-            <div class="d-flex gap-2 align-items-end">
-                <textarea class="form-control" rows="2" placeholder="Mensagem… (/ comandos e skills, Enter envia)"
-                          @bind="_composer" @bind:event="oninput" @onkeydown="OnComposerKey"
-                          @onkeydown:preventDefault="_slashPreventDefault"></textarea>
-                @if (_running)
-                {
-                    <button type="button" class="btn btn-outline-danger" @onclick="StopAsync" title="Stop">■</button>
-                }
-                else
-                {
-                    <button type="button" class="btn btn-primary" @onclick="SendAsync" disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model))">Send</button>
-                }
+            <div class="provider-chat-composer-thread">
+                <div class="provider-chat-composer-box">
+                    <textarea class="provider-chat-input" rows="2" placeholder="Send a message… (/ comandos e skills, Enter envia)"
+                              @bind="_composer" @bind:event="oninput" @onkeydown="OnComposerKey"
+                              @onkeydown:preventDefault="_slashPreventDefault"></textarea>
+                    <div class="provider-chat-composer-actions">
+                        @if (_running)
+                        {
+                            <button type="button" class="provider-chat-send stop" @onclick="StopAsync" title="Stop" aria-label="Stop">
+                                <Icon Name="IconName.StopCircle" />
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="provider-chat-send" @onclick="SendAsync" title="Enviar" aria-label="Send"
+                                    disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model))">
+                                <Icon Name="IconName.Send" />
+                            </button>
+                        }
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -229,6 +254,7 @@
     private bool _running;
     private bool _busy;
     private CancellationTokenSource? _streamCts;
+    private string? _copiedId;
 
     protected override async Task OnInitializedAsync()
     {
@@ -597,18 +623,6 @@
         }
     }
 
-    /// <summary>
-    /// FR-005: ANSI escape sequences are stripped before tool output reaches
-    /// the mini-terminal — raw control bytes never hit the DOM.
-    /// </summary>
-    private static readonly Regex AnsiEscape = new(
-        @"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[PX^_].*?\x1b\\",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline,
-        TimeSpan.FromSeconds(1));
-
-    private static string MiniTerminalContent(string content) =>
-        AnsiEscape.Replace(content, string.Empty);
-
     /// <summary>FR-003: "Running tool/MCP/agent" chip label per status phase.</summary>
     private string StatusText() => _statusPhase switch
     {
@@ -840,6 +854,27 @@
         catch (JSException)
         {
             // Pre-render/disposed — highlight is cosmetic.
+        }
+    }
+
+    // SPEC-20261001-ai-chat-openwebui: copy the raw markdown of an assistant
+    // answer (open-webui message action); shows a ✓ briefly.
+    private async Task CopyMessageAsync(string id, string content)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardChat.copy", content);
+            _copiedId = id;
+            StateHasChanged();
+            _ = Task.Delay(1600).ContinueWith(_ =>
+            {
+                _copiedId = null;
+                InvokeAsync(StateHasChanged);
+            });
+        }
+        catch (JSException)
+        {
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, "Não foi possível copiar."));
         }
     }
 

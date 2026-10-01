@@ -505,6 +505,14 @@ void RegisterWorkspaceAndChatServices()
             // B-18: backend resolved per execution from the live config values
             // carried by the tool context — Settings changes need no restart.
             new WebSearchTool((kind, url, key) => SearchBackendFactory.Create(kind, url, key, http)),
+            // SPEC-20261001-ai-chat-openwebui: open-webui parity — fetch_url,
+            // memory, current_datetime and calculator.
+            new FetchUrlTool(http, sp.GetRequiredService<ISecretRedactor>()),
+            new MemoryTool(
+                new ChatMemoryStore(environment.GetDataDir()),
+                sp.GetRequiredService<ISecretRedactor>()),
+            new DateTimeTool(),
+            new CalculatorTool(),
             sp.GetRequiredService<GenerateImageTool>(),
             // SPEC-20261001-chat-agent-delegation: chat → agent/sub-agent tools.
             new RunAgentTool(

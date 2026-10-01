@@ -10,9 +10,11 @@ namespace Taskboard.Integrations.Chat.Tools;
 public sealed class ReadFileTool(ISecretRedactor redactor) : IChatTool
 {
     public string Name => "read_file";
-    public string Description => "Read a text file inside the workspace (path-jailed).";
+    public string Description =>
+        "Read a text file inside the workspace (path-jailed). Large files can be paged "
+        + "with offset/limit (characters) instead of reading the whole file at once.";
     public string ParametersJson => """
-        {"type":"object","properties":{"path":{"type":"string","description":"Relative path inside the workspace"}},"required":["path"]}
+        {"type":"object","properties":{"path":{"type":"string","description":"Relative path inside the workspace"},"offset":{"type":"integer","description":"Character offset to start reading at (default 0)"},"limit":{"type":"integer","description":"Max characters to return (default 16000)"}},"required":["path"]}
         """;
 
     public async Task<ChatToolResult> ExecuteAsync(
@@ -21,14 +23,33 @@ public sealed class ReadFileTool(ISecretRedactor redactor) : IChatTool
         var path = arguments.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String
             ? p.GetString() ?? string.Empty
             : string.Empty;
+        var offset = arguments.TryGetProperty("offset", out var o) && o.TryGetInt32(out var ov) && ov > 0 ? ov : 0;
+        var limit = arguments.TryGetProperty("limit", out var l) && l.TryGetInt32(out var lv) && lv > 0
+            ? Math.Min(lv, ShellExecTool.MaxOutputChars)
+            : ShellExecTool.MaxOutputChars;
         try
         {
             var full = PathJailValidator.Validate(path, context.WorkspacePath);
             var content = await File.ReadAllTextAsync(full, cancellationToken).ConfigureAwait(false);
+            var total = content.Length;
+            if (offset > 0)
+            {
+                content = offset < content.Length ? content[offset..] : string.Empty;
+            }
+
+            var truncated = content.Length > limit;
+            if (truncated)
+            {
+                content = content[..limit];
+            }
+
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
                 path,
-                content = redactor.Redact(ChatProcessRunner.Truncate(content)) ?? string.Empty,
+                totalChars = total,
+                offset,
+                truncated,
+                content = redactor.Redact(content) ?? string.Empty,
             }));
         }
         catch (Exception ex) when (ex is SecurityAccessDeniedException or IOException or UnauthorizedAccessException)

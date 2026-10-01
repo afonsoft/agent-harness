@@ -235,5 +235,18 @@ window.taskboardChat = {
                 /* unknown language — leave plain */
             }
         });
+    },
+
+    // SPEC-20261001-ai-chat-openwebui: clipboard for message actions.
+    copy: function (text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        }
+        var area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
     }
 };

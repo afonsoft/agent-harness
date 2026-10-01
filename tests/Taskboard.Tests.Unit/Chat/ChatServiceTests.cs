@@ -291,6 +291,55 @@ public sealed class ChatServiceTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// SPEC-20261001-ai-chat-openwebui RF-001: modelos que emitem tool call como
+    /// markup inline (DeepSeek <｜DSML｜function_calls>) — o markup nunca vira
+    /// delta nem persiste; a chamada é materializada e executa no tool loop.
+    /// </summary>
+    [Fact]
+    public async Task Dado_ProviderEmiteDsml_Quando_Enviar_Entao_MarkupNaoVazaEChamadaExecuta()
+    {
+        var service = NewService(new DsmlProviderHandler(), new ChatRunCoordinator());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "deepseek"));
+
+        var events = new List<ChatStreamEvent>();
+        await foreach (var chatEvent in await service.SendMessageAsync(conversation.Id, "rode ls", CancellationToken.None))
+        {
+            events.Add(chatEvent);
+        }
+
+        events.OfType<ChatToolCallEvent>().Select(e => e.Name).ShouldBe(["echo_tool"]);
+        events.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["vou rodar ", "feito"]);
+        events.OfType<ChatDeltaEvent>()
+            .ShouldNotContain(d => d.Content.Contains("DSML", StringComparison.Ordinal));
+
+        var detail = await service.GetConversationAsync(conversation.Id);
+        detail!.Messages.ShouldNotContain(m => m.Content.Contains("DSML", StringComparison.Ordinal));
+        detail.Messages[1].ToolCallsJson.ShouldNotBeNull("o call materializado do markup persiste como tool call real");
+        detail.Messages[2].ToolName.ShouldBe("echo_tool");
+    }
+
+    /// <summary>Provider fake: 1ª chamada emite DSML inline, 2ª devolve a resposta final.</summary>
+    private sealed class DsmlProviderHandler : HttpMessageHandler
+    {
+        private int _calls;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _calls);
+            var body = call == 1
+                ? Sse("""data: {"choices":[{"delta":{"content":"vou rodar <｜DSML｜function_calls><｜DSML｜invoke name=\"echo_tool\"><｜DSML｜parameter name=\"text\" string=\"true\">rode</｜DSML｜parameter></｜DSML｜invoke></｜DSML｜function_calls>"}}]}""")
+                : Sse("""data: {"choices":[{"delta":{"content":"feito"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}""");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            });
+        }
+
+        private static string Sse(string line) => $"{line}\ndata: [DONE]\n";
+    }
+
     private sealed class FakeEchoTool : IChatTool
     {
         public string Name => "echo_tool";
