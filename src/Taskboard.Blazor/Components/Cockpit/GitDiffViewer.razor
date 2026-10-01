@@ -160,11 +160,9 @@ else
                 section?.Body.Split('\n')));
         }
 
-        var others = sections.Where(s => !matched.Contains(s)).ToList();
-        foreach (var other in others)
-        {
-            cards.Add(new FileCard(other.Path ?? "(outros)", null, 0, 0, other.Body.Split('\n')));
-        }
+        cards.AddRange(sections
+            .Where(s => !matched.Contains(s))
+            .Select(s => new FileCard(s.Path ?? "(outros)", null, 0, 0, s.Body.Split('\n'))));
 
         return cards;
     }
