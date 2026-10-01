@@ -29,6 +29,13 @@ public sealed class CliProbeRefreshJobService : ManagedJobService
         // RefreshAsync is single-flight (joins an in-flight refresh) and bounds
         // the probes with its own timeout, so the job token is not forwarded.
         await _snapshot.RefreshAsync().ConfigureAwait(false);
+        // B-21: a wholesale refresh failure (timeout/exception) must surface
+        // as a job failure instead of a misleading "ok" outcome.
+        if (_snapshot.LastRefreshError is { } error)
+        {
+            throw new InvalidOperationException($"probe refresh failed: {error}");
+        }
+
         return "probe snapshot refreshed";
     }
 }

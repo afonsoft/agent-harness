@@ -64,6 +64,13 @@ public sealed class CliProbeSnapshotService
     /// <summary>Wall-clock duration of the last completed refresh.</summary>
     public TimeSpan LastDuration { get; private set; }
 
+    /// <summary>
+    /// Error of the last refresh when it failed wholesale (timeout/exception);
+    /// null after a run that reached completion. Individual probe failures stay
+    /// absorbed — a missing CLI is a normal condition.
+    /// </summary>
+    public string? LastRefreshError { get; private set; }
+
     /// <summary>Last-known CLI version, or null when never probed.</summary>
     public string? GetVersion(AgentCliKind kind) =>
         _versions.TryGetValue(kind, out var version) ? version : null;
@@ -134,6 +141,7 @@ public sealed class CliProbeSnapshotService
     private async Task RunRefreshAsync()
     {
         var started = _time.GetUtcNow();
+        LastRefreshError = null;
         try
         {
             using var timeout = new CancellationTokenSource(RefreshTimeout);
@@ -168,10 +176,12 @@ public sealed class CliProbeSnapshotService
         }
         catch (OperationCanceledException ex)
         {
+            LastRefreshError = $"timed out after {RefreshTimeout}";
             _logger.LogWarning(ex, "CLI probe refresh timed out after {Timeout}.", RefreshTimeout);
         }
         catch (Exception ex)
         {
+            LastRefreshError = ex.Message;
             _logger.LogWarning(ex, "CLI probe refresh failed.");
         }
         finally

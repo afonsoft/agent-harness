@@ -40,28 +40,32 @@ public sealed class ChatServiceTests : IDisposable
         _context.ChatProviders.Add(_provider);
         _context.SaveChanges();
 
-        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+        _service = NewService(new FakeProviderHandler(), new ChatRunCoordinator());
+    }
+
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator)
+    {
+        var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Taskboard:Chat:Tools:Enabled"] = "true",
                 ["Taskboard:Chat:MaxToolIterations"] = "4",
             })
             .Build();
-
-        var client = new OpenAiCompatibleClient(new HttpClient(new FakeProviderHandler()));
         var tools = new Dictionary<string, IChatTool>(StringComparer.Ordinal)
         {
             ["echo_tool"] = new FakeEchoTool(),
         };
-        _service = new ChatService(
+        return new ChatService(
             new EfCoreRepository<ChatProvider>(_context),
             new EfCoreRepository<ChatConversation>(_context),
             new EfCoreRepository<ChatMessage>(_context),
-            client,
+            new OpenAiCompatibleClient(new HttpClient(handler)),
             new ChatCapabilityRegistry(tools, new FakeSkillDiscovery(), configuration),
             new FakeSkillDiscovery(),
             new FakeWorkspaceResolver(),
-            configuration);
+            configuration,
+            coordinator);
     }
 
     public void Dispose()
@@ -137,6 +141,67 @@ public sealed class ChatServiceTests : IDisposable
             async () => await _service.SendMessageAsync(conversation.Id, "oi", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Dado_RunRegistradoPorOutraInstancia_Quando_Stop_Entao_CoordinatorCancelaStream()
+    {
+        // B-01: o ChatService é scoped — /stop chega em outra instância. Com o
+        // coordinator singleton compartilhado, o stop alcança o run ativo.
+        var coordinator = new ChatRunCoordinator();
+        var handler = new GatedProviderHandler();
+        var sender = NewService(handler, coordinator);
+        var stopper = NewService(handler, coordinator);
+
+        var conversation = await sender.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var collect = Task.Run(async () =>
+        {
+            var events = new List<ChatStreamEvent>();
+            await foreach (var e in await sender.SendMessageAsync(conversation.Id, "oi", CancellationToken.None))
+            {
+                events.Add(e);
+            }
+
+            return events;
+        });
+
+        await handler.FirstDeltaSent.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        stopper.Stop(conversation.Id).ShouldBeTrue(
+            "B-01: o stop de outro request scope alcança o run via coordinator singleton");
+
+        var events = await collect.WaitAsync(TimeSpan.FromSeconds(10));
+        events.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["parte-1"]);
+        events.OfType<ChatDoneEvent>().Single().Error.ShouldBe("stopped by user");
+    }
+
+    [Fact]
+    public async Task Dado_ProviderAindaTransmitindo_Quando_ConsomeStream_Entao_DeltaChegaAntesDoFim()
+    {
+        // B-02: streaming real — o 1º delta deve sair do enumerador enquanto o
+        // provider ainda está bloqueado no gate; com buffering ele só chegaria
+        // depois do stream completo.
+        var handler = new GatedProviderHandler();
+        var service = NewService(handler, new ChatRunCoordinator());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var stream = await service.SendMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        await using var enumerator = stream.GetAsyncEnumerator();
+
+        (await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10))).ShouldBeTrue();
+        enumerator.Current.ShouldBeOfType<ChatDeltaEvent>().Content.ShouldBe("parte-1");
+        handler.ReleaseSecond.TrySetResult();
+
+        var rest = new List<ChatStreamEvent>();
+        while (await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)))
+        {
+            rest.Add(enumerator.Current);
+        }
+
+        rest.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["parte-2"]);
+        rest.OfType<ChatDoneEvent>().ShouldHaveSingleItem();
+    }
+
     private sealed class FakeEchoTool : IChatTool
     {
         public string Name => "echo_tool";
@@ -192,5 +257,99 @@ public sealed class ChatServiceTests : IDisposable
         }
 
         private static string Sse(string line) => $"{line}\ndata: [DONE]\n";
+    }
+
+    /// <summary>
+    /// Provider fake controlado: emite o 1º delta, sinaliza o teste e espera
+    /// <see cref="ReleaseSecond"/> (ou cancelamento) antes de enviar o resto.
+    /// </summary>
+    private sealed class GatedProviderHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource FirstDeltaSent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseSecond { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new GatedStream(FirstDeltaSent, ReleaseSecond.Task)),
+            });
+
+        private sealed class GatedStream(TaskCompletionSource firstSent, Task releaseSecond) : Stream
+        {
+            private static readonly byte[] First = Encoding.UTF8.GetBytes(
+                """data: {"choices":[{"delta":{"content":"parte-1"}}]}""" + "\n\n");
+
+            private static readonly byte[] Second = Encoding.UTF8.GetBytes(
+                """data: {"choices":[{"delta":{"content":"parte-2"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" + "\n\ndata: [DONE]\n");
+
+            private readonly Queue<byte[]> _pending = new();
+            private int _offset;
+            private int _phase;
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+
+            public override long Position
+            {
+                get => throw new NotSupportedException();
+                set => throw new NotSupportedException();
+            }
+
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                while (_pending.Count == 0)
+                {
+                    if (_phase == 0)
+                    {
+                        _pending.Enqueue(First);
+                        _phase = 1;
+                        firstSent.TrySetResult();
+                        continue;
+                    }
+
+                    if (_phase == 2)
+                    {
+                        return 0;
+                    }
+
+                    _phase = 2;
+                    await releaseSecond.WaitAsync(cancellationToken);
+                    _pending.Enqueue(Second);
+                }
+
+                var chunk = _pending.Peek();
+                var n = Math.Min(buffer.Length, chunk.Length - _offset);
+                chunk.AsMemory(_offset, n).CopyTo(buffer);
+                _offset += n;
+                if (_offset == chunk.Length)
+                {
+                    _pending.Dequeue();
+                    _offset = 0;
+                }
+
+                return n;
+            }
+
+            public override Task<int> ReadAsync(
+                byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+                ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+            public override void Flush() { }
+
+            public override int Read(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException();
+
+            public override long Seek(long offset, SeekOrigin origin) =>
+                throw new NotSupportedException();
+
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+
+            public override void Write(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException();
+        }
     }
 }

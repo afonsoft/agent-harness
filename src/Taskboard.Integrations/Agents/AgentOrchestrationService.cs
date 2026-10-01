@@ -289,6 +289,12 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
                 // progress callback fired — an unhandled exception here would
                 // crash the process (async void); there is nothing left to do.
             }
+            catch (OperationCanceledException)
+            {
+                // B-03: budget-cancel or run teardown mid-callback is expected —
+                // an unhandled exception in this async-void callback crashes the
+                // process, so expected cancellation is swallowed the same way.
+            }
         });
     }
 

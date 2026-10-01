@@ -30,6 +30,9 @@ public sealed class JobRegistry : IJobRegistry
     {
         public required JobDefinition Definition { get; init; }
         public Channel<JobSignal> Signals { get; } = Channel.CreateUnbounded<JobSignal>();
+
+        /// <summary>Serializes read-merge-persist in <see cref="SetOverrideAsync"/> (B-06).</summary>
+        public SemaphoreSlim UpdateGate { get; } = new(1, 1);
         public JobScheduleOverride? Override;
         public bool IsRunning;
         public DateTimeOffset? LastStartedAt;
@@ -140,26 +143,38 @@ public sealed class JobRegistry : IJobRegistry
                 $"Interval must be >= {def.MinIntervalSeconds}s for job '{key}'.");
         }
 
-        JobScheduleOverride schedule;
-        lock (runtime)
+        // B-06: read-merge-persist must be serialized per job — otherwise two
+        // concurrent PUTs read the same "current" and lose each other's fields.
+        await runtime.UpdateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            var current = runtime.Override;
-            schedule = new JobScheduleOverride(
-                key,
-                enabled ?? current?.Enabled ?? true,
-                intervalSeconds ?? current?.IntervalSeconds,
-                DateTime.UtcNow);
-        }
+            JobScheduleOverride schedule;
+            lock (runtime)
+            {
+                var current = runtime.Override;
+                schedule = new JobScheduleOverride(
+                    key,
+                    // B-05: keep the job definition's default — a bare "enable
+                    // field omitted" PUT must not re-enable an off-by-default job.
+                    enabled ?? current?.Enabled ?? def.EnabledByDefault,
+                    intervalSeconds ?? current?.IntervalSeconds,
+                    DateTime.UtcNow);
+            }
 
-        await using (var scope = _scopeFactory.CreateAsyncScope())
-        {
-            var store = scope.ServiceProvider.GetRequiredService<IJobScheduleStore>();
-            await store.UpsertAsync(schedule, cancellationToken).ConfigureAwait(false);
-        }
+            await using (var scope = _scopeFactory.CreateAsyncScope())
+            {
+                var store = scope.ServiceProvider.GetRequiredService<IJobScheduleStore>();
+                await store.UpsertAsync(schedule, cancellationToken).ConfigureAwait(false);
+            }
 
-        lock (runtime)
+            lock (runtime)
+            {
+                runtime.Override = schedule;
+            }
+        }
+        finally
         {
-            runtime.Override = schedule;
+            runtime.UpdateGate.Release();
         }
 
         runtime.Signals.Writer.TryWrite(JobSignal.ScheduleChanged);

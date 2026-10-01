@@ -524,6 +524,9 @@ void RegisterWorkspaceAndChatServices()
         return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
     });
     builder.Services.AddScoped<IChatCapabilityRegistry, ChatCapabilityRegistry>();
+    // B-01: shared run registry — /stop must reach runs started by other
+    // requests' scoped ChatService instances.
+    builder.Services.AddSingleton<ChatRunCoordinator>();
     builder.Services.AddScoped<ChatService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
     builder.Services.AddSingleton<IMcpClientManager>(sp =>

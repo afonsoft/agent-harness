@@ -66,6 +66,36 @@ public sealed class JobRegistryTests
     }
 
     [Fact]
+    public async Task Dado_JobDesabilitadoPorDefault_Quando_PutSemEnabled_Entao_MantemDesabilitado()
+    {
+        // B-05: override sem 'enabled' não deve religar um job off-by-default.
+        var registry = JobRegistryTestHost.Create(definitions: [Def("job-off", enabled: false)]);
+
+        var result = await registry.SetOverrideAsync("job-off", enabled: null, intervalSeconds: 120);
+
+        result.Error.ShouldBe(JobUpdateError.None);
+        (await registry.GetEffectiveAsync("job-off")).Enabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_PutsConcorrentes_Quando_CamposDistintos_Entao_MergeSemPerda()
+    {
+        // B-06: PUTs concorrentes mexendo em campos diferentes devem mesclar —
+        // sem o gate, os dois liam o mesmo "current" e o último apagava o outro.
+        var registry = JobRegistryTestHost.Create(definitions: [Def("job-a", enabled: false)]);
+
+        var first = registry.SetOverrideAsync("job-a", enabled: true, intervalSeconds: null);
+        var second = registry.SetOverrideAsync("job-a", enabled: null, intervalSeconds: 120);
+        await Task.WhenAll(first, second);
+
+        (await first).Error.ShouldBe(JobUpdateError.None);
+        (await second).Error.ShouldBe(JobUpdateError.None);
+        var effective = await registry.GetEffectiveAsync("job-a");
+        effective.Enabled.ShouldBeTrue();
+        effective.Interval.ShouldBe(TimeSpan.FromSeconds(120));
+    }
+
+    [Fact]
     public void Dado_JobDesconhecido_Quando_Trigger_Entao_UnknownJob()
     {
         var registry = JobRegistryTestHost.Create();
