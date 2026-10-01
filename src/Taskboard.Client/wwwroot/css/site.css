@@ -928,7 +928,13 @@ body {
 }
 
 #blazor-error-ui .error-details-toggle {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
     margin-left: 0.75rem;
+    padding: 0;
+    text-decoration: underline;
 }
 
 #blazor-error-ui .error-details {
