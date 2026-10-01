@@ -92,3 +92,18 @@
 - **Lições**: `signals.ReadAsync()` já consome o item — ler `signalTask.Result` antes do drain `TryRead` (bug real pego por teste de trigger manual). Ports de persistência em Contracts retornam DTOs, nunca entidades (Contracts só vê Domain.Shared). Merge de features concorrentes em `AiChat.razor` + docs: resolver mantendo ambas as descrições.
 - **Lição flake**: assert de paralelismo por `maxInFlight` em vez de wall-clock (CI mediu 1.163s vs limite 1.1s).
 - **Estado**: unit 1267 · integration 302 · spec-drift OK. #385/#387 merged.
+
+## Sessão 2026-09-30 — Sonar backlog #410 (batch 1) + crash fix #414
+
+- **Origem**: continuação da sessão `pickle-thing` (Sonar autofix + chat UX, PR #411 merged). Branch `fix/devin-20260930-sonar-code-smells` tinha ~76 arquivos em voo (S101 naming etc.) sem commit.
+- **Crash fix (#414)**: callback `Progress<AgentLogMessage>` em `AgentOrchestrationService.RunAsync` é async void e tocava `cts.Token`/`CancelAsync` após o `finally` descartar o CTS → `ObjectDisposedException` derrubava o processo (test host abort). Fix: token capturado uma vez + try/catch no callback. Teste de regressão `Dado_LogReportadoAposFimDoRun_...` (crashava antes, passa depois).
+- **Entregas** (5 commits → PR #415):
+  - `ff278f3` batch 1 C# — S101/S1075/S2365/S2743/S3875 + ternários/blocos (75 arquivos).
+  - `9b409e6` crash fix + teste de regressão.
+  - `c33c917` batch 2 — Dockerfile (S7031/S7020), shell (S7679), CSS (S4666), JS (S6582/S6653/S7747/S7758/S7765/S4138), S2325 (PathJailValidator/SecretScrubber static + DI limpo), S3398 (ToolCallRender Accumulator), S4136, S2486.
+  - `1841f56` S3267 — loops→LINQ (12 arquivos).
+  - `0622adc` S1192 — 55 literais repetidos → constantes (23 arquivos).
+- **Validação**: build 0 warnings; unit 1341/1341; integration 307/307.
+- **Restante #410**: S3776 (59 sites CRITICAL, complexidade 16–66 — refactor por método, sessão dedicada); S7637 bloqueado (workflow protegido); exclusão docs geradas (1.007 findings) precisa token admin SonarCloud OU aprovação humana p/ workflow; S8970 falso-positivo documentado.
+- **Lições**: sed de literais quebra as próprias declarações de const (circular CS0110) — fazer sed primeiro, inserir consts depois; `Progress<T>` callback é async void — qualquer exceção derruba o processo, sempre guardar; `Cast<T?>().FirstOrDefault() ?? fallback` para enums em LINQ; testes de corrida com CTS: esperar live-id sumir + delay antes do Report tardio.
+- **PR**: #415 aberto (não mergeado — aguarda CI/revisão).

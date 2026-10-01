@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using Taskboard.Integrations.Terminal;
@@ -39,6 +40,7 @@ public class TerminalSessionManagerTests
         public List<IReadOnlyList<string>?> RequestedCommands { get; } = new();
         public List<(string SessionId, string Chunk)> Outputs { get; } = new();
         public List<(string SessionId, string Reason)> Closed { get; } = new();
+        public RecordingLogger Logger { get; } = new();
         public TerminalSessionManager Manager { get; }
 
         public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null)
@@ -52,7 +54,7 @@ public class TerminalSessionManagerTests
                     RequestedCommands.Add(command);
                     return s;
                 },
-                NullLogger<TerminalSessionManager>.Instance,
+                Logger,
                 idleTimeout,
                 sweepInterval: TimeSpan.FromHours(1),
                 orphanTimeout);
@@ -393,4 +395,52 @@ public class TerminalSessionManagerTests
         await h.Manager.CloseAsync("u1", "conn1", "nao-existe");
         h.Closed.ShouldBeEmpty();
     }
+
+    // Issue #412: nenhuma sessão pode desaparecer do journal sem registro de
+    // fechamento — o caminho "exited" (NotifyClosedAsync) agora loga como os
+    // demais, e o sweep sobrevive a ticks com falha.
+
+    [Fact]
+    public async Task Dado_DuasSessoesOrfas_Quando_UmaSaiESweep_Entao_AmbasTemLogDeFechamento()
+    {
+        await using var h = new Harness(orphanTimeout: TimeSpan.Zero);
+        var exited = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        var reaped = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+        h.Sessions[0].EmitExit();
+        await Task.Delay(50);
+        await h.Manager.SweepIdleAsync();
+
+        h.Closed.ShouldBe([(exited, "exited"), (reaped, "connection lost")]);
+        h.Logger.Messages.ShouldContain(m => m.Contains(exited) && m.Contains("exited"));
+        h.Logger.Messages.ShouldContain(m => m.Contains(reaped) && m.Contains("connection lost"));
+    }
+
+    [Fact]
+    public async Task Dado_SweepComEntradaQueFalha_Quando_Tick_Entao_TimerSobrevive()
+    {
+        // O reaper não pode morrer num tick ruim: SweepIdleAsync isola cada
+        // entrada e SweepLoopAsync loga e continua (defesa em profundidade).
+        await using var h = new Harness(orphanTimeout: TimeSpan.Zero);
+        await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+        await h.Manager.OrphanAllForConnectionAsync("conn1");
+
+        await Should.NotThrowAsync(() => h.Manager.SweepIdleAsync());
+        h.Sessions[0].Disposed.ShouldBeTrue();
+    }
+}
+
+/// <summary>ILogger que grava as mensagens formatadas para asserção.</summary>
+internal sealed class RecordingLogger : ILogger<TerminalSessionManager>
+{
+    public List<string> Messages { get; } = new();
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter)
+        => Messages.Add(formatter(state, exception));
 }

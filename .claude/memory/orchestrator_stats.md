@@ -6,8 +6,8 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-29 UTC` (sessão 6 — bot-review dos últimos 20 PRs → Epic #366)
-- **fase_atual**: `Phase 8 — Epic #366 entregue (#367–#372 merged via PRs #374–#379), main @7af9a09 verde, deploy harness-server OK, 0 issues abertas`
+- **iniciado_em**: `2026-09-30 UTC` (sessão 7 — Sonar backlog #410 batch 1 + crash fix #414)
+- **fase_atual**: `Phase 5 — #410 batch 1 entregue (PR #415 aberto, ~35 regras Sonar resolvidas + crash fix #414); restante: S3776 (59 sites), S7637 bloqueado, exclusão docs geradas pendente de token/aprovação`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
