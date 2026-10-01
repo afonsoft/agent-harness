@@ -55,7 +55,14 @@ public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
         try
         {
             await File.WriteAllTextAsync(file, code, cancellationToken).ConfigureAwait(false);
-            var args = runtime.ArgsPrefix.Replace(FilePlaceholder, file).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            // B-19: split the template, then substitute inside each token —
+            // replacing before splitting chopped a workspace path containing
+            // spaces into multiple argv entries.
+            var args = runtime.ArgsPrefix
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(a => a.Contains(FilePlaceholder, StringComparison.Ordinal)
+                    ? a.Replace(FilePlaceholder, file)
+                    : a)
                 .ToList();
             var result = await ChatProcessRunner.RunAsync(runtime.FileName, args, tmpDir,
                 TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);

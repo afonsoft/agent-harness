@@ -490,16 +490,6 @@ void RegisterWorkspaceAndChatServices()
     {
         var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-search");
         var configuration = sp.GetRequiredService<IConfiguration>();
-        var backend = SearchBackendFactory.Create(
-            configuration["Taskboard:Chat:SearchBackend"] ?? "none",
-            configuration["Taskboard:Chat:SearchUrl"] ?? string.Empty,
-            configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty,
-            http);
-        var backends = new Dictionary<string, ISearchBackend>(StringComparer.Ordinal);
-        if (backend is not null)
-        {
-            backends[configuration["Taskboard:Chat:SearchBackend"] ?? "none"] = backend;
-        }
 
         IChatTool[] list =
         [
@@ -511,7 +501,9 @@ void RegisterWorkspaceAndChatServices()
             new ListDirTool(),
             new RunCliTool(sp.GetRequiredService<ISecretRedactor>()),
             new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
-            new WebSearchTool(backends),
+            // B-18: backend resolved per execution from the live config values
+            // carried by the tool context — Settings changes need no restart.
+            new WebSearchTool((kind, url, key) => SearchBackendFactory.Create(kind, url, key, http)),
             sp.GetRequiredService<GenerateImageTool>(),
             // SPEC-20261001-chat-agent-delegation: chat → agent/sub-agent tools.
             new RunAgentTool(

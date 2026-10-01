@@ -109,7 +109,7 @@ public sealed class ChatToolTests : IDisposable
     [Fact]
     public async Task Dado_SemBackendConfigurado_Quando_WebSearch_Entao_ErroLegivel()
     {
-        var tool = new WebSearchTool(new Dictionary<string, ISearchBackend>(StringComparer.Ordinal));
+        var tool = new WebSearchTool((_, _, _) => null);
 
         var result = await tool.ExecuteAsync(
             JsonDocument.Parse("""{"query":"harness"}""").RootElement,
@@ -126,7 +126,7 @@ public sealed class ChatToolTests : IDisposable
             new ChatSearchResult("T1", "https://a.test/1", "snippet 1"),
             new ChatSearchResult("T2", "https://a.test/2", "snippet 2"),
         ]);
-        var tool = new WebSearchTool(new Dictionary<string, ISearchBackend>(StringComparer.Ordinal) { ["tavily"] = backend });
+        var tool = new WebSearchTool((kind, _, _) => kind == "tavily" ? backend : null);
 
         var result = await tool.ExecuteAsync(
             JsonDocument.Parse("""{"query":"harness"}""").RootElement,
@@ -136,6 +136,29 @@ public sealed class ChatToolTests : IDisposable
         result.Refused.ShouldBeFalse();
         result.Json.Contains("https://a.test/1", StringComparison.Ordinal).ShouldBeTrue();
         result.Json.Contains("snippet 2", StringComparison.Ordinal).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_ConfigTrocadaEmRuntime_Quando_WebSearch_Entao_ResolveBackendAtual()
+    {
+        // B-18: o backend é resolvido por execução com os valores atuais do
+        // contexto — trocar SearchBackend em Settings não exige restart.
+        var backend = new FakeSearchBackend([new ChatSearchResult("T", "https://a.test", "s")]);
+        var resolverCalls = 0;
+        var tool = new WebSearchTool((kind, url, key) =>
+        {
+            resolverCalls++;
+            return kind == "brave" && url == "https://x" && key == "k" ? backend : null;
+        });
+
+        var result = await tool.ExecuteAsync(
+            JsonDocument.Parse("""{"query":"harness"}""").RootElement,
+            Context() with { SearchBackend = "brave", SearchUrl = "https://x", SearchApiKey = "k" },
+            CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        resolverCalls.ShouldBe(1);
+        result.Json.Contains("https://a.test", StringComparison.Ordinal).ShouldBeTrue();
     }
 
     [Fact]
@@ -179,6 +202,25 @@ public sealed class ChatToolTests : IDisposable
         result.Refused.ShouldBeFalse();
         result.Json.Contains("ghp_1234567890abcdef1234567890abcdef123456", StringComparison.Ordinal).ShouldBeFalse();
         result.Json.Contains("exitCode", StringComparison.Ordinal).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_WorkspaceComEspacos_Quando_CodeInterpreter_Entao_ArgvInteiro()
+    {
+        // B-19: `Replace(ph, file).Split(' ')` quebrava o path em espaços —
+        // agora o placeholder vira um único elemento do argv.
+        var spaced = Path.Combine(_workspace, "dir with spaces");
+        Directory.CreateDirectory(spaced);
+        var tool = new CodeInterpreterTool(new SecretScrubber());
+
+        var result = await tool.ExecuteAsync(
+            JsonDocument.Parse("""{"language":"python3","code":"print('spaces-ok')"}""").RootElement,
+            WorkspaceContext() with { WorkspacePath = spaced },
+            CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.Contains("spaces-ok", StringComparison.Ordinal).ShouldBeTrue();
+        result.Json.Contains("\"exitCode\":0", StringComparison.Ordinal).ShouldBeTrue();
     }
 
     private sealed class FakeSearchBackend(IReadOnlyList<ChatSearchResult> results) : ISearchBackend

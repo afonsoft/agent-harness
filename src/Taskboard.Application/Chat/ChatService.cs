@@ -504,9 +504,31 @@ public sealed class ChatService(
             yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
 
             var toolMessage = ChatMessage.CreateTool(conversation.Id, toolCall.Id, toolCall.Name, resultJson, refused, UtcNow);
+            // B-17: tools that persist files (generate_image) return the path in
+            // the result payload — attach it so the transcript renders the image.
+            if (TryReadImagePath(resultJson) is { } imagePath)
+            {
+                toolMessage.AttachImage(imagePath, UtcNow);
+            }
+
             await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
             await messages.SaveChangesAsync(ct).ConfigureAwait(false);
             wire.Add(new OpenAiChatMessage("tool", resultJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
+        }
+    }
+
+    private static string? TryReadImagePath(string resultJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(resultJson);
+            return doc.RootElement.TryGetProperty("imagePath", out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

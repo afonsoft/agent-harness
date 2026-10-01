@@ -43,7 +43,7 @@ public sealed class ChatServiceTests : IDisposable
         _service = NewService(new FakeProviderHandler(), new ChatRunCoordinator());
     }
 
-    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator)
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -56,6 +56,10 @@ public sealed class ChatServiceTests : IDisposable
         {
             ["echo_tool"] = new FakeEchoTool(),
         };
+        if (extraTool is not null)
+        {
+            tools[extraTool.Name] = extraTool;
+        }
         return new ChatService(
             new EfCoreRepository<ChatProvider>(_context),
             new EfCoreRepository<ChatConversation>(_context),
@@ -200,6 +204,54 @@ public sealed class ChatServiceTests : IDisposable
 
         rest.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["parte-2"]);
         rest.OfType<ChatDoneEvent>().ShouldHaveSingleItem();
+    }
+
+    /// <summary>B-17: tool result with imagePath attaches the image to the tool message.</summary>
+    [Fact]
+    public async Task Dado_ToolRetornaImagePath_Quando_Enviar_Entao_MensagemToolComImagem()
+    {
+        var service = NewService(new FakeImageProviderHandler(), new ChatRunCoordinator(), new FakeImageTool());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        await foreach (var unused in await service.SendMessageAsync(conversation.Id, "gere um gato", CancellationToken.None))
+        {
+        }
+
+        var detail = await service.GetConversationAsync(conversation.Id);
+        var toolMessage = detail!.Messages.Single(m => m.Role == "tool");
+        toolMessage.ImagePath.ShouldBe("imgs/cat.png");
+        toolMessage.ImageUrl.ShouldBe("/api/local/chat/images/imgs/cat.png");
+    }
+
+    private sealed class FakeImageTool : IChatTool
+    {
+        public string Name => "generate_image";
+        public string Description => "image";
+        public string ParametersJson => """{"type":"object"}""";
+
+        public Task<ChatToolResult> ExecuteAsync(
+            JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
+            Task.FromResult(new ChatToolResult(
+                JsonSerializer.Serialize(new { imagePath = "imgs/cat.png", prompt = "cat" })));
+    }
+
+    /// <summary>Provider fake: 1ª chamada dispara generate_image, 2ª encerra.</summary>
+    private sealed class FakeImageProviderHandler : HttpMessageHandler
+    {
+        private int _calls;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _calls);
+            var body = call == 1
+                ? """data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_img","function":{"name":"generate_image","arguments":"{\"prompt\":\"cat\"}"}}]}}]}""" + "\ndata: [DONE]\n"
+                : """data: {"choices":[{"delta":{"content":"aqui está"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" + "\ndata: [DONE]\n";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            });
+        }
     }
 
     private sealed class FakeEchoTool : IChatTool

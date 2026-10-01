@@ -946,6 +946,13 @@ public sealed class TaskboardClient
         response.EnsureSuccessStatusCode();
     }
 
+    /// <summary>B-15: persiste o modelo selecionado na conversa ativa (PATCH Model).</summary>
+    public async Task UpdateChatConversationModelAsync(string id, string model, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PatchAsJsonAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", new PatchChatConversationRequest(Model: model), cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Opens the SSE stream of a chat turn — the caller reads <see cref="HttpResponseMessage.Content"/> incrementally.</summary>
     public Task<HttpResponseMessage> SendChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
     {
