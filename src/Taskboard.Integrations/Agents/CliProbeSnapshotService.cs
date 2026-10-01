@@ -34,6 +34,7 @@ public sealed class CliProbeSnapshotService
 
     private readonly ConcurrentDictionary<AgentCliKind, string> _versions = new();
     private readonly ConcurrentDictionary<AgentType, IReadOnlyList<string>> _models = new();
+    private readonly ConcurrentDictionary<AgentType, DateTimeOffset> _modelsFreshAt = new();
     private readonly object _refreshGate = new();
     private readonly object _saveGate = new();
     private Task? _refreshTask;
@@ -64,6 +65,13 @@ public sealed class CliProbeSnapshotService
     /// <summary>Wall-clock duration of the last completed refresh.</summary>
     public TimeSpan LastDuration { get; private set; }
 
+    /// <summary>
+    /// Error of the last refresh when it failed wholesale (timeout/exception);
+    /// null after a run that reached completion. Individual probe failures stay
+    /// absorbed — a missing CLI is a normal condition.
+    /// </summary>
+    public string? LastRefreshError { get; private set; }
+
     /// <summary>Last-known CLI version, or null when never probed.</summary>
     public string? GetVersion(AgentCliKind kind) =>
         _versions.TryGetValue(kind, out var version) ? version : null;
@@ -80,8 +88,11 @@ public sealed class CliProbeSnapshotService
     public void SetModels(AgentType type, IReadOnlyList<string> models)
     {
         _models[type] = models;
-        LastCompletedAt = _time.GetUtcNow();
-        SaveSnapshot(LastCompletedAt);
+        // C-02: freshness is tracked PER AGENT — a forced sync freshens only
+        // this agent's models; the global LastCompletedAt stamp is owned by
+        // the full background refresh so other agents still revalidate.
+        _modelsFreshAt[type] = _time.GetUtcNow();
+        SaveSnapshot(_time.GetUtcNow());
     }
 
     /// <summary>
@@ -131,9 +142,31 @@ public sealed class CliProbeSnapshotService
         }
     }
 
+    /// <summary>
+    /// Per-agent variant for the model catalog: fires a refresh when the
+    /// agent's own model stamp is stale. A forced <see cref="SetModels"/> keeps
+    /// that agent fresh without masking staleness of the rest (C-02).
+    /// </summary>
+    public void EnsureModelsFresh(AgentType type, TimeSpan ttl)
+    {
+        if (ttl <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var now = _time.GetUtcNow();
+        var fresh = LastCompletedAt >= now - ttl
+            || (_modelsFreshAt.TryGetValue(type, out var freshAt) && freshAt >= now - ttl);
+        if (!fresh)
+        {
+            EnsureRefreshing();
+        }
+    }
+
     private async Task RunRefreshAsync()
     {
         var started = _time.GetUtcNow();
+        LastRefreshError = null;
         try
         {
             using var timeout = new CancellationTokenSource(RefreshTimeout);
@@ -168,10 +201,12 @@ public sealed class CliProbeSnapshotService
         }
         catch (OperationCanceledException ex)
         {
+            LastRefreshError = $"timed out after {RefreshTimeout}";
             _logger.LogWarning(ex, "CLI probe refresh timed out after {Timeout}.", RefreshTimeout);
         }
         catch (Exception ex)
         {
+            LastRefreshError = ex.Message;
             _logger.LogWarning(ex, "CLI probe refresh failed.");
         }
         finally

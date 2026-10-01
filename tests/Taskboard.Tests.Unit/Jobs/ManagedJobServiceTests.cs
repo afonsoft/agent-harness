@@ -139,6 +139,38 @@ public sealed class ManagedJobServiceTests
     }
 
     [Fact]
+    public async Task Dado_SinalDeScheduleChanged_Quando_LoopAguarda_Entao_ReaplicaSemRunExtra()
+    {
+        // B-04: ScheduleChanged acorda o loop para reler o schedule sem disparar
+        // run — o reader do canal deve estar vivo independente de quem venceu
+        // o WhenAny anterior.
+        var registry = JobRegistryTestHost.Create(definitions: Def(interval: 3600, enabled: false));
+        var job = new TestJob(registry);
+
+        await job.StartAsync(CancellationToken.None);
+        try
+        {
+            await Task.Delay(200);
+            job.Runs.ShouldBe(0);
+
+            var result = await registry.SetOverrideAsync(Key, enabled: true, intervalSeconds: 3600);
+            result.Error.ShouldBe(JobUpdateError.None);
+
+            // O wake deve ser processado — sem run (ScheduleChanged != RunRequested).
+            await Task.Delay(300);
+            job.Runs.ShouldBe(0);
+
+            registry.Trigger(Key).ShouldBe(JobTriggerResult.Started);
+            await WaitForAsync(() => job.Runs >= 1);
+            job.Runs.ShouldBeGreaterThanOrEqualTo(1);
+        }
+        finally
+        {
+            await job.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task Dado_RunBloqueado_Quando_TriggerDeNovo_Entao_AlreadyRunning()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

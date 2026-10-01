@@ -8,7 +8,9 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// Brave. Results (title/url/snippet) are data injected as tool output; URLs
 /// are never fetched automatically.
 /// </summary>
-public sealed class WebSearchTool(IReadOnlyDictionary<string, ISearchBackend> backends, int maxResults = 5) : IChatTool
+public sealed class WebSearchTool(
+    Func<string, string, string, ISearchBackend?> resolveBackend,
+    int maxResults = 5) : IChatTool
 {
     public string Name => "web_search";
     public string Description => "Search the internet and return the top results (title, url, snippet).";
@@ -27,7 +29,16 @@ public sealed class WebSearchTool(IReadOnlyDictionary<string, ISearchBackend> ba
             return new ChatToolResult(JsonSerializer.Serialize(new { error = "query is required" }), Refused: true, "empty query");
         }
 
-        if (context.SearchBackend is "none" or "" || !backends.TryGetValue(context.SearchBackend, out var backend))
+        // B-18: resolve the backend per execution — the context carries the
+        // current config values, so changing Taskboard:Chat:SearchBackend in
+        // Settings takes effect without a restart.
+        var backend = context.SearchBackend is "none" or ""
+            ? null
+            : resolveBackend(
+                context.SearchBackend,
+                context.SearchUrl ?? string.Empty,
+                context.SearchApiKey ?? string.Empty);
+        if (backend is null)
         {
             return new ChatToolResult(JsonSerializer.Serialize(new
             {

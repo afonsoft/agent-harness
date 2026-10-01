@@ -37,6 +37,10 @@ public abstract class ManagedJobService : BackgroundService
 
         try
         {
+            // B-04: ONE signal read task lives across iterations — a new
+            // ReadAsync per loop leaves an abandoned reader consuming (and
+            // dropping) signals that arrive while a tick wins the race.
+            var signalTask = signals.ReadAsync(stoppingToken).AsTask();
             while (!stoppingToken.IsCancellationRequested)
             {
                 schedule = await _registry.GetEffectiveAsync(_key, stoppingToken).ConfigureAwait(false);
@@ -45,19 +49,24 @@ public abstract class ManagedJobService : BackgroundService
                     : Timeout.InfiniteTimeSpan;
 
                 var delayTask = Task.Delay(wait, stoppingToken);
-                var signalTask = signals.ReadAsync(stoppingToken).AsTask();
                 var winner = await Task.WhenAny(delayTask, signalTask).ConfigureAwait(false);
                 // SPEC-20260929-managed-job-shutdown-extra-run RF-001: a
                 // delayTask cancelled by StopAsync also wins WhenAny — without
                 // the IsCompletedSuccessfully check it would fire a spurious
                 // run on every shutdown (even for disabled jobs).
-                if (winner == delayTask && delayTask.IsCompletedSuccessfully)
+                if (winner == delayTask)
                 {
-                    await RunOnceSafeAsync(stoppingToken).ConfigureAwait(false);
+                    if (delayTask.IsCompletedSuccessfully)
+                    {
+                        await RunOnceSafeAsync(stoppingToken).ConfigureAwait(false);
+                    }
+
                     continue;
                 }
 
                 var runRequested = await signalTask.ConfigureAwait(false) == JobSignal.RunRequested;
+                // Re-arm only AFTER consuming the winner — no orphaned reader.
+                signalTask = signals.ReadAsync(stoppingToken).AsTask();
                 while (signals.TryRead(out var extra))
                 {
                     runRequested |= extra == JobSignal.RunRequested;
@@ -72,6 +81,7 @@ public abstract class ManagedJobService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Cancellation is the expected shutdown path — nothing to clean up.
+            _logger.LogDebug("Managed job '{Key}' loop stopping on shutdown.", _key);
         }
     }
 

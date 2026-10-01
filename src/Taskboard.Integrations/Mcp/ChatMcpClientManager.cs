@@ -43,8 +43,10 @@ public sealed class ChatMcpClientManager : IMcpClientManager
     private readonly ConcurrentDictionary<string, ChatMcpServerStatus> _statuses = new(StringComparer.Ordinal);
     // capability target lookup: adapter name → (server, remote tool)
     private readonly ConcurrentDictionary<string, (string Server, string Remote)> _routes = new(StringComparer.Ordinal);
+    private readonly object _toolsGate = new();
     private volatile IReadOnlyList<IChatTool> _tools = [];
-    private bool _connectAttempted;
+    private volatile string? _specsFingerprint;
+    private volatile bool _connectAttempted;
     private bool _disposed;
 
     private readonly Func<ChatMcpServerSpec, IClientTransport>? _transportFactory;
@@ -142,7 +144,8 @@ public sealed class ChatMcpClientManager : IMcpClientManager
 
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
     {
-        if (_connectAttempted)
+        var fingerprint = ComputeSpecsFingerprint(LoadSpecs());
+        if (_connectAttempted && string.Equals(fingerprint, _specsFingerprint, StringComparison.Ordinal))
         {
             return;
         }
@@ -150,12 +153,21 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         await _connectGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_connectAttempted)
+            fingerprint = ComputeSpecsFingerprint(LoadSpecs());
+            if (_connectAttempted && string.Equals(fingerprint, _specsFingerprint, StringComparison.Ordinal))
             {
                 return;
             }
 
+            // B-08: configuration changed (hot reload) — drop the previous
+            // connections/routes/tools before connecting the new spec set.
+            if (_specsFingerprint is not null)
+            {
+                await DisconnectAllAsync().ConfigureAwait(false);
+            }
+
             _connectAttempted = true;
+            _specsFingerprint = fingerprint;
             var specs = LoadSpecs();
             var tasks = specs.Select(spec => ConnectServerAsync(spec, cancellationToken));
             await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -163,6 +175,30 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         finally
         {
             _connectGate.Release();
+        }
+    }
+
+    /// <summary>Canonical fingerprint of the configured server set — any
+    /// config change produces a different value, triggering a reconnect.</summary>
+    private static string ComputeSpecsFingerprint(IReadOnlyList<ChatMcpServerSpec> specs) =>
+        JsonSerializer.Serialize(specs
+            .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(s => new { s.Name, s.Command, s.Url, s.Args, s.Env, s.Headers }));
+
+    private async Task DisconnectAllAsync()
+    {
+        foreach (var kv in _clients)
+        {
+            try { await kv.Value.DisposeAsync().ConfigureAwait(false); }
+            catch { /* reload best-effort */ }
+        }
+
+        _clients.Clear();
+        _routes.Clear();
+        _statuses.Clear();
+        lock (_toolsGate)
+        {
+            _tools = [];
         }
     }
 
@@ -189,7 +225,12 @@ public sealed class ChatMcpClientManager : IMcpClientManager
                 _routes[exposed] = (spec.Name, tool.Name);
             }
 
-            _tools = _tools.Concat(adapters).ToList();
+            // B-08: parallel connects share _tools — mutate under the gate so
+            // no adapter list is lost to a read-modify-write race.
+            lock (_toolsGate)
+            {
+                _tools = _tools.Concat(adapters).ToList();
+            }
             _statuses[spec.Name] = new ChatMcpServerStatus(spec.Name, transportKind, true, adapters.Count, null);
             _logger.LogInformation("MCP server {Server} connected — {Count} tools", spec.Name, adapters.Count);
         }
@@ -359,22 +400,33 @@ public sealed class ChatMcpClientManager : IMcpClientManager
             return false;
         }
 
-        if (_clients.TryRemove(server, out var dead))
+        // Serialize against a concurrent full reload (EnsureConnectedAsync).
+        await _connectGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            try { await dead.DisposeAsync().ConfigureAwait(false); } catch { /* best effort */ }
-        }
+            if (_clients.TryRemove(server, out var dead))
+            {
+                try { await dead.DisposeAsync().ConfigureAwait(false); } catch { /* best effort */ }
+            }
 
-        // Drop the stale routes; ConnectServerAsync re-adds them.
-        foreach (var route in _routes.Where(kv => kv.Value.Server == server).Select(kv => kv.Key).ToList())
+            // Drop the stale routes; ConnectServerAsync re-adds them.
+            foreach (var route in _routes.Where(kv => kv.Value.Server == server).Select(kv => kv.Key).ToList())
+            {
+                _routes.TryRemove(route, out _);
+            }
+
+            lock (_toolsGate)
+            {
+                _tools = _tools.Where(t => !string.Equals(t.Origin, server, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            await ConnectServerAsync(spec, cancellationToken).ConfigureAwait(false);
+            return _clients.ContainsKey(server);
+        }
+        finally
         {
-            _routes.TryRemove(route, out _);
+            _connectGate.Release();
         }
-        _tools = _tools.Where(t => !string.Equals(t.Origin, server, StringComparison.OrdinalIgnoreCase)).ToList();
-
-        _connectAttempted = false;
-        await ConnectServerAsync(spec, cancellationToken).ConfigureAwait(false);
-        _connectAttempted = true;
-        return _clients.ContainsKey(server);
     }
 
     private ChatToolResult MarshalResult(CallToolResult result)

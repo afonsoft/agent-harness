@@ -293,8 +293,13 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
 
     public async Task<int> PurgeSessionsOlderThanAsync(DateTime cutoffUtc, CancellationToken cancellationToken = default)
     {
+        // B-23: never purge a session that is still open and being seen by the
+        // ingest loop — only closed sessions age out by StartedAt; open ones
+        // age out only when the ingest stopped updating them.
         return await _context.CliSessionMetrics
-            .Where(s => s.StartedAtUtc < cutoffUtc)
+            .Where(s => s.EndedAtUtc != null
+                ? s.StartedAtUtc < cutoffUtc
+                : s.IngestedAtUtc < cutoffUtc)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

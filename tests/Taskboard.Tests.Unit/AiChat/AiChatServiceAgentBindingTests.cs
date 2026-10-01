@@ -388,6 +388,76 @@ public class AiChatServiceAgentBindingTests
         File.Delete(dbPath);
     }
 
+    [Fact]
+    public async Task Dado_ThreadAgentComCliCustom_Quando_Fork_Entao_PreservaModeEWorkspace()
+    {
+        // B-09: thread agent com CLI customizada (AgentCliId, AgentType null)
+        // caía no branch assistant e perdia WorkspacePath.
+        var dbPath = Path.Join(Path.GetTempPath(), $"tb-fork-{Guid.NewGuid()}.sqlite");
+        var options = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<Taskboard.EntityFrameworkCore.Data.TaskboardDbContext>()
+            .UseSqlite($"Data Source={dbPath};Pooling=false")
+            .Options;
+        await using var ctx = new Taskboard.EntityFrameworkCore.Data.TaskboardDbContext(options);
+        await ctx.Database.EnsureCreatedAsync();
+
+        var source = AiChatThread.CreateAgentThread(
+            AiChatThreadId.NewGuid(), "orig", ModelRef.From("default"), "medium",
+            Sandbox.ReadOnly, agentType: null, workspacePath: "/work/custom");
+        source.ConfigureCli("pty", "dev", agentCliId: "custom-acp");
+        var first = AiChatEvent.CreateTyped(
+            AiChatEventId.NewGuid(), source.Id, AiChatEventRole.User, "hello", AiChatEventKind.Message);
+        ctx.Set<AiChatThread>().Add(source);
+        ctx.Set<AiChatEvent>().Add(first);
+        await ctx.SaveChangesAsync();
+
+        var threadRepo = new Taskboard.EntityFrameworkCore.Repositories.EfCoreRepository<AiChatThread>(ctx);
+        var eventRepo = new Taskboard.EntityFrameworkCore.Repositories.EfCoreRepository<AiChatEvent>(ctx);
+        var sut = CriarServico(eligible: [], threadRepo: threadRepo, eventRepo: eventRepo);
+
+        var dto = await sut.ForkThreadAsync(source.Id, first.Id.Value, Actor.LocalUser());
+
+        dto.Mode.ShouldBe("agent");
+        dto.WorkspacePath.ShouldBe("/work/custom");
+        dto.AgentCliId.ShouldBe("custom-acp");
+        dto.Transport.ShouldBe("pty");
+        dto.ContainerContext.ShouldBe("dev");
+
+        ctx.Dispose();
+        File.Delete(dbPath);
+    }
+
+    [Fact]
+    public async Task Dado_TituloGenerico_Quando_PrimeiroPrompt_Usuario_Entao_DerivaTitulo()
+    {
+        // B-13: threads criadas via "New conversation" ficavam com o
+        // placeholder para sempre — o título deriva do primeiro prompt user.
+        var dbPath = Path.Join(Path.GetTempPath(), $"tb-title-{Guid.NewGuid()}.sqlite");
+        var options = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<Taskboard.EntityFrameworkCore.Data.TaskboardDbContext>()
+            .UseSqlite($"Data Source={dbPath};Pooling=false")
+            .Options;
+        await using var ctx = new Taskboard.EntityFrameworkCore.Data.TaskboardDbContext(options);
+        await ctx.Database.EnsureCreatedAsync();
+
+        var thread = AiChatThread.Create(
+            AiChatThreadId.NewGuid(), "New conversation",
+            ModelRef.From("gpt-4o"), "medium", Sandbox.ReadOnly);
+        ctx.Set<AiChatThread>().Add(thread);
+        await ctx.SaveChangesAsync();
+
+        var threadRepo = new Taskboard.EntityFrameworkCore.Repositories.EfCoreRepository<AiChatThread>(ctx);
+        var eventRepo = new Taskboard.EntityFrameworkCore.Repositories.EfCoreRepository<AiChatEvent>(ctx);
+        var sut = CriarServico(eligible: [], threadRepo: threadRepo, eventRepo: eventRepo);
+
+        await sut.AddEventAsync(thread.Id,
+            new AddAiChatEventRequest("user", "fix the flaky login test"), Actor.LocalUser());
+
+        ctx.Set<AiChatThread>().Local.Single(t => t.Id == thread.Id)
+            .Title.ShouldBe("fix the flaky login test");
+
+        ctx.Dispose();
+        File.Delete(dbPath);
+    }
+
     private static AiChatService CriarServico(
         AgentType[] eligible,
         IRepository<AiChatThread>? threadRepo = null,

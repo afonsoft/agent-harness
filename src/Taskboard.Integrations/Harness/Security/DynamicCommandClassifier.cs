@@ -418,14 +418,16 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         void ConsumeRedirect(char c)
         {
             FlushToken();
-            var op = c.ToString();
-            while (i + 1 < command.Length && command[i + 1] == c)
+            // C-06: measure the operator run once — `op += c` allocated a new
+            // string per repeated char.
+            var run = 1;
+            while (i + run < command.Length && command[i + run] == c)
             {
-                op += c;
-                i++;
+                run++;
             }
 
-            tokens.Add(op);
+            tokens.Add(new string(c, run));
+            i += run - 1;
         }
 
         while (i < command.Length)

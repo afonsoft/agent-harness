@@ -50,8 +50,25 @@ public class DelegationToolsTests
 
         result.Refused.ShouldBeFalse();
         result.Json.ShouldContain("queued");
-        orchestration.LastRequest!.IssueId.ShouldBe("chat:conv-1");
+        orchestration.LastRequest!.IssueId.ShouldStartWith("chat:conv-1:");
         orchestration.LastRequest.Instructions.ShouldContain("delegated from chat conversation conv-1");
+    }
+
+    [Fact]
+    public async Task Dado_DuasDelegacoes_Quando_MesmaConversa_Entao_IssueIdsDistintos()
+    {
+        // B-07: cada delegação gera um id único — wait=true não pode observar
+        // o run de uma delegação anterior da mesma conversa.
+        var orchestration = new FakeOrchestration(eligible: true);
+        var tool = new RunAgentTool(orchestration, Config());
+        var ctx = Ctx();
+
+        await tool.ExecuteAsync(Args("""{"prompt":"primeira","wait":false}"""), ctx, CancellationToken.None);
+        await tool.ExecuteAsync(Args("""{"prompt":"segunda","wait":false}"""), ctx, CancellationToken.None);
+
+        orchestration.Requests.Count.ShouldBe(2);
+        orchestration.Requests[0].IssueId.ShouldNotBe(orchestration.Requests[1].IssueId);
+        orchestration.Requests.ShouldAllBe(r => r.IssueId.StartsWith("chat:conv-1:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -151,7 +168,9 @@ public class DelegationToolsTests
 
     private sealed class FakeOrchestration(bool eligible) : IAgentOrchestrationService
     {
-        public AgentExecutionRequest? LastRequest { get; private set; }
+        public List<AgentExecutionRequest> Requests { get; } = [];
+
+        public AgentExecutionRequest? LastRequest => Requests.LastOrDefault();
 
         public Task<IReadOnlyList<AgentInfo>> GetAvailableAgentsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<AgentInfo>>(eligible
@@ -160,7 +179,7 @@ public class DelegationToolsTests
 
         public Task<bool> EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
         {
-            LastRequest = request;
+            Requests.Add(request);
             return Task.FromResult(true);
         }
 

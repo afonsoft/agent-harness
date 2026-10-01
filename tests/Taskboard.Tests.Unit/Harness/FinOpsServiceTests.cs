@@ -390,6 +390,40 @@ public sealed class FinOpsServiceTests : IDisposable
             .ShouldNotContain(a => a.Code == "NoActiveSessions");
     }
 
+    // B-23/SPEC-20261001-pr-review-backlog-fixes: open sessions and Running
+    // rows stay visible to the active scan regardless of age.
+
+    [Fact]
+    public async Task Dado_SessaoAbertaMais30Dias_Quando_Summary_Entao_SemNoActiveSessions()
+    {
+        var now = DateTime.UtcNow;
+        // Aberta há 31d e re-ingestada agora — ativa; o scan antigo excluía
+        // (StartedAt > 30d e EndedAtUtc null) e emitia falso NoActiveSessions.
+        AddCliSession("old-open", now.AddDays(-31), ended: null, ingestedAt: now.AddMinutes(-2));
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.Alerts.ShouldNotBeNull()
+            .ShouldNotContain(a => a.Code == "NoActiveSessions");
+        var row = summary.RecentSessions.ShouldNotBeNull().Single(r => r.Id == "old-open");
+        row.Status.ShouldBe("running");
+    }
+
+    [Fact]
+    public async Task Dado_RunAntigoEmExecucao_Quando_Summary_Entao_SemNoActiveSessions()
+    {
+        var now = DateTime.UtcNow;
+        var run = new AgentRun(Guid.NewGuid(), "issue-ancient", AgentType.Claude, now.AddDays(-45));
+        run.MarkRunning();
+        _context.AgentRuns.Add(run);
+        _context.SaveChanges();
+
+        var summary = await _service.GetSummaryAsync("last-30-days");
+
+        summary.Alerts.ShouldNotBeNull()
+            .ShouldNotContain(a => a.Code == "NoActiveSessions");
+    }
+
     [Fact]
     public async Task Dado_SessaoFechadaForaDaJanela_Quando_Summary_Entao_AlertaSemSessaoAtiva()
     {

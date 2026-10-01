@@ -490,16 +490,6 @@ void RegisterWorkspaceAndChatServices()
     {
         var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-search");
         var configuration = sp.GetRequiredService<IConfiguration>();
-        var backend = SearchBackendFactory.Create(
-            configuration["Taskboard:Chat:SearchBackend"] ?? "none",
-            configuration["Taskboard:Chat:SearchUrl"] ?? string.Empty,
-            configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty,
-            http);
-        var backends = new Dictionary<string, ISearchBackend>(StringComparer.Ordinal);
-        if (backend is not null)
-        {
-            backends[configuration["Taskboard:Chat:SearchBackend"] ?? "none"] = backend;
-        }
 
         IChatTool[] list =
         [
@@ -511,7 +501,9 @@ void RegisterWorkspaceAndChatServices()
             new ListDirTool(),
             new RunCliTool(sp.GetRequiredService<ISecretRedactor>()),
             new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
-            new WebSearchTool(backends),
+            // B-18: backend resolved per execution from the live config values
+            // carried by the tool context — Settings changes need no restart.
+            new WebSearchTool((kind, url, key) => SearchBackendFactory.Create(kind, url, key, http)),
             sp.GetRequiredService<GenerateImageTool>(),
             // SPEC-20261001-chat-agent-delegation: chat → agent/sub-agent tools.
             new RunAgentTool(
@@ -524,6 +516,9 @@ void RegisterWorkspaceAndChatServices()
         return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
     });
     builder.Services.AddScoped<IChatCapabilityRegistry, ChatCapabilityRegistry>();
+    // B-01: shared run registry — /stop must reach runs started by other
+    // requests' scoped ChatService instances.
+    builder.Services.AddSingleton<ChatRunCoordinator>();
     builder.Services.AddScoped<ChatService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
     builder.Services.AddSingleton<IMcpClientManager>(sp =>
@@ -752,7 +747,10 @@ void RegisterSkillsVscodeServices()
     builder.Services.AddSingleton<IAgentModelCatalogService>(sp => new AgentModelCatalogService(
         homeDir,
         sp.GetRequiredService<ILogger<AgentModelCatalogService>>(),
-        snapshot: sp.GetRequiredService<CliProbeSnapshotService>()));
+        snapshot: sp.GetRequiredService<CliProbeSnapshotService>(),
+        // C-01: share the probe TTL with AgentCliStatusService — the catalog
+        // used to silently fall back to the hardcoded 120s default.
+        refreshTtl: agentCliProbeTtl));
 
     builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstallService(
         homeDir,
@@ -1739,10 +1737,10 @@ void MapAiChatEndpoints()
         string id,
         PromptAgentThreadRequest request,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1757,10 +1755,10 @@ void MapAiChatEndpoints()
         string id,
         PromptAgentThreadRequest request,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1775,10 +1773,10 @@ void MapAiChatEndpoints()
         string id,
         string eventId,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1802,10 +1800,10 @@ void MapAiChatEndpoints()
     api.MapPost("local/ai/threads/{id}/retry", async (
         string id,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1819,10 +1817,10 @@ void MapAiChatEndpoints()
     api.MapPost("local/ai/threads/{id}/cancel", async (
         string id,
         AgentSessionManager sessionManager,
-        IConfiguration config,
+        RuntimeConfigurationService runtimeConfig,
         CancellationToken ct) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }
@@ -1838,9 +1836,9 @@ void MapAiChatEndpoints()
         string requestId,
         PermissionReplyRequest request,
         PermissionGate permissionGate,
-        IConfiguration config) =>
+        RuntimeConfigurationService runtimeConfig) =>
     {
-        if (!config.GetValue<bool>(WebCliAgentEnabledKey))
+        if (!runtimeConfig.GetEffectiveBool(WebCliAgentEnabledKey))
         {
             return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = WebCliAgentDisabledMessage } });
         }

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Shouldly;
 using Xunit;
 
@@ -197,5 +198,49 @@ public class AiChatSourceGuardTests
 
         source.ShouldContain("_cfgView == \"chat\" && !opt.SupportsChat");
         source.ShouldContain("AnyChatCapableCli");
+    }
+
+    // SPEC-20261001-pr-review-backlog-fixes.
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_DraftSobreviveAFalhaDeQueue()
+    {
+        // B-11 — o composer só é limpo depois do check `queued is null`; limpar
+        // antes descartava o texto do usuário em qualquer erro de rede.
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var queueCall = source.IndexOf("QueueAgentThreadPromptAsync", StringComparison.Ordinal);
+        var nullCheck = source.IndexOf("queued is null", queueCall, StringComparison.Ordinal);
+        var clear = source.IndexOf("_composer = string.Empty;", queueCall, StringComparison.Ordinal);
+
+        queueCall.ShouldBeGreaterThanOrEqualTo(0);
+        nullCheck.ShouldBeGreaterThan(queueCall);
+        clear.ShouldBeGreaterThan(nullCheck, "o composer deve ser limpo apenas após o sucesso do queue");
+    }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_EscFechaDrawer()
+    {
+        // B-12 — Esc dispensa o drawer mobile do rail (só havia o scrim tap).
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        source.ShouldContain("OnPageKeyDown");
+        source.ShouldContain("\"Escape\"");
+        var handler = source.IndexOf("private void OnPageKeyDown", StringComparison.Ordinal);
+        handler.ShouldBeGreaterThanOrEqualTo(0);
+        source[handler..(handler + 400)].ShouldContain("_railDrawerOpen = false");
+    }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_AutoSelectPersisteCli()
+    {
+        // B-14/#387 — a CLI auto-selecionada na inicialização também é
+        // persistida (o fallback ao primeiro elegível não deve “desaprender” a
+        // escolha entre sessões).
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var occurrences = Regex.Matches(source, "taskboard\\.setAiChatLastAgent").Count;
+        occurrences.ShouldBeGreaterThanOrEqualTo(2,
+            "setAiChatLastAgent deve ser chamado tanto no auto-select do init quanto em OnCfgCliChanged");
     }
 }

@@ -69,7 +69,10 @@ public sealed class RunAgentTool(
                 Refused: true, "no eligible agent");
         }
 
-        var issueId = $"chat:{context.ConversationId ?? "unknown"}";
+        // B-07: unique id per delegation — two runs in the same conversation
+        // must not share "chat:{id}", or wait=true could observe a previous
+        // delegation's terminal state.
+        var issueId = $"chat:{context.ConversationId ?? "unknown"}:{Guid.NewGuid().ToString("N")[..8]}";
         var repoPath = context.WorkspacePath;
         var request = new AgentExecutionRequest(
             IssueId: issueId,

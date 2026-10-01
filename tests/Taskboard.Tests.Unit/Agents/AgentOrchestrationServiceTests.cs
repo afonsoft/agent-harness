@@ -595,6 +595,50 @@ public class AgentOrchestrationServiceTests
         }
     }
 
+    [Fact]
+    public async Task Dado_BroadcastCancelado_Quando_ProgressReportar_Entao_RunCompletaSemCrash()
+    {
+        // B-03: OCE no callback async-void do Progress derrubava o processo
+        // (budget-cancel atravessa o Report). Agora é tratado como esperado.
+        IProgress<AgentLogMessage>? progressoCapturado = null;
+        var broadcaster = Substitute.For<IAgentLogBroadcaster>();
+        broadcaster.BroadcastAsync(Arg.Any<AgentLogMessage>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromCanceled(new CancellationToken(canceled: true)));
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                progressoCapturado = callInfo.Arg<IProgress<AgentLogMessage>>();
+                return Task.FromResult(new AgentExecutionResult(0, true));
+            });
+        var service = CriarService(acpClient: acpClient, logBroadcaster: broadcaster);
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(() => Task.FromResult(progressoCapturado is not null));
+
+            progressoCapturado!.Report(new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.StdOut, "log com broadcast cancelado"));
+
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId)).Any(log => log.Content.Contains("exit code 0")));
+            // Progress<T>.Report dispatches asynchronously — poll for the
+            // reported log instead of asserting on a snapshot read.
+            await AguardarAsync(async () =>
+                (await service.GetLogsAsync(request.IssueId))
+                    .Any(log => log.Content.Contains("log com broadcast cancelado")));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     private static WorktreeSessionDto CriarSession(string runId, string path)
         => new(
             "wt-1", runId, path, "feature/agent-x-y", "Active",

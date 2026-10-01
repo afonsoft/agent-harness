@@ -190,7 +190,14 @@
             _error = null;
             foreach (var job in _jobs)
             {
-                _intervalDrafts.TryAdd(job.Key, job.IntervalSeconds);
+                // B-20: re-seed drafts when the user is NOT mid-edit — otherwise
+                // a server-side change never reaches the field while a stale
+                // draft keeps overriding it silently.
+                if (!IntervalDirty(job))
+                {
+                    _intervalDrafts[job.Key] = job.IntervalSeconds;
+                }
+
                 _enabledDrafts[job.Key] = job.Enabled;
             }
         }

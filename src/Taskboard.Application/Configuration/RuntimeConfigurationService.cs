@@ -230,6 +230,26 @@ public sealed class RuntimeConfigurationService
         return ConfigurationWriteResult.Ok;
     }
 
+    /// <summary>
+    /// B-22: resolves a catalog key with the effective precedence
+    /// (db override > env alias > generic env > appsettings > catalog default).
+    /// Endpoint/feature gates must use this instead of raw
+    /// <c>IConfiguration.GetValue</c>, which ignores the env alias and the
+    /// catalog default.
+    /// </summary>
+    public string? GetEffectiveValue(string key)
+    {
+        var entry = FindEntry(key);
+        return entry is null ? _configuration[key] : ResolveValue(entry);
+    }
+
+    /// <summary>Effective boolean value of a catalog key (B-22).</summary>
+    public bool GetEffectiveBool(string key, bool fallback = false)
+    {
+        var value = GetEffectiveValue(key);
+        return value is null ? fallback : bool.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
     private static CatalogEntry? FindEntry(string key) =>
         Catalog.FirstOrDefault(e => e.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
 

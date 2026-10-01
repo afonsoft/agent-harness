@@ -314,6 +314,38 @@ public class RuntimeConfigurationServiceTests
         }
     }
 
+    // B-22: o gate dos endpoints deve resolver pela mesma fonte do catálogo —
+    // o alias env vence o valor configurado em Taskboard:WebCliAgent:Enabled.
+    [Fact]
+    public void Dado_EnvAliasFalseEConfigTrue_Quando_GetEffectiveBool_Entao_False()
+    {
+        Environment.SetEnvironmentVariable("HARNESS_WEB_CLI_AGENT_ENABLED", "false");
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Taskboard:WebCliAgent:Enabled"] = "true",
+                })
+                .Build();
+            var (service, _, _) = CreateSut(configuration);
+
+            service.GetEffectiveBool("Taskboard:WebCliAgent:Enabled").ShouldBeFalse();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HARNESS_WEB_CLI_AGENT_ENABLED", null);
+        }
+    }
+
+    [Fact]
+    public void Dado_SemOverrideNemAlias_Quando_GetEffectiveBool_Entao_DefaultDoCatalogo()
+    {
+        var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        service.GetEffectiveBool("Taskboard:WebCliAgent:Enabled").ShouldBeTrue();
+    }
+
     [Fact]
     public async Task Dado_ValorNaoBooleano_Quando_SetOverrideWebCliAgent_Entao_RetornaValidation()
     {

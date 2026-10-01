@@ -208,7 +208,18 @@ public sealed class AgentSessionManager : IAsyncDisposable
             text,
             AiChatEventKind.Message);
         await eventRepo.AddAsync(queued, cancellationToken).ConfigureAwait(false);
-        await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // B-13: "New conversation" threads derive their title from the first
+        // real prompt instead of keeping the placeholder forever.
+        if (AiChatThreadTitle.IsGeneric(thread.Title))
+        {
+            thread.UpdateTitle(AiChatThreadTitle.Derive(text));
+            await threadRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await eventRepo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         var dto = queued.ToDto();
         await _threadEvents.PublishAsync(
@@ -286,13 +297,13 @@ public sealed class AgentSessionManager : IAsyncDisposable
             return;
         }
 
+        IServiceScope? scope = null;
         try
         {
             var ready = await EnsureSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
             string? text = null;
             AiChatEvent? evt = null;
             IRepository<AiChatEvent>? eventRepo = null;
-            IServiceScope? scope = null;
             if (ready)
             {
                 scope = _scopeFactory.CreateScope();
@@ -307,7 +318,6 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
             if (!sent)
             {
-                scope?.Dispose();
                 queue.DispatchFailed(eventId);
                 return;
             }
@@ -321,13 +331,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
                     new ServerSentEvent(SseEventName, evt.ToDto()),
                     cancellationToken).ConfigureAwait(false);
             }
-
-            scope!.Dispose();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to dispatch queued prompt '{EventId}' for thread '{ThreadId}'.", eventId, threadId);
             queue.DispatchFailed(eventId);
+        }
+        finally
+        {
+            // C-03: the scope must be released on every dispatch path —
+            // an exception mid-flight used to leak it.
+            scope?.Dispose();
         }
     }
 

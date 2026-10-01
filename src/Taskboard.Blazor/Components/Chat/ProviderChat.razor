@@ -57,7 +57,7 @@
                 }
             </select>
             <span class="text-body-secondary small header-label">Model</span>
-            <select class="form-select form-select-sm w-auto" @bind="_model" disabled="@(_models.Count == 0)">
+            <select class="form-select form-select-sm w-auto" @bind="_model" @bind:after="OnModelChangedAsync" disabled="@(_models.Count == 0)">
                 @if (_models.Count == 0)
                 {
                     <option value="">no models</option>
@@ -183,6 +183,7 @@
     private Guid _providerId;
     private IReadOnlyList<string> _models = [];
     private string _model = string.Empty;
+    private string? _defaultChatModel;
 
     private IReadOnlyList<ChatConversationDto> _conversations = [];
     private string? _conversationId;
@@ -217,6 +218,18 @@
             _providers = await Client.GetChatProvidersAsync();
             var conversation = await Client.GetChatConversationsAsync();
             _conversations = conversation;
+            try
+            {
+                // B-16: nova conversa prefere Taskboard:Chat:DefaultChatModel
+                // quando o modelo está na lista do provider.
+                _defaultChatModel = (await Client.GetConfigurationEntriesAsync())
+                    .FirstOrDefault(e => e.Key == "Taskboard:Chat:DefaultChatModel")
+                    ?.EffectiveValue;
+            }
+            catch
+            {
+                _defaultChatModel = null;
+            }
             try
             {
                 var capabilities = await Client.GetChatCapabilitiesAsync();
@@ -263,11 +276,51 @@
         try
         {
             _models = await Client.GetChatProviderModelsAsync(_providerId);
-            _model = _models.Count > 0 ? _models[0] : string.Empty;
+            _model = _defaultChatModel is { Length: > 0 } d && _models.Contains(d)
+                ? d
+                : _models.Count > 0 ? _models[0] : string.Empty;
         }
         catch (Exception ex)
         {
             _error = $"Falha ao carregar modelos: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// B-15: o seletor persistia só o estado local — a conversa continuava no
+    /// modelo anterior. PATCH sincroniza; em erro, reverte para o modelo salvo.
+    /// </summary>
+    private async Task OnModelChangedAsync()
+    {
+        if (_conversationId is null || string.IsNullOrEmpty(_model))
+        {
+            return;
+        }
+
+        try
+        {
+            await Client.UpdateChatConversationModelAsync(_conversationId, _model);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao atualizar o modelo da conversa: {ex.Message}";
+            var detail = await SafeGetConversationAsync(_conversationId);
+            if (detail?.Conversation.Model is { } saved)
+            {
+                _model = saved;
+            }
+        }
+    }
+
+    private async Task<ChatConversationDetailDto?> SafeGetConversationAsync(string id)
+    {
+        try
+        {
+            return await Client.GetChatConversationAsync(id);
+        }
+        catch
+        {
+            return null;
         }
     }
 

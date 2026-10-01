@@ -135,6 +135,48 @@ public class ChatMcpClientManagerTests
         specs.Single(s => s.Name == "knowledge").Headers!["Authorization"].ShouldBe("Bearer secret-key");
     }
 
+    [Fact]
+    public async Task Dado_ConfigMudou_Quando_GetTools_Entao_ReconectaComNovosSpecs()
+    {
+        // B-08: _connectAttempted travava o manager na primeira configuração —
+        // mudança de servidores nunca recarregava. O fingerprint reage ao reload.
+        using var server = new FakeMcpServer();
+        var source = new MutableConfigSource();
+        source.Data[ChatMcpClientManager.EnabledKey] = "true";
+        source.Data[ChatMcpClientManager.ServersKey] =
+            $$"""[{"name":"fake","command":"{{server.Command}}","args":{{JsonSerializer.Serialize(server.Args)}}}]""";
+        var config = new ConfigurationBuilder().Add(source).Build();
+
+        await using var manager = new ChatMcpClientManager(
+            config, LoggerFactory.Create(_ => { }), redactor: null);
+
+        var tools = await manager.GetToolsAsync(CancellationToken.None);
+        tools.Select(t => t.Name).ShouldBe(["mcp_fake_echo"]);
+
+        // Hot-reload: mesmo binário, nome diferente → fingerprint muda.
+        source.Data[ChatMcpClientManager.ServersKey] =
+            $$"""[{"name":"fake2","command":"{{server.Command}}","args":{{JsonSerializer.Serialize(server.Args)}}}]""";
+        ((IConfigurationRoot)config).Reload();
+
+        var reloaded = await manager.GetToolsAsync(CancellationToken.None);
+
+        reloaded.Select(t => t.Name).ShouldBe(["mcp_fake2_echo"]);
+        manager.GetServers().Single().Name.ShouldBe("fake2");
+    }
+
+    /// <summary>Fonte de configuração mutável — simula o hot-reload do appsettings.</summary>
+    private sealed class MutableConfigSource : IConfigurationSource
+    {
+        public Dictionary<string, string?> Data { get; } = new(StringComparer.Ordinal);
+
+        public IConfigurationProvider Build(IConfigurationBuilder builder) => new Provider(Data);
+
+        private sealed class Provider(Dictionary<string, string?> source) : ConfigurationProvider
+        {
+            public override void Load() => Data = new Dictionary<string, string?>(source, StringComparer.Ordinal);
+        }
+    }
+
     /// <summary>
     /// Fake stdio MCP server (SPEC §10) — script Python efêmero falando NDJSON
     /// JSON-RPC (initialize/tools-list/tools-call) em stdin/stdout.

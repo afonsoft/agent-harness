@@ -39,7 +39,7 @@
 }
 else
 {
-<div class="ai-chat-layout @(_railDrawerOpen ? "rail-open" : "")">
+<div class="ai-chat-layout @(_railDrawerOpen ? "rail-open" : "")" @onkeydown="OnPageKeyDown">
     @if (_railDrawerOpen)
     {
         <div class="ai-chat-rail-scrim" @onclick="() => _railDrawerOpen = false"></div>
@@ -905,6 +905,17 @@ else
             {
                 _cfgCli = first.Value;
                 _cfgView = first.SupportsChat ? "chat" : "terminal";
+                // B-14/#387: persist the auto-selected CLI too — otherwise the
+                // next load re-picks from scratch (and can land elsewhere when
+                // eligibility changed between sessions).
+                try
+                {
+                    await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+                {
+                    // Best-effort — failure here is non-fatal.
+                }
             }
 
             // SPEC-20261001-chat-default-mode FR-001/003: resolve the default
@@ -969,6 +980,18 @@ else
     {
         await JS.InvokeVoidAsync("taskboard.blurActiveElement");
         await modal.HideAsync();
+    }
+
+    /// <summary>
+    /// B-12/#385: Esc dismisses the rail drawer — today the scrim tap is the
+    /// only way out and there is no keyboard path at all.
+    /// </summary>
+    private void OnPageKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _railDrawerOpen)
+        {
+            _railDrawerOpen = false;
+        }
     }
 
     /// <summary>
@@ -1419,12 +1442,16 @@ else
                 // RF-002: the queue endpoint persists the prompt (queued event)
                 // and dispatches FIFO — no separate user-event post needed.
                 var (queued, queueError) = await Client.QueueAgentThreadPromptAsync(threadId, content);
-                _composer = string.Empty;
                 if (queued is null)
                 {
+                    // B-11: keep the draft — clearing the composer before the
+                    // failure check throws the user's text away on any
+                    // network/validation error.
                     await ToastService.NotifyAsync(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
                     return;
                 }
+
+                _composer = string.Empty;
 
                 if (_seenEventIds.Add(queued.Id))
                 {
