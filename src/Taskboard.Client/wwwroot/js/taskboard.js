@@ -66,6 +66,17 @@ window.taskboard = {
         }
     },
 
+    // SPEC-20261001-terminal-memory-mobile RF-003: touch devices can pin the
+    // virtual keybar without entering focus mode — html[data-terminal-keybar]
+    // drives the CSS visibility rule alongside [data-terminal-focus].
+    setTerminalKeybar: function (enabled) {
+        if (enabled) {
+            document.documentElement.dataset.terminalKeybar = 'true';
+        } else {
+            delete document.documentElement.dataset.terminalKeybar;
+        }
+    },
+
     // SPEC-20260920-global-repo-selector RF-001: the shared repo selection is
     // per-browser; storage failures degrade to session-only state.
     getSelectedRepo: function () {

@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20261001-terminal-memory-mobile` |
 | Technical owner | afonsoft |
-| Status | Draft (pending human approval) |
+| Status | Done |
 | Date | 2026-10-01 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20260917-terminal-tabs, SPEC-20260920-terminal-pty-resize, SPEC-20260923-terminal-virtual-keybar, SPEC-20260923-terminal-focus-mode, SPEC-20260928-ai-code-generic-cli (RF-003 reattach/replay), SPEC-20260930-mobile-responsive-ui |
@@ -258,3 +258,40 @@ assim:
   não neste slice (config-only); a tela de settings já está em tabs.
 - Cap ideal do cockpit read-only (3000 desktop) — revisar após uso
   real de runs longos.
+
+## 9. Task Plan (agent execution)
+
+- [x] **T1 — RF-001/RF-004 (client):** `resolveScrollback`/`resolveFontSize`
+  + `isCompactViewport` em `terminal.js`; `init`/`initReadOnly` aceitam
+  `options` opcional — defaults 2000/800 interativo, 3000/1200 read-only,
+  fonte 13/12.
+- [x] **T2 — RF-002 (server):** `TerminalSessionManager` —
+  `ScrollbackLimit` 200_000 → `DefaultScrollbackChars` 64_000, override via
+  `Terminal:ScrollbackChars` (`IConfiguration` no ctor público; param
+  `scrollbackChars` no ctor interno).
+- [x] **T3 — RF-003 (keybar):** toggle ⌨ na tabstrip
+  (`terminal-keybar-toggle`, `aria-pressed`, `ToggleKeybarAsync`),
+  `taskboard.setTerminalKeybar` liga `html[data-terminal-keybar]`; CSS
+  exibe `.terminal-keybar` com qualquer um dos dois atributos em coarse
+  pointer; atributo limpo no `DisposeAsync`.
+- [x] **T4 — RF-004/RF-005 (mobile/scroll):** tabstrip compacta <768px
+  (scroll-snap, título truncado), host 160px, descrição oculta <576px;
+  `scrollToBottomIfPinned` após fit em `reportResize` e no observer do
+  read-only.
+- [x] **T5 — RF-006 (tests):** 2 casos de cap no
+  `TerminalSessionManagerTests` (default 64k + custom 1000) e 5 guards
+  novos no `TerminalFocusKeybarGuardTests`; guard `initReadOnly`
+  atualizado para a assinatura com `options`.
+- [x] **T6 — Validation:** `dotnet build` 0 warnings, suite unitária +
+  integração, `dotnet format --verify`.
+
+## 10. Definition of Done
+
+- [x] Scrollback client: 2000/800 interativo, 3000/1200 read-only
+  (AC-03), override via `options`.
+- [x] Scrollback server: 64_000 chars default, `Terminal:ScrollbackChars`
+  respeitado (AC-02/AC-07 — coberto por teste).
+- [x] Keybar acessível fora do focus mode em touch (AC-01).
+- [x] Scroll ancorado ao fim após refit; posição preservada ao subir
+  (RF-005).
+- [x] Build/format/testes verdes (AC-06).

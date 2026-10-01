@@ -181,4 +181,90 @@ public class TerminalFocusKeybarGuardTests
         body.ShouldContain("_focusMode");
         body.ShouldContain("taskboard.setTerminalFocus");
     }
+
+    // SPEC-20261001-terminal-memory-mobile — guards da memória adaptativa e
+    // do toggle de keybar fora do focus mode.
+
+    [Fact]
+    public void Dado_TerminalJs_Quando_LeFonte_Entao_ScrollbackAdaptativo()
+    {
+        // RF-001 — resolveScrollback com defaults desktop/mobile por perfil.
+        var js = TerminalJs();
+        js.ShouldContain("resolveScrollback");
+        js.ShouldContain("desktop: 2000");
+        js.ShouldContain("mobile: 800");
+        js.ShouldContain("desktop: 3000");
+        js.ShouldContain("mobile: 1200");
+    }
+
+    [Fact]
+    public void Dado_TerminalJs_Quando_LeFonte_Entao_ScrollPreservadoAposFit()
+    {
+        // RF-005 — após fit válido, terminal no fim volta ao fim
+        // (scrollToBottomIfPinned), quem subiu mantém a posição.
+        var js = TerminalJs();
+        js.ShouldContain("scrollToBottomIfPinned");
+        Regex.IsMatch(js, @"function\s+reportResize[\s\S]*?scrollToBottomIfPinned\(entry\)")
+            .ShouldBeTrue("reportResize deve ancorar no fim após o fit");
+    }
+
+    [Fact]
+    public void Dado_TerminalRazor_Quando_LeFonte_Entao_ToggleKeybarForaDoFocus()
+    {
+        // RF-003 — toggle do teclado virtual na tabstrip com aria-pressed e
+        // interop que liga html[data-terminal-keybar].
+        var razor = TerminalRazor();
+        razor.ShouldContain("terminal-keybar-toggle");
+        razor.ShouldContain("taskboard.setTerminalKeybar");
+        razor.ShouldContain("aria-pressed=\"@_keybarVisible\"");
+    }
+
+    [Fact]
+    public void Dado_TaskboardJs_Quando_LeFonte_Entao_ExportaSetTerminalKeybar()
+    {
+        // RF-003 — window.taskboard.setTerminalKeybar manipula
+        // documentElement.dataset.terminalKeybar.
+        var js = TaskboardJs();
+        var assign = js.IndexOf("window.taskboard =", StringComparison.Ordinal);
+        assign.ShouldBeGreaterThanOrEqualTo(0);
+        var brace = js.IndexOf('{', assign);
+        var exports = BlockAt(js, brace);
+
+        Regex.IsMatch(exports, @"setTerminalKeybar\s*:")
+            .ShouldBeTrue("setTerminalKeybar deve ser membro do objeto window.taskboard");
+        js.ShouldContain("dataset.terminalKeybar");
+    }
+
+    [Fact]
+    public void Dado_SiteCss_Quando_LeFonte_Entao_KeybarVisivelComAtributoKeybar()
+    {
+        // RF-003 — a keybar aparece em coarse pointer também com
+        // html[data-terminal-keybar], não só em focus mode.
+        var css = SiteCss();
+        var media = Regex.Match(css, @"@media\s*\(pointer:\s*coarse\),\s*\(hover:\s*none\)");
+        media.Success.ShouldBeTrue("media query de ponteiro coarse não encontrada");
+        var brace = css.IndexOf('{', media.Index);
+        var block = BlockAt(css, brace);
+
+        Regex.IsMatch(block, @"html\[data-terminal-keybar\]\s*\.terminal-keybar")
+            .ShouldBeTrue("a regra html[data-terminal-keybar] .terminal-keybar deve estar dentro do bloco da media query");
+        Regex.IsMatch(block, @"\.terminal-keybar-toggle")
+            .ShouldBeTrue("o toggle .terminal-keybar-toggle só deve aparecer em coarse pointer");
+    }
+
+    [Fact]
+    public void Dado_SiteCss_Quando_LeFonte_Entao_TabstripCompactaEmMobile()
+    {
+        // RF-004 — abaixo de 768px: scroll-snap na tabstrip, títulos
+        // truncados e host mais baixo; descrição some abaixo de 576px.
+        var css = SiteCss();
+        var media = Regex.Match(css, @"@media\s*\(max-width:\s*767\.98px\)");
+        media.Success.ShouldBeTrue("media query mobile do terminal não encontrada");
+        var brace = css.IndexOf('{', media.Index);
+        var block = BlockAt(css, brace);
+
+        block.ShouldContain("scroll-snap-type: x proximity");
+        block.ShouldContain("min-height: 160px");
+        css.ShouldContain("@media (max-width: 575.98px)");
+    }
 }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Taskboard.Integrations.Terminal;
@@ -35,34 +36,48 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         public StringBuilder Scrollback { get; } = new();
     }
 
-    /// <summary>Scrollback cap per session — oldest output is dropped beyond it.</summary>
-    internal const int ScrollbackLimit = 200_000;
+    /// <summary>
+    /// Default scrollback cap per session — oldest output is dropped beyond it.
+    /// SPEC-20261001-terminal-memory-mobile RF-002: 64 KB bounds memory even
+    /// when eight sessions stay alive; overridable via
+    /// <c>Terminal:ScrollbackChars</c>.
+    /// </summary>
+    internal const int DefaultScrollbackChars = 64_000;
 
     private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
     private readonly Func<string?, IReadOnlyList<string>?, IPtySession> _sessionFactory;
     private readonly ILogger<TerminalSessionManager> _logger;
     private readonly TimeSpan _idleTimeout;
     private readonly TimeSpan _orphanTimeout;
+    private readonly int _scrollbackLimit;
     private readonly CancellationTokenSource _sweepCts = new();
     private readonly Task _sweepTask;
     private readonly object _gate = new();
 
-    public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger)
-        : this((workdir, command) => sessionFactory.Create(workdir, command: command), logger)
+    public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger, IConfiguration? configuration = null)
+        : this((workdir, command) => sessionFactory.Create(workdir, command: command), logger,
+            scrollbackChars: ParseScrollbackChars(configuration))
     {
     }
+
+    private static int? ParseScrollbackChars(IConfiguration? configuration) =>
+        int.TryParse(configuration?["Terminal:ScrollbackChars"], out var chars) && chars > 0
+            ? chars
+            : null;
 
     internal TerminalSessionManager(
         Func<string?, IReadOnlyList<string>?, IPtySession> sessionFactory,
         ILogger<TerminalSessionManager> logger,
         TimeSpan? idleTimeout = null,
         TimeSpan? sweepInterval = null,
-        TimeSpan? orphanTimeout = null)
+        TimeSpan? orphanTimeout = null,
+        int? scrollbackChars = null)
     {
         _sessionFactory = sessionFactory;
         _logger = logger;
         _idleTimeout = idleTimeout ?? IdleTimeout;
         _orphanTimeout = orphanTimeout ?? OrphanTimeout;
+        _scrollbackLimit = scrollbackChars is > 0 ? scrollbackChars.Value : DefaultScrollbackChars;
         _sweepTask = Task.Run(() => SweepLoopAsync(sweepInterval ?? TimeSpan.FromMinutes(1), _sweepCts.Token), _sweepCts.Token);
     }
 
@@ -197,9 +212,9 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         lock (_gate)
         {
             entry.Scrollback.Append(chunk);
-            if (entry.Scrollback.Length > ScrollbackLimit)
+            if (entry.Scrollback.Length > _scrollbackLimit)
             {
-                entry.Scrollback.Remove(0, entry.Scrollback.Length - ScrollbackLimit);
+                entry.Scrollback.Remove(0, entry.Scrollback.Length - _scrollbackLimit);
             }
         }
     }

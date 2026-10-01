@@ -43,7 +43,7 @@ public class TerminalSessionManagerTests
         public RecordingLogger Logger { get; } = new();
         public TerminalSessionManager Manager { get; }
 
-        public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null)
+        public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null, int? scrollbackChars = null)
         {
             Manager = new TerminalSessionManager(
                 (workdir, command) =>
@@ -57,7 +57,8 @@ public class TerminalSessionManagerTests
                 Logger,
                 idleTimeout,
                 sweepInterval: TimeSpan.FromHours(1),
-                orphanTimeout);
+                orphanTimeout,
+                scrollbackChars);
         }
 
         public Func<string, string, Task> OnOutput =>
@@ -182,6 +183,35 @@ public class TerminalSessionManagerTests
         h.Sessions[0].EmitOutput("chunk-b");
 
         h.Manager.GetScrollback(id).ShouldBe("chunk-achunk-b");
+    }
+
+    // SPEC-20261001-terminal-memory-mobile RF-002: o buffer do servidor é
+    // limitado a 64 KB por sessão por padrão; Terminal:ScrollbackChars ajusta.
+
+    [Fact]
+    public async Task Dado_OutputAcimaDoCap_Quando_GetScrollback_Entao_TruncaNoDefault64K()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+
+        h.Sessions[0].EmitOutput(new string('x', TerminalSessionManager.DefaultScrollbackChars + 500));
+
+        var scrollback = h.Manager.GetScrollback(id);
+        scrollback.Length.ShouldBe(TerminalSessionManager.DefaultScrollbackChars);
+    }
+
+    [Fact]
+    public async Task Dado_CapCustomizado_Quando_OutputExcede_Entao_TruncaNoCapConfigurado()
+    {
+        await using var h = new Harness(scrollbackChars: 1000);
+        var id = await h.Manager.OpenAsync("u1", "conn1", h.OnOutput, h.OnClosed);
+
+        h.Sessions[0].EmitOutput(new string('a', 600));
+        h.Sessions[0].EmitOutput(new string('b', 600));
+
+        var scrollback = h.Manager.GetScrollback(id);
+        scrollback.Length.ShouldBe(1000);
+        scrollback.ShouldEndWith(new string('b', 400));
     }
 
     // SPEC-20260920-global-repo-selector RF-006 — cwd do repo só para sessões novas.

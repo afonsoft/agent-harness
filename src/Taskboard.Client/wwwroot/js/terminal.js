@@ -4,6 +4,45 @@
 window.taskboardTerminal = (() => {
     const terms = new Map(); // elementId -> { term, fit, observer, dotNet, tabKey }
 
+    // SPEC-20261001-terminal-memory-mobile RF-001/RF-004: compact viewports
+    // (coarse pointer, hoverless, or narrow screen) get a smaller scrollback
+    // and font — the old 5000/10000-line buffers were the dominant memory
+    // cost when several tabs stayed mounted.
+    const SCROLLBACK = {
+        interactive: { desktop: 2000, mobile: 800 },
+        readOnly: { desktop: 3000, mobile: 1200 }
+    };
+
+    function isCompactViewport() {
+        return typeof window.matchMedia === 'function'
+            && window.matchMedia('(pointer: coarse), (hover: none), (max-width: 767.98px)').matches;
+    }
+
+    function resolveScrollback(kind, options) {
+        if (options && Number.isInteger(options.scrollback) && options.scrollback > 0) {
+            return options.scrollback;
+        }
+        const profile = SCROLLBACK[kind] || SCROLLBACK.interactive;
+        return isCompactViewport() ? profile.mobile : profile.desktop;
+    }
+
+    function resolveFontSize(options) {
+        if (options && Number.isInteger(options.fontSize) && options.fontSize > 0) {
+            return options.fontSize;
+        }
+        return isCompactViewport() ? 12 : 13;
+    }
+
+    // After a fit the terminal must stay pinned to the bottom when it was
+    // already there (soft keyboard open/close, window resize); a user who
+    // scrolled up keeps their position (SPEC-20261001 RF-005).
+    function scrollToBottomIfPinned(entry) {
+        const buf = entry.term.buffer.active;
+        if (buf.viewportY >= buf.baseY) {
+            entry.term.scrollToBottom();
+        }
+    }
+
     function copySelection(term) {
         const text = term.getSelection();
         if (!text) {
@@ -62,7 +101,7 @@ window.taskboardTerminal = (() => {
         });
     }
 
-    function init(elementId, dotNetRef, tabKey) {
+    function init(elementId, dotNetRef, tabKey, options) {
         const el = document.getElementById(elementId);
         if (!el || typeof Terminal === 'undefined') {
             return false;
@@ -73,9 +112,9 @@ window.taskboardTerminal = (() => {
 
         const term = new Terminal({
             cursorBlink: true,
-            fontSize: 13,
+            fontSize: resolveFontSize(options),
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-            scrollback: 5000,
+            scrollback: resolveScrollback('interactive', options),
             theme: {
                 background: '#0d1117',
                 foreground: '#e6edf3',
@@ -104,7 +143,7 @@ window.taskboardTerminal = (() => {
 
     // Read-only terminal for the cockpit run page (SPEC-20260920-board-cockpit-
     // unified-runs R6): no stdin wiring, no resize callbacks — output only.
-    function initReadOnly(elementId) {
+    function initReadOnly(elementId, options) {
         const el = document.getElementById(elementId);
         if (!el || typeof Terminal === 'undefined') {
             return false;
@@ -115,9 +154,9 @@ window.taskboardTerminal = (() => {
             cursorBlink: false,
             disableStdin: true,
             convertEol: true,
-            fontSize: 13,
+            fontSize: resolveFontSize(options),
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-            scrollback: 10000,
+            scrollback: resolveScrollback('readOnly', options),
             theme: {
                 background: '#0d1117',
                 foreground: '#e6edf3',
@@ -134,6 +173,7 @@ window.taskboardTerminal = (() => {
             try {
                 if (el.offsetParent !== null && el.clientHeight > 0 && el.clientWidth > 0) {
                     entry.fit.fit();
+                    scrollToBottomIfPinned(entry);
                 }
             } catch { /* element gone */ }
         });
@@ -152,6 +192,7 @@ window.taskboardTerminal = (() => {
             return;
         }
         entry.fit.fit();
+        scrollToBottomIfPinned(entry);
         const { cols, rows } = entry.term;
         if (cols < 2 || rows < 2 || (cols === entry.lastCols && rows === entry.lastRows)) {
             return;
