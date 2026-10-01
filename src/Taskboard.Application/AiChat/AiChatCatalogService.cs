@@ -49,44 +49,7 @@ public sealed class AiChatCatalogService(
 
         foreach (var agentType in eligible.OrderBy(t => t.ToString(), StringComparer.Ordinal))
         {
-            // name → source; first insert wins so insertion order IS the
-            // priority order (probe → curated → custom overrides).
-            var names = new Dictionary<string, string>(StringComparer.Ordinal);
-            try
-            {
-                foreach (var name in await probes.ListAvailableAsync(agentType, cancellationToken: cancellationToken).ConfigureAwait(false))
-                {
-                    names.TryAdd(name, "probe");
-                }
-            }
-            catch (Exception ex)
-            {
-                // Probe failure degrades to curated + overrides.
-                logger.LogWarning(ex, "Model probe failed for agent '{AgentType}'; falling back to curated models.", agentType);
-            }
-
-            foreach (var name in AgentCliModels.Catalog(agentType))
-            {
-                names.TryAdd(name, "curated");
-            }
-
-            try
-            {
-                var config = await modelConfig.GetConfigAsync(agentType, cancellationToken).ConfigureAwait(false);
-                if (string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Saved tier overrides are user-chosen → ProviderKindCustom provenance.
-                    if (config.Lite is not null) names.TryAdd(config.Lite, ProviderKindCustom);
-                    if (config.Normal is not null) names.TryAdd(config.Normal, ProviderKindCustom);
-                    if (config.Ultra is not null) names.TryAdd(config.Ultra, ProviderKindCustom);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Overrides unavailable — catalog + probe still apply.
-                logger.LogWarning(ex, "Model overrides unavailable for agent '{AgentType}'.", agentType);
-            }
-
+            var names = await NamesForAgentAsync(agentType, cancellationToken).ConfigureAwait(false);
             foreach (var (name, source) in names)
             {
                 models.Add(new AiChatModelDto(
@@ -110,6 +73,55 @@ public sealed class AiChatCatalogService(
         }
 
         return models;
+    }
+
+    // name → source; first insert wins so insertion order IS the
+    // priority order (probe → curated → custom overrides).
+    private async Task<Dictionary<string, string>> NamesForAgentAsync(
+        AgentType agentType, CancellationToken cancellationToken)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var name in await probes.ListAvailableAsync(agentType, cancellationToken: cancellationToken).ConfigureAwait(false))
+            {
+                names.TryAdd(name, "probe");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Probe failure degrades to curated + overrides.
+            logger.LogWarning(ex, "Model probe failed for agent '{AgentType}'; falling back to curated models.", agentType);
+        }
+
+        foreach (var name in AgentCliModels.Catalog(agentType))
+        {
+            names.TryAdd(name, "curated");
+        }
+
+        await AddConfiguredOverridesAsync(names, agentType, cancellationToken).ConfigureAwait(false);
+        return names;
+    }
+
+    private async Task AddConfiguredOverridesAsync(
+        Dictionary<string, string> names, AgentType agentType, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var config = await modelConfig.GetConfigAsync(agentType, cancellationToken).ConfigureAwait(false);
+            if (string.Equals(config.Source, "override", StringComparison.OrdinalIgnoreCase))
+            {
+                // Saved tier overrides are user-chosen → ProviderKindCustom provenance.
+                if (config.Lite is not null) names.TryAdd(config.Lite, ProviderKindCustom);
+                if (config.Normal is not null) names.TryAdd(config.Normal, ProviderKindCustom);
+                if (config.Ultra is not null) names.TryAdd(config.Ultra, ProviderKindCustom);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Overrides unavailable — catalog + probe still apply.
+            logger.LogWarning(ex, "Model overrides unavailable for agent '{AgentType}'.", agentType);
+        }
     }
 
     /// <summary>
