@@ -13,9 +13,11 @@ public sealed class WebSearchTool(
     int maxResults = 5) : IChatTool
 {
     public string Name => "web_search";
-    public string Description => "Search the internet and return the top results (title, url, snippet).";
+    public string Description =>
+        "Search the public web and return the top results (title, url, snippet). "
+        + "Best for current events and external references; follow up with fetch_url to read a result page.";
     public string ParametersJson => """
-        {"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}
+        {"type":"object","properties":{"query":{"type":"string","description":"Search query"},"count":{"type":"integer","description":"Max results to return (1-10, default 5)"}},"required":["query"]}
         """;
 
     public async Task<ChatToolResult> ExecuteAsync(
@@ -46,9 +48,12 @@ public sealed class WebSearchTool(
             }));
         }
 
+        var count = arguments.TryGetProperty("count", out var c) && c.TryGetInt32(out var cv)
+            ? Math.Clamp(cv, 1, 10)
+            : maxResults;
         try
         {
-            var results = await backend.SearchAsync(query, maxResults, cancellationToken).ConfigureAwait(false);
+            var results = await backend.SearchAsync(query, count, cancellationToken).ConfigureAwait(false);
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
                 query,

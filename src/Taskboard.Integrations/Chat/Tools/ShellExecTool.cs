@@ -24,7 +24,7 @@ public sealed class ShellExecTool(
         "Run a shell command inside the workspace directory. Read-only commands are preferred; "
         + "dangerous commands (recursive deletes, sudo, network egress) are refused.";
     public string ParametersJson => """
-        {"type":"object","properties":{"command":{"type":"string","description":"The shell command line to run"}},"required":["command"]}
+        {"type":"object","properties":{"command":{"type":"string","description":"The shell command line to run"},"timeout_seconds":{"type":"integer","description":"Execution timeout in seconds (default 60, max 300)"}},"required":["command"]}
         """;
 
     public async Task<ChatToolResult> ExecuteAsync(
@@ -47,8 +47,11 @@ public sealed class ShellExecTool(
                 assessment.Reason);
         }
 
+        var timeoutSeconds = arguments.TryGetProperty("timeout_seconds", out var t) && t.TryGetInt32(out var tv)
+            ? Math.Clamp(tv, 5, 300)
+            : 60;
         var result = await ChatProcessRunner.RunAsync("/bin/sh", ["-c", command], context.WorkspacePath,
-            TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+            TimeSpan.FromSeconds(timeoutSeconds), cancellationToken).ConfigureAwait(false);
         var output = redactor.Redact(ChatProcessRunner.Truncate(
             $"exitCode: {result.ExitCode}\nstdout:\n{result.Stdout}\nstderr:\n{result.Stderr}"));
         return new ChatToolResult(JsonSerializer.Serialize(new

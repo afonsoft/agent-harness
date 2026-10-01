@@ -20,7 +20,7 @@ public sealed class ChatCapabilityRegistry(
     /// <summary>Tools that mutate or execute — flagged for the Settings hint.</summary>
     private static readonly ISet<string> MutatingTools = new HashSet<string>(StringComparer.Ordinal)
     {
-        "shell_exec", "write_file", "run_cli", "code_interpreter", "run_agent",
+        "shell_exec", "write_file", "run_cli", "code_interpreter", "run_agent", "memory",
     };
 
     public async Task<IReadOnlyList<ChatCapability>> ListAsync(CancellationToken cancellationToken = default)

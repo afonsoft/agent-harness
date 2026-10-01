@@ -316,6 +316,13 @@ public sealed class ChatService(
                 break;
             }
 
+            // Flush the inline-markup filter tail — held-back marker prefixes
+            // resolve here (visible) or are dropped (partial markup).
+            if (stream.Complete() is { Length: > 0 } tail)
+            {
+                yield return new ChatDeltaEvent(tail);
+            }
+
             var toolCalls = stream.MaterializeToolCalls();
 
             // After a user stop the run token is cancelled — the partial reply
@@ -358,6 +365,11 @@ public sealed class ChatService(
     // streamed live by ConsumeStreamAsync (B-02), not replayed from here.
     private sealed class StreamOutcome
     {
+        // SPEC-20261001-ai-chat-openwebui: DSML/<tool_call> markup emitted
+        // inline by some models is filtered out of the visible stream and
+        // later materialized into real tool calls.
+        private readonly InlineToolCallMarkup _inlineMarkup = new();
+
         public System.Text.StringBuilder AssistantContent { get; } = new();
 
         public SortedDictionary<int, (string? Id, string? Name, System.Text.StringBuilder Args)> ToolAccumulator { get; } = new();
@@ -368,13 +380,22 @@ public sealed class ChatService(
 
         public bool StoppedByUser { get; set; }
 
-        /// <summary>Returns the content delta when the chunk carried one.</summary>
+        /// <summary>Returns the visible content delta when the chunk carried one.</summary>
         public string? AccumulateChunk(OpenAiStreamEvent chunk)
         {
             var delta = chunk.ContentDelta is { Length: > 0 } content ? content : null;
+            string? visible = null;
             if (delta is not null)
             {
-                AssistantContent.Append(delta);
+                visible = _inlineMarkup.Feed(delta);
+                if (visible.Length == 0)
+                {
+                    visible = null;
+                }
+                else
+                {
+                    AssistantContent.Append(visible);
+                }
             }
 
             if (chunk.ToolCallDeltas is { Count: > 0 } deltas)
@@ -396,16 +417,27 @@ public sealed class ChatService(
                 Usage = usage;
             }
 
-            return delta;
+            return visible;
         }
 
-        public List<OpenAiToolCall> MaterializeToolCalls() =>
-            ToolAccumulator
+        /// <summary>Flushes the markup filter tail into <see cref="AssistantContent"/>; returns it for a final delta event.</summary>
+        public string Complete()
+        {
+            var tail = _inlineMarkup.Flush();
+            AssistantContent.Append(tail);
+            return tail;
+        }
+
+        public List<OpenAiToolCall> MaterializeToolCalls()
+        {
+            var structured = ToolAccumulator
                 .Select(kv => new OpenAiToolCall(
                     Id: kv.Value.Id ?? $"call_{kv.Key}",
                     Name: kv.Value.Name ?? "unknown",
                     ArgumentsJson: string.IsNullOrWhiteSpace(kv.Value.Args.ToString()) ? "{}" : kv.Value.Args.ToString()))
                 .ToList();
+            return structured.Count > 0 ? structured : _inlineMarkup.MaterializeCalls().ToList();
+        }
     }
 
     // B-02: streams provider chunks as they arrive — each content delta is
@@ -624,7 +656,7 @@ public sealed class ChatService(
                 var toolCalls = message.ToolCallsJson is null
                     ? null
                     : JsonSerializer.Deserialize<List<OpenAiToolCall>>(message.ToolCallsJson, Json);
-                wire.Add(new OpenAiChatMessage("assistant", message.Content, toolCalls));
+                wire.Add(new OpenAiChatMessage("assistant", InlineToolCallMarkup.StripBlocks(message.Content), toolCalls));
             }
             else if (role == "tool" && message.ToolCallId is not null)
             {
@@ -757,7 +789,9 @@ public sealed class ChatService(
     private static ChatMessageDto ToDto(ChatMessage message) => new(
         message.Id.Value,
         message.Role.Value,
-        message.Content,
+        // Inline markup persisted before the stream filter existed still
+        // renders as garbage — strip it at the DTO edge (SPEC-20261001-ai-chat-openwebui).
+        message.Role.Value == "assistant" ? InlineToolCallMarkup.StripBlocks(message.Content) : message.Content,
         message.ToolCallsJson,
         message.ToolCallId,
         message.ToolName,
