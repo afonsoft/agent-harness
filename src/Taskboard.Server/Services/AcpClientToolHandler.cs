@@ -208,33 +208,7 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
             throw new AcpException(AcpErrorCode.RequestCancelled, TerminalCreateMethod, "command denied by user.");
         }
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = command,
-            WorkingDirectory = cwd,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = false,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var arg in args)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
-
-        if (p.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var e in env.EnumerateArray())
-            {
-                var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
-                var value = e.TryGetProperty("value", out var v) ? v.GetString() : null;
-                if (name is not null)
-                {
-                    startInfo.Environment[name] = value;
-                }
-            }
-        }
+        var startInfo = BuildStartInfo(command, args, cwd, p);
 
         var process = Process.Start(startInfo)
             ?? throw new AcpException(AcpErrorCode.Internal, TerminalCreateMethod, $"failed to start '{command}'.");
@@ -283,6 +257,40 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
         _logger.LogInformation("ACP terminal/create: '{Command}' approved for thread {ThreadId} → {TerminalId}.",
             command, threadId, entry.TerminalId);
         return JsonSerializer.SerializeToElement(new { terminalId = entry.TerminalId });
+    }
+
+    private static ProcessStartInfo BuildStartInfo(
+        string command, string[] args, string cwd, JsonElement p)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = command,
+            WorkingDirectory = cwd,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = false,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        if (p.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in env.EnumerateArray())
+            {
+                var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var value = e.TryGetProperty("value", out var v) ? v.GetString() : null;
+                if (name is not null)
+                {
+                    startInfo.Environment[name] = value;
+                }
+            }
+        }
+
+        return startInfo;
     }
 
     private JsonElement TerminalOutput(JsonElement p)

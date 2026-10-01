@@ -1376,41 +1376,59 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     {
         // The normalized payload carries plain option ids; the raw line keeps
         // the real ACP objects {optionId,name,kind} — parse the raw line first.
+        var parsed = TryParseOptions(rawLine);
+        if (parsed.Count > 0)
+        {
+            return parsed;
+        }
+
+        return [new AcpPermissionOption("allow", "Allow", "allow_once"), new AcpPermissionOption("deny", "Deny", "reject_once")];
+    }
+
+    private static List<AcpPermissionOption> TryParseOptions(string rawLine)
+    {
         try
         {
             using var doc = JsonDocument.Parse(rawLine);
-            if (doc.RootElement.TryGetProperty("params", out var p)
-                && p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+            if (!doc.RootElement.TryGetProperty("params", out var p)
+                || !p.TryGetProperty("options", out var opts)
+                || opts.ValueKind != JsonValueKind.Array)
             {
-                var list = new List<AcpPermissionOption>();
-                foreach (var o in opts.EnumerateArray())
-                {
-                    if (o.ValueKind == JsonValueKind.Object
-                        && o.TryGetProperty("optionId", out var oid) && oid.GetString() is { } id)
-                    {
-                        list.Add(new AcpPermissionOption(
-                            id,
-                            o.TryGetProperty("name", out var n) ? n.GetString() : null,
-                            o.TryGetProperty("kind", out var k) ? k.GetString() : null));
-                    }
-                    else if (o.ValueKind == JsonValueKind.String && o.GetString() is { } legacy)
-                    {
-                        list.Add(new AcpPermissionOption(legacy, legacy, null));
-                    }
-                }
+                return [];
+            }
 
-                if (list.Count > 0)
+            var list = new List<AcpPermissionOption>();
+            foreach (var o in opts.EnumerateArray())
+            {
+                if (ParseOption(o) is { } option)
                 {
-                    return list;
+                    list.Add(option);
                 }
             }
+
+            return list;
         }
         catch (JsonException)
         {
             // Malformed payload — treated as absent.
+            return [];
+        }
+    }
+
+    private static AcpPermissionOption? ParseOption(JsonElement o)
+    {
+        if (o.ValueKind == JsonValueKind.Object
+            && o.TryGetProperty("optionId", out var oid) && oid.GetString() is { } id)
+        {
+            return new AcpPermissionOption(
+                id,
+                o.TryGetProperty("name", out var n) ? n.GetString() : null,
+                o.TryGetProperty("kind", out var k) ? k.GetString() : null);
         }
 
-        return [new AcpPermissionOption("allow", "Allow", "allow_once"), new AcpPermissionOption("deny", "Deny", "reject_once")];
+        return o.ValueKind == JsonValueKind.String && o.GetString() is { } legacy
+            ? new AcpPermissionOption(legacy, legacy, null)
+            : null;
     }
 
     private static string? ExtractPermissionRequestId(string? payloadJson)
