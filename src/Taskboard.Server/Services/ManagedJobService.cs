@@ -81,6 +81,7 @@ public abstract class ManagedJobService : BackgroundService
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Cancellation is the expected shutdown path — nothing to clean up.
+            _logger.LogDebug("Managed job '{Key}' loop stopping on shutdown.", _key);
         }
     }
 

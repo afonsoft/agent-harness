@@ -30,7 +30,7 @@ public class PathJailValidatorTests : IDisposable
     [Fact]
     public void Dado_PathAbsolutoDentro_Quando_Validate_Entao_Aceita()
         => PathJailValidator.Validate(Path.Combine(_worktree, "a.txt"), _worktree)
-            .ShouldBe(Path.Combine(_worktree, "a.txt"));
+            .ShouldBe(Path.GetFullPath(Path.Combine(_worktree, "a.txt")));
 
     [Theory]
     [InlineData("/etc/passwd")]

@@ -297,13 +297,13 @@ public sealed class AgentSessionManager : IAsyncDisposable
             return;
         }
 
+        IServiceScope? scope = null;
         try
         {
             var ready = await EnsureSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
             string? text = null;
             AiChatEvent? evt = null;
             IRepository<AiChatEvent>? eventRepo = null;
-            IServiceScope? scope = null;
             if (ready)
             {
                 scope = _scopeFactory.CreateScope();
@@ -318,7 +318,6 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
             if (!sent)
             {
-                scope?.Dispose();
                 queue.DispatchFailed(eventId);
                 return;
             }
@@ -332,13 +331,17 @@ public sealed class AgentSessionManager : IAsyncDisposable
                     new ServerSentEvent(SseEventName, evt.ToDto()),
                     cancellationToken).ConfigureAwait(false);
             }
-
-            scope!.Dispose();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to dispatch queued prompt '{EventId}' for thread '{ThreadId}'.", eventId, threadId);
             queue.DispatchFailed(eventId);
+        }
+        finally
+        {
+            // C-03: the scope must be released on every dispatch path —
+            // an exception mid-flight used to leak it.
+            scope?.Dispose();
         }
     }
 

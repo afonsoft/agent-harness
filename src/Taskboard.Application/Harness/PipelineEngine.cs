@@ -173,8 +173,28 @@ public sealed class PipelineEngine
                 await PublishRunStatusAsync(exec).ConfigureAwait(false);
             }
 
-            await PublishStageTransitionsAsync(exec, approvals, toDispatch).ConfigureAwait(false);
-            dispatched += SpawnStages(exec, toDispatch);
+            try
+            {
+                await PublishStageTransitionsAsync(exec, approvals, toDispatch).ConfigureAwait(false);
+                dispatched += SpawnStages(exec, toDispatch);
+            }
+            catch
+            {
+                // C-05: publish/spawn failure after ClaimStages leaves claimed
+                // CTSs registered but never started — release them here; the
+                // stages were marked Running only in memory of this exec and
+                // are re-claimed on the next tick (MarkStageRunning only ran
+                // for toDispatch; approval/pending stays consistent).
+                foreach (var stage in toDispatch)
+                {
+                    if (_runningStages.TryRemove($"{exec.Id.Value}|{stage.StageKey}", out var orphanCts))
+                    {
+                        orphanCts.Dispose();
+                    }
+                }
+
+                throw;
+            }
         }
 
         return dispatched;

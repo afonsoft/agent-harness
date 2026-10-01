@@ -747,7 +747,10 @@ void RegisterSkillsVscodeServices()
     builder.Services.AddSingleton<IAgentModelCatalogService>(sp => new AgentModelCatalogService(
         homeDir,
         sp.GetRequiredService<ILogger<AgentModelCatalogService>>(),
-        snapshot: sp.GetRequiredService<CliProbeSnapshotService>()));
+        snapshot: sp.GetRequiredService<CliProbeSnapshotService>(),
+        // C-01: share the probe TTL with AgentCliStatusService — the catalog
+        // used to silently fall back to the hardcoded 120s default.
+        refreshTtl: agentCliProbeTtl));
 
     builder.Services.AddSingleton<IAgentCliInstallService>(sp => new AgentCliInstallService(
         homeDir,

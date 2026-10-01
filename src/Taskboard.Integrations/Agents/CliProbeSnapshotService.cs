@@ -87,8 +87,10 @@ public sealed class CliProbeSnapshotService
     public void SetModels(AgentType type, IReadOnlyList<string> models)
     {
         _models[type] = models;
-        LastCompletedAt = _time.GetUtcNow();
-        SaveSnapshot(LastCompletedAt);
+        // C-02: a forced single-agent sync must NOT mark the whole snapshot
+        // fresh — touching LastCompletedAt stalled TTL revalidation of every
+        // other agent. The file timestamp stays informational.
+        SaveSnapshot(_time.GetUtcNow());
     }
 
     /// <summary>
