@@ -773,14 +773,17 @@ public sealed class AiChatService
             : source.Title;
         title = $"{title} (source: fork)";
 
-        var fork = source.Mode == "agent" && source.AgentType is not null
+        // B-09: Mode "agent" alone selects the agent branch — threads bound to
+        // a custom CLI (AgentCliId, AgentType null) must keep agent mode and
+        // WorkspacePath instead of silently forking as assistant.
+        var fork = source.Mode == "agent"
             ? AiChatThread.CreateAgentThread(
                 AiChatThreadId.NewGuid(),
                 title,
                 source.Model,
                 source.ReasoningEffort,
                 source.Sandbox,
-                source.AgentType.Value,
+                source.AgentType,
                 source.WorkspacePath,
                 source.RepositoryFullName)
             : AiChatThread.Create(
