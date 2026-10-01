@@ -120,3 +120,11 @@
 - Sites leves resolvidos: AgentCliArgsTemplate.Split (ConsumeQuoted), SearchBackends.ParseResults (Str helper + LINQ), OpenAiCompatibleClient.GenerateImageAsync (ExtractImagePayloadAsync — prioridade b64/url por item preservada), EfCoreCliMetricsRepository (RecomputeDayAsync), FrontmatterReader (Builder/ApplyLine).
 - Commit `5d7d1e6` no PR #415; unit 1343/1343.
 - **Restante S3776**: 54 sites (16–61 pontos) + Program.cs top-level (350) — sessões dedicadas, um método por vez. Padrão que funcionou: extrair o corpo condicional para método privado com estado em classe privada (Builder) ou helper estático; preservar ordem de early-returns.
+
+## Session continuation (2026-10-01, thread 2)
+
+- CI failure on `5d7d1e6` diagnosed: `dotnet format --verify` gate — const blocks inserted with wrong indent. Fixed via `dotnet format`, pushed `c39d513` → all checks green (Build/Test/Coverage, SonarCloud, CodeQL, GitGuardian).
+- **Lesson reaffirmed:** run `dotnet format Taskboard.sln` before every push after scripted/bulk edits.
+- S3776 batches 2-5 pushed: `7ed26f7` (7 sites: CliMetricsService, PipelineDefinition, CheckPaths, AcpSessionRunClient, SkillsSyncService, AcpProtocolParser, ProjectContextCompiler), `3d7de51` (FinOpsService, CliDbExtractorBase→ExtractionContext, AcpSessionModelCatalog), `b0feca3` (ClassifyGit, SplitSegments→local fns — **CS0841 gotcha: declare captured locals BEFORE local fn declarations**), `4c80466` (SweepAutoRetries, InstallCoreAsync), `fd89058` (TerminalCreate→BuildStartInfo, ExtractPermissionOptions), `01f7123` (ThreadPtyResolver, AiChatCatalogService), `d313a92` (AcpV1Dialect.ParsePermission, EnumerateDevin).
+- Progress: ~28/59 S3776 sites. Remaining: 11 razor sites + high-complexity cores (AiChatService 61, ChatService 45, AiChat.razor 66, OpenAiCompatibleClient 66, AcpPeerInfo 49/42, Program.cs 350 — needs dedicated slice).
+- Validation per batch: build 0/0 + full unit 1343 + integration 307 green.
