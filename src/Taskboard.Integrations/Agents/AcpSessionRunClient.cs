@@ -49,22 +49,10 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
             switch (e.Kind)
             {
                 case "permission":
-                    // Headless run: auto-allow — the args-mode path already runs
-                    // every CLI with bypass flags; here we keep the audit trail.
-                    var requestId = ExtractRequestId(e.PayloadJson);
-                    if (requestId is not null)
-                    {
-                        _ = _sessions.ReplyPermissionAsync(key, requestId, "allow", CancellationToken.None);
-                    }
+                    HandlePermission(e);
                     break;
                 case AgentEventKinds.Metric:
-                    // ACP usage_update carries { used, size, cost? } — context
-                    // window consumption. Best-effort map onto TokenUsage so
-                    // AgentExecutionResult.Usage is populated like args-mode.
-                    if (ExtractUsage(e.PayloadJson) is { } usage)
-                    {
-                        latestUsage = usage;
-                    }
+                    HandleMetric(e);
                     break;
                 case "session" when e.Content == "Prompt turn completed":
                     turnDone.TrySetResult(ExtractStopReason(e.PayloadJson));
@@ -73,12 +61,41 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
                     turnDone.TrySetException(new AcpException(AcpErrorCode.ProcessDied, "run", "agent process exited"));
                     break;
                 case "error":
-                    if (e.Content?.Contains("handshake", StringComparison.OrdinalIgnoreCase) == true
-                        || e.Content?.Contains("session/new", StringComparison.OrdinalIgnoreCase) == true)
-                    {
-                        turnDone.TrySetException(new AcpException(AcpErrorCode.Internal, "run", e.Content));
-                    }
+                    HandleError(e);
                     break;
+            }
+
+            return;
+
+            void HandlePermission(AgentSessionEvent ev)
+            {
+                // Headless run: auto-allow — the args-mode path already runs
+                // every CLI with bypass flags; here we keep the audit trail.
+                var requestId = ExtractRequestId(ev.PayloadJson);
+                if (requestId is not null)
+                {
+                    _ = _sessions.ReplyPermissionAsync(key, requestId, "allow", CancellationToken.None);
+                }
+            }
+
+            void HandleMetric(AgentSessionEvent ev)
+            {
+                // ACP usage_update carries { used, size, cost? } — context
+                // window consumption. Best-effort map onto TokenUsage so
+                // AgentExecutionResult.Usage is populated like args-mode.
+                if (ExtractUsage(ev.PayloadJson) is { } usage)
+                {
+                    latestUsage = usage;
+                }
+            }
+
+            void HandleError(AgentSessionEvent ev)
+            {
+                if (ev.Content?.Contains("handshake", StringComparison.OrdinalIgnoreCase) == true
+                    || ev.Content?.Contains("session/new", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    turnDone.TrySetException(new AcpException(AcpErrorCode.Internal, "run", ev.Content));
+                }
             }
         }
 

@@ -22,6 +22,13 @@ public sealed record PipelineDefinition(
                 TaskboardDomainErrorCodes.InvalidPipelineDag, "Pipeline must have an id and at least one stage.");
         }
 
+        var keys = CollectUniqueKeys();
+        var (indegree, dependents) = BuildGraph(keys);
+        AssertAcyclic(indegree, dependents);
+    }
+
+    private HashSet<string> CollectUniqueKeys()
+    {
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var duplicate = Stages.Select(stage => stage.Key)
             .FirstOrDefault(key => !keys.Add(key));
@@ -31,6 +38,12 @@ public sealed record PipelineDefinition(
                 TaskboardDomainErrorCodes.InvalidPipelineDag, $"Duplicate stage key '{duplicate}'.");
         }
 
+        return keys;
+    }
+
+    private (Dictionary<string, int> Indegree, Dictionary<string, List<string>> Dependents) BuildGraph(
+        HashSet<string> keys)
+    {
         var indegree = new Dictionary<string, int>(StringComparer.Ordinal);
         var dependents = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var stage in Stages)
@@ -54,6 +67,13 @@ public sealed record PipelineDefinition(
             }
         }
 
+        return (indegree, dependents);
+    }
+
+    private void AssertAcyclic(
+        Dictionary<string, int> indegree,
+        Dictionary<string, List<string>> dependents)
+    {
         // Kahn's algorithm — any leftover indegree means a cycle.
         var queue = new Queue<string>(indegree.Where(kv => kv.Value == 0).Select(kv => kv.Key));
         var visited = 0;

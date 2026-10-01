@@ -102,7 +102,19 @@ public static class AcpProtocolParser
                 Params: root.TryGetProperty("params", out var raw) ? raw.Clone() : default);
         }
 
-        var parsed = method switch
+        var parsed = ParseByMethod(type, method, p, requestId, isRequest, dialect);
+        return parsed with { Params = p.Clone() };
+    }
+
+    private static Parsed ParseByMethod(
+        MessageType type,
+        string method,
+        JsonElement p,
+        string? requestId,
+        bool isRequest,
+        IAcpDialect dialect)
+    {
+        return method switch
         {
             "session/update" => dialect.ParseSessionUpdate(p, requestId),
             "session/request_permission" => dialect.ParsePermission(p, requestId, isRequest),
@@ -112,7 +124,6 @@ public static class AcpProtocolParser
                 p.GetRawText(), RequestId: requestId),
             _ => new Parsed(type, method, "activity", null, p.GetRawText(), RequestId: requestId)
         };
-        return parsed with { Params = p.Clone() };
     }
 
     /// <summary>

@@ -65,23 +65,10 @@ public sealed class ProjectContextCompiler : IContextCompiler
         foreach (var relative in InstructionFiles)
         {
             var fullPath = Path.Combine(worktreePath, relative);
-            if (!File.Exists(fullPath))
+            if (File.Exists(fullPath))
             {
-                continue;
+                AppendFile(fullPath, relative, prompt, injectedFiles, seenContents);
             }
-
-            var content = ReadBounded(fullPath);
-            injectedFiles.Add(relative);
-
-            // RF-001 rule: identical AGENTS.md/CLAUDE.md content is injected once.
-            if (!seenContents.Add(content.Trim()))
-            {
-                continue;
-            }
-
-            prompt.AppendLine($"<!-- {relative} -->");
-            prompt.AppendLine(content);
-            prompt.AppendLine();
         }
 
         // Always-on rules directory (.claude/rules/*.md).
@@ -90,17 +77,7 @@ public sealed class ProjectContextCompiler : IContextCompiler
         {
             foreach (var file in Directory.GetFiles(rulesDir, "*.md").OrderBy(f => f).Take(MaxRuleFiles))
             {
-                var relative = Path.GetRelativePath(worktreePath, file);
-                var content = ReadBounded(file);
-                injectedFiles.Add(relative);
-                if (!seenContents.Add(content.Trim()))
-                {
-                    continue;
-                }
-
-                prompt.AppendLine($"<!-- {relative} -->");
-                prompt.AppendLine(content);
-                prompt.AppendLine();
+                AppendFile(file, Path.GetRelativePath(worktreePath, file), prompt, injectedFiles, seenContents);
             }
         }
 
@@ -134,6 +111,27 @@ public sealed class ProjectContextCompiler : IContextCompiler
             EstimateTokens(systemPrompt.Length),
             injectedFiles,
             memoriesInjected);
+    }
+
+    private static void AppendFile(
+        string fullPath,
+        string relative,
+        StringBuilder prompt,
+        List<string> injectedFiles,
+        HashSet<string> seenContents)
+    {
+        var content = ReadBounded(fullPath);
+        injectedFiles.Add(relative);
+
+        // RF-001 rule: identical AGENTS.md/CLAUDE.md content is injected once.
+        if (!seenContents.Add(content.Trim()))
+        {
+            return;
+        }
+
+        prompt.AppendLine($"<!-- {relative} -->");
+        prompt.AppendLine(content);
+        prompt.AppendLine();
     }
 
     private async Task<string> BuildEnvBlockAsync(

@@ -82,6 +82,58 @@ public sealed class CliMetricsService : ICliMetricsService
     private async Task<int> SyncExtractorAsync(
         ICliDbExtractor extractor, DateTime now, CancellationToken cancellationToken)
     {
+        var resolved = await ResolveSourcesAsync(extractor, now, cancellationToken).ConfigureAwait(false);
+        if (resolved.Count == 0)
+        {
+            return 0;
+        }
+
+        // File-signature skip: all files of all resolved sources unchanged → no-op.
+        var signatures = ComputeSignatures(resolved);
+        var (unchanged, staleVersion, resumeCursor) = await DetectChangesAsync(
+            extractor, signatures, cancellationToken).ConfigureAwait(false);
+
+        if (unchanged && !staleVersion)
+        {
+            _logger.LogDebug("CLI metrics: {Kind} unchanged, skipping", extractor.Kind);
+            return 0;
+        }
+
+        if (staleVersion)
+        {
+            _logger.LogInformation(
+                "CLI metrics: {Kind} extractor data v{Version} ahead of stored state — full re-extract",
+                extractor.Kind, extractor.DataVersion);
+            resumeCursor = null;
+        }
+
+        var result = await extractor.ExtractSinceAsync(resumeCursor, cancellationToken).ConfigureAwait(false);
+
+        var (ingested, days) = await IngestSessionsAsync(extractor, result, now, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (days.Count > 0)
+        {
+            await _repository.RecomputeAggregatesAsync(extractor.Kind, days, now, cancellationToken).ConfigureAwait(false);
+        }
+
+        var perSourceCounts = result.Sessions.GroupBy(s => s.Source, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => (long)g.Count(), StringComparer.Ordinal);
+        // Persist the applied data version only on a successful pass — a
+        // failed re-extract keeps the old version and retries next tick.
+        int? appliedVersion = result.Status is CliDbSourceStatus.Available or CliDbSourceStatus.CopiedToTemp
+            ? extractor.DataVersion
+            : null;
+        await SaveSourceStatesAsync(
+            extractor, signatures, result, perSourceCounts, appliedVersion, now, cancellationToken)
+            .ConfigureAwait(false);
+
+        return ingested;
+    }
+
+    private async Task<List<(CliDbSource Source, IReadOnlyList<string> Paths)>> ResolveSourcesAsync(
+        ICliDbExtractor extractor, DateTime now, CancellationToken cancellationToken)
+    {
         var resolved = new List<(CliDbSource Source, IReadOnlyList<string> Paths)>();
         foreach (var source in extractor.Sources)
         {
@@ -100,12 +152,12 @@ public sealed class CliMetricsService : ICliMetricsService
             }
         }
 
-        if (resolved.Count == 0)
-        {
-            return 0;
-        }
+        return resolved;
+    }
 
-        // File-signature skip: all files of all resolved sources unchanged → no-op.
+    private List<(CliDbSource Source, string JoinedPaths, long MaxMtimeTicks, long TotalSize)> ComputeSignatures(
+        List<(CliDbSource Source, IReadOnlyList<string> Paths)> resolved)
+    {
         var signatures = new List<(CliDbSource Source, string JoinedPaths, long MaxMtimeTicks, long TotalSize)>();
         foreach (var (source, paths) in resolved)
         {
@@ -123,6 +175,14 @@ public sealed class CliMetricsService : ICliMetricsService
             signatures.Add((source, string.Join(";", paths.OrderBy(p => p, StringComparer.Ordinal)), maxMtime, totalSize));
         }
 
+        return signatures;
+    }
+
+    private async Task<(bool Unchanged, bool StaleVersion, string? ResumeCursor)> DetectChangesAsync(
+        ICliDbExtractor extractor,
+        List<(CliDbSource Source, string JoinedPaths, long MaxMtimeTicks, long TotalSize)> signatures,
+        CancellationToken cancellationToken)
+    {
         var unchanged = true;
         var staleVersion = false;
         string? resumeCursor = null;
@@ -146,22 +206,12 @@ public sealed class CliMetricsService : ICliMetricsService
             }
         }
 
-        if (unchanged && !staleVersion)
-        {
-            _logger.LogDebug("CLI metrics: {Kind} unchanged, skipping", extractor.Kind);
-            return 0;
-        }
+        return (unchanged, staleVersion, resumeCursor);
+    }
 
-        if (staleVersion)
-        {
-            _logger.LogInformation(
-                "CLI metrics: {Kind} extractor data v{Version} ahead of stored state — full re-extract",
-                extractor.Kind, extractor.DataVersion);
-            resumeCursor = null;
-        }
-
-        var result = await extractor.ExtractSinceAsync(resumeCursor, cancellationToken).ConfigureAwait(false);
-
+    private async Task<(int Ingested, HashSet<string> Days)> IngestSessionsAsync(
+        ICliDbExtractor extractor, CliExtractionResult result, DateTime now, CancellationToken cancellationToken)
+    {
         var ingested = 0;
         var days = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in result.Sessions.GroupBy(s => s.Source, StringComparer.Ordinal))
@@ -176,18 +226,18 @@ public sealed class CliMetricsService : ICliMetricsService
             }
         }
 
-        if (days.Count > 0)
-        {
-            await _repository.RecomputeAggregatesAsync(extractor.Kind, days, now, cancellationToken).ConfigureAwait(false);
-        }
+        return (ingested, days);
+    }
 
-        var perSourceCounts = result.Sessions.GroupBy(s => s.Source, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => (long)g.Count(), StringComparer.Ordinal);
-        // Persist the applied data version only on a successful pass — a
-        // failed re-extract keeps the old version and retries next tick.
-        int? appliedVersion = result.Status is CliDbSourceStatus.Available or CliDbSourceStatus.CopiedToTemp
-            ? extractor.DataVersion
-            : null;
+    private async Task SaveSourceStatesAsync(
+        ICliDbExtractor extractor,
+        List<(CliDbSource Source, string JoinedPaths, long MaxMtimeTicks, long TotalSize)> signatures,
+        CliExtractionResult result,
+        Dictionary<string, long> perSourceCounts,
+        int? appliedVersion,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
         foreach (var (source, joined, mtime, size) in signatures)
         {
             await _repository.SaveSourceStateAsync(
@@ -197,8 +247,6 @@ public sealed class CliMetricsService : ICliMetricsService
                 extractorDataVersion: appliedVersion)
                 .ConfigureAwait(false);
         }
-
-        return ingested;
     }
 
     private async Task MarkExtractorErrorAsync(

@@ -238,26 +238,20 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         while (i < args.Count)
         {
             var arg = args[i];
-            if (arg is ">" or ">>" or "1>" or "2>" or "&>")
+            if (IsRedirect(arg))
             {
-                sawRedirect = true;
-                if (i + 1 >= args.Count || !TryResolveInsideJail(args[i + 1], worktreePath))
+                if (RedirectEscapes(args, i, worktreePath))
                 {
                     return new(SecurityRiskLevel.Dangerous, "Redirect para fora do worktree.", EscapesSandbox: true);
                 }
 
+                sawRedirect = true;
                 level = SecurityRiskLevel.WorkspaceWrite;
                 i++;
                 continue;
             }
 
-            if (arg.StartsWith('-') || arg == "--")
-            {
-                i++;
-                continue;
-            }
-
-            if (!LooksLikePath(arg))
+            if (IsSkippableArg(arg))
             {
                 i++;
                 continue;
@@ -283,6 +277,14 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             : "Escrita confinada ao worktree.";
         return new(level, message);
     }
+
+    private static bool IsRedirect(string arg) => arg is ">" or ">>" or "1>" or "2>" or "&>";
+
+    private static bool RedirectEscapes(IReadOnlyList<string> args, int i, string worktreePath)
+        => i + 1 >= args.Count || !TryResolveInsideJail(args[i + 1], worktreePath);
+
+    private static bool IsSkippableArg(string arg)
+        => arg.StartsWith('-') || arg == "--" || !LooksLikePath(arg);
 
     private static bool LooksLikePath(string arg)
         => arg.Contains('/') || arg.Contains('\\') || arg.StartsWith('~')
