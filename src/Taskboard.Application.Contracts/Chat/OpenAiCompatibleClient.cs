@@ -187,6 +187,13 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        var image = await ExtractImagePayloadAsync(body, cancellationToken).ConfigureAwait(false)
+            ?? throw new ChatProviderException("Provider image response contained no image payload.", 502);
+        return image;
+    }
+
+    private async Task<string?> ExtractImagePayloadAsync(JsonElement body, CancellationToken cancellationToken)
+    {
         if (body.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in data.EnumerateArray())
@@ -210,7 +217,7 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
             }
         }
 
-        throw new ChatProviderException("Provider image response contained no image payload.", 502);
+        return null;
     }
 
     private static object ToWire(OpenAiChatMessage message)

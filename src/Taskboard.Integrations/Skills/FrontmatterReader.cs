@@ -18,52 +18,71 @@ internal static class FrontmatterReader
             return null;
         }
 
-        var name = string.Empty;
-        var description = string.Empty;
-        var tools = new List<string>();
-        var inTools = false;
+        var builder = new Builder();
         for (var i = 1; i < endIndex; i++)
         {
-            var line = lines[i];
-            if (TryExtract(line, "name", out var value))
-            {
-                name = value;
-                inTools = false;
-            }
-            else if (TryExtract(line, "description", out value))
-            {
-                description = value;
-                inTools = false;
-            }
-            else if (TryExtract(line, "tools", out value))
-            {
-                inTools = true;
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    // inline array literal such as [Bash, Read]
-                    tools.AddRange(ParseInlineArray(value));
-                }
-            }
-            else if (inTools && line.TrimStart().StartsWith("- ", StringComparison.Ordinal))
-            {
-                var tool = line.TrimStart()[2..].Trim().Trim('"', '\'');
-                if (!string.IsNullOrWhiteSpace(tool))
-                {
-                    tools.Add(tool);
-                }
-            }
-            else if (inTools && TryExtractKey(line, out _))
-            {
-                inTools = false;
-            }
+            ApplyLine(builder, lines[i]);
         }
 
-        if (string.IsNullOrWhiteSpace(name))
+        if (string.IsNullOrWhiteSpace(builder.Name))
         {
             return null;
         }
 
-        return new Frontmatter(name, description, tools.AsReadOnly());
+        return new Frontmatter(builder.Name, builder.Description, builder.Tools.AsReadOnly());
+    }
+
+    private sealed class Builder
+    {
+        public string Name = string.Empty;
+        public string Description = string.Empty;
+        public List<string> Tools { get; } = new();
+        public bool InTools;
+    }
+
+    private static void ApplyLine(Builder builder, string line)
+    {
+        if (TryExtract(line, "name", out var value))
+        {
+            builder.Name = value;
+            builder.InTools = false;
+            return;
+        }
+
+        if (TryExtract(line, "description", out value))
+        {
+            builder.Description = value;
+            builder.InTools = false;
+            return;
+        }
+
+        if (TryExtract(line, "tools", out value))
+        {
+            builder.InTools = true;
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                // inline array literal such as [Bash, Read]
+                builder.Tools.AddRange(ParseInlineArray(value));
+            }
+
+            return;
+        }
+
+        if (builder.InTools && line.TrimStart().StartsWith("- ", StringComparison.Ordinal))
+        {
+            var tool = line.TrimStart()[2..].Trim().Trim('"', '\'');
+            if (!string.IsNullOrWhiteSpace(tool))
+            {
+                builder.Tools.Add(tool);
+            }
+
+            return;
+        }
+
+        if (builder.InTools && TryExtractKey(line, out _))
+        {
+            builder.InTools = false;
+        }
     }
 
     private static IEnumerable<string> ParseInlineArray(string value)

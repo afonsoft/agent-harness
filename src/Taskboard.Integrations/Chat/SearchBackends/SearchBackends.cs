@@ -62,20 +62,21 @@ public sealed class TavilySearchBackend(HttpClient http, string apiKey) : ISearc
 
     internal static IReadOnlyList<ChatSearchResult> ParseResults(JsonElement body)
     {
-        var results = new List<ChatSearchResult>();
         if (body.TryGetProperty("results", out var items) && items.ValueKind == JsonValueKind.Array)
         {
-            foreach (var item in items.EnumerateArray())
-            {
-                results.Add(new ChatSearchResult(
-                    item.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "",
-                    item.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() ?? "" : "",
-                    item.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : ""));
-            }
+            return items.EnumerateArray()
+                .Select(item => new ChatSearchResult(
+                    Str(item, "title"), Str(item, "url"), Str(item, "content")))
+                .ToList();
         }
 
-        return results;
+        return [];
     }
+
+    private static string Str(JsonElement item, string name) =>
+        item.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString() ?? ""
+            : "";
 }
 
 /// <summary>Brave Search API (key required) — <c>GET https://api.search.brave.com/res/v1/web/search</c> (RF-007).</summary>

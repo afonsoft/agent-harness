@@ -107,3 +107,10 @@
 - **Restante #410**: S3776 (59 sites CRITICAL, complexidade 16–66 — refactor por método, sessão dedicada); S7637 bloqueado (workflow protegido); exclusão docs geradas (1.007 findings) precisa token admin SonarCloud OU aprovação humana p/ workflow; S8970 falso-positivo documentado.
 - **Lições**: sed de literais quebra as próprias declarações de const (circular CS0110) — fazer sed primeiro, inserir consts depois; `Progress<T>` callback é async void — qualquer exceção derruba o processo, sempre guardar; `Cast<T?>().FirstOrDefault() ?? fallback` para enums em LINQ; testes de corrida com CTS: esperar live-id sumir + delay antes do Report tardio.
 - **PR**: #415 aberto (não mergeado — aguarda CI/revisão).
+
+## Sessão 2026-09-30 (cont.) — Issues #412/#413 (incidente de memória)
+
+- **#412 PTY órfã**: `NotifyClosedAsync` agora loga fechamento (mesmo formato dos outros caminhos); `SweepLoopAsync` sobrevive a ticks ruins (catch por tick + log); `SweepIdleAsync` isola cada entrada. Testes: ambas as rotas de fechamento emitem registro (RecordingLogger no harness).
+- **#413 log flood**: `Microsoft.EntityFrameworkCore.Database.Command: Warning` em appsettings.json + Production; Development mantém Information.
+- Commit `636ed80` no PR #415; unit 1343/1343.
+- **Lição**: caminhos de remoção "best-effort" precisam do MESMO registro de log que os caminhos explícitos — o incidente só foi diagnosticável pelo journal.
