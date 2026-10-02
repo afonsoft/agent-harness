@@ -128,15 +128,15 @@ else
             {
                 @foreach (var item in AgentRenderItems)
                 {
-                    if (item.Tool is { } tool)
+                    if (item.Tool is not null)
                     {
-                        <ToolCallCard Model="tool" />
+                        <ToolCallCard Model="item.Tool!" />
                         continue;
                     }
 
-                    if (item.Group is { } group)
+                    if (item.Group is not null)
                     {
-                        <ToolCallChangesCard Items="group" />
+                        <ToolCallChangesCard Items="item.Group!" />
                         continue;
                     }
 
@@ -281,9 +281,9 @@ else
                             <select class="form-select form-select-sm ai-chat-quickselect"
                                     value="@_cfgContext" @onchange="OnCfgContextChanged">
                                 <option value="">host</option>
-                                @foreach (var container in _dockerContainers)
+                                @foreach (var name in _dockerContainers.Select(container => container.Name))
                                 {
-                                    <option value="@container.Name">⬢ @container.Name</option>
+                                    <option value="@name">⬢ @name</option>
                                 }
                             </select>
                         </label>
@@ -632,15 +632,15 @@ else
     private bool HasEligibleAgent =>
         _cliOptions.Any(o => o.Selectable);
 
-    private string ComposerPlaceholder =>
-        _running && !IsAgentMode ? "Waiting for the assistant…"
-        : IsAgentMode && _running ? "Steer or queue instruction…"
-        : "Message…";
+    private string ComposerPlaceholder => (_running, IsAgentMode) switch
+    {
+        (true, false) => "Waiting for the assistant…",
+        (true, true) => "Steer or queue instruction…",
+        _ => "Message…",
+    };
 
     private string ConfigModelLabel =>
-        _cfgModelId.Length > 0 ? _cfgModelId
-        : _cfgModelTier.Length > 0 ? _cfgModelTier
-        : "model";
+        new[] { _cfgModelId, _cfgModelTier }.FirstOrDefault(s => s.Length > 0) ?? "model";
 
     private IReadOnlyList<AiChatModelDto> ConfigAgentModels() =>
         _catalog.Where(m => string.Equals(
@@ -710,7 +710,7 @@ else
     {
         var match = AgentCliMap.AllSpecs()
             .Where(kv => string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
-            .Select(kv => (Type: (AgentType?)AgentCliMap.AgentTypeFor(kv.Key), Display: (string?)kv.Value.DisplayName))
+            .Select(kv => (Type: AgentCliMap.AgentTypeFor(kv.Key), Display: kv.Value.DisplayName))
             .FirstOrDefault();
         if (match.Type is not null)
         {
@@ -872,6 +872,21 @@ else
         // list is best-effort (missing token must not break the page).
         // SPEC-20260928 RF-002: the one-click default prefers the last agent
         // used (localStorage) when still eligible, else the first eligible.
+        await LoadCommandBarDefaultsAsync();
+
+        try
+        {
+            var repos = await GitHubService.GetRepositoriesAsync();
+            _repoNames = repos.Select(r => r.FullName).ToList();
+        }
+        catch
+        {
+            _repoNames = [];
+        }
+    }
+
+    private async Task LoadCommandBarDefaultsAsync()
+    {
         try
         {
             string? lastAgent = null;
@@ -894,77 +909,83 @@ else
             try { _customDefs = await Client.GetCustomAgentClisAsync(); } catch { _customDefs = []; }
             try { _dockerContainers = await Client.GetDockerContainersAsync(); } catch { _dockerContainers = null; }
             BuildCliOptions();
-
-            // lastAgent stores the option value ("agent:X"/"custom:y"); legacy
-            // values are bare AgentType names → normalize to "agent:<name>".
-            var lastOption = lastAgent is null
-                ? null
-                : lastAgent.Contains(':', StringComparison.Ordinal) ? lastAgent : $"agent:{lastAgent}";
-            var first = (lastOption is null ? null : _cliOptions.FirstOrDefault(
-                             o => o.Selectable && string.Equals(o.Value, lastOption, StringComparison.OrdinalIgnoreCase)))
-                        ?? _cliOptions.FirstOrDefault(o => o.Selectable);
-            if (first is not null)
-            {
-                _cfgCli = first.Value;
-                _cfgView = first.SupportsChat ? "chat" : "terminal";
-                // B-14/#387: persist the auto-selected CLI too — otherwise the
-                // next load re-picks from scratch (and can land elsewhere when
-                // eligibility changed between sessions).
-                try
-                {
-                    await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
-                {
-                    // Best-effort — failure here is non-fatal.
-                }
-            }
-
-            // SPEC-20261001-chat-default-mode FR-001/003: resolve the default
-            // mode once at init — provider chat when configured, else CLI chat,
-            // else agent with a hint. Existing threads still override via
-            // SelectThreadAsync (thread.Mode wins).
-            try
-            {
-                var providers = await Client.GetChatProvidersAsync();
-                var providerChatAvailable = providers.Any(p => p.Enabled);
-                string? configuredMode = null;
-                try
-                {
-                    var entries = await Client.GetConfigurationEntriesAsync();
-                    configuredMode = entries.FirstOrDefault(
-                        e => string.Equals(e.Key, "Taskboard:AiChat:DefaultMode", StringComparison.Ordinal))
-                        ?.EffectiveValue;
-                }
-                catch
-                {
-                    // Config endpoint best-effort — default "auto" applies.
-                }
-
-                var resolution = Taskboard.Application.Contracts.AiChat.DefaultModePolicy.Resolve(
-                    configuredMode, providerChatAvailable, AnyChatCapableCli);
-                _cfgMode = resolution.Mode;
-                _chatUnavailableHint = resolution.FellBack;
-            }
-            catch
-            {
-                // Provider list best-effort — keep the "assistant" default.
-            }
+            await ApplyLastAgentDefaultAsync(lastAgent);
+            await ResolveDefaultModeAsync();
         }
         catch
         {
             _agents ??= [];
             _catalog = [];
         }
+    }
 
+    // lastAgent stores the option value ("agent:X"/"custom:y"); legacy
+    // values are bare AgentType names → normalize to "agent:<name>".
+    private async Task ApplyLastAgentDefaultAsync(string? lastAgent)
+    {
+        string? lastOption = null;
+        if (lastAgent is not null)
+        {
+            lastOption = lastAgent.Contains(':', StringComparison.Ordinal)
+                ? lastAgent
+                : $"agent:{lastAgent}";
+        }
+        var first = lastOption is null
+            ? null
+            : _cliOptions.FirstOrDefault(
+                o => o.Selectable && string.Equals(o.Value, lastOption, StringComparison.OrdinalIgnoreCase));
+        first ??= _cliOptions.FirstOrDefault(o => o.Selectable);
+        if (first is null)
+        {
+            return;
+        }
+
+        _cfgCli = first.Value;
+        _cfgView = first.SupportsChat ? "chat" : "terminal";
+        // B-14/#387: persist the auto-selected CLI too — otherwise the
+        // next load re-picks from scratch (and can land elsewhere when
+        // eligibility changed between sessions).
         try
         {
-            var repos = await GitHubService.GetRepositoriesAsync();
-            _repoNames = repos.Select(r => r.FullName).ToList();
+            await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // Best-effort — failure here is non-fatal.
+        }
+    }
+
+    // SPEC-20261001-chat-default-mode FR-001/003: resolve the default mode
+    // once at init — provider chat when configured, else CLI chat, else agent
+    // with a hint. Existing threads still override via SelectThreadAsync
+    // (thread.Mode wins).
+    private async Task ResolveDefaultModeAsync()
+    {
+        try
+        {
+            var providers = await Client.GetChatProvidersAsync();
+            var providerChatAvailable = providers.Any(p => p.Enabled);
+            string? configuredMode = null;
+            try
+            {
+                var entries = await Client.GetConfigurationEntriesAsync();
+                configuredMode = entries.FirstOrDefault(
+                    e => string.Equals(e.Key, "Taskboard:AiChat:DefaultMode", StringComparison.Ordinal))
+                    ?.EffectiveValue;
+            }
+            catch
+            {
+                // Config endpoint best-effort — default "auto" applies.
+            }
+
+            var resolution = Taskboard.Application.Contracts.AiChat.DefaultModePolicy.Resolve(
+                configuredMode, providerChatAvailable, AnyChatCapableCli);
+            _cfgMode = resolution.Mode;
+            _chatUnavailableHint = resolution.FellBack;
         }
         catch
         {
-            _repoNames = [];
+            // Provider list best-effort — keep the "assistant" default.
         }
     }
 
@@ -1132,9 +1153,7 @@ else
     {
         // Keep the bar defaults in sync so "New" starts from this config.
         _cfgMode = thread.Mode;
-        var cliOption = !string.IsNullOrWhiteSpace(thread.AgentCliId)
-            ? $"custom:{thread.AgentCliId}"
-            : !string.IsNullOrWhiteSpace(thread.AgentType) ? $"agent:{thread.AgentType}" : null;
+        var cliOption = CliOptionFor(thread.AgentCliId, thread.AgentType);
         if (cliOption is not null)
         {
             _cfgCli = cliOption;
@@ -1246,9 +1265,26 @@ else
         }
     }
 
-    private static string? ExtractOptionValue(JsonElement entry) =>
-        entry.TryGetProperty("value", out var ev) ? ev.GetString()
-            : entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+    private static string? ExtractOptionValue(JsonElement entry)
+    {
+        if (entry.TryGetProperty("value", out var ev))
+        {
+            return ev.GetString();
+        }
+        return entry.ValueKind == JsonValueKind.String ? entry.GetString() : null;
+    }
+
+    private string? ConfigRepoOrNull() =>
+        string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim();
+
+    private static string? CliOptionFor(string? agentCliId, string? agentType)
+    {
+        if (!string.IsNullOrWhiteSpace(agentCliId))
+        {
+            return $"custom:{agentCliId}";
+        }
+        return string.IsNullOrWhiteSpace(agentType) ? null : $"agent:{agentType}";
+    }
 
     private void ParseSessionModes(JsonElement root)
     {
@@ -1385,12 +1421,10 @@ else
 
     private async Task OnComposerKeyDownAsync(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer))
+        if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer)
+            && (!_running || IsAgentMode))
         {
-            if (!_running || IsAgentMode)
-            {
-                await SendMessageAsync();
-            }
+            await SendMessageAsync();
         }
     }
 
@@ -1531,7 +1565,7 @@ else
         // from the previously selected thread.
         var repo = !string.IsNullOrWhiteSpace(SelectedRepo.Selected)
             ? SelectedRepo.Selected
-            : string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim();
+            : ConfigRepoOrNull();
         var request = new CreateAiChatThreadRequest(
             "New conversation",
             _cfgModelId,

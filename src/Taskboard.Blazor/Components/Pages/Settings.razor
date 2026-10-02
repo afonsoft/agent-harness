@@ -944,34 +944,7 @@
         {
             while (await timer.WaitForNextTickAsync(ct))
             {
-                try
-                {
-                    if (_skillsInstall?.State == SkillsSyncState.Running)
-                    {
-                        _skillsInstall = await Client.GetSkillsInstallStatusAsync();
-                    }
-
-                    if (_skillsSync?.State == SkillsSyncState.Running)
-                    {
-                        _skillsSync = await Client.GetSkillsSyncStatusAsync();
-                    }
-
-                    if (_skillsInstall?.State == SkillsSyncState.Running
-                        || _skillsSync?.State == SkillsSyncState.Running)
-                    {
-                        _skillsLog = await Client.GetSkillsLogAsync();
-                    }
-
-                    if (_mcpStatus?.State == McpProvisionState.Running)
-                    {
-                        _mcpStatus = await Client.GetMcpStatusAsync();
-                        _mcpLog = await Client.GetMcpLogAsync();
-                    }
-                }
-                catch
-                {
-                    // Transient poll failure — next tick retries.
-                }
+                await RefreshRunningStatusesAsync();
 
                 var running = _skillsInstall?.State == SkillsSyncState.Running
                     || _skillsSync?.State == SkillsSyncState.Running
@@ -998,6 +971,38 @@
         {
             _pollCts?.Dispose();
             _pollCts = null;
+        }
+    }
+
+    private async Task RefreshRunningStatusesAsync()
+    {
+        try
+        {
+            if (_skillsInstall?.State == SkillsSyncState.Running)
+            {
+                _skillsInstall = await Client.GetSkillsInstallStatusAsync();
+            }
+
+            if (_skillsSync?.State == SkillsSyncState.Running)
+            {
+                _skillsSync = await Client.GetSkillsSyncStatusAsync();
+            }
+
+            if (_skillsInstall?.State == SkillsSyncState.Running
+                || _skillsSync?.State == SkillsSyncState.Running)
+            {
+                _skillsLog = await Client.GetSkillsLogAsync();
+            }
+
+            if (_mcpStatus?.State == McpProvisionState.Running)
+            {
+                _mcpStatus = await Client.GetMcpStatusAsync();
+                _mcpLog = await Client.GetMcpLogAsync();
+            }
+        }
+        catch
+        {
+            // Transient poll failure — next tick retries.
         }
     }
 
@@ -1457,7 +1462,7 @@
                 (state.ProviderId, state.Model) = ParseCapabilityValue(raw);
                 if (!string.IsNullOrEmpty(state.ProviderId))
                 {
-                    await LoadCapabilityModelsAsync(capability, state);
+                    await LoadCapabilityModelsAsync(state);
                 }
             }
 
@@ -1488,7 +1493,7 @@
             : (raw[..separator], raw[(separator + 1)..]);
     }
 
-    private async Task LoadCapabilityModelsAsync(string capability, ChatCapabilityState state)
+    private async Task LoadCapabilityModelsAsync(ChatCapabilityState state)
     {
         try
         {

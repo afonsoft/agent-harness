@@ -28,11 +28,18 @@ public sealed class DateTimeTool : IChatTool
         TimeZoneInfo zone;
         try
         {
-            zone = zoneName.Length == 0
-                ? TimeZoneInfo.Local
-                : zoneName.Equals("utc", StringComparison.OrdinalIgnoreCase)
-                    ? TimeZoneInfo.Utc
-                    : TimeZoneInfo.FindSystemTimeZoneById(zoneName);
+            if (zoneName.Length == 0)
+            {
+                zone = TimeZoneInfo.Local;
+            }
+            else if (zoneName.Equals("utc", StringComparison.OrdinalIgnoreCase))
+            {
+                zone = TimeZoneInfo.Utc;
+            }
+            else
+            {
+                zone = TimeZoneInfo.FindSystemTimeZoneById(zoneName);
+            }
         }
         catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
         {

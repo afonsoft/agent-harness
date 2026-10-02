@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Taskboard.Integrations.Agents;
 
 /// <summary>
@@ -19,7 +21,7 @@ public static class DockerCliSpawner
     }
 
     /// <summary>Validates a container name — [A-Za-z0-9][A-Za-z0-9_.-]+ (docker name rules).</summary>
-    public static bool IsValidContainerName(string? name) =>
+    public static bool IsValidContainerName([NotNullWhen(true)] string? name) =>
         !string.IsNullOrWhiteSpace(name)
         && name.Length <= 128
         && System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z0-9][A-Za-z0-9_.\-/]*$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));

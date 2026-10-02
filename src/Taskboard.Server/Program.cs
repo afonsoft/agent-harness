@@ -105,7 +105,7 @@ var harnessEnvOverrides = Environment.GetEnvironmentVariables()
     .Where(e => e.Key is string k && k.StartsWith("HARNESS__", StringComparison.Ordinal))
     .Select(e => (
         Key: "Taskboard:" + e.Key.ToString()!["HARNESS__".Length..].Replace("__", ":", StringComparison.Ordinal),
-        Value: (string?)e.Value?.ToString()))
+        Value: e.Value?.ToString()))
     .ToDictionary(kv => kv.Key, kv => kv.Value);
 if (harnessEnvOverrides.Count > 0)
 {
@@ -1428,20 +1428,28 @@ void MapHarnessEndpoints()
             string? repo,
             ISpecAppService svc,
             CancellationToken ct) =>
-        !IsRepoShapeValid(repo)
-            ? Results.BadRequest(new { error = RepoShapeMessage })
-            : await svc.GetAsync(id, repo, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
+    {
+        if (!IsRepoShapeValid(repo))
+        {
+            return Results.BadRequest(new { error = RepoShapeMessage });
+        }
+        return await svc.GetAsync(id, repo, ct) is { } dto ? Results.Ok(dto) : Results.NotFound();
+    });
     specs.MapPost("{id}/status", async Task<IResult> (
             string id,
             SpecStatusUpdateRequest request,
             string? repo,
             ISpecAppService svc,
             CancellationToken ct) =>
-        !IsRepoShapeValid(repo)
-            ? Results.BadRequest(new { error = RepoShapeMessage })
-            : await svc.UpdateStatusAsync(id, request.Status, repo, ct) is { } dto
-                ? Results.Ok(dto)
-                : Results.NotFound());
+    {
+        if (!IsRepoShapeValid(repo))
+        {
+            return Results.BadRequest(new { error = RepoShapeMessage });
+        }
+        return await svc.UpdateStatusAsync(id, request.Status, repo, ct) is { } dto
+            ? Results.Ok(dto)
+            : Results.NotFound();
+    });
 
     // SPEC-20260919-cli-metrics §5: ingestion status + aggregates for /agents.
     var cliMetrics = api.MapGroup("local/cli-metrics");

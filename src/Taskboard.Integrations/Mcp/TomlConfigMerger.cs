@@ -80,12 +80,14 @@ public static class TomlConfigMerger
         }
 
         var root = TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path)) ?? new TomlTable();
-        return root.TryGetValue(ContainerKey, out var serversObj)
-            && serversObj is TomlTable servers
-            && servers.TryGetValue(name, out var entryObj)
-            && entryObj is TomlTable entry
-                ? entry.TryGetValue("url", out var url) ? url as string : null
-                : null;
+        if (!root.TryGetValue(ContainerKey, out var serversObj)
+            || serversObj is not TomlTable servers
+            || !servers.TryGetValue(name, out var entryObj)
+            || entryObj is not TomlTable entry)
+        {
+            return null;
+        }
+        return entry.TryGetValue("url", out var url) ? url as string : null;
     }
 
     private static TomlTable BuildServerTable(string url, string? apiKey)

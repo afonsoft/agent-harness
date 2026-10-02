@@ -103,6 +103,14 @@ public sealed class RunAgentTool(
         }
 
         // FR-001 wait path — poll the run state until terminal or timeout.
+        return await AwaitRunCompletionAsync(orchestration, context, issueId, agent.Name, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<ChatToolResult> AwaitRunCompletionAsync(
+        IAgentOrchestrationService orchestration, ChatToolContext context,
+        string issueId, string agentName, CancellationToken cancellationToken)
+    {
         var timeoutSeconds = ParseInt("Taskboard:Chat:Delegation:WaitTimeoutSeconds", 120);
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(timeoutSeconds);
         while (DateTimeOffset.UtcNow < deadline)
@@ -120,12 +128,12 @@ public sealed class RunAgentTool(
                     issue_id = issueId,
                     run_id = latest.Id,
                     status = latest.State.ToString().ToLowerInvariant(),
-                    agent = agent.Name,
+                    agent = agentName,
                     tail,
                 }));
             }
 
-            context.Activity?.Report("running_agent", $"{agent.Name} ({latest?.State.ToString().ToLowerInvariant() ?? "queued"})");
+            context.Activity?.Report("running_agent", $"{agentName} ({latest?.State.ToString().ToLowerInvariant() ?? "queued"})");
             await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
         }
 
@@ -133,7 +141,7 @@ public sealed class RunAgentTool(
         {
             issue_id = issueId,
             status = "still_running",
-            agent = agent.Name,
+            agent = agentName,
             note = $"run exceeds {timeoutSeconds}s — track it in the runs panel",
         }));
     }

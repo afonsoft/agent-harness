@@ -27,9 +27,7 @@ public sealed class SearxNgSearchBackend(HttpClient http, string baseUrl) : ISea
                 }
 
                 results.Add(new ChatSearchResult(
-                    item.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "",
-                    item.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() ?? "" : "",
-                    item.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : ""));
+                    JsonStr.Get(item, "title"), JsonStr.Get(item, "url"), JsonStr.Get(item, "content")));
             }
         }
 
@@ -66,17 +64,12 @@ public sealed class TavilySearchBackend(HttpClient http, string apiKey) : ISearc
         {
             return items.EnumerateArray()
                 .Select(item => new ChatSearchResult(
-                    Str(item, "title"), Str(item, "url"), Str(item, "content")))
+                    JsonStr.Get(item, "title"), JsonStr.Get(item, "url"), JsonStr.Get(item, "content")))
                 .ToList();
         }
 
         return [];
     }
-
-    private static string Str(JsonElement item, string name) =>
-        item.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
-            ? p.GetString() ?? ""
-            : "";
 }
 
 /// <summary>Brave Search API (key required) — <c>GET https://api.search.brave.com/res/v1/web/search</c> (RF-007).</summary>
@@ -105,9 +98,7 @@ public sealed class BraveSearchBackend(HttpClient http, string apiKey) : ISearch
                 }
 
                 results.Add(new ChatSearchResult(
-                    item.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "",
-                    item.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() ?? "" : "",
-                    item.TryGetProperty("description", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : ""));
+                    JsonStr.Get(item, "title"), JsonStr.Get(item, "url"), JsonStr.Get(item, "description")));
             }
         }
 
@@ -125,4 +116,12 @@ public static class SearchBackendFactory
         "brave" when !string.IsNullOrWhiteSpace(apiKey) => new BraveSearchBackend(http, apiKey),
         _ => null,
     };
+}
+
+internal static class JsonStr
+{
+    public static string Get(JsonElement item, string name) =>
+        item.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString() ?? ""
+            : "";
 }

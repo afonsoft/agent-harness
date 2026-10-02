@@ -518,41 +518,9 @@
     private async Task OnComposerKey(KeyboardEventArgs e)
     {
         _slashPreventDefault = false;
-        if (SlashOpen)
+        if (SlashOpen && HandleSlashKey(e))
         {
-            var filtered = SlashFiltered;
-            if (e.Key is "ArrowDown" or "ArrowUp")
-            {
-                _slashPreventDefault = true;
-                _slashIndex = e.Key == "ArrowDown"
-                    ? (_slashIndex + 1) % filtered.Count
-                    : (_slashIndex - 1 + filtered.Count) % filtered.Count;
-                return;
-            }
-
-            if (e.Key is "Tab")
-            {
-                _slashPreventDefault = true;
-                if (filtered.Count > 0)
-                {
-                    OnSlashSelect(filtered[Math.Min(_slashIndex, filtered.Count - 1)]);
-                }
-                return;
-            }
-
-            if (e.Key is "Escape")
-            {
-                _slashPreventDefault = true;
-                _composer = string.Empty;
-                return;
-            }
-
-            if (e.Key is "Enter" && filtered.Count > 0 && !_composer.Equals($"/{filtered[Math.Min(_slashIndex, filtered.Count - 1)].Command}", StringComparison.Ordinal))
-            {
-                _slashPreventDefault = true;
-                OnSlashSelect(filtered[Math.Min(_slashIndex, filtered.Count - 1)]);
-                return;
-            }
+            return;
         }
 
         if (e.Key == "Enter" && !e.ShiftKey && !_running)
@@ -560,6 +528,46 @@
             _slashPreventDefault = true;
             await SendAsync();
         }
+    }
+
+    /// <summary>Slash-palette keys — true when the key was consumed by the palette.</summary>
+    private bool HandleSlashKey(KeyboardEventArgs e)
+    {
+        var filtered = SlashFiltered;
+        if (e.Key is "ArrowDown" or "ArrowUp")
+        {
+            _slashPreventDefault = true;
+            _slashIndex = e.Key == "ArrowDown"
+                ? (_slashIndex + 1) % filtered.Count
+                : (_slashIndex - 1 + filtered.Count) % filtered.Count;
+            return true;
+        }
+
+        if (e.Key is "Tab")
+        {
+            _slashPreventDefault = true;
+            if (filtered.Count > 0)
+            {
+                OnSlashSelect(filtered[Math.Min(_slashIndex, filtered.Count - 1)]);
+            }
+            return true;
+        }
+
+        if (e.Key is "Escape")
+        {
+            _slashPreventDefault = true;
+            _composer = string.Empty;
+            return true;
+        }
+
+        if (e.Key is "Enter" && filtered.Count > 0 && !_composer.Equals($"/{filtered[Math.Min(_slashIndex, filtered.Count - 1)].Command}", StringComparison.Ordinal))
+        {
+            _slashPreventDefault = true;
+            OnSlashSelect(filtered[Math.Min(_slashIndex, filtered.Count - 1)]);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>Builtin slash commands — true when the turn was consumed locally.</summary>

@@ -30,15 +30,14 @@ public sealed class StaleRunReaper
             .ConfigureAwait(false);
 
         var live = new HashSet<Guid>(liveRunIds);
-        var reaped = new List<Guid>();
-        foreach (var run in candidates.Where(run => !live.Contains(run.Id)))
+        var stale = candidates.Where(run => !live.Contains(run.Id)).ToList();
+        foreach (var run in stale)
         {
             // queued/running right now — pickup lag is not staleness (filtered above)
             await _runs.FinishAsync(run.Id, AgentRunState.Failed, CancellationToken.None)
                 .ConfigureAwait(false);
-            reaped.Add(run.Id);
         }
 
-        return reaped;
+        return stale.Select(run => run.Id).ToList();
     }
 }

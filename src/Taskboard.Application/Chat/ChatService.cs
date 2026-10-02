@@ -276,7 +276,7 @@ public sealed class ChatService(
         // SPEC-20261001-chat-capability-registry FR-003: effective tool set —
         // disabled capabilities never reach the provider payload.
         var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
-        var wire = await BuildTranscriptAsync(conversation, provider, toolSet, ct).ConfigureAwait(false);
+        var wire = await BuildTranscriptAsync(conversation, toolSet, ct).ConfigureAwait(false);
         var toolDefs = BuildToolDefinitions(toolSet);
         int? tokensIn = null;
         int? tokensOut = null;
@@ -323,21 +323,12 @@ public sealed class ChatService(
                 yield return new ChatDeltaEvent(tail);
             }
 
-            var toolCalls = stream.MaterializeToolCalls();
-
             // After a user stop the run token is cancelled — the partial reply
             // is still persisted using the request token, which stays alive.
             var persistCt = stream.StoppedByUser ? requestAborted : ct;
-            var assistantMessage = ChatMessage.CreateAssistant(
-                conversation.Id, stream.AssistantContent.ToString(),
-                toolCalls.Count > 0
-                    ? JsonSerializer.Serialize(toolCalls.Select(tc => new { id = tc.Id, name = tc.Name, arguments = tc.ArgumentsJson }).ToList())
-                    : null,
-                tokensIn, tokensOut, conversation.Model, UtcNow);
-            await messages.AddAsync(assistantMessage, persistCt).ConfigureAwait(false);
-            await messages.SaveChangesAsync(persistCt).ConfigureAwait(false);
-
-            wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, stream.AssistantContent.ToString(), toolCalls));
+            var toolCalls = await PersistAssistantTurnAsync(
+                    conversation, wire, stream, tokensIn, tokensOut, persistCt)
+                .ConfigureAwait(false);
 
             if (toolCalls.Count == 0)
             {
@@ -358,6 +349,30 @@ public sealed class ChatService(
             .ConfigureAwait(false);
         runs.End(conversation.Id.Value, cts);
         yield return new ChatDoneEvent(tokensIn, tokensOut, error is null ? "stop" : "error", error);
+    }
+
+    /// <summary>Persists the assistant turn and appends it to the provider wire transcript.</summary>
+    private async Task<List<OpenAiToolCall>> PersistAssistantTurnAsync(
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        StreamOutcome stream,
+        int? tokensIn,
+        int? tokensOut,
+        CancellationToken persistCt)
+    {
+        var toolCalls = stream.MaterializeToolCalls();
+        var content = stream.AssistantContent.ToString();
+        var assistantMessage = ChatMessage.CreateAssistant(
+            conversation.Id, content,
+            toolCalls.Count > 0
+                ? JsonSerializer.Serialize(toolCalls.Select(tc => new { id = tc.Id, name = tc.Name, arguments = tc.ArgumentsJson }).ToList())
+                : null,
+            tokensIn, tokensOut, conversation.Model, UtcNow);
+        await messages.AddAsync(assistantMessage, persistCt).ConfigureAwait(false);
+        await messages.SaveChangesAsync(persistCt).ConfigureAwait(false);
+
+        wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, content, toolCalls));
+        return toolCalls;
     }
 
     // Accumulated output of one provider stream pass: assistant text,
@@ -426,6 +441,12 @@ public sealed class ChatService(
             var tail = _inlineMarkup.Flush();
             AssistantContent.Append(tail);
             return tail;
+        }
+
+        private static System.Text.StringBuilder Append(System.Text.StringBuilder builder, string? value)
+        {
+            builder.Append(value ?? string.Empty);
+            return builder;
         }
 
         public List<OpenAiToolCall> MaterializeToolCalls()
@@ -651,7 +672,7 @@ public sealed class ChatService(
     }
 
     private async Task<List<OpenAiChatMessage>> BuildTranscriptAsync(
-        ChatConversation conversation, ChatProvider provider,
+        ChatConversation conversation,
         IReadOnlyDictionary<string, IChatTool> toolSet, CancellationToken ct)
     {
         var rows = await messages.Query
@@ -822,9 +843,4 @@ public sealed class ChatService(
         message.Model,
         message.CreatedAt);
 
-    private static System.Text.StringBuilder Append(System.Text.StringBuilder builder, string? value)
-    {
-        builder.Append(value ?? string.Empty);
-        return builder;
-    }
 }

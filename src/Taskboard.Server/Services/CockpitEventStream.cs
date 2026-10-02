@@ -35,8 +35,9 @@ public sealed class CockpitEventStream : ICockpitEventStream
         var queue = _buffers.GetOrAdd(evt.RunId, _ => new ConcurrentQueue<CockpitEventDto>());
         queue.Enqueue(evt);
         // Bounded per-run buffer: drain oldest events past the cap.
-        while (queue.Count > BufferCap && queue.TryDequeue(out _))
+        while (queue.Count > BufferCap)
         {
+            _ = queue.TryDequeue(out _);
         }
 
         try

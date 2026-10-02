@@ -1529,21 +1529,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         // not exist inside the container.
         if (!string.IsNullOrWhiteSpace(spawn.ContainerContext))
         {
-            if (!DockerCliSpawner.IsValidContainerName(spawn.ContainerContext))
+            var containerCommand = BuildContainerCommand(threadId, spawn, command);
+            if (containerCommand is null)
             {
-                EmitEvent(threadId, EventKindError, EventRoleSystem,
-                    $"Invalid container name '{spawn.ContainerContext}'.", null);
                 return null;
             }
-
-            var innerName = Path.GetFileName(command.ExecutablePath);
-            command = command with
-            {
-                ExecutablePath = "docker",
-                Arguments = DockerCliSpawner.BuildExecArgs(
-                    spawn.ContainerContext, [innerName, .. command.Arguments], interactive: false),
-                TcpPort = null
-            };
+            command = containerCommand;
         }
 
         // RF-014: TCP when the adapter asks for it or Taskboard:Acp:TcpPort
@@ -1552,30 +1543,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         if (string.IsNullOrWhiteSpace(spawn.ContainerContext)
             && (command.TcpPort ?? _options.AgentTcpPort) is { } port)
         {
-            // RF-014: TCP transport — connect to an already-running ACP server
-            // (e.g. `copilot --acp --port`) instead of spawning a subprocess.
-            var socket = new TcpClient();
-            try
-            {
-                await socket.ConnectAsync(System.Net.IPAddress.Loopback, port, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                socket.Dispose();
-                EmitEvent(threadId, EventKindError, EventRoleSystem, $"Could not connect to agent ACP server on 127.0.0.1:{port}.", null);
-                return null;
-            }
-
-            var stream = socket.GetStream();
-            return new SessionHolder
-            {
-                ThreadId = threadId,
-                Spawn = spawn,
-                Socket = socket,
-                Writer = new StreamWriter(stream) { AutoFlush = true },
-                Reader = new StreamReader(stream),
-                Cts = new CancellationTokenSource()
-            };
+            return await ConnectTcpSessionAsync(threadId, spawn, port, cancellationToken).ConfigureAwait(false);
         }
 
         var startInfo = new ProcessStartInfo
@@ -1647,6 +1615,57 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }, holder.Cts.Token);
 
         return holder;
+    }
+
+    // SPEC-20260929-docker-cli-context RF-003: rewrites the launch command
+    // into `docker exec -i` against the validated container name.
+    private AgentCommand? BuildContainerCommand(string threadId, SpawnContext spawn, AgentCommand command)
+    {
+        var container = spawn.ContainerContext;
+        if (!DockerCliSpawner.IsValidContainerName(container))
+        {
+            EmitEvent(threadId, EventKindError, EventRoleSystem,
+                $"Invalid container name '{container}'.", null);
+            return null;
+        }
+
+        var innerName = Path.GetFileName(command.ExecutablePath);
+        return command with
+        {
+            ExecutablePath = "docker",
+            Arguments = DockerCliSpawner.BuildExecArgs(
+                container, [innerName, .. command.Arguments], interactive: false),
+            TcpPort = null
+        };
+    }
+
+    // RF-014: TCP transport — connect to an already-running ACP server
+    // (e.g. `copilot --acp --port`) instead of spawning a subprocess.
+    private async Task<SessionHolder?> ConnectTcpSessionAsync(
+        string threadId, SpawnContext spawn, int port, CancellationToken cancellationToken)
+    {
+        var socket = new TcpClient();
+        try
+        {
+            await socket.ConnectAsync(System.Net.IPAddress.Loopback, port, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            socket.Dispose();
+            EmitEvent(threadId, EventKindError, EventRoleSystem, $"Could not connect to agent ACP server on 127.0.0.1:{port}.", null);
+            return null;
+        }
+
+        var stream = socket.GetStream();
+        return new SessionHolder
+        {
+            ThreadId = threadId,
+            Spawn = spawn,
+            Socket = socket,
+            Writer = new StreamWriter(stream) { AutoFlush = true },
+            Reader = new StreamReader(stream),
+            Cts = new CancellationTokenSource()
+        };
     }
 
     private void EmitPeerInfo(SessionHolder holder)

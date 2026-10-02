@@ -9,7 +9,7 @@ namespace Taskboard.Integrations.Harness.Security;
 /// symlinks and rejects anything landing outside the jail with
 /// <see cref="SecurityAccessDeniedException"/>.
 /// </summary>
-public sealed class PathJailValidator
+public static class PathJailValidator
 {
     /// <summary>
     /// Returns the canonical absolute path inside <paramref name="worktreePath"/>,

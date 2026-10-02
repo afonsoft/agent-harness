@@ -83,44 +83,56 @@ public sealed class ThreadPtyResolver(
     {
         if (!string.IsNullOrWhiteSpace(thread.AgentCliId))
         {
-            var def = await cliDefinitions.GetAsync(thread.AgentCliId, ct).ConfigureAwait(false);
-            if (def is null)
-            {
-                return (null, $"Custom CLI '{thread.AgentCliId}' no longer exists.");
-            }
-
-            if (!def.Enabled)
-            {
-                return (null, $"Custom CLI '{def.DisplayName}' is disabled.");
-            }
-
-            var argv = new List<string> { def.Executable };
-            var model = string.Equals(thread.Model, "default", StringComparison.Ordinal)
-                ? null
-                : thread.Model;
-            argv.AddRange(AgentCliArgsTemplate.Render(def.ArgsTemplate, def.ModelFlag, model: model));
-            return (argv, null);
+            return await ResolveCustomArgvAsync(thread.AgentCliId, thread, ct).ConfigureAwait(false);
         }
 
         if (!string.IsNullOrWhiteSpace(thread.AgentType)
             && Enum.TryParse<AgentType>(thread.AgentType, ignoreCase: true, out var agentType))
         {
-            var kind = AgentCliMap.CliKindFor(agentType);
-            var spec = kind is null ? null : AgentCliMap.GetSpec(kind.Value);
-            var binary = spec?.Binary ?? (agentType == AgentType.OpenHands ? "openhands" : null);
-            if (binary is null)
-            {
-                return (null, $"No known CLI binary for agent '{thread.AgentType}'.");
-            }
-
-            // Inside a container the binary is resolved by name — a host path
-            // would not exist there (SPEC-20260929-docker-cli-context RF-001).
-            var inContainer = !string.IsNullOrWhiteSpace(thread.ContainerContext);
-            var path = inContainer ? null : discovery.ResolveExecutablePath(agentType);
-            return ([path ?? binary], null);
+            return ResolveBuiltinArgv(thread, agentType);
         }
 
         return (null, "Thread has no CLI binding.");
+    }
+
+    private async Task<(List<string>? Argv, string? Error)> ResolveCustomArgvAsync(
+        string cliId, AiChatThreadDto thread, CancellationToken ct)
+    {
+        var def = await cliDefinitions.GetAsync(cliId, ct).ConfigureAwait(false);
+        if (def is null)
+        {
+            return (null, $"Custom CLI '{cliId}' no longer exists.");
+        }
+
+        if (!def.Enabled)
+        {
+            return (null, $"Custom CLI '{def.DisplayName}' is disabled.");
+        }
+
+        var argv = new List<string> { def.Executable };
+        var model = string.Equals(thread.Model, "default", StringComparison.Ordinal)
+            ? null
+            : thread.Model;
+        argv.AddRange(AgentCliArgsTemplate.Render(def.ArgsTemplate, def.ModelFlag, model: model));
+        return (argv, null);
+    }
+
+    private (List<string>? Argv, string? Error) ResolveBuiltinArgv(
+        AiChatThreadDto thread, AgentType agentType)
+    {
+        var kind = AgentCliMap.CliKindFor(agentType);
+        var spec = kind is null ? null : AgentCliMap.GetSpec(kind.Value);
+        var binary = spec?.Binary ?? (agentType == AgentType.OpenHands ? "openhands" : null);
+        if (binary is null)
+        {
+            return (null, $"No known CLI binary for agent '{thread.AgentType}'.");
+        }
+
+        // Inside a container the binary is resolved by name — a host path
+        // would not exist there (SPEC-20260929-docker-cli-context RF-001).
+        var inContainer = !string.IsNullOrWhiteSpace(thread.ContainerContext);
+        var path = inContainer ? null : discovery.ResolveExecutablePath(agentType);
+        return ([path ?? binary], null);
     }
 
     // Docker context: wrap argv in `docker exec -it <container>` — but

@@ -500,23 +500,23 @@
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            var name = root.TryGetProperty("title", out var t) ? t.GetString()
-                : root.TryGetProperty("name", out var n) ? n.GetString()
-                : "tool";
-            var args = root.TryGetProperty("rawInput", out var ri) ? ri.GetRawText()
-                : root.TryGetProperty("arguments", out var a) ? a.GetRawText()
-                : null;
-            var status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "running" : "running";
-            var output = root.TryGetProperty("rawOutput", out var o) ? o.GetRawText()
-                : root.TryGetProperty("output", out var oo) ? oo.GetRawText()
-                : null;
-            return new ToolPayload(name ?? "tool", args, status, output);
+            var name = JsonString(root, "title") ?? JsonString(root, "name") ?? "tool";
+            var args = JsonRaw(root, "rawInput") ?? JsonRaw(root, "arguments");
+            var status = JsonString(root, "status") ?? "running";
+            var output = JsonRaw(root, "rawOutput") ?? JsonRaw(root, "output");
+            return new ToolPayload(name, args, status, output);
         }
         catch (JsonException)
         {
             return new ToolPayload("tool", json, "running", null);
         }
     }
+
+    private static string? JsonString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var el) ? el.GetString() : null;
+
+    private static string? JsonRaw(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var el) ? el.GetRawText() : null;
 
     private static PermPayload ParsePermission(string? json)
     {

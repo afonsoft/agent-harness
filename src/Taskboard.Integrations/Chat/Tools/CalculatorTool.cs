@@ -247,26 +247,7 @@ public sealed class CalculatorTool : IChatTool
             }
 
             SkipWhitespace();
-            var args = new List<double>();
-            if (Match('('))
-            {
-                while (true)
-                {
-                    args.Add(ParseExpression());
-                    SkipWhitespace();
-                    if (Match(','))
-                    {
-                        continue;
-                    }
-
-                    if (!Match(')'))
-                    {
-                        throw new FormatException("missing closing parenthesis");
-                    }
-
-                    break;
-                }
-            }
+            var args = ParseArguments();
 
             return name switch
             {
@@ -284,6 +265,34 @@ public sealed class CalculatorTool : IChatTool
                 "max" => args.Count >= 1 ? args.Max() : throw new FormatException("max needs arguments"),
                 _ => throw new FormatException($"unknown function or constant '{name}'"),
             };
+        }
+
+        private List<double> ParseArguments()
+        {
+            var args = new List<double>();
+            if (!Match('('))
+            {
+                return args;
+            }
+
+            while (true)
+            {
+                args.Add(ParseExpression());
+                SkipWhitespace();
+                if (Match(','))
+                {
+                    continue;
+                }
+
+                if (!Match(')'))
+                {
+                    throw new FormatException("missing closing parenthesis");
+                }
+
+                break;
+            }
+
+            return args;
         }
 
         private static double Require(List<double> args, int count, string name, Func<double, double> fn) =>

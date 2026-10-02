@@ -20,10 +20,12 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
         "read_file", "list_dir", "web_search", "use_skill",
     };
 
+    private const string ProfileExplore = "explore";
+
     private static readonly IReadOnlyDictionary<string, string> Profiles =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["explore"] = "You are a read-only exploration sub-agent. Inspect the workspace "
+            [ProfileExplore] = "You are a read-only exploration sub-agent. Inspect the workspace "
                 + "with the available tools and answer the question concisely with file/line "
                 + "references. You cannot modify anything.",
             ["review"] = "You are a read-only review sub-agent. Examine the referenced "
@@ -66,15 +68,15 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
         }
 
         var profile = arguments.TryGetProperty("profile", out var pr) && pr.ValueKind == JsonValueKind.String
-            ? pr.GetString() ?? "explore"
-            : "explore";
+            ? pr.GetString() ?? ProfileExplore
+            : ProfileExplore;
         var customSystem = arguments.TryGetProperty("system", out var sy) && sy.ValueKind == JsonValueKind.String
             ? sy.GetString()
             : null;
 
         var systemPrompt = profile == "custom" && !string.IsNullOrWhiteSpace(customSystem)
             ? customSystem!
-            : Profiles.GetValueOrDefault(profile, Profiles["explore"]);
+            : Profiles.GetValueOrDefault(profile, Profiles[ProfileExplore]);
 
         // Effective set ∩ read-only whitelist; recursion tools never included.
         var toolSet = (context.ToolSet ?? new Dictionary<string, IChatTool>())
@@ -149,7 +151,7 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
                 wire.Add(new OpenAiChatMessage("assistant", round.ToString(), toolCalls));
                 foreach (var call in toolCalls)
                 {
-                    var (json, refused, reason) = await ExecuteSubToolAsync(call, toolSet, context, cancellationToken)
+                    var (json, _, _) = await ExecuteSubToolAsync(call, toolSet, context, cancellationToken)
                         .ConfigureAwait(false);
                     toolsUsed.Add(call.Name);
                     wire.Add(new OpenAiChatMessage("tool", json, ToolCallId: call.Id, Name: call.Name));

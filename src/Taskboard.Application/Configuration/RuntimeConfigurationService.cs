@@ -313,8 +313,15 @@ public sealed class RuntimeConfigurationService
         || key.Contains("ApiKey", StringComparison.OrdinalIgnoreCase)
         || key.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase);
 
-    private static string? Mask(string? value) =>
-        value is null ? null : $"••••{(value.Length > 4 ? value[^4..] : string.Empty)}";
+    private static string? Mask(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+        var tail = value.Length > 4 ? value[^4..] : string.Empty;
+        return $"••••{tail}";
+    }
 
     private static string? ValidateApiKey(string value) =>
         value.Trim().Length is 0 or >= 16

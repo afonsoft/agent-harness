@@ -31,7 +31,7 @@
 
     function recordError(value) {
         var text = errorText(value);
-        var last = errorLog[errorLog.length - 1];
+        var last = errorLog.at(-1);
         if (last && last.text === text) {
             return; // a renderer fault rethrows per dispatched event — keep one copy
         }
@@ -47,10 +47,10 @@
 
     var originalConsoleError = console.error.bind(console);
     console.error = function () {
-        for (var i = 0; i < arguments.length; i++) {
-            recordError(arguments[i]);
+        for (const arg of arguments) {
+            recordError(arg);
         }
-        return originalConsoleError.apply(null, arguments);
+        return originalConsoleError(...arguments);
     };
 
     window.addEventListener("error", function (event) {
@@ -62,7 +62,7 @@
 
     document.addEventListener("click", function (event) {
         var target = event.target;
-        var toggle = target && target.closest
+        var toggle = target?.closest
             ? target.closest("#blazor-error-ui .error-details-toggle")
             : null;
         if (!toggle) {

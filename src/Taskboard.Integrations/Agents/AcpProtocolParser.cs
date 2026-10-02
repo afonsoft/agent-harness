@@ -85,12 +85,7 @@ public static class AcpProtocolParser
         // Response: {id, result|error}, sem method.
         if (hasId && string.IsNullOrEmpty(method))
         {
-            var hasResult = root.TryGetProperty("result", out var result);
-            var hasError = root.TryGetProperty("error", out var error);
-            return new Parsed(MessageType.Response, string.Empty, "response", null, null,
-                RequestId: requestId,
-                ResponseResult: hasResult ? result.Clone() : default,
-                ResponseError: hasError ? error.Clone() : default);
+            return ParseResponse(root, requestId);
         }
 
         var isRequest = hasId && !string.IsNullOrEmpty(method);
@@ -104,6 +99,16 @@ public static class AcpProtocolParser
 
         var parsed = ParseByMethod(type, method, p, requestId, isRequest, dialect);
         return parsed with { Params = p.Clone() };
+    }
+
+    private static Parsed ParseResponse(JsonElement root, string? requestId)
+    {
+        var hasResult = root.TryGetProperty("result", out var result);
+        var hasError = root.TryGetProperty("error", out var error);
+        return new Parsed(MessageType.Response, string.Empty, "response", null, null,
+            RequestId: requestId,
+            ResponseResult: hasResult ? result.Clone() : default,
+            ResponseError: hasError ? error.Clone() : default);
     }
 
     private static Parsed ParseByMethod(

@@ -278,11 +278,11 @@ public sealed class PipelineEngine
 
     private int SpawnStages(PipelineExecution exec, List<PipelineStageExecution> toDispatch)
     {
-        foreach (var stage in toDispatch)
+        foreach (var stageKey in toDispatch.Select(stage => stage.StageKey))
         {
-            var key = $"{exec.Id.Value}|{stage.StageKey}";
+            var key = $"{exec.Id.Value}|{stageKey}";
             var cts = _runningStages[key];
-            var task = RunStageAsync(exec.Id.Value, stage.StageKey, cts);
+            var task = RunStageAsync(exec.Id.Value, stageKey, cts);
             _stageTasks.TryAdd(task, 0);
             _ = task.ContinueWith(
                 (done, self) => _stageTasks.TryRemove((Task)self!, out _),
@@ -547,7 +547,6 @@ public sealed class PipelineEngine
         CancellationToken cancellationToken)
     {
         var chunks = new List<string>();
-        var runId = exec.Id.Value;
         var stageKey = stage.StageKey;
         var progress = CreateStageProgress(exec, stageKey, chunks);
         var instructions = BuildStageInstructions(exec, stage);
@@ -557,15 +556,11 @@ public sealed class PipelineEngine
         var catalog = services.GetService<IAgentModelCatalogService>();
         var finOps = services.GetService<IFinOpsService>();
 
-        var eligible = eligibility is null
-            ? null
-            : await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
-
         var candidate = stage.Agent ?? AgentType.Codex;
 
         // Eligibility is dynamic — a CLI disabled mid-run fails the attempt;
         // the auto-retry sweep rotates to an untried eligible CLI on the next tick.
-        if (await FailIfIneligibleAsync(exec, stage, candidate, eligible, repo).ConfigureAwait(false))
+        if (await FailIfIneligibleAsync(exec, stage, candidate, eligibility, repo, cancellationToken).ConfigureAwait(false))
         {
             return;
         }
@@ -710,9 +705,13 @@ public sealed class PipelineEngine
         PipelineExecution exec,
         PipelineStageExecution stage,
         AgentType candidate,
-        IReadOnlySet<AgentType>? eligible,
-        IRepository<PipelineExecution> repo)
+        IAgentEligibilityService? eligibility,
+        IRepository<PipelineExecution> repo,
+        CancellationToken cancellationToken)
     {
+        var eligible = eligibility is null
+            ? null
+            : await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
         if (eligible is null || eligible.Contains(candidate))
         {
             return false;

@@ -45,9 +45,10 @@ public abstract class Entity<TKey> : IEquatable<Entity<TKey>>, IEqualityComparer
 
     public int GetHashCode(Entity<TKey> obj) => obj.GetHashCode();
 
+    public override int GetHashCode() => Id is null ? 0 : EqualityComparer<TKey>.Default.GetHashCode(Id);
+
     public static bool operator ==(Entity<TKey>? left, Entity<TKey>? right) => object.Equals(left, right);
 
     public static bool operator !=(Entity<TKey>? left, Entity<TKey>? right) => !object.Equals(left, right);
 
-    public override int GetHashCode() => Id is null ? 0 : EqualityComparer<TKey>.Default.GetHashCode(Id);
 }
