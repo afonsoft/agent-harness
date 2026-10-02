@@ -147,3 +147,12 @@
   - Testes: +2 cap tests (64k default, 1000 custom) + 5 guards novos; guard `initReadOnly` regex relaxado p/ `options` param.
   - Validação: build 0/0, **1351/1351 unit**, **307/307 integration**, format limpo.
 - Backlog #410 praticamente zerado: S7637 e docs exclusion entregues (verificar próximo scan SonarCloud na main p/ confirmação server-side dos docs/**).
+
+## Session (2026-10-02) — Epic #421 gap-analysis-20261002
+
+- **#422 sonar-new-code-cleanup → PR #425 merged (`c6c7b64`)**: S8949 ×2 (`Task.Delay(150, ct)`, `WaitForExitAsync(CancellationToken.None)`), `.sonar_devin_auto_fix/` untracked+gitignored (~105k linhas removidas), smells new-code remediados ou won't-fix justificado (S1075 consts, S2589 FP em local-function, S8970 nullable).
+- **#423 spec-issue-reconciliation → PR #426 merged (`39f8f25`)**: 97 SPECs reconciliadas (chat-*+settings-tabs→#411, sonar-*→#415, umbrella 000-015→Done exceto 006/007); issues #412/#413/#414 fechadas, #410 atualizada.
+- **#424 mobile-responsive-ui → PR #427 merged (`64f4d9a`)**: ModalFullscreen.SmallDown ×15, inputmode/enterkeyhint/autocomplete, taskboardShortcuts (`?` overlay, Ctrl+K, s, n, editable guard), touch targets 44px, `docs/mobile-audit.md`, +6 MobileResponsiveTests.
+- **SonarCloud main gate pós-merge: OK** — new_reliability_rating 1 (era 3). AC-06 #422 verificado.
+- Testes: 1419/1419 unit + 307/307 integration; todos os checks CI verdes nos 3 PRs.
+- Lições: `string.Join('\n')` resolve para overload char — usar `"\n"`; Shouldly `ShouldContain` sem customMessage nesta versão; Blazor.Bootstrap `Fullscreen=` já existia no catálogo.
