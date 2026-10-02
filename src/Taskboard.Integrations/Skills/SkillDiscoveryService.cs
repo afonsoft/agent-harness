@@ -185,7 +185,7 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
     }
 
     private static bool HasHiddenSegment(string relativePath) =>
-        relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+        relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .Any(segment => segment.StartsWith('.'));
 
     private static bool TryResolveInsideRoot(string root, string relativePath, out FileInfo file)

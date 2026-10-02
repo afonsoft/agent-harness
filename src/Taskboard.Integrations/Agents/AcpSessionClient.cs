@@ -1621,10 +1621,11 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     // into `docker exec -i` against the validated container name.
     private AgentCommand? BuildContainerCommand(string threadId, SpawnContext spawn, AgentCommand command)
     {
-        if (!DockerCliSpawner.IsValidContainerName(spawn.ContainerContext))
+        var container = spawn.ContainerContext;
+        if (!DockerCliSpawner.IsValidContainerName(container))
         {
             EmitEvent(threadId, EventKindError, EventRoleSystem,
-                $"Invalid container name '{spawn.ContainerContext}'.", null);
+                $"Invalid container name '{container}'.", null);
             return null;
         }
 
@@ -1633,7 +1634,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         {
             ExecutablePath = "docker",
             Arguments = DockerCliSpawner.BuildExecArgs(
-                spawn.ContainerContext!, [innerName, .. command.Arguments], interactive: false),
+                container, [innerName, .. command.Arguments], interactive: false),
             TcpPort = null
         };
     }

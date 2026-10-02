@@ -909,44 +909,49 @@ else
             try { _customDefs = await Client.GetCustomAgentClisAsync(); } catch { _customDefs = []; }
             try { _dockerContainers = await Client.GetDockerContainersAsync(); } catch { _dockerContainers = null; }
             BuildCliOptions();
-
-            // lastAgent stores the option value ("agent:X"/"custom:y"); legacy
-            // values are bare AgentType names → normalize to "agent:<name>".
-            string? lastOption = null;
-            if (lastAgent is not null)
-            {
-                lastOption = lastAgent.Contains(':', StringComparison.Ordinal)
-                    ? lastAgent
-                    : $"agent:{lastAgent}";
-            }
-            var first = lastOption is null
-                ? null
-                : _cliOptions.FirstOrDefault(
-                    o => o.Selectable && string.Equals(o.Value, lastOption, StringComparison.OrdinalIgnoreCase));
-            first ??= _cliOptions.FirstOrDefault(o => o.Selectable);
-            if (first is not null)
-            {
-                _cfgCli = first.Value;
-                _cfgView = first.SupportsChat ? "chat" : "terminal";
-                // B-14/#387: persist the auto-selected CLI too — otherwise the
-                // next load re-picks from scratch (and can land elsewhere when
-                // eligibility changed between sessions).
-                try
-                {
-                    await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
-                {
-                    // Best-effort — failure here is non-fatal.
-                }
-            }
-
+            await ApplyLastAgentDefaultAsync(lastAgent);
             await ResolveDefaultModeAsync();
         }
         catch
         {
             _agents ??= [];
             _catalog = [];
+        }
+    }
+
+    // lastAgent stores the option value ("agent:X"/"custom:y"); legacy
+    // values are bare AgentType names → normalize to "agent:<name>".
+    private async Task ApplyLastAgentDefaultAsync(string? lastAgent)
+    {
+        string? lastOption = null;
+        if (lastAgent is not null)
+        {
+            lastOption = lastAgent.Contains(':', StringComparison.Ordinal)
+                ? lastAgent
+                : $"agent:{lastAgent}";
+        }
+        var first = lastOption is null
+            ? null
+            : _cliOptions.FirstOrDefault(
+                o => o.Selectable && string.Equals(o.Value, lastOption, StringComparison.OrdinalIgnoreCase));
+        first ??= _cliOptions.FirstOrDefault(o => o.Selectable);
+        if (first is null)
+        {
+            return;
+        }
+
+        _cfgCli = first.Value;
+        _cfgView = first.SupportsChat ? "chat" : "terminal";
+        // B-14/#387: persist the auto-selected CLI too — otherwise the
+        // next load re-picks from scratch (and can land elsewhere when
+        // eligibility changed between sessions).
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // Best-effort — failure here is non-fatal.
         }
     }
 

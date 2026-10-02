@@ -504,7 +504,7 @@
             var args = JsonRaw(root, "rawInput") ?? JsonRaw(root, "arguments");
             var status = JsonString(root, "status") ?? "running";
             var output = JsonRaw(root, "rawOutput") ?? JsonRaw(root, "output");
-            return new ToolPayload(name ?? "tool", args, status, output);
+            return new ToolPayload(name, args, status, output);
         }
         catch (JsonException)
         {

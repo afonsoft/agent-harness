@@ -83,7 +83,7 @@ public sealed class ThreadPtyResolver(
     {
         if (!string.IsNullOrWhiteSpace(thread.AgentCliId))
         {
-            return await ResolveCustomArgvAsync(thread, ct).ConfigureAwait(false);
+            return await ResolveCustomArgvAsync(thread.AgentCliId, thread, ct).ConfigureAwait(false);
         }
 
         if (!string.IsNullOrWhiteSpace(thread.AgentType)
@@ -96,12 +96,12 @@ public sealed class ThreadPtyResolver(
     }
 
     private async Task<(List<string>? Argv, string? Error)> ResolveCustomArgvAsync(
-        AiChatThreadDto thread, CancellationToken ct)
+        string cliId, AiChatThreadDto thread, CancellationToken ct)
     {
-        var def = await cliDefinitions.GetAsync(thread.AgentCliId!, ct).ConfigureAwait(false);
+        var def = await cliDefinitions.GetAsync(cliId, ct).ConfigureAwait(false);
         if (def is null)
         {
-            return (null, $"Custom CLI '{thread.AgentCliId}' no longer exists.");
+            return (null, $"Custom CLI '{cliId}' no longer exists.");
         }
 
         if (!def.Enabled)
