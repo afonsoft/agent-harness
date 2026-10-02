@@ -117,7 +117,11 @@ overlay `?`, auditoria overflow-x), para a próxima execução.
 - 6 SPECs `chat-*` + `settings-tabs` → Done via PR #411 (merged 2026-09-30).
 - `ai-chat-openwebui` → Done via PR #420; `terminal-tabs-keyed-render` → Done via PR #337; `api-authorization-hardening` → PR #85; `wasm-post-migration-hardening` → commit 4b43e36; `cockpit-live-logs-explorer-diff` → PR #296.
 - 77 SPECs `20260930-sonar-*` → Done via PR #415 (exceto `s8970`, que permanece Deprecated/won't-fix).
-- SPECs 000–015 (umbrella) → Done exceto `006-cloud` e `007-workflow-automation`, mantidos `Implemented` — pendência: verificar cobertura completa dos ACs umbrella antes de Done (sem PR de merge único rastreável).
+- SPECs 000–015 (umbrella) → Done. Verificação tardia 2026-10-02: `006-cloud`
+  confirmado implementado (`Taskboard.Cloud`, `CloudflareProxyService`,
+  `CloudSessionService`, endpoints) → `Done`; `007-workflow-automation` —
+  entidades removidas do domínio via migration `RemoveWorkflowWorkspace`
+  (2026-09-19), feature descoped → `Deprecated` (referência), não `Done`.
 - 3 SPECs `20260911-*` `Completed` → Done (sinônimo legado, reconciliado para AC-01).
 - Issues: #412/#413/#414 fechadas citando PR #415; #410 atualizada com estado residual, permanece aberta.
 - Permanecem `Approved` (em execução): `mobile-responsive-ui` (#424), `sonar-new-code-cleanup` (#422), esta SPEC (#423).
