@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-httpapi-net10` |
 | Technical owner | afonsoft |
-| Status | Implemented |
+| Status | Done — implementação confirmada em main (gap-analysis 2026-10-02) |
 | Date | 2026-08-31 |
 | Target agent | Devin |
 
@@ -352,7 +352,7 @@ PATCH /api/tasks/task-123
 
 ### Error responses
 
-| Status | Code | Quando |
+| Status | Done — implementação confirmada em main (gap-analysis 2026-10-02) |
 |---|---|---|
 | 400 | INVALID_PATH | path malformado |
 | 400 | UNKNOWN_QUERY_PARAMETER | query inesperada |

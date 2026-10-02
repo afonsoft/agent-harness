@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20260930-settings-tabs` |
 | Technical owner | afonsoft |
-| Status | Draft (pending human approval) |
+| Status | Done — entregue via [PR #411](https://github.com/afonsoft/agent-harness/pull/411) (merged 2026-09-30) |
 | Date | 2026-09-30 |
 | Target agent | Devin |
 

@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-absolute-path-command` |
 | Ticket | SonarQube rule `csharpsquid:S4036` (1 issue(s)) |
-| Status | Approved |
+| Status | Done — entregue via [PR #415](https://github.com/afonsoft/agent-harness/pull/415) (merged 2026-10-01) |
 | Sonar type | VULNERABILITY |
 | Severities | {'MINOR': 1} |
 | Estimated effort | ~15 min |

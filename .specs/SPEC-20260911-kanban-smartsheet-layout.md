@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feature/devin-20260911-kanban-smartsheet-layout` |
 | Technical owner | afonsoft |
-| Status | Completed |
+| Status | Done — Completed→Done reconciliado em gap-analysis 2026-10-02 |
 | Date | 2026-09-11 |
 | Target agent | Devin |
 
@@ -138,7 +138,7 @@ Each kanban column has a colored header that maps to the status it represents.
 
 **Color mapping (light mode):**
 
-| Status | Header background | Header text |
+| Status | Done — Completed→Done reconciliado em gap-analysis 2026-10-02 |
 |---|---|---|
 | Not Started | `--status-not-started-bg` (pastel pink) | dark text |
 | In Progress | `--status-in-progress-bg` (pastel yellow) | dark text |

@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20261001-chat-ux` |
 | Technical owner | afonsoft |
-| Status | Draft (pending human approval) |
+| Status | Done — entregue via [PR #411](https://github.com/afonsoft/agent-harness/pull/411) (merged 2026-09-30) |
 | Date | 2026-10-01 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20260930-mobile-responsive-ui, SPEC-20261001-chat-default-mode, SPEC-20261001-chat-agent-delegation, SPEC-20261001-chat-mcp-client, SPEC-20261001-chat-skills-slash-commands |

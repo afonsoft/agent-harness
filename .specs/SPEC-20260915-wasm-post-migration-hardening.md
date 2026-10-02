@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-wasm-post-migration-hardening` |
 | Ticket | `GAP-operation-nonpublish-hosting`, `GAP-documentation-blazor-server-stale`, `GAP-tests-repository-combobox` (gap-analysis-20260915) |
-| Status | `Implemented` |
+| Status | Done — entregue via commit 4b43e36 (merged 2026-09-16) |
 
 ## 1. User Story
 

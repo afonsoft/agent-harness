@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-cli-net10` |
 | Technical owner | afonsoft |
-| Status | Implemented |
+| Status | Done — implementação confirmada em main (gap-analysis 2026-10-02) |
 | Date | 2026-08-31 |
 | Target agent | Devin |
 

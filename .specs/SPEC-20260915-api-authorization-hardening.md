@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feature/devin-20260915-api-authorization-hardening` |
 | Ticket | `GAP-security-api-anonymous-surface` (gap-analysis-20260915) |
-| Status | `Implemented` |
+| Status | Done — entregue via [PR #85](https://github.com/afonsoft/agent-harness/pull/85) (merged 2026-09-15) |
 
 ## 1. User Story
 

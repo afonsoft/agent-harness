@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-await-promise-in-try` |
 | Ticket | SonarQube rule `javascript:S4822` (1 issue(s)) |
-| Status | Approved |
+| Status | Done — entregue via [PR #415](https://github.com/afonsoft/agent-harness/pull/415) (merged 2026-10-01) |
 | Sonar type | BUG |
 | Severities | {'MAJOR': 1} |
 | Estimated effort | ~5 min |
