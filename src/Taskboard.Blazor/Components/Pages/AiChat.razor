@@ -1442,89 +1442,23 @@ else
         {
             // RF-007: no create form — the first Send materializes the thread
             // with the command-bar config and an auto-derived title.
-            if (_activeThreadId is null)
+            if (_activeThreadId is null && !await EnsureThreadAsync(content))
             {
-                var cli = SelectedCli;
-                var request = new CreateAiChatThreadRequest(
-                    AiChatThreadTitle.Derive(content),
-                    _cfgModelId, // empty → tier/CLI default
-                    "none",
-                    _cfgMode == "agent" ? _cfgSandbox : "read-only",
-                    Mode: _cfgMode,
-                    AgentType: cli?.AgentType?.ToString(),
-                    WorkspacePath: null, // fixed ~/repos — repo resolves server-side
-                    RepositoryFullName: string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim(),
-                    ModelTier: _cfgModelTier.Length == 0 ? null : _cfgModelTier,
-                    // SPEC-20260928-ai-code-generic-cli: view/context/custom —
-                    // "chat" sends null so builtin→acp and the def's declared
-                    // transport apply; "terminal" always sends pty.
-                    Transport: _cfgView == "terminal" ? "pty" : null,
-                    ContainerContext: string.IsNullOrWhiteSpace(_cfgContext) ? null : _cfgContext,
-                    AgentCliId: cli?.AgentCliId);
-
-                var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
-                if (thread is null)
-                {
-                    // RF-003: surface the real backend reason (e.g. missing clone).
-                    await ToastService.NotifyAsync(new(ToastType.Danger, createError ?? "Failed to create the thread."));
-                    return;
-                }
-
-                _threads = (_threads ?? []).Concat([thread]).ToList();
-                await SelectThreadAsync(thread);
-
-                if (thread.Kind == "terminal")
-                {
-                    // PTY threads have no structured prompt flow — the xterm
-                    // pane owns input. The composer text stays so nothing is
-                    // lost; the user pastes/retypes inside the terminal.
-                    return;
-                }
+                return;
             }
 
-            var threadId = _activeThreadId!;
+            if (_activeThreadId is not { } threadId)
+            {
+                return;
+            }
+
             if (IsAgentMode)
             {
-                // RF-002: the queue endpoint persists the prompt (queued event)
-                // and dispatches FIFO — no separate user-event post needed.
-                var (queued, queueError) = await Client.QueueAgentThreadPromptAsync(threadId, content);
-                if (queued is null)
-                {
-                    // B-11: keep the draft — clearing the composer before the
-                    // failure check throws the user's text away on any
-                    // network/validation error.
-                    await ToastService.NotifyAsync(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
-                    return;
-                }
-
-                _composer = string.Empty;
-
-                if (_seenEventIds.Add(queued.Id))
-                {
-                    _events.Add(queued);
-                    _scrollPending = true;
-                }
-
-                _running = true;
+                await QueueAgentPromptAsync(threadId, content);
                 return;
             }
 
-            var (postedAssistant, postError) = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
-            if (postedAssistant is null)
-            {
-                await ToastService.NotifyAsync(new(ToastType.Danger, postError ?? "Failed to post the message."));
-                return;
-            }
-
-            _composer = string.Empty;
-            _running = true;
-
-            var (run, runError) = await Client.StartAiChatRunAsync(threadId);
-            if (run is null)
-            {
-                _running = false;
-                await ToastService.NotifyAsync(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
-            }
+            await PostAndStartAssistantRunAsync(threadId, content);
         }
         catch (Exception ex)
         {
@@ -1534,6 +1468,89 @@ else
         finally
         {
             _sending = false;
+        }
+    }
+
+    /// <summary>Creates the thread from the command-bar config; false → abort send.</summary>
+    private async Task<bool> EnsureThreadAsync(string content)
+    {
+        var cli = SelectedCli;
+        var request = new CreateAiChatThreadRequest(
+            AiChatThreadTitle.Derive(content),
+            _cfgModelId, // empty → tier/CLI default
+            "none",
+            _cfgMode == "agent" ? _cfgSandbox : "read-only",
+            Mode: _cfgMode,
+            AgentType: cli?.AgentType?.ToString(),
+            WorkspacePath: null, // fixed ~/repos — repo resolves server-side
+            RepositoryFullName: string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim(),
+            ModelTier: _cfgModelTier.Length == 0 ? null : _cfgModelTier,
+            // SPEC-20260928-ai-code-generic-cli: view/context/custom —
+            // "chat" sends null so builtin→acp and the def's declared
+            // transport apply; "terminal" always sends pty.
+            Transport: _cfgView == "terminal" ? "pty" : null,
+            ContainerContext: string.IsNullOrWhiteSpace(_cfgContext) ? null : _cfgContext,
+            AgentCliId: cli?.AgentCliId);
+
+        var (thread, createError) = await Client.CreateAiChatThreadAsync(request);
+        if (thread is null)
+        {
+            // RF-003: surface the real backend reason (e.g. missing clone).
+            await ToastService.NotifyAsync(new(ToastType.Danger, createError ?? "Failed to create the thread."));
+            return false;
+        }
+
+        _threads = (_threads ?? []).Concat([thread]).ToList();
+        await SelectThreadAsync(thread);
+
+        // PTY threads have no structured prompt flow — the xterm pane owns
+        // input. The composer text stays so nothing is lost; the user
+        // pastes/retypes inside the terminal.
+        return thread.Kind != "terminal";
+    }
+
+    /// <summary>RF-002: the queue endpoint persists the prompt (queued event)
+    /// and dispatches FIFO — no separate user-event post needed.</summary>
+    private async Task QueueAgentPromptAsync(string threadId, string content)
+    {
+        var (queued, queueError) = await Client.QueueAgentThreadPromptAsync(threadId, content);
+        if (queued is null)
+        {
+            // B-11: keep the draft — clearing the composer before the
+            // failure check throws the user's text away on any
+            // network/validation error.
+            await ToastService.NotifyAsync(new(ToastType.Danger, queueError ?? "Failed to queue the prompt."));
+            return;
+        }
+
+        _composer = string.Empty;
+
+        if (_seenEventIds.Add(queued.Id))
+        {
+            _events.Add(queued);
+            _scrollPending = true;
+        }
+
+        _running = true;
+    }
+
+    private async Task PostAndStartAssistantRunAsync(string threadId, string content)
+    {
+        var (postedAssistant, postError) = await Client.PostAiChatEventAsync(threadId, new AddAiChatEventRequest("user", content));
+        if (postedAssistant is null)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, postError ?? "Failed to post the message."));
+            return;
+        }
+
+        _composer = string.Empty;
+        _running = true;
+
+        var (run, runError) = await Client.StartAiChatRunAsync(threadId);
+        if (run is null)
+        {
+            _running = false;
+            await ToastService.NotifyAsync(new(ToastType.Danger, runError ?? "Failed to start the assistant run."));
         }
     }
 

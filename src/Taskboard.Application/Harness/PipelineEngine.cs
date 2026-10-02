@@ -131,73 +131,86 @@ public sealed class PipelineEngine
 
         foreach (var exec in active)
         {
-            var statusBefore = exec.Status;
-            // E14 RF-003: nunca despacha estágios novos quando o custo
-            // acumulado da execução já passou do teto.
-            if (await CancelIfOverBudgetAsync(exec, repo, finOpsDispatch, cancellationToken).ConfigureAwait(false))
-            {
-                continue;
-            }
-
-            // SPEC-20260923-cockpit-run-hardening RF-002: failed stages are
-            // retried on a persisted schedule — per-agent budget, then CLI
-            // rotation, then terminal Failed.
-            if (_autoRetry.Enabled && exec.Status is PipelineStatus.AwaitingRetry)
-            {
-                await SweepAutoRetriesAsync(exec, eligibleAgents).ConfigureAwait(false);
-                await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                if (exec.Status is PipelineStatus.Failed)
-                {
-                    continue;
-                }
-            }
-
-            if (exec.WorktreePath is null && !await TryAttachWorktreeAsync(exec, repo, isolation, cancellationToken).ConfigureAwait(false))
-            {
-                continue;
-            }
-
-            var eligible = exec.EligibleStages();
-            var (toDispatch, approvals) = ClaimStages(exec, eligible, cancellationToken);
-
-            // Persist transitions BEFORE spawning tasks — a task that reads the
-            // execution before this save would see the stage still Pending.
-            if (eligible.Count > 0)
-            {
-                await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            // RF-003: every execution-level transition streams to the cockpit.
-            if (exec.Status != statusBefore)
-            {
-                await PublishRunStatusAsync(exec).ConfigureAwait(false);
-            }
-
-            try
-            {
-                await PublishStageTransitionsAsync(exec, approvals, toDispatch).ConfigureAwait(false);
-                dispatched += SpawnStages(exec, toDispatch);
-            }
-            catch
-            {
-                // C-05: publish/spawn failure after ClaimStages leaves claimed
-                // CTSs registered but never started — release them here; the
-                // stages were marked Running only in memory of this exec and
-                // are re-claimed on the next tick (MarkStageRunning only ran
-                // for toDispatch; approval/pending stays consistent).
-                foreach (var stage in toDispatch)
-                {
-                    if (_runningStages.TryRemove($"{exec.Id.Value}|{stage.StageKey}", out var orphanCts))
-                    {
-                        orphanCts.Dispose();
-                    }
-                }
-
-                throw;
-            }
+            dispatched += await DispatchExecutionAsync(
+                    exec, repo, isolation, finOpsDispatch, eligibleAgents, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return dispatched;
+    }
+
+    private async Task<int> DispatchExecutionAsync(
+        PipelineExecution exec,
+        IRepository<PipelineExecution> repo,
+        IWorkspaceIsolationService isolation,
+        IFinOpsService? finOpsDispatch,
+        IReadOnlySet<AgentType>? eligibleAgents,
+        CancellationToken cancellationToken)
+    {
+        var statusBefore = exec.Status;
+        // E14 RF-003: nunca despacha estágios novos quando o custo
+        // acumulado da execução já passou do teto.
+        if (await CancelIfOverBudgetAsync(exec, repo, finOpsDispatch, cancellationToken).ConfigureAwait(false))
+        {
+            return 0;
+        }
+
+        // SPEC-20260923-cockpit-run-hardening RF-002: failed stages are
+        // retried on a persisted schedule — per-agent budget, then CLI
+        // rotation, then terminal Failed.
+        if (_autoRetry.Enabled && exec.Status is PipelineStatus.AwaitingRetry)
+        {
+            await SweepAutoRetriesAsync(exec, eligibleAgents).ConfigureAwait(false);
+            await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            if (exec.Status is PipelineStatus.Failed)
+            {
+                return 0;
+            }
+        }
+
+        if (exec.WorktreePath is null && !await TryAttachWorktreeAsync(exec, repo, isolation, cancellationToken).ConfigureAwait(false))
+        {
+            return 0;
+        }
+
+        var eligible = exec.EligibleStages();
+        var (toDispatch, approvals) = ClaimStages(exec, eligible, cancellationToken);
+
+        // Persist transitions BEFORE spawning tasks — a task that reads the
+        // execution before this save would see the stage still Pending.
+        if (eligible.Count > 0)
+        {
+            await repo.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // RF-003: every execution-level transition streams to the cockpit.
+        if (exec.Status != statusBefore)
+        {
+            await PublishRunStatusAsync(exec).ConfigureAwait(false);
+        }
+
+        try
+        {
+            await PublishStageTransitionsAsync(exec, approvals, toDispatch).ConfigureAwait(false);
+            return SpawnStages(exec, toDispatch);
+        }
+        catch
+        {
+            // C-05: publish/spawn failure after ClaimStages leaves claimed
+            // CTSs registered but never started — release them here; the
+            // stages were marked Running only in memory of this exec and
+            // are re-claimed on the next tick (MarkStageRunning only ran
+            // for toDispatch; approval/pending stays consistent).
+            foreach (var stage in toDispatch)
+            {
+                if (_runningStages.TryRemove($"{exec.Id.Value}|{stage.StageKey}", out var orphanCts))
+                {
+                    orphanCts.Dispose();
+                }
+            }
+
+            throw;
+        }
     }
 
     private async Task<bool> CancelIfOverBudgetAsync(
