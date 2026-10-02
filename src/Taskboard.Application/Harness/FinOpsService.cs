@@ -169,10 +169,14 @@ public sealed class FinOpsService : IFinOpsService
             .ThenBy(r => r.Cli, StringComparer.Ordinal)
             .ToList();
 
+        var totalSessions = cliRows.Sum(r => r.SessionsCount);
+        var estimatedShare = totalSessions == 0
+            ? 0.0
+            : (double)cliRows.Where(r => r.TokensEstimated).Sum(r => r.SessionsCount) / totalSessions;
         var cliUsage = cliRows.Count == 0
             ? null
             : new CliUsageSummaryDto(
-                Sessions: cliRows.Sum(r => r.SessionsCount),
+                Sessions: totalSessions,
                 TokensInput: cliRows.Sum(r => r.TokensInput),
                 TokensOutput: cliRows.Sum(r => r.TokensOutput),
                 TokensCached: cliRows.Sum(r => r.TokensCached),
@@ -180,10 +184,7 @@ public sealed class FinOpsService : IFinOpsService
                 CostByCli: cliRows
                     .GroupBy(r => r.Kind.ToString())
                     .ToDictionary(g => g.Key, g => g.Sum(r => r.CostUsd)),
-                EstimatedShare: cliRows.Sum(r => r.SessionsCount) == 0
-                    ? 0.0
-                    : (double)cliRows.Where(r => r.TokensEstimated).Sum(r => r.SessionsCount)
-                        / cliRows.Sum(r => r.SessionsCount),
+                EstimatedShare: estimatedShare,
                 ByCli: byCli);
 
         return new FinOpsSummaryDto(

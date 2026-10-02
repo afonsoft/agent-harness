@@ -323,21 +323,12 @@ public sealed class ChatService(
                 yield return new ChatDeltaEvent(tail);
             }
 
-            var toolCalls = stream.MaterializeToolCalls();
-
             // After a user stop the run token is cancelled — the partial reply
             // is still persisted using the request token, which stays alive.
             var persistCt = stream.StoppedByUser ? requestAborted : ct;
-            var assistantMessage = ChatMessage.CreateAssistant(
-                conversation.Id, stream.AssistantContent.ToString(),
-                toolCalls.Count > 0
-                    ? JsonSerializer.Serialize(toolCalls.Select(tc => new { id = tc.Id, name = tc.Name, arguments = tc.ArgumentsJson }).ToList())
-                    : null,
-                tokensIn, tokensOut, conversation.Model, UtcNow);
-            await messages.AddAsync(assistantMessage, persistCt).ConfigureAwait(false);
-            await messages.SaveChangesAsync(persistCt).ConfigureAwait(false);
-
-            wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, stream.AssistantContent.ToString(), toolCalls));
+            var toolCalls = await PersistAssistantTurnAsync(
+                    conversation, wire, stream, tokensIn, tokensOut, persistCt)
+                .ConfigureAwait(false);
 
             if (toolCalls.Count == 0)
             {
@@ -358,6 +349,30 @@ public sealed class ChatService(
             .ConfigureAwait(false);
         runs.End(conversation.Id.Value, cts);
         yield return new ChatDoneEvent(tokensIn, tokensOut, error is null ? "stop" : "error", error);
+    }
+
+    /// <summary>Persists the assistant turn and appends it to the provider wire transcript.</summary>
+    private async Task<List<OpenAiToolCall>> PersistAssistantTurnAsync(
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        StreamOutcome stream,
+        int? tokensIn,
+        int? tokensOut,
+        CancellationToken persistCt)
+    {
+        var toolCalls = stream.MaterializeToolCalls();
+        var content = stream.AssistantContent.ToString();
+        var assistantMessage = ChatMessage.CreateAssistant(
+            conversation.Id, content,
+            toolCalls.Count > 0
+                ? JsonSerializer.Serialize(toolCalls.Select(tc => new { id = tc.Id, name = tc.Name, arguments = tc.ArgumentsJson }).ToList())
+                : null,
+            tokensIn, tokensOut, conversation.Model, UtcNow);
+        await messages.AddAsync(assistantMessage, persistCt).ConfigureAwait(false);
+        await messages.SaveChangesAsync(persistCt).ConfigureAwait(false);
+
+        wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, content, toolCalls));
+        return toolCalls;
     }
 
     // Accumulated output of one provider stream pass: assistant text,

@@ -30,68 +30,77 @@ public sealed class MemoryTool(ChatMemoryStore store, ISecretRedactor? redactor 
             : string.Empty;
         var limit = arguments.TryGetProperty("limit", out var l) && l.TryGetInt32(out var lv) ? lv : 20;
 
-        switch (action)
+        return action switch
         {
-            case "add":
-                {
-                    var content = ReadContent(arguments);
-                    if (content.Length == 0)
-                    {
-                        return Task.FromResult(Error("content is required for add", refused: true));
-                    }
+            "add" => AddMemory(arguments),
+            "list" => ListMemories(limit),
+            "search" => SearchMemories(arguments, limit),
+            "update" => UpdateMemory(arguments),
+            "delete" => DeleteMemory(arguments),
+            _ => Task.FromResult(Error($"unknown action '{action}' — use add|list|search|update|delete", refused: true)),
+        };
+    }
 
-                    var item = store.Add(Scrub(content), DateTime.UtcNow);
-                    return Task.FromResult(Ok(new { saved = true, memory = ToJson(item) }));
-                }
-            case "list":
-                {
-                    var items = store.List().Take(Math.Clamp(limit, 1, 100)).Select(ToJson).ToList();
-                    return Task.FromResult(Ok(new { count = items.Count, memories = items }));
-                }
-            case "search":
-                {
-                    var query = arguments.TryGetProperty("query", out var q) && q.ValueKind == JsonValueKind.String
-                        ? q.GetString() ?? string.Empty
-                        : string.Empty;
-                    if (query.Trim().Length == 0)
-                    {
-                        return Task.FromResult(Error("query is required for search", refused: true));
-                    }
-
-                    var items = store.Search(query, limit).Select(ToJson).ToList();
-                    return Task.FromResult(Ok(new { count = items.Count, memories = items }));
-                }
-            case "update":
-                {
-                    if (!TryReadId(arguments, out var id))
-                    {
-                        return Task.FromResult(Error("id is required for update", refused: true));
-                    }
-
-                    var content = ReadContent(arguments);
-                    if (content.Length == 0)
-                    {
-                        return Task.FromResult(Error("content is required for update", refused: true));
-                    }
-
-                    return store.Update(id, Scrub(content), DateTime.UtcNow)
-                        ? Task.FromResult(Ok(new { updated = true, id }))
-                        : Task.FromResult(Error($"memory '{id}' not found"));
-                }
-            case "delete":
-                {
-                    if (!TryReadId(arguments, out var id))
-                    {
-                        return Task.FromResult(Error("id is required for delete", refused: true));
-                    }
-
-                    return store.Delete(id)
-                        ? Task.FromResult(Ok(new { deleted = true, id }))
-                        : Task.FromResult(Error($"memory '{id}' not found"));
-                }
-            default:
-                return Task.FromResult(Error($"unknown action '{action}' — use add|list|search|update|delete", refused: true));
+    private Task<ChatToolResult> AddMemory(JsonElement arguments)
+    {
+        var content = ReadContent(arguments);
+        if (content.Length == 0)
+        {
+            return Task.FromResult(Error("content is required for add", refused: true));
         }
+
+        var item = store.Add(Scrub(content), DateTime.UtcNow);
+        return Task.FromResult(Ok(new { saved = true, memory = ToJson(item) }));
+    }
+
+    private Task<ChatToolResult> ListMemories(int limit)
+    {
+        var items = store.List().Take(Math.Clamp(limit, 1, 100)).Select(ToJson).ToList();
+        return Task.FromResult(Ok(new { count = items.Count, memories = items }));
+    }
+
+    private Task<ChatToolResult> SearchMemories(JsonElement arguments, int limit)
+    {
+        var query = arguments.TryGetProperty("query", out var q) && q.ValueKind == JsonValueKind.String
+            ? q.GetString() ?? string.Empty
+            : string.Empty;
+        if (query.Trim().Length == 0)
+        {
+            return Task.FromResult(Error("query is required for search", refused: true));
+        }
+
+        var items = store.Search(query, limit).Select(ToJson).ToList();
+        return Task.FromResult(Ok(new { count = items.Count, memories = items }));
+    }
+
+    private Task<ChatToolResult> UpdateMemory(JsonElement arguments)
+    {
+        if (!TryReadId(arguments, out var id))
+        {
+            return Task.FromResult(Error("id is required for update", refused: true));
+        }
+
+        var content = ReadContent(arguments);
+        if (content.Length == 0)
+        {
+            return Task.FromResult(Error("content is required for update", refused: true));
+        }
+
+        return store.Update(id, Scrub(content), DateTime.UtcNow)
+            ? Task.FromResult(Ok(new { updated = true, id }))
+            : Task.FromResult(Error($"memory '{id}' not found"));
+    }
+
+    private Task<ChatToolResult> DeleteMemory(JsonElement arguments)
+    {
+        if (!TryReadId(arguments, out var id))
+        {
+            return Task.FromResult(Error("id is required for delete", refused: true));
+        }
+
+        return store.Delete(id)
+            ? Task.FromResult(Ok(new { deleted = true, id }))
+            : Task.FromResult(Error($"memory '{id}' not found"));
     }
 
     private string Scrub(string content) => redactor?.Redact(content) ?? content;

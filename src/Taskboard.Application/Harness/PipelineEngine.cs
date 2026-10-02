@@ -556,15 +556,11 @@ public sealed class PipelineEngine
         var catalog = services.GetService<IAgentModelCatalogService>();
         var finOps = services.GetService<IFinOpsService>();
 
-        var eligible = eligibility is null
-            ? null
-            : await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
-
         var candidate = stage.Agent ?? AgentType.Codex;
 
         // Eligibility is dynamic — a CLI disabled mid-run fails the attempt;
         // the auto-retry sweep rotates to an untried eligible CLI on the next tick.
-        if (await FailIfIneligibleAsync(exec, stage, candidate, eligible, repo).ConfigureAwait(false))
+        if (await FailIfIneligibleAsync(exec, stage, candidate, eligibility, repo, cancellationToken).ConfigureAwait(false))
         {
             return;
         }
@@ -709,9 +705,13 @@ public sealed class PipelineEngine
         PipelineExecution exec,
         PipelineStageExecution stage,
         AgentType candidate,
-        IReadOnlySet<AgentType>? eligible,
-        IRepository<PipelineExecution> repo)
+        IAgentEligibilityService? eligibility,
+        IRepository<PipelineExecution> repo,
+        CancellationToken cancellationToken)
     {
+        var eligible = eligibility is null
+            ? null
+            : await eligibility.GetEligibleTypesAsync(cancellationToken).ConfigureAwait(false);
         if (eligible is null || eligible.Contains(candidate))
         {
             return false;
