@@ -207,6 +207,13 @@ tests/Taskboard.Tests.Integration/ChatEndpointsTests.cs            [new]
   streams as `chat.delta` chunks; `chat.done` closes with usage; the stop
   endpoint cancels the in-flight run (partial assistant message persisted);
   failures surface `problem+json` with the provider reason.
+- **Reasoning models:** OpenAI-compatible `delta.reasoning_content`
+  (DeepSeek R1, o-series) streams as a separate `chat.reasoning` SSE
+  event — never mixed into the answer text and never persisted. The UI
+  shows it in a collapsible "Thinking" bubble with a spinner while no
+  answer content has arrived yet. Requests send
+  `max_tokens = Taskboard:Chat:MaxTokens` (default 4096) so the reasoning
+  window cannot consume the whole budget and leave the answer empty.
 - **Input → Output:** `POST .../conversations/{id}/messages {content}` → SSE
   stream; `POST .../conversations/{id}/stop` → 202.
 

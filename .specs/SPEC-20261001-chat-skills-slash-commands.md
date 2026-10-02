@@ -145,8 +145,14 @@ descrição não são listadas.
 ### FR-003: Slash palette (UX)
 
 - Digitar `/` como **primeiro char** do composer abre a paleta
-  (`role="listbox"`) filtrando por texto: skills habilitadas
-  (`/skill-name`) primeiro, depois builtins.
+  (`role="listbox"`) filtrando por texto. Ordenação: match exato do
+  filtro primeiro, depois builtins, depois skills habilitadas
+  (`/skill-name`) — assim Enter em `/help` executa o builtin em vez de
+  selecionar a primeira skill alfabética. Somente skills do source
+  canônico `~/.agents/skills` entram na lista.
+- O `Filter` é parâmetro `string` do componente — deve ser passado com
+  `@` (`Filter="@SlashFilter"`); sem o prefixo o Razor entrega o nome
+  da propriedade como literal e a paleta nunca abre.
 - Builtins mínimos: `/new` (nova conversa), `/agent` (alterna para
   Agent mode ou inicia delegação), `/tools` (abre popover de
   capabilities), `/clear` (limpa composer), `/help` (lista comandos).
@@ -202,9 +208,9 @@ send "/x args" ──► turno com skill injetada ──► ChatService
 - Skill removida do disco entre catálogo e invocação → `use_skill`
   refused "skill not found" gracioso.
 - Paleta aberta + blur → fecha sem seleção.
-- Dois diretórios com mesmo `name` (ex.: claude+devin) → paleta mostra
-  `name (source)`; `use_skill` resolve pelo mais prioritário
-  (ordem de `_sources`) e reporta ambiguidade no resultado.
+- A paleta e o `use_skill` consideram apenas `~/.agents/skills`;
+  instalações por-CLI (`~/.claude`, `~/.cursor`, ...) não aparecem —
+  a gestão delas segue na página Skills.
 
 ---
 

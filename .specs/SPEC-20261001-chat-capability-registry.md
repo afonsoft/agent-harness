@@ -126,11 +126,14 @@ public sealed record ChatCapability(
 ```
 
 `Id` é estável e usado na persistência do toggle. O catálogo emite
-**uma linha por `Id`**: a mesma skill instalada em múltiplos agentes
-(claude, devin, cursor, ...) é deduplicada por nome (case-insensitive) e
-suas origens são agregadas em `Origin` (lista ordenada separada por
-`, `). Ids duplicados quebram o renderer do Blazor (`@key` repetido em
-`<tr>` → `InvalidOperationException` no diff).
+**uma linha por `Id`** e considera apenas o source canônico `agents`
+(`~/.agents/skills`) — skills instaladas por CLI em `~/.claude`,
+`~/.cursor`, `~/.devin`, `~/.opencode` permanecem visíveis na página de
+gestão Skills (`/api/skills`) mas não entram no catálogo do chat, na
+slash palette nem no catálogo do system prompt/`use_skill`. Ids
+duplicados quebram o renderer do Blazor (`@key` repetido em `<tr>` →
+`InvalidOperationException` no diff), por isso o group-by por nome
+(case-insensitive) continua valendo dentro do source.
 
 ### FR-002: Persistência dos toggles
 
@@ -210,9 +213,12 @@ Config endpoints ──► IChatCapabilityRegistry
 - Skills desabilitadas não aparecem como tools nem no slash palette.
 - `Disabled` com JSON inválido → validação rejeita no save.
 - Todas as capabilities off → provider recebe `tools: null`.
-- Skill instalada em N agentes → uma única linha `skill:{name}` com
-  `Origin` agregado ("claude, devin"); toggle vale para todas as
-  instalações (o `Id` é o nome lógico).
+- Skill presente só em `~/.claude` (ou outro CLI) mas ausente de
+  `~/.agents/skills` → não aparece no catálogo do chat nem na paleta;
+  o `use_skill` a recusa com a lista de nomes válidos do `.agents`.
+- `Origin` expõe o source canônico (`agents`); consumidores que precisam
+  do arquivo físico devem resolvê-lo via `GET /api/skills/agents/{name}` —
+  múltiplos diretórios agregados em um único `Origin` quebrariam o lookup.
 
 ---
 
