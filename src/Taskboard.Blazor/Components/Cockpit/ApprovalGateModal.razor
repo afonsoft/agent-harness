@@ -1,7 +1,7 @@
 @* SPEC-20260919-ade-cockpit-hitl RF-004: gate de decisão humana — a execução
    fica pausada até Allow/Deny; Deny aceita motivo. *@
 
-<Modal @ref="_modal" Title="@(_request?.Title ?? "Approval required")" IsVerticallyCentered="true">
+<Modal @ref="_modal" Title="@(_request?.Title ?? "Approval required")" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
     <BodyTemplate>
         @if (_request is not null)
         {

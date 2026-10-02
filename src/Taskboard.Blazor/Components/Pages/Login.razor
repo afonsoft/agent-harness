@@ -13,11 +13,11 @@
             <form method="post" action="/api/login">
                 <div class="mb-3">
                     <label for="username" class="form-label">Username</label>
-                    <input id="username" type="text" name="Username" required autofocus class="form-control" placeholder="user" />
+                    <input id="username" type="text" name="Username" required autofocus class="form-control" placeholder="user" autocomplete="username" />
                 </div>
                 <div class="mb-3">
                     <label for="password" class="form-label">Password</label>
-                    <input id="password" type="password" name="Password" required class="form-control" placeholder="••••••••" />
+                    <input id="password" type="password" name="Password" required class="form-control" placeholder="••••••••" autocomplete="current-password" />
                 </div>
                 <input type="hidden" name="ReturnUrl" value="/" />
                 <button type="submit" class="btn btn-primary w-100">Sign in</button>

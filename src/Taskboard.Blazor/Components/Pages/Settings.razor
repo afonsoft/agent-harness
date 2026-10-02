@@ -43,7 +43,7 @@
                     <label class="form-label" for="github-token">GitHub token</label>
                     <p class="small text-body-secondary">Paste a personal access token with repo scope.</p>
                     <div class="setting-row-input">
-                        <input id="github-token" type="@_tokenInputType" class="form-control" @bind="_gitHubToken" placeholder="ghp_…" />
+                        <input id="github-token" type="@_tokenInputType" class="form-control" @bind="_gitHubToken" placeholder="ghp_…" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                         <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="ToggleTokenVisibility">@_tokenToggleLabel</button>
                     </div>
 
@@ -196,13 +196,13 @@
                                     <span class="badge @GetSourceBadgeClass(_ragUrlSource) ms-1 fw-normal">@_ragUrlSource</span>
                                 }
                             </label>
-                            <input id="rag-url" type="text" class="form-control font-monospace" @bind="_ragUrl" placeholder="e.g. https://mcp.example.com/mcp" />
+                            <input id="rag-url" type="text" inputmode="url" class="form-control font-monospace" @bind="_ragUrl" placeholder="e.g. https://mcp.example.com/mcp" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                         </div>
                     </div>
                     <div class="mt-2">
                         <label class="form-label" for="rag-key">API key</label>
                         <div class="setting-row-input">
-                            <input id="rag-key" type="@_ragKeyInputType" class="form-control font-monospace" @bind="_ragApiKey" placeholder="@(_ragKeySet ? "•••• (unchanged)" : "aft_…")" />
+                            <input id="rag-key" type="@_ragKeyInputType" class="form-control font-monospace" @bind="_ragApiKey" placeholder="@(_ragKeySet ? "•••• (unchanged)" : "aft_…")" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                             <button type="button" class="btn btn-outline-secondary text-nowrap" @onclick="ToggleRagKeyVisibility">@_ragKeyToggleLabel</button>
                         </div>
                         <p class="small text-body-secondary mt-1 mb-0">Leave blank to keep the stored key.</p>
@@ -304,13 +304,13 @@
                     <label class="form-label" for="current-password">Change password</label>
                     <div class="row g-3 mt-1">
                         <div class="col-md-4">
-                            <input id="current-password" type="password" class="form-control" @bind="_currentPassword" placeholder="Current password" />
+                            <input id="current-password" type="password" class="form-control" @bind="_currentPassword" placeholder="Current password" autocomplete="current-password" />
                         </div>
                         <div class="col-md-4">
-                            <input type="password" class="form-control" @bind="_newPassword" placeholder="New password" aria-label="New password" />
+                            <input type="password" class="form-control" @bind="_newPassword" placeholder="New password" aria-label="New password" autocomplete="new-password" />
                         </div>
                         <div class="col-md-4">
-                            <input type="password" class="form-control" @bind="_confirmPassword" placeholder="Confirm new password" aria-label="Confirm new password" />
+                            <input type="password" class="form-control" @bind="_confirmPassword" placeholder="Confirm new password" aria-label="Confirm new password" autocomplete="new-password" />
                         </div>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(_changeError))
@@ -422,11 +422,11 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label small mb-1" for="chat-provider-url">Base URL</label>
-                            <input id="chat-provider-url" class="form-control form-control-sm font-monospace" placeholder="https://api.openai.com" @bind="_chatNewUrl" />
+                            <input id="chat-provider-url" inputmode="url" class="form-control form-control-sm font-monospace" placeholder="https://api.openai.com" @bind="_chatNewUrl" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                         </div>
                         <div class="col-md-3">
                             <label class="form-label small mb-1" for="chat-provider-key">API key</label>
-                            <input id="chat-provider-key" type="password" class="form-control form-control-sm" @bind="_chatNewKey" />
+                            <input id="chat-provider-key" type="password" class="form-control form-control-sm" @bind="_chatNewKey" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                         </div>
                         <div class="col-md-2">
                             <button type="button" class="btn btn-sm btn-primary w-100" @onclick="AddChatProviderAsync" disabled="@_chatBusy">Add provider</button>
@@ -484,7 +484,7 @@
                         </div>
                         <div class="col-md-5">
                             <label class="form-label small mb-1" for="chat-search-url">SearxNG URL</label>
-                            <input id="chat-search-url" class="form-control form-control-sm font-monospace" placeholder="https://searx.example.com" @bind="_chatSearchUrl" />
+                            <input id="chat-search-url" inputmode="url" class="form-control form-control-sm font-monospace" placeholder="https://searx.example.com" @bind="_chatSearchUrl" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                         </div>
                         <div class="col-md-2">
                             <button type="button" class="btn btn-sm btn-outline-primary w-100" @onclick="SaveChatSearchAsync" disabled="@_chatBusy">Save</button>
@@ -493,7 +493,7 @@
                     <div class="row g-2 align-items-end">
                         <div class="col-md-5">
                             <label class="form-label small mb-1" for="chat-search-key">Tavily / Brave API key</label>
-                            <input id="chat-search-key" type="password" class="form-control form-control-sm" @bind="_chatSearchKey" />
+                            <input id="chat-search-key" type="password" class="form-control form-control-sm" @bind="_chatSearchKey" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" />
                         </div>
                     </div>
 

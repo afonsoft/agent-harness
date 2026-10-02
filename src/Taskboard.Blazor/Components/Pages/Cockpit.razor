@@ -32,7 +32,7 @@
         <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAsync" Disabled="_loading">
             <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
         </Button>
-        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="OpenStartAsync">
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" data-shortcut-new @onclick="OpenStartAsync">
             <Icon Name="IconName.Play" class="me-1" /> New Run
         </Button>
     </div>
@@ -82,7 +82,7 @@ else if (_runs is not null)
     </div>
 }
 
-<Modal @ref="_startModal" Title="New Run" Size="ModalSize.Large" IsVerticallyCentered="true">
+<Modal @ref="_startModal" Title="New Run" Size="ModalSize.Large" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
     <BodyTemplate>
         <div class="row g-3">
             <div class="col-md-6">
@@ -228,7 +228,7 @@ else if (_runs is not null)
             </div>
             <div class="col-md-6">
                 <label class="form-label" for="cockpit-budget">Budget cap USD (opcional)</label>
-                <input id="cockpit-budget" type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="_start.MaxBudgetUsd" />
+                <input id="cockpit-budget" type="number" inputmode="decimal" step="0.01" min="0" class="form-control form-control-sm" @bind="_start.MaxBudgetUsd" />
             </div>
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center mb-1">

@@ -21,7 +21,7 @@
             <button type="button" class="btn btn-primary btn-sm w-100" @onclick="StartNewChatAsync" disabled="@_busy">+ New chat</button>
         </div>
         <div class="px-3 pb-2">
-            <input type="search" class="form-control form-control-sm" placeholder="Buscar conversas…" @bind="_search" @bind:after="OnSearchChangedAsync" />
+            <input type="search" class="form-control form-control-sm" enterkeyhint="search" data-shortcut-search placeholder="Buscar conversas…" @bind="_search" @bind:after="OnSearchChangedAsync" />
         </div>
         <div class="provider-chat-list flex-grow-1 overflow-auto px-2">
             @if (_conversations.Count == 0)
@@ -194,7 +194,7 @@
                                  OnSelect="OnSlashSelect" />
             <div class="provider-chat-composer-thread">
                 <div class="provider-chat-composer-box">
-                    <textarea class="provider-chat-input" rows="2" placeholder="Send a message… (/ comandos e skills, Enter envia)"
+                    <textarea class="provider-chat-input" rows="2" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" data-shortcut-command placeholder="Send a message… (/ comandos e skills, Enter envia)"
                               @bind="_composer" @bind:event="oninput" @onkeydown="OnComposerKey"
                               @onkeydown:preventDefault="_slashPreventDefault"></textarea>
                     <div class="provider-chat-composer-actions">

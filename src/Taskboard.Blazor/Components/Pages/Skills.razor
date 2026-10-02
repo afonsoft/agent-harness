@@ -4,7 +4,7 @@
 
 <PageTitle>Skills - Harness</PageTitle>
 
-<Modal @ref="_skillModal" Size="ModalSize.Large" DialogCssClass="modal-70" IsScrollable="true" />
+<Modal @ref="_skillModal" Size="ModalSize.Large" DialogCssClass="modal-70" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
 
 <h1 class="h4 fw-bold mb-1">Skills</h1>
 <p class="small text-body-secondary mb-4">Installed agent skills</p>
@@ -14,7 +14,7 @@
         <div class="d-flex flex-column gap-3 mb-4">
             <div>
                 <label for="skills-search" class="visually-hidden">Search skills</label>
-                <input id="skills-search" type="search" class="form-control" placeholder="Search by name, description or source" @bind="_search" @bind:event="oninput" @bind:after="ApplyFilters" />
+                <input id="skills-search" type="search" class="form-control" enterkeyhint="search" data-shortcut-search placeholder="Search by name, description or source" @bind="_search" @bind:event="oninput" @bind:after="ApplyFilters" />
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <button type="button" class="filter-chip @(string.IsNullOrEmpty(_selectedSource) ? "active" : "")" @onclick="() => SelectSource(null)">All</button>

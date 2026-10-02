@@ -7,8 +7,8 @@
 
 <PageTitle>Living Specs - Harness</PageTitle>
 
-<Modal @ref="_detailModal" Size="ModalSize.ExtraLarge" IsScrollable="true" />
-<Modal @ref="_runModal" Size="ModalSize.Large" />
+<Modal @ref="_detailModal" Size="ModalSize.ExtraLarge" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
+<Modal @ref="_runModal" Size="ModalSize.Large" Fullscreen="ModalFullscreen.SmallDown" />
 
 <h1 class="h4 fw-bold mb-1">Living Specs</h1>
 <p class="small text-body-secondary mb-4">Especificações SDD de <code>.specs/</code> — fonte única da verdade para humanos e agentes.</p>
@@ -28,7 +28,7 @@
                 }
             </div>
             <div class="d-flex gap-2">
-                <input class="form-control form-control-sm" style="width: 220px"
+                <input type="search" class="form-control form-control-sm" style="width: 220px" enterkeyhint="search" data-shortcut-search
                        placeholder="Search specs..." @bind="_query" @bind:event="oninput"
                        @onkeyup="OnQueryKeyUpAsync" />
                 <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
