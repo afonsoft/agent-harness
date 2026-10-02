@@ -9,7 +9,7 @@
 | Stack | `Blazor WebAssembly / Blazor.Bootstrap / SignalR / xterm.js / C# 14` |
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/20260921-cockpit-live-logs-explorer` |
-| Status | `Implemented` |
+| Status | Done — entregue via [PR #296](https://github.com/afonsoft/agent-harness/pull/296) (merged 2026-09-22) |
 | Follows | `SPEC-20260919-ade-cockpit-hitl`, `SPEC-20260920-board-cockpit-unified-runs`, `SPEC-20260921-board-cockpit-agent-observability` |
 
 ---

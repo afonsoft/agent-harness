@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-member-hides-inherited` |
 | Ticket | SonarQube rule `csharpsquid:S4015` (8 issue(s)) |
-| Status | Approved |
+| Status | Done — entregue via [PR #415](https://github.com/afonsoft/agent-harness/pull/415) (merged 2026-10-01) |
 | Sonar type | CODE_SMELL |
 | Severities | {'CRITICAL': 8} |
 | Estimated effort | ~16 min |

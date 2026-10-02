@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-commented-code` |
 | Ticket | SonarQube rule `csharpsquid:S125` (1 issue(s)) |
-| Status | Approved |
+| Status | Done — entregue via [PR #415](https://github.com/afonsoft/agent-harness/pull/415) (merged 2026-10-01) |
 | Sonar type | CODE_SMELL |
 | Severities | {'MAJOR': 1} |
 | Estimated effort | ~5 min |

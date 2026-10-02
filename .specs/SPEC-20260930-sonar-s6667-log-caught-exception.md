@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-log-caught-exception` |
 | Ticket | SonarQube rule `csharpsquid:S6667` (7 issue(s)) |
-| Status | Approved |
+| Status | Done — entregue via [PR #415](https://github.com/afonsoft/agent-harness/pull/415) (merged 2026-10-01) |
 | Sonar type | CODE_SMELL |
 | Severities | {'MINOR': 7} |
 | Estimated effort | ~35 min |

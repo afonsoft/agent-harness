@@ -10,7 +10,7 @@
 | Repository | `/home/ubuntu/repos/agent-harness` |
 | Branch | `feature/devin-20260930-sonar-adjacent-overloads` |
 | Ticket | SonarQube rule `csharpsquid:S4136` (2 issue(s)) |
-| Status | Approved |
+| Status | Done — entregue via [PR #415](https://github.com/afonsoft/agent-harness/pull/415) (merged 2026-10-01) |
 | Sonar type | CODE_SMELL |
 | Severities | {'MINOR': 2} |
 | Estimated effort | ~2 min |

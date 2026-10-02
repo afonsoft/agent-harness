@@ -452,6 +452,18 @@ Novo `tests/Taskboard.Tests.Unit/Blazor/MobileResponsiveTests.cs`:
 
 ---
 
+## Audit Note (gap-analysis 2026-10-02)
+
+ACs já satisfeitos vs pendentes — evidência do código em `main`:
+
+- Satisfeito: meta viewport com `interactive-widget=resize-contain` em `wwwroot/index.html` (FR-006 parcial).
+- Pendente: `inputmode`/`enterkeyhint` nos inputs de chat (0 ocorrências).
+- Pendente: `modal-fullscreen` / comportamento fullscreen de modais <576px (FR-005).
+- Pendente: overlay de atalhos com `?` e conjunto FR-007.
+- Pendente: auditoria `overflow-x` documentada (FR-008) e testes source-level (§18).
+
+Executar na slice #424.
+
 ## Pending Questions
 
 1. Conjunto de atalhos FR-007 está correto, ou há atalhos adicionais
