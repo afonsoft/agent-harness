@@ -1457,7 +1457,7 @@
                 (state.ProviderId, state.Model) = ParseCapabilityValue(raw);
                 if (!string.IsNullOrEmpty(state.ProviderId))
                 {
-                    await LoadCapabilityModelsAsync(capability, state);
+                    await LoadCapabilityModelsAsync(state);
                 }
             }
 
@@ -1488,7 +1488,7 @@
             : (raw[..separator], raw[(separator + 1)..]);
     }
 
-    private async Task LoadCapabilityModelsAsync(string capability, ChatCapabilityState state)
+    private async Task LoadCapabilityModelsAsync(ChatCapabilityState state)
     {
         try
         {

@@ -237,7 +237,7 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _statuses[spec.Name] = new ChatMcpServerStatus(spec.Name, transportKind, false, 0, ex.Message);
-            _logger.LogWarning("MCP server {Server} connect failed: {Error}", spec.Name, ex.Message);
+            _logger.LogWarning(ex, "MCP server {Server} connect failed", spec.Name);
         }
     }
 
@@ -321,9 +321,10 @@ public sealed class ChatMcpClientManager : IMcpClientManager
     {
         var baseName = $"mcp_{UnsafeNameChars.Replace(server.ToLowerInvariant(), "_")}_{UnsafeNameChars.Replace(remote.ToLowerInvariant(), "_")}";
         var name = baseName;
-        for (var i = 2; _routes.ContainsKey(name); i++)
+        var suffix = 2;
+        while (_routes.ContainsKey(name))
         {
-            name = $"{baseName}_{i}";
+            name = $"{baseName}_{suffix++}";
         }
 
         return name;
@@ -347,14 +348,12 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         string server, string remote, JsonElement arguments, ChatToolContext context,
         CancellationToken cancellationToken, bool retried)
     {
-        if (!_clients.TryGetValue(server, out var client))
+        // Server may have failed connect — try one reconnect before giving up.
+        if (!_clients.TryGetValue(server, out var client)
+            && (!await TryReconnectAsync(server, cancellationToken).ConfigureAwait(false)
+                || !_clients.TryGetValue(server, out client)))
         {
-            // Server may have failed connect — try one reconnect before giving up.
-            if (!await TryReconnectAsync(server, cancellationToken).ConfigureAwait(false)
-                || !_clients.TryGetValue(server, out client))
-            {
-                return ErrorResult($"mcp server '{server}' unavailable");
-            }
+            return ErrorResult($"mcp server '{server}' unavailable");
         }
 
         try

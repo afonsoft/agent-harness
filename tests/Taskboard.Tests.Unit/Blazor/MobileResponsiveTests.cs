@@ -141,8 +141,8 @@ public class MobileResponsiveTests
         // AC-06/AC-07: overlay ? existe; Esc fecha; preventDefault só em ação real.
         js.ShouldContain("shortcut-help-overlay");
         js.ShouldContain("e.key === 'Escape'");
-        js.ShouldContain("_target('new')");
-        js.ShouldContain("_target('search')");
+        js.ShouldContain("'new'");
+        js.ShouldContain("'search'");
     }
 
     [Fact]

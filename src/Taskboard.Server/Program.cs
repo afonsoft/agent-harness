@@ -105,7 +105,7 @@ var harnessEnvOverrides = Environment.GetEnvironmentVariables()
     .Where(e => e.Key is string k && k.StartsWith("HARNESS__", StringComparison.Ordinal))
     .Select(e => (
         Key: "Taskboard:" + e.Key.ToString()!["HARNESS__".Length..].Replace("__", ":", StringComparison.Ordinal),
-        Value: (string?)e.Value?.ToString()))
+        Value: e.Value?.ToString()))
     .ToDictionary(kv => kv.Key, kv => kv.Value);
 if (harnessEnvOverrides.Count > 0)
 {

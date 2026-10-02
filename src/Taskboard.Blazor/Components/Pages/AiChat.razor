@@ -128,15 +128,15 @@ else
             {
                 @foreach (var item in AgentRenderItems)
                 {
-                    if (item.Tool is { } tool)
+                    if (item.Tool is not null)
                     {
-                        <ToolCallCard Model="tool" />
+                        <ToolCallCard Model="item.Tool!" />
                         continue;
                     }
 
-                    if (item.Group is { } group)
+                    if (item.Group is not null)
                     {
-                        <ToolCallChangesCard Items="group" />
+                        <ToolCallChangesCard Items="item.Group!" />
                         continue;
                     }
 
@@ -281,9 +281,9 @@ else
                             <select class="form-select form-select-sm ai-chat-quickselect"
                                     value="@_cfgContext" @onchange="OnCfgContextChanged">
                                 <option value="">host</option>
-                                @foreach (var container in _dockerContainers)
+                                @foreach (var name in _dockerContainers.Select(container => container.Name))
                                 {
-                                    <option value="@container.Name">⬢ @container.Name</option>
+                                    <option value="@name">⬢ @name</option>
                                 }
                             </select>
                         </label>
@@ -710,7 +710,7 @@ else
     {
         var match = AgentCliMap.AllSpecs()
             .Where(kv => string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
-            .Select(kv => (Type: (AgentType?)AgentCliMap.AgentTypeFor(kv.Key), Display: (string?)kv.Value.DisplayName))
+            .Select(kv => (Type: AgentCliMap.AgentTypeFor(kv.Key), Display: kv.Value.DisplayName))
             .FirstOrDefault();
         if (match.Type is not null)
         {
@@ -1385,12 +1385,10 @@ else
 
     private async Task OnComposerKeyDownAsync(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer))
+        if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer)
+            && (!_running || IsAgentMode))
         {
-            if (!_running || IsAgentMode)
-            {
-                await SendMessageAsync();
-            }
+            await SendMessageAsync();
         }
     }
 

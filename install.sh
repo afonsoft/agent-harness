@@ -9,7 +9,7 @@ DEFAULT_REPO="https://github.com/afonsoft/agent-harness.git"
 # SPEC-20260928-taskboard-env-fallback-removal: HARNESS_* canonical only.
 REPO_URL="${HARNESS_REPO:-$DEFAULT_REPO}"
 HARNESS_HOME="${HARNESS_HOME:-$HOME/.agent-harness}"
-[ -n "${HARNESS_DIR:-}" ] && HARNESS_HOME="$HARNESS_DIR"
+[[ -n "${HARNESS_DIR:-}" ]] && HARNESS_HOME="$HARNESS_DIR"
 BIN_DIR="$HARNESS_HOME/bin"
 REPO_DIR="$HARNESS_HOME/agent-harness"
 NUGET_DIR="$REPO_DIR/artifacts/nuget"
@@ -46,11 +46,11 @@ Variaveis de ambiente:
 EOF
 }
 
-if [ $# -eq 0 ]; then
+if [[ $# -eq 0 ]]; then
     INSTALL_ALL=true
 fi
 
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         --all) INSTALL_ALL=true ;;
         --devin) INSTALL_DEVIN=true ;;
@@ -67,7 +67,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$INSTALL_ALL" = true ]; then
+if [[ "$INSTALL_ALL" = true ]]; then
     INSTALL_DEVIN=true
     INSTALL_CLAUDE=true
     INSTALL_CURSOR=true
@@ -77,7 +77,7 @@ if [ "$INSTALL_ALL" = true ]; then
 fi
 
 run() {
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         echo "[dry-run] $*" >&2
     else
         "$@"
@@ -86,7 +86,7 @@ run() {
 
 write_file() {
     local file=$1
-    if [ "$DRY_RUN" = true ]; then
+    if [[ "$DRY_RUN" = true ]]; then
         echo "[dry-run] escrever $file:" >&2
         cat
         return 0
@@ -106,7 +106,7 @@ check_dotnet() {
     local major
     major=$(echo "$sdk_version" | cut -d. -f1)
 
-    if [ "$major" -ne 10 ]; then
+    if [[ "$major" -ne 10 ]]; then
         echo "Erro: .NET SDK $sdk_version encontrado, mas e necessario o .NET 10 SDK." >&2
         exit 1
     fi
@@ -118,19 +118,19 @@ detect_repo_dir() {
     local script_dir
     script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-    if [ -f "$script_dir/Taskboard.sln" ]; then
+    if [[ -f "$script_dir/Taskboard.sln" ]]; then
         REPO_DIR="$script_dir"
         echo "Repositorio detectado em: $REPO_DIR"
         return 0
     fi
 
-    if [ -f "$PWD/Taskboard.sln" ]; then
+    if [[ -f "$PWD/Taskboard.sln" ]]; then
         REPO_DIR="$PWD"
         echo "Repositorio detectado em: $REPO_DIR"
         return 0
     fi
 
-    if [ ! -d "$REPO_DIR/.git" ]; then
+    if [[ ! -d "$REPO_DIR/.git" ]]; then
         echo "Clonando $REPO_URL em $REPO_DIR..."
         run mkdir -p "$HARNESS_HOME"
         run git clone "$REPO_URL" "$REPO_DIR"
@@ -157,7 +157,7 @@ install_cli() {
 
     run mkdir -p "$BIN_DIR"
 
-    if [ -f "$BIN_DIR/taskctl" ]; then
+    if [[ -f "$BIN_DIR/taskctl" ]]; then
         run dotnet tool update taskctl --tool-path "$BIN_DIR" --add-source "$NUGET_DIR"
     else
         run dotnet tool install taskctl --tool-path "$BIN_DIR" --add-source "$NUGET_DIR"
@@ -170,14 +170,14 @@ install_skill_for_ide() {
     local ide=$1
     local target_dir=$2
 
-    if [ ! -d "$target_dir" ] && [ "$DRY_RUN" = false ]; then
+    if [[ ! -d "$target_dir" ]] && [[ "$DRY_RUN" = false ]]; then
         return 0
     fi
 
     echo "Instalando skill para $ide em $target_dir..."
     run mkdir -p "$target_dir"
 
-    if [ -d "$target_dir/manage-taskboard" ]; then
+    if [[ -d "$target_dir/manage-taskboard" ]]; then
         run rm -rf "$target_dir/manage-taskboard"
     fi
 
@@ -187,31 +187,31 @@ install_skill_for_ide() {
 install_skills() {
     echo "Instalando a skill manage-taskboard..."
 
-    if [ "$INSTALL_DEVIN" = true ]; then
+    if [[ "$INSTALL_DEVIN" = true ]]; then
         install_skill_for_ide "Devin" "$HOME/.devin/skills"
         install_skill_for_ide "Devin (config)" "$HOME/.config/devin/skills"
         install_skill_for_ide "Devin (cognition)" "$HOME/.cognition/skills"
     fi
 
-    if [ "$INSTALL_CLAUDE" = true ]; then
+    if [[ "$INSTALL_CLAUDE" = true ]]; then
         install_skill_for_ide "Claude Code" "$HOME/.claude/skills"
     fi
 
-    if [ "$INSTALL_CURSOR" = true ]; then
+    if [[ "$INSTALL_CURSOR" = true ]]; then
         install_skill_for_ide "Cursor" "$HOME/.cursor/skills"
     fi
 
-    if [ "$INSTALL_OPENCODE" = true ]; then
+    if [[ "$INSTALL_OPENCODE" = true ]]; then
         install_skill_for_ide "OpenCode" "$HOME/.opencode/skills"
         install_skill_for_ide "OpenCode (config)" "$HOME/.config/opencode/skills"
     fi
 
-    if [ "$INSTALL_GEMINI" = true ]; then
+    if [[ "$INSTALL_GEMINI" = true ]]; then
         install_skill_for_ide "Gemini CLI" "$HOME/.gemini/skills"
         install_skill_for_ide "Gemini (antigravity)" "$HOME/.gemini/antigravity-cli/skills"
     fi
 
-    if [ "$INSTALL_VSCODE" = true ]; then
+    if [[ "$INSTALL_VSCODE" = true ]]; then
         install_skill_for_ide "VS Code / Copilot" "$HOME/.github/skills"
     fi
 }
@@ -232,11 +232,11 @@ generate_admin_password() {
     local password_file="$HARNESS_HOME/admin-password"
     local password
 
-    if [ -f "$password_file" ]; then
+    if [[ -f "$password_file" ]]; then
         password=$(cat "$password_file")
     else
         password=$(openssl rand -hex 16 2>/dev/null || dd if=/dev/urandom bs=32 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
-        if [ -z "$password" ]; then
+        if [[ -z "$password" ]]; then
             password="$(date +%s%N | sha256sum | head -c 32)"
         fi
         run mkdir -p "$HARNESS_HOME"
@@ -284,7 +284,7 @@ create_wrappers() {
 #!/usr/bin/env bash
 set -euo pipefail
 ENV_FILE="\${HARNESS_HOME:-\$HOME/.agent-harness}/env"
-if [ -f "\$ENV_FILE" ]; then
+if [[ -f "\$ENV_FILE" ]]; then
     # shellcheck source=/dev/null
     source "\$ENV_FILE"
 fi
@@ -299,7 +299,7 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 ENV_FILE="\${HARNESS_HOME:-\$HOME/.agent-harness}/env"
-if [ -f "\$ENV_FILE" ]; then
+if [[ -f "\$ENV_FILE" ]]; then
     # shellcheck source=/dev/null
     source "\$ENV_FILE"
 fi
@@ -337,7 +337,7 @@ Environment="HOME=$HOME"
 WantedBy=default.target
 EOF
 
-    if [ "$DRY_RUN" = false ]; then
+    if [[ "$DRY_RUN" = false ]]; then
         run systemctl --user daemon-reload || true
         run systemctl --user enable harness-server || true
         run systemctl --user start harness-server || true
@@ -346,7 +346,7 @@ EOF
 
 add_path_to_shell() {
     local shell_file=$1
-    if [ ! -f "$shell_file" ]; then
+    if [[ ! -f "$shell_file" ]]; then
         return 0
     fi
 
@@ -403,11 +403,11 @@ migrate_legacy() {
     local legacy_home="$HOME/.taskboard"
     local new_home="$HARNESS_HOME"
 
-    if [ ! -d "$legacy_home" ]; then
+    if [[ ! -d "$legacy_home" ]]; then
         echo "Nada a migrar: $legacy_home nao existe."
         return 0
     fi
-    if [ -e "$new_home" ]; then
+    if [[ -e "$new_home" ]]; then
         echo "Erro: $new_home ja existe — remova ou escolha outro HARNESS_HOME." >&2
         exit 1
     fi
@@ -422,17 +422,17 @@ migrate_legacy() {
     run mv "$legacy_home" "$new_home"
 
     # Rename the SQLite database (server startup would also do this).
-    if [ -f "$new_home/data/taskboard.sqlite" ] && [ ! -f "$new_home/data/harness.sqlite" ]; then
+    if [[ -f "$new_home/data/taskboard.sqlite" ]] && [[ ! -f "$new_home/data/harness.sqlite" ]]; then
         run mv "$new_home/data/taskboard.sqlite" "$new_home/data/harness.sqlite"
         for ext in -wal -shm; do
-            if [ -f "$new_home/data/taskboard.sqlite$ext" ]; then
+            if [[ -f "$new_home/data/taskboard.sqlite$ext" ]]; then
                 run mv "$new_home/data/taskboard.sqlite$ext" "$new_home/data/harness.sqlite$ext"
             fi
         done
     fi
 
     # Rewrite the generated env file to the canonical HARNESS_* names.
-    if [ -f "$new_home/env" ]; then
+    if [[ -f "$new_home/env" ]]; then
         run sed -i -e 's/^export TASKBOARD_/export HARNESS_/' "$new_home/env"
     fi
 
@@ -441,13 +441,13 @@ migrate_legacy() {
 
     # Replace the legacy systemd unit.
     local unit_dir="$HOME/.config/systemd/user"
-    if [ -f "$unit_dir/taskboard-server.service" ]; then
+    if [[ -f "$unit_dir/taskboard-server.service" ]]; then
         run rm -f "$unit_dir/taskboard-server.service"
     fi
     create_wrappers
     create_systemd_service
 
-    if command -v systemctl &> /dev/null && [ "$DRY_RUN" = false ]; then
+    if command -v systemctl &> /dev/null && [[ "$DRY_RUN" = false ]]; then
         run systemctl --user daemon-reload || true
         echo "Verificando saude do servico..."
         sleep 5
@@ -460,7 +460,7 @@ migrate_legacy() {
 }
 
 main() {
-    if [ "$MIGRATE" = true ]; then
+    if [[ "$MIGRATE" = true ]]; then
         migrate_legacy
         return 0
     fi
@@ -475,7 +475,7 @@ main() {
     create_wrappers
     create_systemd_service
     add_path_to_shell "$HOME/.bashrc"
-    if [ -f "$HOME/.zshrc" ]; then
+    if [[ -f "$HOME/.zshrc" ]]; then
         add_path_to_shell "$HOME/.zshrc"
     fi
     print_summary

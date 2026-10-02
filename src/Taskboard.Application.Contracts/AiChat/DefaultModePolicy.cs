@@ -14,24 +14,26 @@ public static class DefaultModePolicy
     /// <param name="configured">Raw config value — invalid values behave as <c>auto</c>.</param>
     /// <param name="providerChatAvailable">At least one enabled chat provider.</param>
     /// <param name="cliChatAvailable">At least one selectable chat-capable CLI.</param>
+    private const string ModeAgent = "agent";
+
     public static Resolution Resolve(string? configured, bool providerChatAvailable, bool cliChatAvailable)
     {
         var mode = configured?.Trim().ToLowerInvariant() switch
         {
-            "chat" or "agent" => configured.Trim().ToLowerInvariant(),
+            "chat" or ModeAgent => configured.Trim().ToLowerInvariant(),
             _ => "auto",
         };
 
         var chatAvailable = providerChatAvailable || cliChatAvailable;
         return mode switch
         {
-            "agent" => new Resolution("agent", FellBack: false),
+            ModeAgent => new Resolution(ModeAgent, FellBack: false),
             "chat" when chatAvailable => new Resolution(
                 providerChatAvailable ? "provider" : "assistant", FellBack: false),
-            "chat" => new Resolution("agent", FellBack: true),
+            "chat" => new Resolution(ModeAgent, FellBack: true),
             _ when chatAvailable => new Resolution(
                 providerChatAvailable ? "provider" : "assistant", FellBack: false),
-            _ => new Resolution("agent", FellBack: true),
+            _ => new Resolution(ModeAgent, FellBack: true),
         };
     }
 }

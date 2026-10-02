@@ -278,11 +278,11 @@ public sealed class PipelineEngine
 
     private int SpawnStages(PipelineExecution exec, List<PipelineStageExecution> toDispatch)
     {
-        foreach (var stage in toDispatch)
+        foreach (var stageKey in toDispatch.Select(stage => stage.StageKey))
         {
-            var key = $"{exec.Id.Value}|{stage.StageKey}";
+            var key = $"{exec.Id.Value}|{stageKey}";
             var cts = _runningStages[key];
-            var task = RunStageAsync(exec.Id.Value, stage.StageKey, cts);
+            var task = RunStageAsync(exec.Id.Value, stageKey, cts);
             _stageTasks.TryAdd(task, 0);
             _ = task.ContinueWith(
                 (done, self) => _stageTasks.TryRemove((Task)self!, out _),
@@ -547,7 +547,6 @@ public sealed class PipelineEngine
         CancellationToken cancellationToken)
     {
         var chunks = new List<string>();
-        var runId = exec.Id.Value;
         var stageKey = stage.StageKey;
         var progress = CreateStageProgress(exec, stageKey, chunks);
         var instructions = BuildStageInstructions(exec, stage);

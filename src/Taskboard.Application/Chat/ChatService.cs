@@ -276,7 +276,7 @@ public sealed class ChatService(
         // SPEC-20261001-chat-capability-registry FR-003: effective tool set —
         // disabled capabilities never reach the provider payload.
         var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
-        var wire = await BuildTranscriptAsync(conversation, provider, toolSet, ct).ConfigureAwait(false);
+        var wire = await BuildTranscriptAsync(conversation, toolSet, ct).ConfigureAwait(false);
         var toolDefs = BuildToolDefinitions(toolSet);
         int? tokensIn = null;
         int? tokensOut = null;
@@ -426,6 +426,12 @@ public sealed class ChatService(
             var tail = _inlineMarkup.Flush();
             AssistantContent.Append(tail);
             return tail;
+        }
+
+        private static System.Text.StringBuilder Append(System.Text.StringBuilder builder, string? value)
+        {
+            builder.Append(value ?? string.Empty);
+            return builder;
         }
 
         public List<OpenAiToolCall> MaterializeToolCalls()
@@ -651,7 +657,7 @@ public sealed class ChatService(
     }
 
     private async Task<List<OpenAiChatMessage>> BuildTranscriptAsync(
-        ChatConversation conversation, ChatProvider provider,
+        ChatConversation conversation,
         IReadOnlyDictionary<string, IChatTool> toolSet, CancellationToken ct)
     {
         var rows = await messages.Query
@@ -822,9 +828,4 @@ public sealed class ChatService(
         message.Model,
         message.CreatedAt);
 
-    private static System.Text.StringBuilder Append(System.Text.StringBuilder builder, string? value)
-    {
-        builder.Append(value ?? string.Empty);
-        return builder;
-    }
 }

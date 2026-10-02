@@ -85,12 +85,10 @@ public sealed class ChatCapabilityRegistry(
 
         // SPEC-20261001-chat-mcp-client: MCP adapters merge into the effective
         // set when the opt-in master is on; per-tool Disabled still applies.
-        foreach (var adapter in await McpToolsAsync(cancellationToken).ConfigureAwait(false))
+        var mcpAdapters = await McpToolsAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var adapter in mcpAdapters.Where(a => IsCapabilityEnabled(a.CapabilityId)))
         {
-            if (IsCapabilityEnabled(adapter.CapabilityId))
-            {
-                effective[adapter.Name] = adapter;
-            }
+            effective[adapter.Name] = adapter;
         }
 
         return effective;

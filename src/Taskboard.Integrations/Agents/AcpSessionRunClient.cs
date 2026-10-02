@@ -174,65 +174,66 @@ public sealed class AcpSessionRunClient : IAgentAcpClient
                 _turnDone.TrySetException(new AcpException(AcpErrorCode.Internal, "run", ev.Content));
             }
         }
-    }
 
-    private static string? ExtractRequestId(string? payloadJson)
-    {
-        if (payloadJson is null)
+        private static string? ExtractRequestId(string? payloadJson)
         {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payloadJson);
-            return doc.RootElement.TryGetProperty("requestId", out var r) ? r.GetString() : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static TokenUsage? ExtractUsage(string? payloadJson)
-    {
-        if (payloadJson is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payloadJson);
-            var update = doc.RootElement.TryGetProperty("update", out var u) ? u : doc.RootElement;
-            if (!update.TryGetProperty("used", out var used) || !used.TryGetInt64(out var tokens))
+            if (payloadJson is null)
             {
                 return null;
             }
 
-            return new TokenUsage(tokens, 0, 0, 0);
+            try
+            {
+                using var doc = JsonDocument.Parse(payloadJson);
+                return doc.RootElement.TryGetProperty("requestId", out var r) ? r.GetString() : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
-        catch (JsonException)
+
+        private static TokenUsage? ExtractUsage(string? payloadJson)
         {
-            return null;
+            if (payloadJson is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(payloadJson);
+                var update = doc.RootElement.TryGetProperty("update", out var u) ? u : doc.RootElement;
+                if (!update.TryGetProperty("used", out var used) || !used.TryGetInt64(out var tokens))
+                {
+                    return null;
+                }
+
+                return new TokenUsage(tokens, 0, 0, 0);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        private static string? ExtractStopReason(string? payloadJson)
+        {
+            if (payloadJson is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(payloadJson);
+                return doc.RootElement.TryGetProperty("stopReason", out var s) ? s.GetString() : null;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
         }
     }
 
-    private static string? ExtractStopReason(string? payloadJson)
-    {
-        if (payloadJson is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(payloadJson);
-            return doc.RootElement.TryGetProperty("stopReason", out var s) ? s.GetString() : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
 }

@@ -146,6 +146,7 @@ window.taskboardNotify = {
             }
             return await Notification.requestPermission();
         } catch (e) {
+            // permission request can throw in embeds/unsupported contexts — treat as denied
             return 'denied';
         }
     },
@@ -168,6 +169,7 @@ window.taskboardNotify = {
             };
             return true;
         } catch (e) {
+            // notification failures degrade to the in-app toast — never propagate
             return false;
         }
     }
@@ -239,14 +241,14 @@ window.taskboardChat = {
 
     // SPEC-20261001-ai-chat-openwebui: clipboard for message actions.
     copy: function (text) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
+        if (navigator.clipboard?.writeText) {
             return navigator.clipboard.writeText(text);
         }
         var area = document.createElement('textarea');
         area.value = text;
         document.body.appendChild(area);
         area.select();
-        document.execCommand('copy');
+        document.execCommand('copy'); // NOSONAR javascript:S1874 — único fallback fora de secure context
         area.remove();
     }
 };
@@ -261,8 +263,8 @@ window.taskboardShortcuts = {
     _overlay: null,
 
     _isEditable: function (el) {
-        return !!(el && el.closest && el.closest(
-            'input, textarea, select, [contenteditable], .xterm-helper-textarea, .monaco-editor, .cm-editor'));
+        return !!el?.closest?.(
+            'input, textarea, select, [contenteditable], .xterm-helper-textarea, .monaco-editor, .cm-editor');
     },
 
     _target: function (name) {
@@ -340,45 +342,57 @@ window.taskboardShortcuts = {
         }
     },
 
-    handleKey: function (e) {
-        if (e.key === 'Escape' && this._overlay) {
-            this.hideHelp();
-            e.preventDefault();
-            return;
+    _handleCommandKey: function (e) {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey ||
+            (e.key !== 'k' && e.key !== 'K')) {
+            return false;
         }
-        if (this._isEditable(e.target)) {
-            return;
+        var command = this._target('command') || this._target('search');
+        if (!command) {
+            return false;
         }
-        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
-            (e.key === 'k' || e.key === 'K')) {
-            var command = this._target('command') || this._target('search');
-            if (command) {
-                e.preventDefault();
-                command.focus();
-            }
-            return;
-        }
-        if (e.ctrlKey || e.metaKey || e.altKey) {
-            return;
-        }
+        e.preventDefault();
+        command.focus();
+        return true;
+    },
+
+    _handlePlainKey: function (e) {
         if (e.key === '?') {
             e.preventDefault();
             this.toggleHelp();
             return;
         }
-        if (e.key === 's' || e.key === 'n') {
-            var name = e.key === 's' ? 'search' : 'new';
-            var target = this._target(name);
-            if (!target) {
-                return;
-            }
-            e.preventDefault();
-            if (name === 'search') {
-                target.focus();
-            } else {
-                target.click();
-            }
+        if (e.key !== 's' && e.key !== 'n') {
+            return;
         }
+        var target = this._target(e.key === 's' ? 'search' : 'new');
+        if (!target) {
+            return;
+        }
+        e.preventDefault();
+        if (e.key === 's') {
+            target.focus();
+        } else {
+            target.click();
+        }
+    },
+
+    handleKey: function (e) {
+        if (e.key === 'Escape' && this._overlay) {
+            e.preventDefault();
+            this.hideHelp();
+            return;
+        }
+        if (this._isEditable(e.target)) {
+            return;
+        }
+        if (this._handleCommandKey(e)) {
+            return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) {
+            return;
+        }
+        this._handlePlainKey(e);
     }
 };
 
