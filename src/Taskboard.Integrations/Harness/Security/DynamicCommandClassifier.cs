@@ -350,56 +350,92 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
     /// quotes, then tokenizes each segment honouring single/double quotes and
     /// redirect operators as standalone tokens.
     /// </summary>
-    private static List<IReadOnlyList<string>> SplitSegments(string command)
-    {
-        var segments = new List<IReadOnlyList<string>>();
-        var tokens = new List<string>();
-        var current = new System.Text.StringBuilder();
-        var inSingle = false;
-        var inDouble = false;
-        var i = 0;
+    private static List<IReadOnlyList<string>> SplitSegments(string command) =>
+        new Splitter(command).Run();
 
-        void FlushToken()
+    /// <summary>Stateful splitter for {@code &&}-separated shell segments —
+    /// tracks quote context across characters.</summary>
+    private sealed class Splitter
+    {
+        private readonly string _command;
+        private readonly List<IReadOnlyList<string>> _segments = new();
+        private readonly List<string> _tokens = new();
+        private readonly System.Text.StringBuilder _current = new();
+        private bool _inSingle;
+        private bool _inDouble;
+        private int _i;
+
+        public Splitter(string command) => _command = command;
+
+        public List<IReadOnlyList<string>> Run()
         {
-            if (current.Length > 0)
+            while (_i < _command.Length)
             {
-                tokens.Add(current.ToString());
-                current.Clear();
+                var c = _command[_i];
+                if (_inSingle || _inDouble)
+                {
+                    if (c == (_inSingle ? '\'' : '"'))
+                    {
+                        _inSingle = _inDouble = false;
+                    }
+                    else
+                    {
+                        _current.Append(c);
+                    }
+
+                    _i++;
+                    continue;
+                }
+
+                ConsumeUnquoted(c);
+                _i++;
+            }
+
+            FlushSegment();
+            return _segments;
+        }
+
+        private void FlushToken()
+        {
+            if (_current.Length > 0)
+            {
+                _tokens.Add(_current.ToString());
+                _current.Clear();
             }
         }
 
-        void FlushSegment()
+        private void FlushSegment()
         {
             FlushToken();
-            if (tokens.Count > 0)
+            if (_tokens.Count > 0)
             {
-                segments.Add(tokens.ToArray());
-                tokens.Clear();
+                _segments.Add(_tokens.ToArray());
+                _tokens.Clear();
             }
         }
 
-        void ConsumeUnquoted(char c)
+        private void ConsumeUnquoted(char c)
         {
             switch (c)
             {
                 case '\'':
-                    inSingle = true;
+                    _inSingle = true;
                     break;
                 case '"':
-                    inDouble = true;
+                    _inDouble = true;
                     break;
                 case ' ' or '\t' or '\n' or '\r':
                     FlushToken();
                     break;
-                case '&' when i + 1 < command.Length && command[i + 1] == '&':
+                case '&' when _i + 1 < _command.Length && _command[_i + 1] == '&':
                     FlushSegment();
-                    i++;
+                    _i++;
                     break;
                 case '|':
                     FlushSegment();
-                    if (i + 1 < command.Length && command[i + 1] == '|')
+                    if (_i + 1 < _command.Length && _command[_i + 1] == '|')
                     {
-                        i++;
+                        _i++;
                     }
 
                     break;
@@ -410,49 +446,24 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                     ConsumeRedirect(c);
                     break;
                 default:
-                    current.Append(c);
+                    _current.Append(c);
                     break;
             }
         }
 
-        void ConsumeRedirect(char c)
+        private void ConsumeRedirect(char c)
         {
             FlushToken();
             // C-06: measure the operator run once — `op += c` allocated a new
             // string per repeated char.
             var run = 1;
-            while (i + run < command.Length && command[i + run] == c)
+            while (_i + run < _command.Length && _command[_i + run] == c)
             {
                 run++;
             }
 
-            tokens.Add(new string(c, run));
-            i += run - 1;
+            _tokens.Add(new string(c, run));
+            _i += run - 1;
         }
-
-        while (i < command.Length)
-        {
-            var c = command[i];
-            if (inSingle || inDouble)
-            {
-                if (c == (inSingle ? '\'' : '"'))
-                {
-                    inSingle = inDouble = false;
-                }
-                else
-                {
-                    current.Append(c);
-                }
-
-                i++;
-                continue;
-            }
-
-            ConsumeUnquoted(c);
-            i++;
-        }
-
-        FlushSegment();
-        return segments;
     }
 }

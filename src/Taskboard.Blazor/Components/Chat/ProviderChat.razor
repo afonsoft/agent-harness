@@ -668,44 +668,20 @@
     private async Task SendAsync()
     {
         var content = _composer.Trim();
-        if (content.Length == 0 || _conversationId is null)
+        if (await EnsureConversationAsync(content) is not { } conversationId)
         {
-            if (_conversationId is null)
-            {
-                await StartNewChatAsync();
-                if (_conversationId is null)
-                {
-                    return;
-                }
-            }
-            else
-            {
-                return;
-            }
+            return;
         }
 
         // FR-004: builtin commands execute locally; /skill injects SKILL.md.
         if (content.StartsWith('/'))
         {
-            var space = content.IndexOf(' ', StringComparison.Ordinal);
-            var command = (space < 0 ? content : content[..space]).TrimStart('/');
-            var rest = space < 0 ? string.Empty : content[(space + 1)..];
-
-            if (await TryRunBuiltinAsync(command))
+            var (consumed, resolved) = await ResolveSlashContentAsync(content);
+            if (consumed)
             {
                 return;
             }
-
-            var skill = _slashItems.FirstOrDefault(i =>
-                i.Kind == "skill" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
-            if (skill is not null)
-            {
-                content = await ComposeSkillMessageAsync(skill, rest);
-                if (content is null)
-                {
-                    return;
-                }
-            }
+            content = resolved;
         }
 
         _error = null;
@@ -718,12 +694,58 @@
         _running = true;
         _streaming = string.Empty;
         _reasoning = string.Empty;
-        _streamCts = new CancellationTokenSource();
+        var streamCts = new CancellationTokenSource();
+        _streamCts = streamCts;
         await ScrollToEndAsync();
 
+        await StreamAssistantReplyAsync(conversationId, content, streamCts);
+    }
+
+    /// <summary>Creates the conversation when missing; null → nothing to send.</summary>
+    private async Task<string?> EnsureConversationAsync(string content)
+    {
+        if (content.Length != 0 && _conversationId is not null)
+        {
+            return _conversationId;
+        }
+
+        if (_conversationId is null)
+        {
+            await StartNewChatAsync();
+            return _conversationId;
+        }
+
+        return null;
+    }
+
+    /// <summary>Runs builtin/skill slash handling; consumed → caller returns.</summary>
+    private async Task<(bool Consumed, string Content)> ResolveSlashContentAsync(string content)
+    {
+        var space = content.IndexOf(' ', StringComparison.Ordinal);
+        var command = (space < 0 ? content : content[..space]).TrimStart('/');
+        var rest = space < 0 ? string.Empty : content[(space + 1)..];
+
+        if (await TryRunBuiltinAsync(command))
+        {
+            return (true, content);
+        }
+
+        var skill = _slashItems.FirstOrDefault(i =>
+            i.Kind == "skill" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
+        if (skill is null)
+        {
+            return (false, content);
+        }
+
+        var composed = await ComposeSkillMessageAsync(skill, rest);
+        return composed is null ? (true, content) : (false, composed);
+    }
+
+    private async Task StreamAssistantReplyAsync(string conversationId, string content, CancellationTokenSource streamCts)
+    {
         try
         {
-            using var response = await Client.SendChatMessageAsync(_conversationId, content, _streamCts.Token);
+            using var response = await Client.SendChatMessageAsync(conversationId, content, streamCts.Token);
             if (!response.IsSuccessStatusCode)
             {
                 _error = $"Falha no envio ({(int)response.StatusCode}).";
@@ -732,10 +754,10 @@
                 return;
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(_streamCts.Token);
+            await using var stream = await response.Content.ReadAsStreamAsync(streamCts.Token);
             using var reader = new StreamReader(stream);
             string? eventName = null;
-            while (await reader.ReadLineAsync(_streamCts.Token) is { } line)
+            while (await reader.ReadLineAsync(streamCts.Token) is { } line)
             {
                 if (line.StartsWith("event:", StringComparison.Ordinal))
                 {
@@ -767,7 +789,7 @@
             _streaming = null;
             _statusPhase = null;
             _statusLabel = null;
-            _streamCts?.Dispose();
+            streamCts.Dispose();
             _streamCts = null;
             await ReloadConversationAsync();
         }

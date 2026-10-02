@@ -103,45 +103,10 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
         {
             for (; iterations < MaxIterations;)
             {
-                var round = new StringBuilder();
-                var toolAccumulator = new SortedDictionary<int, (string? Id, string? Name, StringBuilder Args)>();
-
-                await foreach (var chunk in client.StreamChatAsync(
-                        context.ProviderBaseUrl, context.ProviderApiKey,
-                        context.Model ?? string.Empty, wire,
-                        toolDefs.Count > 0 ? toolDefs : null,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false))
-                {
-                    if (chunk.ContentDelta is { Length: > 0 } delta)
-                    {
-                        round.Append(delta);
-                    }
-
-                    if (chunk.ToolCallDeltas is { Count: > 0 })
-                    {
-                        foreach (var tc in chunk.ToolCallDeltas)
-                        {
-                            var current = toolAccumulator.TryGetValue(tc.Index, out var v)
-                                ? v
-                                : (null, null, new StringBuilder());
-                            toolAccumulator[tc.Index] = (
-                                tc.Id ?? current.Item1,
-                                tc.Name ?? current.Item2,
-                                current.Item3.Append(tc.ArgumentsDelta));
-                        }
-                    }
-                }
-
+                var (round, toolCalls) = await StreamRoundAsync(context, wire, toolDefs, cancellationToken)
+                    .ConfigureAwait(false);
                 answer.Clear().Append(round);
                 iterations++;
-
-                var toolCalls = toolAccumulator
-                    .Select(kv => new OpenAiToolCall(
-                        kv.Value.Id ?? $"call_{kv.Key}",
-                        kv.Value.Name ?? "unknown",
-                        kv.Value.Args.Length == 0 ? "{}" : kv.Value.Args.ToString()))
-                    .ToList();
 
                 if (toolCalls.Count == 0)
                 {
@@ -149,13 +114,8 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
                 }
 
                 wire.Add(new OpenAiChatMessage("assistant", round.ToString(), toolCalls));
-                foreach (var call in toolCalls)
-                {
-                    var (json, _, _) = await ExecuteSubToolAsync(call, toolSet, context, cancellationToken)
-                        .ConfigureAwait(false);
-                    toolsUsed.Add(call.Name);
-                    wire.Add(new OpenAiChatMessage("tool", json, ToolCallId: call.Id, Name: call.Name));
-                }
+                await ExecuteToolCallsAsync(toolCalls, toolSet, context, wire, toolsUsed, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
         catch (ChatProviderException ex)
@@ -170,6 +130,69 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
             tools_used = toolsUsed,
             truncated = iterations >= MaxIterations,
         }));
+    }
+
+    /// <summary>One provider round: streams deltas and materializes tool calls.</summary>
+    private async Task<(StringBuilder Round, List<OpenAiToolCall> ToolCalls)> StreamRoundAsync(
+        ChatToolContext context,
+        List<OpenAiChatMessage> wire,
+        List<OpenAiToolDefinition> toolDefs,
+        CancellationToken cancellationToken)
+    {
+        var round = new StringBuilder();
+        var toolAccumulator = new SortedDictionary<int, (string? Id, string? Name, StringBuilder Args)>();
+
+        await foreach (var chunk in client.StreamChatAsync(
+                context.ProviderBaseUrl, context.ProviderApiKey,
+                context.Model ?? string.Empty, wire,
+                toolDefs.Count > 0 ? toolDefs : null,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false))
+        {
+            if (chunk.ContentDelta is { Length: > 0 } delta)
+            {
+                round.Append(delta);
+            }
+
+            if (chunk.ToolCallDeltas is { Count: > 0 })
+            {
+                foreach (var tc in chunk.ToolCallDeltas)
+                {
+                    var current = toolAccumulator.TryGetValue(tc.Index, out var v)
+                        ? v
+                        : (null, null, new StringBuilder());
+                    toolAccumulator[tc.Index] = (
+                        tc.Id ?? current.Item1,
+                        tc.Name ?? current.Item2,
+                        current.Item3.Append(tc.ArgumentsDelta));
+                }
+            }
+        }
+
+        var toolCalls = toolAccumulator
+            .Select(kv => new OpenAiToolCall(
+                kv.Value.Id ?? $"call_{kv.Key}",
+                kv.Value.Name ?? "unknown",
+                kv.Value.Args.Length == 0 ? "{}" : kv.Value.Args.ToString()))
+            .ToList();
+        return (round, toolCalls);
+    }
+
+    private static async Task ExecuteToolCallsAsync(
+        List<OpenAiToolCall> toolCalls,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatToolContext context,
+        List<OpenAiChatMessage> wire,
+        List<string> toolsUsed,
+        CancellationToken cancellationToken)
+    {
+        foreach (var call in toolCalls)
+        {
+            var (json, _, _) = await ExecuteSubToolAsync(call, toolSet, context, cancellationToken)
+                .ConfigureAwait(false);
+            toolsUsed.Add(call.Name);
+            wire.Add(new OpenAiChatMessage("tool", json, ToolCallId: call.Id, Name: call.Name));
+        }
     }
 
     private static async Task<(string Json, bool Refused, string? Reason)> ExecuteSubToolAsync(
