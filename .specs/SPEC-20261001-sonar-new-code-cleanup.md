@@ -149,6 +149,23 @@ Após merge, a próxima análise da `main` deve reportar
 - [ ] T3 — N-04..N-09 (smells em new code)
 - [ ] T4 — validação final + confirmação do gate pós-merge
 
+## 8.1 Won't-fix registrados (execução 2026-10-02)
+
+- **S1075 `AgentCliMap.cs:63-67` + `SearchBackends.cs:44` + `Taskboard.Mcp/Program.cs:13` +
+  `Server/Program.cs:3257`** — endpoints de instalação/loopback fixos são
+  constantes intrínsecas do catálogo; torná-los configuráveis adiciona
+  superfície sem benefício (já são `internal const` nomeados).
+- **S2589 `DynamicCommandClassifier.cs:436` ×2** — falso positivo: `inSingle`/
+  `inDouble` são mutados dentro da local function `ConsumeUnquoted`
+  (analisador não rastreia captura de variáveis em local functions); a
+  condição é viva em runtime.
+- **S8970 em `AgentControlService.cs`, `Server/Program.cs:107`,
+  `AiChatService.cs:171`, `McpProvisioningService.cs:486`** — falso positivo:
+  nullable está habilitado nesses projetos e o `!` é necessário
+  (comprovado por CS8602/CS8604 com TreatWarningsAsErrors ao removê-lo).
+- Smells de `*.js`/`*.css` fora da lista N-04..N-09 (boot.js, taskboard.js,
+  site.css) — fora do escopo do #418; ficam para o backlog geral (#410).
+
 ## 9. Definition of Done
 
 - [ ] Gate ERROR resolvido; ACs verificados.

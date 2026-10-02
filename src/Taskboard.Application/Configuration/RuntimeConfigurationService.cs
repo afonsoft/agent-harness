@@ -247,7 +247,12 @@ public sealed class RuntimeConfigurationService
     public bool GetEffectiveBool(string key, bool fallback = false)
     {
         var value = GetEffectiveValue(key);
-        return value is null ? fallback : bool.TryParse(value, out var parsed) ? parsed : fallback;
+        if (value is null)
+        {
+            return fallback;
+        }
+
+        return bool.TryParse(value, out var parsed) ? parsed : fallback;
     }
 
     private static CatalogEntry? FindEntry(string key) =>

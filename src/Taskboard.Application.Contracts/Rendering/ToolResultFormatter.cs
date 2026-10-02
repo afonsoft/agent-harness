@@ -152,12 +152,14 @@ public static class ToolResultFormatter
             && (e.TryGetProperty("url", out _) || e.TryGetProperty("link", out _))
             && (e.TryGetProperty("title", out _) || e.TryGetProperty("snippet", out _)));
 
+    private static string? JsonProp(JsonElement el, string name) =>
+        el.TryGetProperty(name, out var v) ? v.GetString() : null;
+
     private static void AppendSearchResult(StringBuilder output, JsonElement item, int index)
     {
-        var title = item.TryGetProperty("title", out var t) ? t.GetString() : null;
-        var link = item.TryGetProperty("url", out var u) ? u.GetString()
-            : item.TryGetProperty("link", out var l) ? l.GetString() : null;
-        var snippet = item.TryGetProperty("snippet", out var s) ? s.GetString() : null;
+        var title = JsonProp(item, "title");
+        var link = JsonProp(item, "url") ?? JsonProp(item, "link");
+        var snippet = JsonProp(item, "snippet");
 
         output.Append(index).Append(". ").AppendLine(title ?? link ?? "(result)");
         if (!string.IsNullOrEmpty(link))

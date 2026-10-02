@@ -185,7 +185,7 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
     }
 
     private static bool HasHiddenSegment(string relativePath) =>
-        relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+        relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .Any(segment => segment.StartsWith('.'));
 
     private static bool TryResolveInsideRoot(string root, string relativePath, out FileInfo file)
@@ -200,7 +200,7 @@ public sealed class SkillDiscoveryService : ISkillDiscoveryService
 
         // Resolve every path segment: a symlinked file OR directory escaping the root is rejected.
         var resolved = root;
-        foreach (var segment in relativePath.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]))
+        foreach (var segment in relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
         {
             var candidate = Path.Join(resolved, segment);
             var target = new FileInfo(candidate).LinkTarget ?? new DirectoryInfo(candidate).LinkTarget;

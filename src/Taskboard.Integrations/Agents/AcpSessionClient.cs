@@ -1017,7 +1017,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         }
     }
 
-    private void CompletePendingResponse(SessionHolder holder, AcpProtocolParser.Parsed parsed)
+    private static void CompletePendingResponse(SessionHolder holder, AcpProtocolParser.Parsed parsed)
     {
         if (parsed.RequestId is not { } rid
             || !holder.PendingResponses.TryRemove(rid, out var tcs))

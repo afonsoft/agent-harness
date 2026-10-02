@@ -206,30 +206,41 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
 
     private async Task<string?> ExtractImagePayloadAsync(JsonElement body, CancellationToken cancellationToken)
     {
-        if (body.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+        if (!body.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
         {
-            foreach (var item in data.EnumerateArray())
-            {
-                if (item.TryGetProperty("b64_json", out var b64) && b64.ValueKind == JsonValueKind.String)
-                {
-                    return b64.GetString()!;
-                }
+            return null;
+        }
 
-                if (item.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String)
-                {
-                    // Remote URL → download now so the image persists locally (RF-009).
-                    using var imgRequest = new HttpRequestMessage(HttpMethod.Get, url.GetString());
-                    using var imgResponse = await http.SendAsync(imgRequest, cancellationToken).ConfigureAwait(false);
-                    if (imgResponse.IsSuccessStatusCode)
-                    {
-                        var bytes = await imgResponse.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-                        return Convert.ToBase64String(bytes);
-                    }
-                }
+        foreach (var item in data.EnumerateArray())
+        {
+            if (item.TryGetProperty("b64_json", out var b64) && b64.ValueKind == JsonValueKind.String)
+            {
+                return b64.GetString()!;
+            }
+
+            if (item.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
+                && url.GetString() is { } imageUrl
+                && await TryDownloadImageAsync(imageUrl, cancellationToken).ConfigureAwait(false) is { } image)
+            {
+                return image;
             }
         }
 
         return null;
+    }
+
+    // Remote URL → download now so the image persists locally (RF-009).
+    private async Task<string?> TryDownloadImageAsync(string url, CancellationToken cancellationToken)
+    {
+        using var imgRequest = new HttpRequestMessage(HttpMethod.Get, url);
+        using var imgResponse = await http.SendAsync(imgRequest, cancellationToken).ConfigureAwait(false);
+        if (!imgResponse.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var bytes = await imgResponse.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        return Convert.ToBase64String(bytes);
     }
 
     private static object ToWire(OpenAiChatMessage message)
@@ -312,25 +323,38 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
                 continue;
             }
 
-            if (delta.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String
-                && contentEl.GetString() is { Length: > 0 } text)
-            {
-                content = text;
-            }
-
-            if (delta.TryGetProperty("reasoning_content", out var reasoningEl) && reasoningEl.ValueKind == JsonValueKind.String
-                && reasoningEl.GetString() is { Length: > 0 } reasoningText)
-            {
-                reasoning = reasoningText;
-            }
-
-            if (delta.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array)
-            {
-                toolDeltas = ParseToolCallDeltas(tcs, toolDeltas);
-            }
+            var (c, r) = ParseDelta(delta, ref toolDeltas);
+            content = c ?? content;
+            reasoning = r ?? reasoning;
         }
 
         return (content, toolDeltas, finish, reasoning);
+    }
+
+    private static (string? Content, string? Reasoning) ParseDelta(
+        JsonElement delta, ref List<OpenAiToolCallDelta>? toolDeltas)
+    {
+        string? content = null;
+        string? reasoning = null;
+
+        if (delta.TryGetProperty("content", out var contentEl) && contentEl.ValueKind == JsonValueKind.String
+            && contentEl.GetString() is { Length: > 0 } text)
+        {
+            content = text;
+        }
+
+        if (delta.TryGetProperty("reasoning_content", out var reasoningEl) && reasoningEl.ValueKind == JsonValueKind.String
+            && reasoningEl.GetString() is { Length: > 0 } reasoningText)
+        {
+            reasoning = reasoningText;
+        }
+
+        if (delta.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array)
+        {
+            toolDeltas = ParseToolCallDeltas(tcs, toolDeltas);
+        }
+
+        return (content, reasoning);
     }
 
     private static List<OpenAiToolCallDelta> ParseToolCallDeltas(

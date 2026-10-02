@@ -292,9 +292,9 @@ public sealed class ChatService(
             // B-02: deltas are yielded as they arrive — the SSE client sees
             // live progress instead of a burst after the provider finishes.
             var stream = new StreamOutcome();
-            await foreach (var ev in ConsumeStreamAsync(
-                    provider, conversation, wire, toolDefs, maxTokens, stream, cts, requestAborted, ct)
-                .ConfigureAwait(false))
+            var consume = new ConsumeContext(
+                provider, conversation, wire, toolDefs, maxTokens, stream, cts, requestAborted);
+            await foreach (var ev in ConsumeStreamAsync(consume, ct).ConfigureAwait(false))
             {
                 yield return ev;
             }
@@ -337,7 +337,7 @@ public sealed class ChatService(
             await messages.AddAsync(assistantMessage, persistCt).ConfigureAwait(false);
             await messages.SaveChangesAsync(persistCt).ConfigureAwait(false);
 
-            wire.Add(new OpenAiChatMessage("assistant", stream.AssistantContent.ToString(), toolCalls));
+            wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, stream.AssistantContent.ToString(), toolCalls));
 
             if (toolCalls.Count == 0)
             {
@@ -443,66 +443,40 @@ public sealed class ChatService(
     // B-02: streams provider chunks as they arrive — each content delta is
     // yielded immediately and a keepalive ChatStatusEvent("streaming") is
     // emitted when the provider goes quiet, so the SSE connection never idles.
+    private sealed record ConsumeContext(
+        ChatProvider Provider,
+        ChatConversation Conversation,
+        List<OpenAiChatMessage> Wire,
+        List<OpenAiToolDefinition> ToolDefs,
+        int MaxTokens,
+        StreamOutcome Outcome,
+        CancellationTokenSource Stop,
+        CancellationToken RequestAborted);
+
     private async IAsyncEnumerable<ChatStreamEvent> ConsumeStreamAsync(
-        ChatProvider provider,
-        ChatConversation conversation,
-        List<OpenAiChatMessage> wire,
-        List<OpenAiToolDefinition> toolDefs,
-        int maxTokens,
-        StreamOutcome outcome,
-        CancellationTokenSource cts,
-        CancellationToken requestAborted,
+        ConsumeContext ctx,
         [EnumeratorCancellation] CancellationToken ct)
     {
         var heartbeat = TimeSpan.FromSeconds(
             ParseInt("Taskboard:Chat:SseHeartbeatSeconds", 15));
         await using var enumerator = client.StreamChatAsync(
-            provider.BaseUrl, provider.ApiKey, conversation.Model, wire,
-            toolDefs.Count > 0 ? toolDefs : null, maxTokens, ct).GetAsyncEnumerator(ct);
+            ctx.Provider.BaseUrl, ctx.Provider.ApiKey, ctx.Conversation.Model, ctx.Wire,
+            ctx.ToolDefs.Count > 0 ? ctx.ToolDefs : null, ctx.MaxTokens, ct).GetAsyncEnumerator(ct);
 
         while (true)
         {
-            // Heartbeat loop runs without a catch around the yield — a cancelled
-            // delay breaks out and the real exception surfaces on `await next`.
             var next = enumerator.MoveNextAsync().AsTask();
-            while (!next.IsCompleted)
+            await foreach (var ev in WaitHeartbeatAsync(next, heartbeat, ct).ConfigureAwait(false))
             {
-                var completed = await Task.WhenAny(next, Task.Delay(heartbeat, ct)).ConfigureAwait(false);
-                if (completed == next || ct.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                yield return new ChatStatusEvent("streaming", null);
+                yield return ev;
             }
 
-            bool moved;
-            try
-            {
-                moved = await next.ConfigureAwait(false);
-            }
-            catch (ChatProviderException ex)
-            {
-                outcome.ProviderError = ex;
-                yield break;
-            }
-            catch (HttpRequestException ex)
-            {
-                outcome.ProviderError = new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
-                yield break;
-            }
-            catch (OperationCanceledException) when (cts.IsCancellationRequested && !requestAborted.IsCancellationRequested)
-            {
-                outcome.StoppedByUser = true;
-                yield break;
-            }
-
-            if (!moved)
+            if (!await TryMoveNextAsync(next, ctx.Outcome, ctx.Stop, ctx.RequestAborted).ConfigureAwait(false))
             {
                 yield break;
             }
 
-            if (outcome.AccumulateChunk(enumerator.Current) is { } delta)
+            if (ctx.Outcome.AccumulateChunk(enumerator.Current) is { } delta)
             {
                 yield return new ChatDeltaEvent(delta);
             }
@@ -512,6 +486,51 @@ public sealed class ChatService(
                 yield return new ChatReasoningEvent(reasoning);
             }
         }
+    }
+
+    // Heartbeat loop runs without a catch around the yield — a cancelled
+    // delay breaks out and the real exception surfaces on `await next`.
+    private static async IAsyncEnumerable<ChatStreamEvent> WaitHeartbeatAsync(
+        Task<bool> next,
+        TimeSpan heartbeat,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        while (!next.IsCompleted)
+        {
+            var completed = await Task.WhenAny(next, Task.Delay(heartbeat, ct)).ConfigureAwait(false);
+            if (completed == next || ct.IsCancellationRequested)
+            {
+                yield break;
+            }
+
+            yield return new ChatStatusEvent("streaming", null);
+        }
+    }
+
+    private static async Task<bool> TryMoveNextAsync(
+        Task<bool> next,
+        StreamOutcome outcome,
+        CancellationTokenSource cts,
+        CancellationToken requestAborted)
+    {
+        try
+        {
+            return await next.ConfigureAwait(false);
+        }
+        catch (ChatProviderException ex)
+        {
+            outcome.ProviderError = ex;
+        }
+        catch (HttpRequestException ex)
+        {
+            outcome.ProviderError = new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested && !requestAborted.IsCancellationRequested)
+        {
+            outcome.StoppedByUser = true;
+        }
+
+        return false;
     }
 
     private async IAsyncEnumerable<ChatStreamEvent> RunToolCallsAsync(
@@ -537,7 +556,7 @@ public sealed class ChatService(
                     yield return progress;
                 }
 
-                await Task.Delay(150).ConfigureAwait(false);
+                await Task.Delay(150, ct).ConfigureAwait(false);
             }
 
             while (activity.Reader.TryRead(out var progress))
@@ -651,12 +670,12 @@ public sealed class ChatService(
             {
                 wire.Add(new OpenAiChatMessage("user", message.Content));
             }
-            else if (role == "assistant")
+            else if (role == ChatMessageRole.Assistant.Value)
             {
                 var toolCalls = message.ToolCallsJson is null
                     ? null
                     : JsonSerializer.Deserialize<List<OpenAiToolCall>>(message.ToolCallsJson, Json);
-                wire.Add(new OpenAiChatMessage("assistant", InlineToolCallMarkup.StripBlocks(message.Content), toolCalls));
+                wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, InlineToolCallMarkup.StripBlocks(message.Content), toolCalls));
             }
             else if (role == "tool" && message.ToolCallId is not null)
             {
@@ -791,7 +810,7 @@ public sealed class ChatService(
         message.Role.Value,
         // Inline markup persisted before the stream filter existed still
         // renders as garbage — strip it at the DTO edge (SPEC-20261001-ai-chat-openwebui).
-        message.Role.Value == "assistant" ? InlineToolCallMarkup.StripBlocks(message.Content) : message.Content,
+        message.Role == ChatMessageRole.Assistant ? InlineToolCallMarkup.StripBlocks(message.Content) : message.Content,
         message.ToolCallsJson,
         message.ToolCallId,
         message.ToolName,

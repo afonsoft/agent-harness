@@ -168,6 +168,7 @@ public sealed class AiChatService
     private async Task<(string AgentCliId, string Transport)> ResolveCustomCliAsync(
         CreateAiChatThreadRequest request, CancellationToken ct)
     {
+        // AgentCliId is validated non-null upstream; the ! is required (nullable enabled).
         var def = await _cliDefinitions.GetAsync(request.AgentCliId!.Trim(), ct);
         if (def is null)
         {

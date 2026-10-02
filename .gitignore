@@ -68,3 +68,4 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+.sonar_devin_auto_fix/
