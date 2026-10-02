@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/spec-workflow-net10` |
 | Technical owner | afonsoft |
-| Status | Implemented |
+| Status | Deprecated — funcionalidade removida do domínio via migration RemoveWorkflowWorkspace (2026-09-19); spec preservada como referência |
 | Date | 2026-08-31 |
 | Target agent | Devin |
 
