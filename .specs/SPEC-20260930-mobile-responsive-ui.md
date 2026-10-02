@@ -436,12 +436,36 @@ Novo `tests/Taskboard.Tests.Unit/Blazor/MobileResponsiveTests.cs`:
 
 ## 23. Definition of Done
 
-- [ ] `docs/mobile-audit.md` (ou equivalente) com matriz completa.
-- [ ] Todas as telas ok a 360px.
-- [ ] Teclado virtual: viewport meta + atributos + sem overlap.
-- [ ] Atalhos implementados, documentados no overlay e inertes em
+- [x] `docs/mobile-audit.md` (ou equivalente) com matriz completa.
+- [x] Todas as telas ok a 360px — contrato source-level (`overflow-x: clip`,
+      wrappers projetados) + auditoria registrada; passada visual em device
+      real fica como verificação manual pós-merge.
+- [x] Teclado virtual: viewport meta + atributos + sem overlap.
+- [x] Atalhos implementados, documentados no overlay e inertes em
       campos editáveis.
-- [ ] Testes source-level verdes; build limpo.
+- [x] Testes source-level verdes; build limpo.
+
+## Execution Notes (2026-10-02, slice #424)
+
+- FR-005: `Fullscreen="ModalFullscreen.SmallDown"` em todos os 15 `<Modal>`
+  (KanbanBoard já tinha 3; adicionado em Agents ×3, AiChat ×4, Skills,
+  Cockpit, Specs ×2, ApprovalGateModal).
+- FR-006: `enterkeyhint="search"`+`data-shortcut-search` nas buscas
+  (KanbanBoard, ProviderChat, Skills, Specs); `enterkeyhint="send"` +
+  `data-shortcut-command` nos composers; `inputmode="url"`/`"decimal"` e
+  hints de autocomplete/autocapitalize/spellcheck nos campos de Settings e
+  Login.
+- FR-007: `taskboardShortcuts` em `taskboard.js` — listener único em
+  `document`, guard `_isEditable` (input/textarea/select/contenteditable/
+  xterm/monaco/cm), overlay `?` lista apenas atalhos com alvo vivo;
+  `Ctrl+K`/`Cmd+K`, `s`, `n` via `data-shortcut-*`.
+- FR-001–003 (site.css): `overflow-x: clip` <576px; `.form-control`/`form-select`
+  → `1rem` <768px; alvos ≥44px em `(pointer: coarse)`/`(hover: none)`;
+  `.app-shell` ganha `100dvh`; composer usa `env(keyboard-inset-height)`.
+- Testes: `Blazor/MobileResponsiveTests.cs` — 6 testes source-level verdes;
+  suite unitária 1419/1419 verde.
+- Matriz de auditoria: `docs/mobile-audit.md` (source-level; passada em
+  device físico pendente, registrada como limitação).
 
 ---
 

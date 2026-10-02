@@ -426,6 +426,7 @@ else
             </div>
             <div class="d-flex gap-2 align-items-end">
                 <textarea class="form-control ai-chat-composer" rows="2"
+                          enterkeyhint="send" autocomplete="off" data-shortcut-command
                           @ref="_composerRef"
                           placeholder="@ComposerPlaceholder"
                           disabled="@((_running && !IsAgentMode) || _sending)"
@@ -463,7 +464,7 @@ else
 }
 
 @* RF-006: repo picker popup — free text or the shared repository combobox. *@
-<Modal @ref="_repoModal" Title="Repository" Size="ModalSize.Small" IsVerticallyCentered="true">
+<Modal @ref="_repoModal" Title="Repository" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
     <BodyTemplate>
         <RepositoryCombobox Id="cmdbar-repo"
                             AriaLabel="Repository"
@@ -482,7 +483,7 @@ else
 
 @* RF-006: model popup — tier + explicit model in config mode; the live
    session's advertised options in session mode. *@
-<Modal @ref="_modelModal" Title="Model" Size="ModalSize.Small" IsVerticallyCentered="true">
+<Modal @ref="_modelModal" Title="Model" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
     <BodyTemplate>
         @if (_activeThread is not null && _modelOptions.Count > 0)
         {
@@ -532,7 +533,7 @@ else
     </FooterTemplate>
 </Modal>
 
-<Modal @ref="_sandboxModal" Title="Sandbox" Size="ModalSize.Small" IsVerticallyCentered="true">
+<Modal @ref="_sandboxModal" Title="Sandbox" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
     <BodyTemplate>
         <select class="form-select" @bind="_cfgSandbox" aria-label="Sandbox">
             <option value="read-only">read-only</option>
@@ -545,7 +546,7 @@ else
     </FooterTemplate>
 </Modal>
 
-<Modal @ref="_runAgentModal" />
+<Modal @ref="_runAgentModal" Fullscreen="ModalFullscreen.SmallDown" />
 
 @code {
     private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);

@@ -250,3 +250,138 @@ window.taskboardChat = {
         area.remove();
     }
 };
+
+// SPEC-20260930-mobile-responsive-ui FR-007: global keyboard shortcuts.
+// Single document-level listener; all shortcuts are inert while focus is in
+// an editable field (input/textarea/select/contenteditable, xterm, editors).
+// A page exposes a shortcut target via data-shortcut-{command,search,new}
+// attributes — no attribute, no shortcut, and the ? overlay only lists
+// shortcuts with a live target on the current screen.
+window.taskboardShortcuts = {
+    _overlay: null,
+
+    _isEditable: function (el) {
+        return !!(el && el.closest && el.closest(
+            'input, textarea, select, [contenteditable], .xterm-helper-textarea, .monaco-editor, .cm-editor'));
+    },
+
+    _target: function (name) {
+        return document.querySelector('[data-shortcut-' + name + ']');
+    },
+
+    _entries: function () {
+        var entries = [
+            { keys: '?', label: 'Mostrar/ocultar ajuda de atalhos' },
+            { keys: 'Esc', label: 'Fechar overlay' }
+        ];
+        if (this._target('command')) {
+            entries.push({ keys: 'Ctrl+K', label: 'Focar comando/composer da página' });
+        }
+        if (this._target('search')) {
+            entries.push({ keys: 's', label: 'Focar a busca da página' });
+        }
+        if (this._target('new')) {
+            entries.push({ keys: 'n', label: 'Ação primária (novo)' });
+        }
+        return entries;
+    },
+
+    _buildOverlay: function () {
+        var overlay = document.createElement('div');
+        overlay.id = 'shortcut-help-overlay';
+        overlay.className = 'shortcut-help-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-label', 'Atalhos de teclado');
+        var card = document.createElement('div');
+        card.className = 'shortcut-help-card';
+        var title = document.createElement('h2');
+        title.className = 'shortcut-help-title';
+        title.textContent = 'Atalhos de teclado';
+        card.appendChild(title);
+        var list = document.createElement('ul');
+        list.className = 'shortcut-help-list';
+        this._entries().forEach(function (entry) {
+            var item = document.createElement('li');
+            var kbd = document.createElement('kbd');
+            kbd.textContent = entry.keys;
+            item.appendChild(kbd);
+            item.appendChild(document.createTextNode(' ' + entry.label));
+            list.appendChild(item);
+        });
+        card.appendChild(list);
+        overlay.appendChild(card);
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) {
+                window.taskboardShortcuts.hideHelp();
+            }
+        });
+        return overlay;
+    },
+
+    showHelp: function () {
+        if (!this._overlay) {
+            this._overlay = this._buildOverlay();
+            document.body.appendChild(this._overlay);
+        }
+    },
+
+    hideHelp: function () {
+        if (this._overlay) {
+            this._overlay.remove();
+            this._overlay = null;
+        }
+    },
+
+    toggleHelp: function () {
+        if (this._overlay) {
+            this.hideHelp();
+        } else {
+            this.showHelp();
+        }
+    },
+
+    handleKey: function (e) {
+        if (e.key === 'Escape' && this._overlay) {
+            this.hideHelp();
+            e.preventDefault();
+            return;
+        }
+        if (this._isEditable(e.target)) {
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+            (e.key === 'k' || e.key === 'K')) {
+            var command = this._target('command') || this._target('search');
+            if (command) {
+                e.preventDefault();
+                command.focus();
+            }
+            return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) {
+            return;
+        }
+        if (e.key === '?') {
+            e.preventDefault();
+            this.toggleHelp();
+            return;
+        }
+        if (e.key === 's' || e.key === 'n') {
+            var name = e.key === 's' ? 'search' : 'new';
+            var target = this._target(name);
+            if (!target) {
+                return;
+            }
+            e.preventDefault();
+            if (name === 'search') {
+                target.focus();
+            } else {
+                target.click();
+            }
+        }
+    }
+};
+
+document.addEventListener('keydown', function (e) {
+    window.taskboardShortcuts.handleKey(e);
+});

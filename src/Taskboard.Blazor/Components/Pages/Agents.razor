@@ -6,8 +6,8 @@
 
 <PageTitle>CLI Agents - Harness</PageTitle>
 
-<Modal @ref="_installModal" Size="ModalSize.Large" IsScrollable="true" />
-<Modal @ref="_modelsModal" />
+<Modal @ref="_installModal" Size="ModalSize.Large" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
+<Modal @ref="_modelsModal" Fullscreen="ModalFullscreen.SmallDown" />
 
 <h1 class="h4 fw-bold mb-1">CLI Agents</h1>
 <p class="small text-body-secondary mb-4">Agent CLIs detected on this machine. Open a terminal to authenticate or manage each CLI.</p>
@@ -238,7 +238,7 @@
     </div>
 </div>
 
-<Modal @ref="_customCliModal" Title="@(_editingDef is null ? "Add custom CLI" : $"Edit {_editingDef.DisplayName}")">
+<Modal @ref="_customCliModal" Title="@(_editingDef is null ? "Add custom CLI" : $"Edit {_editingDef.DisplayName}")" Fullscreen="ModalFullscreen.SmallDown">
     <BodyTemplate>
         <div class="mb-2">
             <label class="form-label small mb-1">Display name</label>
