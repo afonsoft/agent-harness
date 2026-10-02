@@ -310,29 +310,44 @@ public sealed class AcpV2Dialect : IAcpDialect
 
     private static (string Tool, string Detail) ExtractToolDetail(JsonElement p)
     {
-        var tool = p.TryGetProperty("title", out var title) ? title.GetString() ?? string.Empty : string.Empty;
-        var detail = string.Empty;
-        if (p.TryGetProperty("subject", out var subject))
-        {
-            detail = subject.ValueKind == JsonValueKind.String
-                ? subject.GetString() ?? string.Empty
-                : subject.GetRawText();
-        }
-
+        var tool = JsonString(p, "title");
+        var detail = SubjectDetail(p);
         if (p.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == JsonValueKind.Object)
         {
-            if (string.IsNullOrEmpty(tool))
-            {
-                tool = toolCall.TryGetProperty("title", out var tt) ? tt.GetString() ?? string.Empty : string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(detail))
-            {
-                detail = toolCall.TryGetProperty("rawInput", out var ri) ? ri.GetRawText() : tool;
-            }
+            (tool, detail) = MergeToolCallDetail(toolCall, tool, detail);
         }
 
         return (tool, detail);
+    }
+
+    private static (string Tool, string Detail) MergeToolCallDetail(JsonElement toolCall, string tool, string detail)
+    {
+        if (tool.Length == 0)
+        {
+            tool = JsonString(toolCall, "title");
+        }
+
+        if (detail.Length == 0)
+        {
+            detail = toolCall.TryGetProperty("rawInput", out var ri) ? ri.GetRawText() : tool;
+        }
+
+        return (tool, detail);
+    }
+
+    private static string JsonString(JsonElement el, string property) =>
+        el.TryGetProperty(property, out var v) ? v.GetString() ?? string.Empty : string.Empty;
+
+    private static string SubjectDetail(JsonElement p)
+    {
+        if (!p.TryGetProperty("subject", out var subject))
+        {
+            return string.Empty;
+        }
+
+        return subject.ValueKind == JsonValueKind.String
+            ? subject.GetString() ?? string.Empty
+            : subject.GetRawText();
     }
 
     private static List<string> ExtractOptionIds(JsonElement p)

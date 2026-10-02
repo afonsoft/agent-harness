@@ -118,7 +118,7 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
             }
         }
 
-        throw new CliDbReadException($"Failed to read database via temp copy: {path} ({lastError!.Message})");
+        throw new CliDbReadException($"Failed to read database via temp copy: {path} ({lastError?.Message})");
     }
 
     private SqliteConnection OpenReadOnly(string path)

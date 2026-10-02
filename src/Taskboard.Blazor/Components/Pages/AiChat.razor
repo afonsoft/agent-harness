@@ -689,7 +689,7 @@ else
         _cliOptions = options;
     }
 
-    private void AddContainerOptions(List<CliOption> options, HashSet<AgentType> covered, DockerContainerDto container)
+    private static void AddContainerOptions(List<CliOption> options, HashSet<AgentType> covered, DockerContainerDto container)
     {
         foreach (var bin in container.AvailableClis)
         {
@@ -707,12 +707,13 @@ else
 
     private static (AgentType? Type, string? Display) ResolveContainerBinary(string bin)
     {
-        foreach (var kv in AgentCliMap.AllSpecs())
+        var match = AgentCliMap.AllSpecs()
+            .Where(kv => string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
+            .Select(kv => (Type: (AgentType?)AgentCliMap.AgentTypeFor(kv.Key), Display: (string?)kv.Value.DisplayName))
+            .FirstOrDefault();
+        if (match.Type is not null)
         {
-            if (string.Equals(kv.Value.Binary, bin, StringComparison.Ordinal))
-            {
-                return (AgentCliMap.AgentTypeFor(kv.Key), kv.Value.DisplayName);
-            }
+            return match;
         }
 
         return (bin == "openhands" ? AgentType.OpenHands : null, null);
@@ -1212,24 +1213,34 @@ else
 
         foreach (var option in options.EnumerateArray())
         {
-            var category = option.TryGetProperty("category", out var c) ? c.GetString() : null;
-            if (!string.Equals(category, "model", StringComparison.OrdinalIgnoreCase))
+            if (!IsModelCategory(option))
             {
                 continue;
             }
 
             _modelConfigId = option.TryGetProperty("id", out var oid) ? oid.GetString() : "model";
             _currentModel = option.TryGetProperty("value", out var v) ? v.GetString() : null;
-            if (option.TryGetProperty("options", out var values) && values.ValueKind == JsonValueKind.Array)
+            AddModelOptions(option);
+        }
+    }
+
+    private static bool IsModelCategory(JsonElement option) =>
+        option.TryGetProperty("category", out var c)
+        && string.Equals(c.GetString(), "model", StringComparison.OrdinalIgnoreCase);
+
+    private void AddModelOptions(JsonElement option)
+    {
+        if (!option.TryGetProperty("options", out var values) || values.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var entry in values.EnumerateArray())
+        {
+            var val = ExtractOptionValue(entry);
+            if (val is { Length: > 0 } && !_modelOptions.Contains(val))
             {
-                foreach (var entry in values.EnumerateArray())
-                {
-                    var val = ExtractOptionValue(entry);
-                    if (val is { Length: > 0 } && !_modelOptions.Contains(val))
-                    {
-                        _modelOptions.Add(val);
-                    }
-                }
+                _modelOptions.Add(val);
             }
         }
     }

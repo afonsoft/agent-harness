@@ -1,8 +1,9 @@
 using System;
+using System.Collections.Generic;
 
 namespace Taskboard;
 
-public abstract class Entity<TKey> : IEquatable<Entity<TKey>> where TKey : notnull
+public abstract class Entity<TKey> : IEquatable<Entity<TKey>>, IEqualityComparer<Entity<TKey>> where TKey : notnull
 {
     public TKey Id { get; protected set; } = default!;
 
@@ -40,9 +41,13 @@ public abstract class Entity<TKey> : IEquatable<Entity<TKey>> where TKey : notnu
     // must agree with Equals (id equality) instead of reference equality.
     public bool Equals(Entity<TKey>? other) => object.Equals(this, other);
 
-    public static bool operator ==(Entity<TKey>? left, Entity<TKey>? right) => Equals(left, right);
+    public bool Equals(Entity<TKey>? x, Entity<TKey>? y) => object.Equals(x, y);
 
-    public static bool operator !=(Entity<TKey>? left, Entity<TKey>? right) => !Equals(left, right);
+    public int GetHashCode(Entity<TKey> obj) => obj.GetHashCode();
+
+    public static bool operator ==(Entity<TKey>? left, Entity<TKey>? right) => object.Equals(left, right);
+
+    public static bool operator !=(Entity<TKey>? left, Entity<TKey>? right) => !object.Equals(left, right);
 
     public override int GetHashCode() => Id is null ? 0 : EqualityComparer<TKey>.Default.GetHashCode(Id);
 }

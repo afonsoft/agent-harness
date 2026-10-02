@@ -3253,6 +3253,11 @@ static string ExtractBufferedOutput(CockpitEventDto e)
 
 public partial class Program
 {
+    // S1118: entry-point marker class — never instantiated directly.
+    protected Program()
+    {
+    }
+
     // Fixed loopback default (S1075) — overridable via HARNESS_URL / Taskboard:BaseUrl.
     internal const string DefaultHarnessBaseUrl = "http://127.0.0.1:47823";
 

@@ -223,16 +223,13 @@ public sealed class InlineToolCallMarkup
         return hold;
     }
 
-    private static IEnumerable<OpenAiToolCall> ParseDsml(string block)
-    {
-        var index = 0;
-        foreach (Match invoke in InvokePattern.Matches(block))
-        {
-            var name = NormalizeName(invoke.Groups["name"].Value);
-            var arguments = BuildArguments(invoke.Groups["body"].Value);
-            yield return new OpenAiToolCall($"inline_{index++}", name, arguments);
-        }
-    }
+    private static IEnumerable<OpenAiToolCall> ParseDsml(string block) =>
+        InvokePattern.Matches(block)
+            .Cast<Match>()
+            .Select((invoke, index) => new OpenAiToolCall(
+                $"inline_{index}",
+                NormalizeName(invoke.Groups["name"].Value),
+                BuildArguments(invoke.Groups["body"].Value)));
 
     private static OpenAiToolCall? ParseToolCallEnvelope(string block)
     {
@@ -265,6 +262,9 @@ public sealed class InlineToolCallMarkup
         }
     }
 
+    private static bool IsStringParam(string attrs) =>
+        !StringAttrPattern.IsMatch(attrs) || StringAttrPattern.Match(attrs).Groups["v"].Value == "true";
+
     /// <summary>Models sometimes emit namespaced names (functions.x, tools.x) — keep the last segment.</summary>
     private static string NormalizeName(string name)
     {
@@ -278,13 +278,13 @@ public sealed class InlineToolCallMarkup
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            foreach (Match parameter in ParameterPattern.Matches(invokeBody))
+            foreach (var (name, value, isString) in ParameterPattern.Matches(invokeBody)
+                .Cast<Match>()
+                .Select(parameter => (
+                    parameter.Groups["name"].Value,
+                    parameter.Groups["value"].Value,
+                    IsStringParam(parameter.Groups["attrs"].Value))))
             {
-                var name = parameter.Groups["name"].Value;
-                var attrs = parameter.Groups["attrs"].Value;
-                var value = parameter.Groups["value"].Value;
-                var isString = !StringAttrPattern.IsMatch(attrs)
-                    || StringAttrPattern.Match(attrs).Groups["v"].Value == "true";
                 writer.WritePropertyName(name);
                 if (!isString && TryWriteRaw(writer, value))
                 {

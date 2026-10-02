@@ -483,6 +483,7 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             MergeOutcome outcome;
             if (target.Format == McpConfigFormat.Json)
             {
+                // config.Url is validated non-null upstream; the ! is required (nullable enabled).
                 var jsonEntry = removing ? null : BuildJsonEntry(target.Style, config.Url!, config.ApiKey);
                 outcome = JsonConfigMerger.Merge(path, target.ContainerKey, config.Name, jsonEntry);
             }

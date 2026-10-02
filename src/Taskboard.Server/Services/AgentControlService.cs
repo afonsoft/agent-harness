@@ -157,7 +157,7 @@ public sealed class AgentControlService
 
         _steer.Enqueue(exec.PipelineExecutionId, request.Content!.Trim());
         await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
-            JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+            JsonSerializer.Serialize(new { content = request.Content!.Trim() }), cancellationToken);
         return new AgentControlResult(AgentControlStatus.Accepted);
     }
 
@@ -187,7 +187,7 @@ public sealed class AgentControlService
 
         _steer.Enqueue(request.ScopeId, request.Content!.Trim());
         await EmitAsync(request, AgentEventKinds.Steer, "Steer queued",
-            JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+            JsonSerializer.Serialize(new { content = request.Content!.Trim() }), cancellationToken);
         return new AgentControlResult(AgentControlStatus.Accepted);
     }
 
@@ -242,7 +242,7 @@ public sealed class AgentControlService
         }
 
         await EmitAsync(request, AgentEventKinds.Steer, "Steer sent (thread)",
-            JsonSerializer.Serialize(new { content = request.Content.Trim() }), cancellationToken);
+            JsonSerializer.Serialize(new { content = request.Content!.Trim() }), cancellationToken);
         return new AgentControlResult(AgentControlStatus.Accepted);
     }
 
@@ -268,7 +268,7 @@ public sealed class AgentControlService
             return new AgentControlResult(AgentControlStatus.Conflict, Error: ErrNoActiveSession);
         }
 
-        await EmitAsync(request, AgentEventKinds.Lifecycle, $"Mode → '{request.Content.Trim()}'", cancellationToken);
+        await EmitAsync(request, AgentEventKinds.Lifecycle, $"Mode → '{request.Content!.Trim()}'", cancellationToken);
         return new AgentControlResult(AgentControlStatus.Accepted);
     }
 
@@ -445,7 +445,7 @@ public sealed class AgentControlService
         EmitAsync(request.ScopeKind, request.ScopeId, kind, title, ct, request.StageId);
 
     private Task EmitAsync(AgentControlRequest request, string kind, string title, string? payload, CancellationToken ct) =>
-        EmitAsync(request.ScopeKind, request.ScopeId, kind, title, ct, request.StageId, payload);
+        EmitAsync(request.ScopeKind, request.ScopeId, kind, title, ct, request.StageId!, payload);
 
     private Task EmitAsync(string scopeKind, string scopeId, string kind, string title, CancellationToken ct,
         string? stageId = null, string? payload = null) =>

@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Taskboard.Application.Contracts.Jobs;
 
 namespace Taskboard.Server.Services;
@@ -40,7 +41,7 @@ public abstract class ManagedJobService : BackgroundService
             // B-04: ONE signal read task lives across iterations — a new
             // ReadAsync per loop leaves an abandoned reader consuming (and
             // dropping) signals that arrive while a tick wins the race.
-            var signalTask = signals.ReadAsync(stoppingToken).AsTask();
+            var signalTask = ReadSignalAsync(signals, stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
                 schedule = await _registry.GetEffectiveAsync(_key, stoppingToken).ConfigureAwait(false);
@@ -66,7 +67,7 @@ public abstract class ManagedJobService : BackgroundService
 
                 var runRequested = await signalTask.ConfigureAwait(false) == JobSignal.RunRequested;
                 // Re-arm only AFTER consuming the winner — no orphaned reader.
-                signalTask = signals.ReadAsync(stoppingToken).AsTask();
+                signalTask = ReadSignalAsync(signals, stoppingToken);
                 while (signals.TryRead(out var extra))
                 {
                     runRequested |= extra == JobSignal.RunRequested;
@@ -78,12 +79,17 @@ public abstract class ManagedJobService : BackgroundService
                 }
             }
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (stoppingToken.IsCancellationRequested)
         {
             // Cancellation is the expected shutdown path — nothing to clean up.
-            _logger.LogDebug("Managed job '{Key}' loop stopping on shutdown.", _key);
+            _logger.LogDebug(ex, "Managed job '{Key}' loop stopping on shutdown.", _key);
         }
     }
+
+    // S5034: ReadAsync returns ValueTask — converted once via AsTask so the
+    // pending read survives as a Task across WhenAny iterations.
+    private static Task<JobSignal> ReadSignalAsync(ChannelReader<JobSignal> signals, CancellationToken stoppingToken) =>
+        signals.ReadAsync(stoppingToken).AsTask();
 
     private async Task RunOnceSafeAsync(CancellationToken stoppingToken)
     {
