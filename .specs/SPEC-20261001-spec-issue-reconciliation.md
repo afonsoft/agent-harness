@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `docs/devin-20261001-spec-reconciliation` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | Done — entregue via [PR #426](https://github.com/afonsoft/agent-harness/pull/426) (merged 2026-10-02) |
 | Date | 2026-10-01 |
 | Target agent | Devin |
 | Ticket / Gap | GAP-documentation-spec-status-drift + GAP-operation-stale-issues |

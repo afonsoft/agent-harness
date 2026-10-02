@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20260930-mobile-responsive-ui` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | Done — entregue via [PR #427](https://github.com/afonsoft/agent-harness/pull/427) (merged 2026-10-02) |
 | Date | 2026-09-30 |
 | Target agent | Devin |
 

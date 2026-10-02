@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `fix/devin-20261001-sonar-new-code` |
 | Technical owner | afonsoft |
-| Status | Approved |
+| Status | Done — entregue via [PR #425](https://github.com/afonsoft/agent-harness/pull/425) (merged 2026-10-02) |
 | Date | 2026-10-01 |
 | Target agent | Devin |
 | Ticket / Gap | GAP-implementation-sonar-new-code-debt (gap-analysis 2026-10-01) |
