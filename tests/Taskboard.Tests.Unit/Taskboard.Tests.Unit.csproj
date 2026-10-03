@@ -23,5 +23,6 @@
     <PackageReference Include="Spectre.Console.Cli.Testing" />
     <PackageReference Include="bunit" />
     <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="GitHubActionsTestLogger" />
   </ItemGroup>
 </Project>
