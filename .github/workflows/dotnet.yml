@@ -2,10 +2,6 @@ name: .NET Build and Test
 
 on:
   push:
-    branches-ignore:
-      - main
-      - master
-      - develop
     paths:
       - 'src/**'
       - 'tests/**'
@@ -41,7 +37,8 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   SOLUTION_FILE: Taskboard.sln
-  COVERAGE_THRESHOLD: 77
+  COVERAGE_THRESHOLD: 80
+  BRANCH_COVERAGE_THRESHOLD: 45
 
 jobs:
   build-and-test:
@@ -83,6 +80,7 @@ jobs:
           --configuration Release
           --no-build
           --logger "trx;LogFileName=test-results.trx"
+          --logger "GitHubActions"
           --collect:"XPlat Code Coverage"
           --results-directory ./TestResults
           -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
@@ -101,6 +99,11 @@ jobs:
           echo "Line coverage: ${COVERAGE}% (threshold: ${COVERAGE_THRESHOLD}%)"
           awk -v c="$COVERAGE" -v t="$COVERAGE_THRESHOLD" 'BEGIN { exit (c + 0 >= t + 0) ? 0 : 1 }' \
             || { echo "::error::Line coverage ${COVERAGE}% is below threshold ${COVERAGE_THRESHOLD}%"; exit 1; }
+          BRANCH_RATE=$(grep -oP 'branch-rate="\K[0-9.]+' TestResults/CoverageReport/Cobertura.xml | head -1)
+          BRANCH_COVERAGE=$(awk -v r="$BRANCH_RATE" 'BEGIN { printf "%.2f", r * 100 }')
+          echo "Branch coverage: ${BRANCH_COVERAGE}% (threshold: ${BRANCH_COVERAGE_THRESHOLD}%)"
+          awk -v c="$BRANCH_COVERAGE" -v t="$BRANCH_COVERAGE_THRESHOLD" 'BEGIN { exit (c + 0 >= t + 0) ? 0 : 1 }' \
+            || { echo "::error::Branch coverage ${BRANCH_COVERAGE}% is below threshold ${BRANCH_COVERAGE_THRESHOLD}%"; exit 1; }
 
       - name: Upload test results
         if: always()
@@ -114,7 +117,7 @@ jobs:
             TestResults/CoverageReport/**
 
       - name: Upload coverage to Codecov
-        if: github.event_name == 'pull_request'
+        if: always()
         uses: codecov/codecov-action@f9fe539f5290016afa014f8ef31597d3a61c2dea # v7
         with:
           files: TestResults/CoverageReport/Cobertura.xml
