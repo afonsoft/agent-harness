@@ -32,6 +32,18 @@ Key capabilities:
 - **VS Code Web** — managed code-server at `/vscode/` (readiness-gated proxy, port forwarding via `VSCODE_PROXY_URI`), plus an "Open in VS Code" deep link per issue.
 - **Terminal** — multiple interactive bash PTY tabs over SignalR, with **focus mode** (expand/restore hides the top bar and page chrome for a full-viewport shell, keeping a compact tab strip) and a **virtual keybar** shown only on touch devices in focus mode (arrows, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, one-shot sticky Ctrl, and dedicated clipboard paste).
 
+## Screenshots
+
+| Board | AI Code |
+|---|---|
+| ![GitHub issues as a drag-and-drop Kanban board](docs/screenshots/board.jpg) | ![Devin-style chat with mode toggle, icon toolbar and workspace context](docs/screenshots/ai-code.jpg) |
+| **Living Specs** | **Jobs** |
+| ![SDD specs catalog with status tracking and drift warnings](docs/screenshots/specs.jpg) | ![Managed background jobs with intervals, toggles and run history](docs/screenshots/jobs.jpg) |
+| **FinOps** | **CLI Agents** |
+| ![Token and cost metrics per run, agent and model](docs/screenshots/finops.jpg) | ![Detected agent CLIs with versions, auth and metrics](docs/screenshots/cli-agents.jpg) |
+| **Terminal** | **Settings** |
+| ![Interactive bash PTY tabs over SignalR](docs/screenshots/terminal.jpg) | ![Feature switches and configuration overrides](docs/screenshots/settings.jpg) |
+
 ## Tech Stack
 
 | Layer | Technology | Version |
@@ -70,8 +82,8 @@ src/
   Taskboard.Client/                 # Blazor WebAssembly host (WASM boot, loading UI)
   Taskboard.Blazor/                 # Shared Blazor UI components (RCL)
 tests/
-  Taskboard.Tests.Unit/             # 1,100+ unit tests
-  Taskboard.Tests.Integration/      # 290+ integration tests
+  Taskboard.Tests.Unit/             # 1,470+ unit tests
+  Taskboard.Tests.Integration/      # 300+ integration tests
 ```
 
 ## Quick Start
@@ -101,7 +113,7 @@ See [`install-cli.sh`](install-cli.sh) and [`docs/installation.md`](docs/install
 
 GitHub Actions provide:
 
-- Build and test in Release mode, format verification, a line-coverage gate (currently 77%, ratcheting up to the 80% target), and vulnerable-package checks.
+- Build and test in Release mode, format verification, a line-coverage gate (currently 80%, ratcheting toward the 90% target) plus a branch-coverage floor, and vulnerable-package checks.
 - SonarCloud analysis when the `SONAR_TOKEN` secret is configured.
 - CodeQL analysis for C# and GitHub Actions.
 - Weekly NuGet and GitHub Actions updates through Dependabot.

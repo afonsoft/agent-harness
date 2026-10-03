@@ -32,6 +32,18 @@ Capacidades principais:
 - **VS Code Web** — code-server gerenciado em `/vscode/` (proxy com espera de readiness, encaminhamento de portas via `VSCODE_PROXY_URI`), mais link "Open in VS Code" por issue.
 - **Terminal** — múltiplas abas bash PTY interativas via SignalR, com **modo foco** (expandir/restaurar oculta a barra superior e o chrome da página para um shell em viewport completo, mantendo uma tab strip compacta) e uma **barra de teclas virtual** exibida apenas em dispositivos touch no modo foco (setas, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, Ctrl sticky de um toque e colar dedicado via clipboard).
 
+## Capturas de Tela
+
+| Board | AI Code |
+|---|---|
+| ![Issues do GitHub como board Kanban com drag-and-drop](docs/screenshots/board.jpg) | ![Chat estilo Devin com toggle de modo, toolbar de ícones e contexto do workspace](docs/screenshots/ai-code.jpg) |
+| **Living Specs** | **Jobs** |
+| ![Catálogo de SPECs SDD com rastreamento de status e avisos de drift](docs/screenshots/specs.jpg) | ![Jobs em background gerenciados com intervalos, toggles e histórico](docs/screenshots/jobs.jpg) |
+| **FinOps** | **CLI Agents** |
+| ![Métricas de tokens e custo por run, agente e modelo](docs/screenshots/finops.jpg) | ![CLIs de agentes detectados com versões, auth e métricas](docs/screenshots/cli-agents.jpg) |
+| **Terminal** | **Settings** |
+| ![Abas bash PTY interativas via SignalR](docs/screenshots/terminal.jpg) | ![Switches de features e overrides de configuração](docs/screenshots/settings.jpg) |
+
 ## Stack Tecnológico
 
 | Camada | Tecnologia | Versão |
@@ -69,8 +81,8 @@ src/
   Taskboard.Maui/                   # Desktop Blazor Hybrid (opcional)
   Taskboard.Blazor/                 # UI web Blazor WebAssembly
 tests/
-  Taskboard.Tests.Unit/             # 1.100+ testes unitários
-  Taskboard.Tests.Integration/      # 290+ testes de integração
+  Taskboard.Tests.Unit/             # 1.470+ testes unitários
+  Taskboard.Tests.Integration/      # 300+ testes de integração
 ```
 
 ## Início Rápido
@@ -100,7 +112,7 @@ Veja [`install-cli.sh`](install-cli.sh) e [`docs/installation.pt-br.md`](docs/in
 
 O GitHub Actions fornece:
 
-- Build e testes em Release, verificação de formatação, gate de cobertura de linhas (atualmente 77%, subindo gradualmente até a meta de 80%) e verificação de pacotes vulneráveis.
+- Build e testes em Release, verificação de formatação, gate de cobertura de linhas (atualmente 80%, subindo gradualmente até a meta de 90%) mais piso de cobertura de branches, e verificação de pacotes vulneráveis.
 - Análise SonarCloud quando o secret `SONAR_TOKEN` está configurado.
 - Análise CodeQL para C# e GitHub Actions.
 - Atualizações semanais de pacotes NuGet e GitHub Actions através do Dependabot.
