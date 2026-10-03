@@ -61,33 +61,43 @@ public sealed class EfCoreAgentRunRepository : IAgentRunRepository
 
     public async Task<IReadOnlyList<AgentRunDto>> GetLatestPerIssueAsync(CancellationToken cancellationToken = default)
     {
-        var latestIds = await _context.AgentRuns
+        // SPEC-20261003-perf-pass RF-002: StartedAt is stored as INTEGER unix-ms
+        // (AgentRunConfiguration converter), so MAX + join translates to a
+        // single SQL round-trip on SQLite — the old group-select-First +
+        // Contains pattern was two queries with provider-fragile translation.
+        var latest = _context.AgentRuns
             .GroupBy(x => x.IssueId)
-            .Select(g => g.OrderByDescending(x => x.StartedAt).Select(x => x.Id).First())
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
+            .Select(g => new { IssueId = g.Key, MaxStartedAt = g.Max(x => x.StartedAt) });
 
         var runs = await _context.AgentRuns
-            .Where(x => latestIds.Contains(x.Id))
+            .Join(latest,
+                run => new { run.IssueId, run.StartedAt },
+                l => new { l.IssueId, StartedAt = l.MaxStartedAt },
+                (run, _) => run)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return runs.Select(ToDto).ToList();
+        // A tie on IssueId+StartedAt would join more than one row per issue —
+        // collapse to one so the "latest run per issue" contract holds
+        // (previously the group-First pick chose a single arbitrary row).
+        return runs
+            .GroupBy(x => x.IssueId)
+            .Select(g => ToDto(g.First()))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<AgentRunDto>> GetStaleActiveRunsAsync(DateTimeOffset cutoffUtc, CancellationToken cancellationToken = default)
     {
-        // DateTimeOffset não traduz em WHERE no SQLite — filtra o estado no
-        // banco (conjunto pequeno) e o cutoff em memória (convenção do repo).
+        // SPEC-20261003-perf-pass RF-003: the StartedAt converter maps the
+        // parameter to unix-ms too, so the cutoff now filters in SQL
+        // (previously every active run was loaded then filtered in memory).
         var runs = await _context.AgentRuns
             .Where(x => x.State == AgentRunState.Queued || x.State == AgentRunState.Running)
+            .Where(x => x.StartedAt < cutoffUtc)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return runs
-            .Where(x => x.StartedAt < cutoffUtc)
-            .Select(ToDto)
-            .ToList();
+        return runs.Select(ToDto).ToList();
     }
 
     private static AgentRunDto ToDto(AgentRun run) =>

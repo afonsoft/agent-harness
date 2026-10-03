@@ -30,3 +30,22 @@
 - `Nullable` desabilitado para projetos no estilo EAF
 - `TreatWarningsAsErrors` habilitado
 - `common.props` centraliza versões NuGet (a ser criado em `src/`)
+
+## Bundle WASM (SPEC-20261003-perf-pass RF-001)
+
+`RunAOTCompilation` foi **avaliado e rejeitado** em 2026-10-03
+(.NET 10, `wasm-tools` 10.0.12):
+
+| Métrica | Sem AOT | Com AOT |
+|---|---|---|
+| Tempo de `dotnet publish` | ~36 s | ~5 min 49 s |
+| `_framework` em disco | 29 MB | 74 MB |
+| Total comprimido na rede (`.br`) | ~5,0 MB | ~10,3 MB |
+
+AOT dobra o download de cold-start e adiciona ~5 min a cada publish —
+os caminhos quentes (chat, terminal, polling) são limitados por I/O e
+renderização, não por CPU, então a troca não compensa hoje. Reavaliar
+se um feature pesada de CPU no cliente (ex.: inferência local,
+renderização de diffs grandes) for adicionada. Orçamento de bundle:
+manter o wire do `_framework` ≤ ~6 MB comprimido; os maiores itens são
+`dotnet.native.wasm` (~1 MB br) e `System.Private.CoreLib` (~0,6 MB br).
