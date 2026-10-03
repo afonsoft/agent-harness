@@ -128,6 +128,7 @@
                     </div>
                     @if (cli.ByCli is { Count: > 0 } byCli)
                     {
+                        <div class="table-responsive">
                         <table class="table table-sm tabular-nums align-middle mb-0">
                             <thead>
                                 <tr>
@@ -167,6 +168,7 @@
                                 }
                             </tbody>
                         </table>
+                        </div>
                     }
                 </div>
             }
@@ -174,6 +176,7 @@
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
                     <h2 class="h6 fw-semibold">Cost by agent</h2>
+                    <div class="table-responsive">
                     <table class="table table-sm tabular-nums align-middle mb-0">
                         <tbody>
                             @foreach (var kv in summary.CostByAgent.OrderByDescending(kv => kv.Value))
@@ -190,9 +193,11 @@
                             }
                         </tbody>
                     </table>
+                    </div>
                 </div>
                 <div class="col-md-6">
                     <h2 class="h6 fw-semibold">Cost by model</h2>
+                    <div class="table-responsive">
                     <table class="table table-sm tabular-nums align-middle mb-0">
                         <tbody>
                             @foreach (var kv in summary.CostByModel.OrderByDescending(kv => kv.Value))
@@ -209,12 +214,14 @@
                             }
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
 
             @if (summary.ModelUsage is { Count: > 0 } modelUsage)
             {
                 <h2 class="h6 fw-semibold">Usage distribution — Source · Model</h2>
+                <div class="table-responsive">
                 <table class="table table-sm tabular-nums align-middle mb-4">
                     <tbody>
                         @foreach (var kv in modelUsage.OrderByDescending(kv => kv.Value))
@@ -231,6 +238,7 @@
                         }
                     </tbody>
                 </table>
+                </div>
             }
 
             @if (summary.ActivityBins is { Count: > 0 } bins)
@@ -359,6 +367,7 @@
                 <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Duration</div><div>@(telemetry.DurationSeconds?.ToString("F1") ?? "—")s</div></div></div>
                 <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Budget cap</div><div>@UiFormat.UsdOrDash(telemetry.BudgetCapUsd, 2)</div></div></div>
             </div>
+            <div class="table-responsive">
             <table class="table table-sm tabular-nums mt-3">
                 <thead><tr><th>When</th><th>Agent</th><th>Model</th><th>Stage</th><th class="text-end">Tokens</th><th class="text-end">Cost</th></tr></thead>
                 <tbody>
@@ -375,6 +384,7 @@
                     }
                 </tbody>
             </table>
+            </div>
         }
     </div>
 </div>

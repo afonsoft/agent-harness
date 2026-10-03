@@ -38,6 +38,7 @@ else
     @if (_spec.Requirements.Count > 0)
     {
         <h6 class="fw-semibold mt-3">Requirements (@_spec.Requirements.Count)</h6>
+        <div class="table-responsive">
         <table class="table table-sm align-middle">
             <tbody>
                 @foreach (var r in _spec.Requirements)
@@ -49,6 +50,7 @@ else
                 }
             </tbody>
         </table>
+        </div>
     }
 
     @if (_spec.AcceptanceCriteria.Count > 0)
