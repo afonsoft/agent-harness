@@ -8,27 +8,64 @@
 @inject IJSRuntime JS
 @inject ToastService ToastService
 @inject Taskboard.Blazor.Services.SelectedRepositoryService SelectedRepo
+@inject NavigationManager Navigation
 
 <PageTitle>AI Code - Harness</PageTitle>
 
 <div class="d-flex align-items-center gap-2 mb-3">
     <h1 class="h4 fw-bold mb-0">AI Code</h1>
-    <span class="small text-body-secondary ms-1">Chat threads and agent sub-tasks</span>
-    @* SPEC-20260929-ai-chat-rail-overlay RF-002: histórico + new chat no
-       topo-direito sobre o painel de chat — o rail fica oculto por padrão. *@
-    <div class="ms-auto d-flex gap-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary" title="Threads history"
+    @* SPEC-20261003-ai-code-devin-layout RF-001: contexto em texto —
+       workspace/repo selecionado (Devin-style "branch · repo"). *@
+    <span class="small text-body-secondary ms-1 text-truncate" title="@ContextText">
+        <Icon Name="IconName.Folder" class="me-1" />@ContextText
+    </span>
+    @* SPEC-20261003-ai-code-devin-layout RF-002: seletor segmentado de modo no
+       topo (Devin "Agent/Ask") — ícones; o segmento ativo mostra o rótulo. *@
+    <div class="ms-auto d-flex align-items-center gap-2">
+        <div class="ai-chat-modeswitch" role="group" aria-label="Conversation mode">
+            <button type="button"
+                    class="ai-chat-modebtn @(ActiveMode == "provider" ? "active" : "")"
+                    title="Chat — provider direto com tools (Ask)" aria-label="Chat mode"
+                    @onclick='() => SetModeAsync("provider")'>
+                <Icon Name="IconName.ChatDots" />
+                @if (ActiveMode == "provider")
+                {
+                    <span class="ms-1 d-none d-md-inline">Chat</span>
+                }
+            </button>
+            <button type="button"
+                    class="ai-chat-modebtn @(ActiveMode == "assistant" ? "active" : "")"
+                    title="Assistant — chat estruturado com CLI (ACP)" aria-label="Assistant mode"
+                    @onclick='() => SetModeAsync("assistant")'>
+                <Icon Name="IconName.ChatLeftText" />
+                @if (ActiveMode == "assistant")
+                {
+                    <span class="ms-1 d-none d-md-inline">Assistant</span>
+                }
+            </button>
+            <button type="button"
+                    class="ai-chat-modebtn @(ActiveMode == "agent" ? "active" : "")"
+                    title="Agent — sessão com tools, sandbox e permissões" aria-label="Agent mode"
+                    @onclick='() => SetModeAsync("agent")'>
+                <Icon Name="IconName.Robot" />
+                @if (ActiveMode == "agent")
+                {
+                    <span class="ms-1 d-none d-md-inline">Agent</span>
+                }
+            </button>
+        </div>
+        @* SPEC-20260929-ai-chat-rail-overlay RF-002: histórico + new chat no
+           topo-direito sobre o painel de chat — o rail fica oculto por padrão. *@
+        <button type="button" class="ai-chat-iconbtn" title="Threads history"
                 aria-label="Open thread history"
                 @onclick="OpenRailDrawerAsync">
             <Icon Name="IconName.ClockHistory" />
-            <span class="ms-1 d-none d-sm-inline">History</span>
         </button>
-        <button type="button" class="btn btn-sm btn-primary" title="New conversation"
+        <button type="button" class="ai-chat-iconbtn primary" title="New conversation"
                 aria-label="New conversation"
                 disabled="@(!HasEligibleAgent)"
                 @onclick="NewConversationAsync">
             <Icon Name="IconName.PlusSquare" />
-            <span class="ms-1 d-none d-sm-inline">New</span>
         </button>
     </div>
 </div>
@@ -230,39 +267,41 @@ else
         </div>
 
         <div class="card-footer p-2">
-            @* RF-005/RF-006: command bar — selects while unlocked, chips once
-               the conversation is bound to a thread. *@
-            <div class="ai-chat-commandbar d-flex gap-2 align-items-center mb-2 flex-wrap small">
+            @* SPEC-20261003-ai-code-devin-layout RF-003: composer em caixa única
+               arredondada (Devin-style) — textarea em cima, toolbar de ícones
+               embaixo, ações circulares à direita. *@
+            <div class="ai-chat-composer-box">
+                <SlashCommandPalette Items="AiChatSlashItems" Filter="@SlashFilter"
+                                     Open="SlashOpen" ActiveIndex="_slashIndex"
+                                     OnSelect="OnSlashSelect" />
+                <textarea class="ai-chat-input" rows="2"
+                          enterkeyhint="send" autocomplete="off" data-shortcut-command
+                          @ref="_composerRef"
+                          placeholder="@ComposerPlaceholder"
+                          disabled="@((_running && !IsAgentMode) || _sending)"
+                          @bind="_composer"
+                          @bind:event="oninput"
+                          @onkeydown="OnComposerKeyDownAsync"
+                          @onkeydown:preventDefault="_slashPreventDefault"></textarea>
+                @* RF-005/RF-006: toolbar — ícones + selects compactos enquanto
+                   desbloqueada; chips quando a conversa está vinculada. *@
+                <div class="ai-chat-toolbar small">
                 @if (_activeThread is null)
                 {
-                    <label class="d-flex align-items-center gap-1 mb-0">
-                        <span class="text-body-secondary">Mode</span>
-                        <select class="form-select form-select-sm ai-chat-quickselect"
-                                @bind="_cfgMode" @bind:after="() => _chatUnavailableHint = false">
-                            <option value="assistant">Assistant</option>
-                            <option value="agent">Agent</option>
-                            <option value="provider">Chat (Provider)</option>
-                        </select>
-                    </label>
-                    @if (_chatUnavailableHint)
-                    {
-                        <span class="text-body-secondary small">
-                            Chat indisponível — configure um provider ou CLI com chat em
-                            <a href="/settings" class="alert-link">Settings → Chat</a>.
-                        </span>
-                    }
-                    <label class="d-flex align-items-center gap-1 mb-0"
+                    @* SPEC-20260929-ai-chat-view-first RF-001: View precedes
+                       Agent CLI — the chosen surface filters the CLI list. *@
+                    <label class="ai-chat-ctl"
                            title="Structured chat (ACP) or raw terminal (PTY)">
-                        <span class="text-body-secondary">View</span>
-                        <select class="form-select form-select-sm ai-chat-quickselect"
+                        <Icon Name="IconName.Terminal" />
+                        <select class="ai-chat-select"
                                 value="@_cfgView" @onchange="OnCfgViewChanged">
-                            <option value="chat" disabled="@(!AnyChatCapableCli)">Chat</option>
-                            <option value="terminal">Terminal</option>
+                            <option value="chat" disabled="@(!AnyChatCapableCli)">chat</option>
+                            <option value="terminal">terminal</option>
                         </select>
                     </label>
-                    <label class="d-flex align-items-center gap-1 mb-0">
-                        <span class="text-body-secondary">Agent CLI</span>
-                        <select class="form-select form-select-sm ai-chat-quickselect"
+                    <label class="ai-chat-ctl" title="Agent CLI">
+                        <Icon Name="IconName.Robot" />
+                        <select class="ai-chat-select"
                                 value="@_cfgCli" @onchange="OnCfgCliChanged">
                             @foreach (var opt in _cliOptions)
                             {
@@ -275,10 +314,10 @@ else
                     </label>
                     @if (_dockerContainers?.Count > 0)
                     {
-                        <label class="d-flex align-items-center gap-1 mb-0"
+                        <label class="ai-chat-ctl"
                                title="Run the CLI on this host or inside a running container">
-                            <span class="text-body-secondary">In</span>
-                            <select class="form-select form-select-sm ai-chat-quickselect"
+                            <Icon Name="IconName.Box" />
+                            <select class="ai-chat-select"
                                     value="@_cfgContext" @onchange="OnCfgContextChanged">
                                 <option value="">host</option>
                                 @foreach (var name in _dockerContainers.Select(container => container.Name))
@@ -288,14 +327,13 @@ else
                             </select>
                         </label>
                     }
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
                             title="Repository (optional — resolves to ~/repos/<name>)"
                             @onclick="ShowRepoModalAsync">
                         <Icon Name="IconName.Folder" />
                         <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : _cfgRepo)</span>
                     </button>
-                    <span class="text-body-secondary" title="Workspace root (fixed)">~/repos</span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
                             title="Model"
                             @onclick="ShowModelModalAsync">
                         <Icon Name="IconName.Cpu" />
@@ -303,12 +341,19 @@ else
                     </button>
                     @if (_cfgMode == "agent")
                     {
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                        <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
                                 title="Sandbox"
                                 @onclick="ShowSandboxModalAsync">
                             <Icon Name="IconName.ShieldLock" />
                             <span class="ms-1">@_cfgSandbox</span>
                         </button>
+                    }
+                    @if (_chatUnavailableHint)
+                    {
+                        <span class="text-body-secondary small">
+                            Chat indisponível — configure um provider ou CLI com chat em
+                            <a href="/settings" class="alert-link">Settings → Chat</a>.
+                        </span>
                     }
                     @if (_agents is not null && !_cliOptions.Any(o => o.Selectable))
                     {
@@ -320,26 +365,26 @@ else
                 }
                 else
                 {
-                    <span class="badge text-bg-secondary">@_activeThread.Mode</span>
+                    <span class="ai-chat-chip"><Icon Name="IconName.Tag" /> @_activeThread.Mode</span>
                     @if (CliBadge(_activeThread) is { } cliName)
                     {
-                        <span class="badge text-bg-primary">@cliName</span>
+                        <span class="ai-chat-chip"><Icon Name="IconName.Robot" /> @cliName</span>
                     }
                     @if (_activeThread.Kind == "terminal")
                     {
-                        <span class="badge text-bg-dark">terminal</span>
+                        <span class="ai-chat-chip"><Icon Name="IconName.Terminal" /> terminal</span>
                     }
                     @if (!string.IsNullOrWhiteSpace(_activeThread.ContainerContext))
                     {
-                        <span class="badge text-bg-info">⬢ @_activeThread.ContainerContext</span>
+                        <span class="ai-chat-chip"><Icon Name="IconName.Box" /> @_activeThread.ContainerContext</span>
                     }
                     @if (_modes.Count > 0)
                     {
                         @* RF-006: Modo is a session control — it stays usable on a
                            live agent session even while the bar is locked. *@
-                        <label class="d-flex align-items-center gap-1 mb-0">
-                            <span class="text-body-secondary">modo</span>
-                            <select class="form-select form-select-sm ai-chat-quickselect"
+                        <label class="ai-chat-ctl" title="Session mode">
+                            <Icon Name="IconName.Toggles" />
+                            <select class="ai-chat-select"
                                     value="@_currentMode"
                                     @onchange="OnModeSwitchAsync">
                                 @foreach (var mode in _modes)
@@ -351,16 +396,16 @@ else
                     }
                     @if (!string.IsNullOrWhiteSpace(_activeThread.RepositoryFullName))
                     {
-                        <span class="badge text-bg-light border">
+                        <span class="ai-chat-chip">
                             <Icon Name="IconName.Folder" /> @_activeThread.RepositoryFullName
                         </span>
                     }
                     <span class="text-body-secondary" title="Workspace">@(_activeThread.WorkspacePath ?? "~/repos")</span>
                     @if (_modelOptions.Count > 0)
                     {
-                        <label class="d-flex align-items-center gap-1 mb-0">
-                            <span class="text-body-secondary">model</span>
-                            <select class="form-select form-select-sm ai-chat-quickselect"
+                        <label class="ai-chat-ctl" title="Session model">
+                            <Icon Name="IconName.Cpu" />
+                            <select class="ai-chat-select"
                                     value="@_currentModel"
                                     @onchange="OnModelSwitchAsync">
                                 @foreach (var option in _modelOptions)
@@ -372,13 +417,13 @@ else
                     }
                     else
                     {
-                        <span class="badge text-bg-light border">
+                        <span class="ai-chat-chip">
                             <Icon Name="IconName.Cpu" /> @_activeThread.Model
                         </span>
                     }
                     @if (_activeThread.Mode == "agent")
                     {
-                        <span class="badge text-bg-light border">
+                        <span class="ai-chat-chip">
                             <Icon Name="IconName.ShieldLock" /> @_activeThread.Sandbox
                         </span>
                     }
@@ -387,7 +432,7 @@ else
                         @* SPEC-20260928 RF-004: secondary actions live under ⋯ —
                            the composer keeps only Send/Retry/Stop. *@
                         <span class="ai-chat-overflow">
-                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                            <button type="button" class="ai-chat-iconbtn"
                                     title="More actions" aria-label="More actions"
                                     @onclick="() => _overflowOpen = !_overflowOpen">
                                 <Icon Name="IconName.ThreeDots" />
@@ -405,55 +450,58 @@ else
                         </span>
                     }
                 }
-                @if (Usage is { } usage)
-                {
-                    var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
-                    var meterClass = percent switch
-    {
-        >= 95 => "bg-danger",
-        >= 80 => "bg-warning",
-        _ => "bg-success",
-    };
-                    <div class="d-flex align-items-center gap-2 ms-auto" title="@UsageTooltip(usage)">
-                        <div class="progress ai-chat-meter" role="progressbar">
-                            <div class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></div>
-                        </div>
-                        <span class="text-body-secondary">
-                            @usage.Used.ToString("N0")@(usage.Size is { } s ? $" / {s:N0}" : "") tokens
+                <div class="ai-chat-toolbar-end">
+                    @if (Usage is { } usage)
+                    {
+                        var percent = usage.Ratio is { } r ? (int)Math.Round(r * 100) : 0;
+                        var meterClass = percent switch
+                        {
+                            >= 95 => "bg-danger",
+                            >= 80 => "bg-warning",
+                            _ => "bg-success",
+                        };
+                        <span class="ai-chat-ctl" title="@UsageTooltip(usage)">
+                            <span class="progress ai-chat-meter" role="progressbar">
+                                <span class="progress-bar @meterClass" style="width: @Math.Min(percent, 100)%"></span>
+                            </span>
+                            <span class="text-body-secondary">
+                                @usage.Used.ToString("N0")@(usage.Size is { } s ? $" / {s:N0}" : "")
+                            </span>
                         </span>
-                    </div>
-                }
-            </div>
-            <div class="d-flex gap-2 align-items-end">
-                <textarea class="form-control ai-chat-composer" rows="2"
-                          enterkeyhint="send" autocomplete="off" data-shortcut-command
-                          @ref="_composerRef"
-                          placeholder="@ComposerPlaceholder"
-                          disabled="@((_running && !IsAgentMode) || _sending)"
-                          @bind="_composer"
-                          @bind:event="oninput"
-                          @onkeydown="OnComposerKeyDownAsync"></textarea>
-                <div class="d-flex flex-column gap-2">
+                    }
                     @* SPEC-20260928 RF-004: Send is the permanent primary action;
-                       Stop/Retry surface only when they apply. *@
-                    <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
-                            Disabled="@((_running && !IsAgentMode) || _sending
-                                || (string.IsNullOrWhiteSpace(_composer) && !(_activeThreadId is null && _cfgView == "terminal")))"
-                            @onclick="SendMessageAsync">Send</Button>
+                       Stop/Retry surface only when they apply.
+                       SPEC-20261003-ai-code-devin-layout RF-003: ações são
+                       ícones circulares — sem texto. *@
                     @if (IsAgentMode && _activeThread is not null)
                     {
                         @if (_running)
                         {
-                            <Button Color="ButtonColor.Danger" Size="ButtonSize.Small" @onclick="StopAgentAsync">Stop</Button>
+                            <button type="button" class="ai-chat-sendbtn danger"
+                                    title="Stop (Esc)" aria-label="Stop agent"
+                                    @onclick="StopAgentAsync">
+                                <Icon Name="IconName.StopFill" />
+                            </button>
                         }
                         else
                         {
-                            <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
-                                    Disabled="@(_sending || !HasUserPrompt)"
+                            <button type="button" class="ai-chat-sendbtn secondary"
+                                    disabled="@(_sending || !HasUserPrompt)"
                                     title="Resend the last user prompt"
-                                    @onclick="RetryAgentAsync">Retry</Button>
+                                    aria-label="Retry"
+                                    @onclick="RetryAgentAsync">
+                                <Icon Name="IconName.ArrowCounterclockwise" />
+                            </button>
                         }
                     }
+                    <button type="button" class="ai-chat-sendbtn primary"
+                            disabled="@((_running && !IsAgentMode) || _sending
+                                || (string.IsNullOrWhiteSpace(_composer) && !(_activeThreadId is null && _cfgView == "terminal")))"
+                            title="Send (Enter)" aria-label="Send"
+                            @onclick="SendMessageAsync">
+                        <Icon Name="IconName.SendFill" />
+                    </button>
+                </div>
                 </div>
             </div>
         </div>
@@ -638,6 +686,228 @@ else
         (true, true) => "Steer or queue instruction…",
         _ => "Message…",
     };
+
+    // SPEC-20261003-ai-code-devin-layout RF-002: segmented mode toggle at the
+    // top (Devin "Agent | Ask") — the active thread's mode wins over config.
+    private string ActiveMode => _cfgMode == "provider"
+        ? "provider"
+        : _activeThread?.Mode ?? _cfgMode;
+
+    /// <summary>
+    /// RF-002: switching the top toggle is like picking a different thread
+    /// kind — while a thread is bound to another mode we detach it (the next
+    /// Send materializes a new thread); "provider" swaps the whole pane.
+    /// </summary>
+    private async Task SetModeAsync(string mode)
+    {
+        _chatUnavailableHint = false;
+        if (mode == "provider")
+        {
+            // Provider chat replaces the pane — the thread stays bound so the
+            // user can switch back to Assistant/Agent without losing context.
+            _cfgMode = mode;
+            return;
+        }
+
+        if (_activeThread is not null && _activeThread.Mode != mode)
+        {
+            await JS.InvokeVoidAsync("taskboardSse.disconnect", "ai-chat");
+            _activeThread = null;
+            _activeThreadId = null;
+            _events.Clear();
+            _seenEventIds.Clear();
+            _permissions.Clear();
+            _modelOptions.Clear();
+            _modes.Clear();
+            _modelConfigId = null;
+            _currentModel = null;
+            _currentMode = null;
+            _running = false;
+            _sseError = false;
+        }
+
+        _cfgMode = mode;
+    }
+
+    /// <summary>
+    /// RF-001: header context text — the selected workspace/repo (Devin-style
+    /// "workspace · repo"), or the surface name in provider mode.
+    /// </summary>
+    private string ContextText
+    {
+        get
+        {
+            if (ActiveMode == "provider")
+            {
+                return "Provider chat";
+            }
+
+            var workspace = _activeThread?.WorkspacePath ?? "~/repos";
+            var repo = _activeThread?.RepositoryFullName
+                ?? (string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim())
+                ?? SelectedRepo.Selected;
+            return repo is null ? workspace : $"{workspace} · {repo}";
+        }
+    }
+
+    // SPEC-20261003-ai-code-devin-layout RF-004 (OpenCode parity): slash
+    // palette on the thread composer — builtins + enabled skills, same
+    // behavior as ProviderChat (FR-003/004 of SPEC-20261001).
+    private IReadOnlyList<SlashCommandPalette.SlashItem> _slashItems = [];
+    private int _slashIndex;
+    private bool _slashPreventDefault;
+
+    private static readonly IReadOnlyList<SlashCommandPalette.SlashItem> AiChatBuiltinCommands =
+    [
+        new("new", "Nova conversa", "builtin"),
+        new("agent", "Delegar/ir para Agent mode", "builtin"),
+        new("tools", "Abrir tools/capabilities em Settings", "builtin"),
+        new("clear", "Limpar o composer", "builtin"),
+        new("help", "Listar comandos", "builtin"),
+    ];
+
+    private IReadOnlyList<SlashCommandPalette.SlashItem> AiChatSlashItems => _slashItems;
+
+    /// <summary>Palette opens while the composer is a single "/token".</summary>
+    private bool SlashOpen =>
+        _composer.Length > 0 && _composer[0] == '/' && !_composer.Contains(' ', StringComparison.Ordinal) && !_running;
+
+    private string SlashFilter => SlashOpen ? _composer[1..] : string.Empty;
+
+    private IReadOnlyList<SlashCommandPalette.SlashItem> SlashFiltered =>
+        SlashCommandPalette.ApplyFilter(_slashItems, SlashFilter);
+
+    private void OnSlashSelect(SlashCommandPalette.SlashItem item)
+    {
+        _composer = item.Kind == "skill" ? $"/{item.Command} " : $"/{item.Command}";
+    }
+
+    /// <summary>Slash-palette keys — true when the key was consumed by the palette.</summary>
+    private bool HandleSlashKey(KeyboardEventArgs e)
+    {
+        var filtered = SlashFiltered;
+        if (e.Key is "ArrowDown" or "ArrowUp")
+        {
+            _slashPreventDefault = true;
+            _slashIndex = e.Key == "ArrowDown"
+                ? (_slashIndex + 1) % filtered.Count
+                : (_slashIndex - 1 + filtered.Count) % filtered.Count;
+            return true;
+        }
+
+        if (e.Key is "Tab")
+        {
+            _slashPreventDefault = true;
+            if (filtered.Count > 0)
+            {
+                OnSlashSelect(filtered[Math.Min(_slashIndex, filtered.Count - 1)]);
+            }
+            return true;
+        }
+
+        if (e.Key is "Escape")
+        {
+            _slashPreventDefault = true;
+            _composer = string.Empty;
+            return true;
+        }
+
+        if (e.Key is "Enter" && filtered.Count > 0
+            && !_composer.Equals($"/{filtered[Math.Min(_slashIndex, filtered.Count - 1)].Command}", StringComparison.Ordinal))
+        {
+            _slashPreventDefault = true;
+            OnSlashSelect(filtered[Math.Min(_slashIndex, filtered.Count - 1)]);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Builtin slash commands — true when the turn was consumed locally.</summary>
+    private async Task<bool> TryRunBuiltinAsync(string command)
+    {
+        switch (command.ToLowerInvariant())
+        {
+            case "new":
+                _composer = string.Empty;
+                await NewConversationAsync();
+                return true;
+            case "clear":
+                _composer = string.Empty;
+                return true;
+            case "agent":
+                _composer = string.Empty;
+                await SetModeAsync("agent");
+                return true;
+            case "tools":
+                _composer = string.Empty;
+                Navigation.NavigateTo("/settings");
+                return true;
+            case "help":
+                _composer = string.Empty;
+                await ToastService.NotifyAsync(new(ToastType.Info,
+                    "Comandos: /new, /agent, /tools, /clear, /help — /<skill> injeta uma skill global."));
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Runs builtin/skill slash handling; consumed → caller returns.
+    /// "/name args" becomes the prompt carrying the SKILL.md instructions.
+    /// </summary>
+    private async Task<(bool Consumed, string Content)> ResolveSlashContentAsync(string content)
+    {
+        var space = content.IndexOf(' ', StringComparison.Ordinal);
+        var command = (space < 0 ? content : content[..space]).TrimStart('/');
+        var rest = space < 0 ? string.Empty : content[(space + 1)..];
+
+        if (await TryRunBuiltinAsync(command))
+        {
+            return (true, content);
+        }
+
+        var skill = _slashItems.FirstOrDefault(i =>
+            i.Kind == "skill" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
+        if (skill is null)
+        {
+            return (false, content);
+        }
+
+        var composed = await ComposeSkillMessageAsync(skill, rest);
+        return composed is null ? (true, content) : (false, composed);
+    }
+
+    private async Task<string?> ComposeSkillMessageAsync(SlashCommandPalette.SlashItem skill, string rest)
+    {
+        try
+        {
+            var capability = (await Client.GetChatCapabilitiesAsync())
+                .FirstOrDefault(c => c.Kind == Taskboard.Application.Contracts.Chat.ChatCapabilityKind.Skill
+                    && string.Equals(c.Name, skill.Command, StringComparison.OrdinalIgnoreCase));
+            var source = capability?.Origin?.Split(',', StringSplitOptions.TrimEntries
+                | StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            var detail = capability is null
+                ? null
+                : await Client.GetSkillDetailAsync(source, capability.Name);
+            if (detail is null)
+            {
+                await ToastService.NotifyAsync(new(ToastType.Warning, $"Skill '{skill.Command}' indisponível."));
+                return null;
+            }
+
+            var args = string.IsNullOrWhiteSpace(rest) ? string.Empty : "\n\nUser request: " + rest;
+            return $"[skill:{detail.Name}] {rest}\n\n"
+                + $"<skill name=\"{detail.Name}\" source=\"{detail.Source}\">\n"
+                + detail.Content + "\n</skill>" + args;
+        }
+        catch (Exception ex)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Falha ao carregar skill '{skill.Command}': {ex.Message}"));
+            return null;
+        }
+    }
 
     private string ConfigModelLabel =>
         new[] { _cfgModelId, _cfgModelTier }.FirstOrDefault(s => s.Length > 0) ?? "model";
@@ -873,6 +1143,21 @@ else
         // SPEC-20260928 RF-002: the one-click default prefers the last agent
         // used (localStorage) when still eligible, else the first eligible.
         await LoadCommandBarDefaultsAsync();
+
+        // SPEC-20261003 RF-004: slash palette items — enabled skills +
+        // builtins; capabilities endpoint is best-effort.
+        try
+        {
+            _slashItems = (await Client.GetChatCapabilitiesAsync())
+                .Where(c => c.Kind == Taskboard.Application.Contracts.Chat.ChatCapabilityKind.Skill && c.Enabled)
+                .Select(c => new SlashCommandPalette.SlashItem(c.Name, c.Description, "skill"))
+                .Concat(AiChatBuiltinCommands)
+                .ToList();
+        }
+        catch
+        {
+            _slashItems = AiChatBuiltinCommands;
+        }
 
         try
         {
@@ -1421,9 +1706,25 @@ else
 
     private async Task OnComposerKeyDownAsync(KeyboardEventArgs e)
     {
+        _slashPreventDefault = false;
+        if (SlashOpen && HandleSlashKey(e))
+        {
+            return;
+        }
+
+        // SPEC-20261003 RF-005 (OpenCode parity): Esc interrupts a running
+        // agent turn — same affordance as the circular stop button.
+        if (e.Key == "Escape" && _running && IsAgentMode)
+        {
+            _slashPreventDefault = true;
+            await StopAgentAsync();
+            return;
+        }
+
         if (e.Key == "Enter" && !e.ShiftKey && !_sending && !string.IsNullOrWhiteSpace(_composer)
             && (!_running || IsAgentMode))
         {
+            _slashPreventDefault = true;
             await SendMessageAsync();
         }
     }
@@ -1440,6 +1741,19 @@ else
         _sending = true;
         try
         {
+            // SPEC-20261003 RF-004: slash commands resolve before the turn —
+            // builtins run locally, /<skill> expands to the SKILL.md body.
+            if (content.StartsWith("/", StringComparison.Ordinal))
+            {
+                var (consumed, resolved) = await ResolveSlashContentAsync(content);
+                if (consumed)
+                {
+                    return;
+                }
+
+                content = resolved;
+            }
+
             // RF-007: no create form — the first Send materializes the thread
             // with the command-bar config and an auto-derived title.
             if (_activeThreadId is null && !await EnsureThreadAsync(content))

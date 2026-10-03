@@ -499,7 +499,13 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<ISecretRedactor>()),
             new ReadFileTool(sp.GetRequiredService<ISecretRedactor>()),
             new WriteFileTool(),
+            new EditFileTool(),
             new ListDirTool(),
+            new FindFilesTool(),
+            new SearchFilesTool(sp.GetRequiredService<ISecretRedactor>()),
+            new GitTool(sp.GetRequiredService<ISecretRedactor>()),
+            new RunTestsTool(sp.GetRequiredService<ISecretRedactor>()),
+            new TodoTool(new ChatTodoStore(environment.GetDataDir())),
             new RunCliTool(sp.GetRequiredService<ISecretRedactor>()),
             new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
             // B-18: backend resolved per execution from the live config values
