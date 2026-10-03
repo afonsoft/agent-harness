@@ -8,7 +8,8 @@ ENV NUGET_PACKAGES=/nuget
 
 COPY . .
 RUN dotnet restore Taskboard.sln \
-    && dotnet publish src/Taskboard.Server/Taskboard.Server.csproj -c Release --no-restore -o /app/publish
+    && dotnet publish src/Taskboard.Server/Taskboard.Server.csproj -c Release --no-restore -o /app/publish \
+    && dotnet publish src/Taskboard.Cli/Taskboard.Cli.csproj -c Release --no-restore -o /app/publish-cli
 
 # Test stage (opt-in) — mirrors the CI gate in .github/workflows/dotnet.yml:
 # format verify → build → unit + integration tests. A red suite fails the
@@ -94,6 +95,11 @@ RUN groupadd --system --gid 1000 harness \
     && chown -R harness:harness /data /app
 
 COPY --from=build --chown=harness:harness /app/publish .
+# taskctl ships in the image (framework-dependent apphost over the shared
+# runtime) so `docker compose exec harness taskctl backup` works for the
+# SQLite backup story (SPEC-20261003-sqlite-backup).
+COPY --from=build --chown=harness:harness /app/publish-cli /opt/taskctl
+RUN ln -sf /opt/taskctl/taskctl /usr/local/bin/taskctl
 
 ENV ASPNETCORE_URLS=http://0.0.0.0:47823
 EXPOSE 47823

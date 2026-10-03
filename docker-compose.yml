@@ -74,3 +74,14 @@ volumes:
   # Legacy name kept intentionally — renaming orphans existing volumes
   # (SPEC-20260922-harness-home-rename RF-008).
   taskboard-data:
+
+# ── Scheduled backups (opt-in, SPEC-20261003-sqlite-backup) ─────────────
+# `taskctl` ships inside the image — a host cron drives online-consistent
+# VACUUM INTO snapshots of /data/harness.sqlite:
+#   # /etc/cron.d/harness-backup — daily 03:30, keep 14 copies
+#   30 3 * * * root docker compose -f /opt/agent-harness/docker-compose.yml \
+#       exec -T harness taskctl backup /data/backups --keep 14
+# Restore: stop the service, then
+#   docker compose run --rm --no-deps -T --entrypoint taskctl harness \
+#       restore /data/backups/<file>.sqlite --force
+# See docs/installation.md → "Backup & restore".
