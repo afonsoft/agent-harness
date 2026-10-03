@@ -216,7 +216,7 @@ public class TerminalFocusKeybarGuardTests
         var razor = TerminalRazor();
         razor.ShouldContain("terminal-keybar-toggle");
         razor.ShouldContain("taskboard.setTerminalKeybar");
-        razor.ShouldContain("aria-pressed=\"@_keybarVisible\"");
+        razor.ShouldContain("aria-pressed=\"@(_keybarVisible ? \"true\" : \"false\")\"");
     }
 
     [Fact]
