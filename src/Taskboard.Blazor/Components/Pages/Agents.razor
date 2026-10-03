@@ -39,7 +39,7 @@
 
         @if (_loading && _agents is null)
         {
-            <Loading Message="Detecting agent CLIs..." />
+            <Loading Message="Detecting agent CLIs…" />
         }
         else if (!string.IsNullOrEmpty(_error))
         {
@@ -637,7 +637,7 @@
 
     private string LastActivityFor(AgentCliStatus agent) =>
         MetricsFor(agent)?.LastActivityUtc is { } at
-            ? at.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            ? UiFormat.DateTime(at)
             : "—";
 
     private CliMetricsTotalsDto? MetricsFor(AgentCliStatus agent) =>

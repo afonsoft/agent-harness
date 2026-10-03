@@ -152,6 +152,11 @@ body {
     text-align: start;
 }
 
+/* Tabular figures for numeric columns (SPEC-20261003-i18n-consistency RF-004) */
+.tabular-nums {
+    font-variant-numeric: tabular-nums;
+}
+
 .app-topbar {
     display: flex;
     align-items: center;

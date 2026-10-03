@@ -70,14 +70,14 @@
                             @if (_latestRun.FinishedAt is not null)
                             {
                                 <span class="d-block text-body-secondary">
-                                    iniciado @_latestRun.StartedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
-                                    · finalizado @_latestRun.FinishedAt.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                                    iniciado @UiFormat.DateTime(_latestRun.StartedAt)
+                                    · finalizado @UiFormat.DateTime(_latestRun.FinishedAt.Value)
                                 </span>
                             }
                             else
                             {
                                 <span class="d-block text-body-secondary">
-                                    iniciado @_latestRun.StartedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                                    iniciado @UiFormat.DateTime(_latestRun.StartedAt)
                                 </span>
                             }
                         }

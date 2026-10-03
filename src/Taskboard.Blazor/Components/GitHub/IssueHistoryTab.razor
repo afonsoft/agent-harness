@@ -40,10 +40,10 @@
                             }
                         </div>
                         <div class="small text-body-secondary">
-                            @item.OccurredAt.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)
+                            @UiFormat.DateTime(item.OccurredAt)
                             @if (item.FinishedAt is not null)
                             {
-                                <text>· finished @item.FinishedAt.Value.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)</text>
+                                <text>· finished @UiFormat.DateTime(item.FinishedAt.Value)</text>
                             }
                         </div>
                     </div>

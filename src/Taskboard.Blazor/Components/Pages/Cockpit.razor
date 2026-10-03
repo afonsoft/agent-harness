@@ -40,7 +40,7 @@
 
 @if (_loading && _runs is null)
 {
-    <Loading Message="Loading runs..." />
+    <Loading Message="Loading runs…" />
 }
 else if (_runs is { Count: 0 })
 {
@@ -75,7 +75,7 @@ else if (_runs is not null)
                         </td>
                         <td><code>@run.TemplateId</code></td>
                         <td>@run.RepositoryFullName</td>
-                        <td class="small text-body-secondary">@run.CreatedAtUtc.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                        <td class="small text-body-secondary">@UiFormat.CompactDateTime(run.CreatedAtUtc)</td>
                         <td class="small">@CompletedStages(run) / @run.Stages.Count</td>
                     </tr>
                 }

@@ -19,7 +19,7 @@
 
         @if (_loading && _jobs is null)
         {
-            <Loading Message="Loading jobs..." />
+            <Loading Message="Loading jobs…" />
         }
         else if (!string.IsNullOrEmpty(_error))
         {
@@ -118,7 +118,7 @@
                                 <td>
                                     @if (job.LastCompletedAt is { } completed)
                                     {
-                                        <div class="small">@completed.ToLocalTime().ToString("g")</div>
+                                        <div class="small">@UiFormat.DateTime(completed)</div>
                                         @if (!string.IsNullOrEmpty(job.LastMessage))
                                         {
                                             <div class="small text-body-secondary text-truncate" style="max-width: 16rem;" title="@job.LastMessage">@job.LastMessage</div>

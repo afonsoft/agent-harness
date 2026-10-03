@@ -15,7 +15,7 @@
 
     @if (_isLoading)
     {
-        <Loading Message="Loading settings..." />
+        <Loading Message="Loading settings…" />
     }
     else if (_errorMessage is not null)
     {
@@ -99,7 +99,7 @@
                             Repository: <code>@(_skillsInstall.Repository ?? "—")</code>
                             @if (_skillsInstall.LastRunUtc is not null)
                             {
-                                <span class="ms-2">Last run: @_skillsInstall.LastRunUtc.Value.LocalDateTime.ToString("g")</span>
+                                <span class="ms-2">Last run: @UiFormat.DateTime(_skillsInstall.LastRunUtc.Value.LocalDateTime)</span>
                             }
                         </div>
                         @if (!string.IsNullOrWhiteSpace(_skillsInstall.Error))
@@ -133,7 +133,7 @@
                         @if (_skillsSync is not null && _skillsSync.LastRunUtc is not null)
                         {
                             <p class="small text-body-secondary mb-2">
-                                Sync: @_skillsSync.State — @_skillsSync.LastRunUtc.Value.LocalDateTime.ToString("g")
+                                Sync: @_skillsSync.State — @UiFormat.DateTime(_skillsSync.LastRunUtc.Value.LocalDateTime)
                             </p>
                         }
                         <div class="d-flex flex-wrap gap-2">

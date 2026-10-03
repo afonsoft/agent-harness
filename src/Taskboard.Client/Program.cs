@@ -7,6 +7,12 @@ using Taskboard.Blazor;
 using Taskboard.Blazor.Services;
 using Taskboard.GitHub;
 
+// SPEC-20261003-i18n-consistency RF-002: pt-BR is the product language —
+// pin the WASM culture so "g"/"N0"/"C" render pt-BR regardless of browser locale.
+var ptBr = System.Globalization.CultureInfo.GetCultureInfo("pt-BR");
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = ptBr;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = ptBr;
+
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
