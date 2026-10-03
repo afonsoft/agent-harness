@@ -28,12 +28,12 @@
 ## CLI
 
 `taskctl` — console Spectre.Console.Cli com comandos:
-- `context:current`, `ghissue:history`, `ghissue:comments`, `ghissue:comment`, `cloud:login`, `cloud:status`, `cloud:logout`
+- `context:current`, `ghissue:history`, `ghissue:comments`, `ghissue:comment`, `cloud:login`, `cloud:status`, `cloud:logout`, `backup`, `restore`
 - Saída JSON via `--json`
 
 ## MCP Server
 
-4 tools: `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`.
+12 tools: `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`, `list_issues`, `get_issue`, `move_issue`, `list_specs`, `get_spec`, `list_jobs`, `list_runs`, `get_run_status` (SPEC-20261003-mcp-tool-surface).
 
 ## AI Chat
 
