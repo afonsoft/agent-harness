@@ -3,7 +3,3 @@
 **/obj/
 **/node_modules/
 **/.data/
-.specs/
-docs/
-tests/
-*.md

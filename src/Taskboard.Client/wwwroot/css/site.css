@@ -1829,17 +1829,7 @@ html[data-terminal-focus] .terminal-focus-exit {
     min-height: 0;
 }
 
-/* AI Chat — command-bar layout (SPEC-20260922-ai-chat-command-bar RF-005) */
-.ai-chat-commandbar {
-    padding: 0.35rem 0.5rem;
-    border: 1px solid var(--bs-border-color);
-    border-radius: var(--bs-border-radius);
-    background: var(--bs-tertiary-bg);
-}
-
-.ai-chat-commandbar .badge {
-    font-weight: 500;
-}
+/* AI Chat — command-bar layout superseded by SPEC-20261003 composer box. */
 
 .ai-chat-thread-item {
     display: flex;
@@ -1957,10 +1947,6 @@ html[data-terminal-focus] .terminal-focus-exit {
     animation: workflow-pulse 1.6s ease-in-out infinite;
 }
 
-.ai-chat-composer {
-    resize: none;
-}
-
 /* SPEC-20260921-ai-code-chat-ux — tool-call renderers, queue, meter. */
 .toolcall-card {
     max-width: 92%;
@@ -2023,11 +2009,6 @@ html[data-terminal-focus] .terminal-focus-exit {
     height: 0.55rem;
 }
 
-.ai-chat-quickselect {
-    width: auto;
-    min-width: 9rem;
-}
-
 .ai-chat-fork-btn {
     color: inherit;
     opacity: 0.55;
@@ -2038,6 +2019,225 @@ html[data-terminal-focus] .terminal-focus-exit {
 
 .ai-chat-fork-btn:hover {
     opacity: 1;
+}
+
+/* SPEC-20261003-ai-code-devin-layout — Devin-style header toggle, centered
+   chat column and single-box composer with icon toolbar. */
+
+/* RF-002: segmented mode switch (Devin "Agent | Ask"). */
+.ai-chat-modeswitch {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    background: var(--bs-tertiary-bg);
+}
+
+.ai-chat-modebtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    font-size: 0.85rem;
+    line-height: 1.2;
+}
+
+.ai-chat-modebtn:hover {
+    color: var(--bs-body-color);
+}
+
+.ai-chat-modebtn.active {
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* Header/icon-only buttons (History, New, ⋯). */
+.ai-chat-iconbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+.ai-chat-iconbtn:hover {
+    background: var(--bs-tertiary-bg);
+}
+
+.ai-chat-iconbtn.primary {
+    background: var(--bs-primary);
+    border-color: var(--bs-primary);
+    color: var(--bs-white);
+}
+
+.ai-chat-iconbtn.primary:hover {
+    background: var(--bs-primary);
+    filter: brightness(0.92);
+}
+
+.ai-chat-iconbtn:disabled {
+    opacity: 0.5;
+}
+
+/* RF-003: composer box — textarea on top, icon toolbar below, actions right. */
+.ai-chat-composer-box {
+    display: flex;
+    flex-direction: column;
+    max-width: 48rem;
+    margin-inline: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 1rem;
+    background: var(--bs-body-bg);
+}
+
+.ai-chat-composer-box:focus-within {
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.15rem rgba(var(--bs-primary-rgb), 0.15);
+}
+
+.ai-chat-input {
+    width: 100%;
+    padding: 0.7rem 0.9rem 0.35rem;
+    border: 0;
+    background: transparent;
+    color: var(--bs-body-color);
+    resize: none;
+    outline: none;
+}
+
+.ai-chat-input:focus {
+    box-shadow: none;
+}
+
+.ai-chat-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    padding: 0.3rem 0.55rem 0.45rem;
+}
+
+/* Icon-labeled pill controls inside the toolbar (icon + compact select). */
+.ai-chat-ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.5rem;
+    margin-bottom: 0;
+    border-radius: 999px;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+}
+
+.ai-chat-ctl:hover {
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+}
+
+.ai-chat-ctlbtn {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.ai-chat-select {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 0.85rem;
+    max-width: 11rem;
+    padding: 0;
+    cursor: pointer;
+}
+
+.ai-chat-select:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+.ai-chat-select option {
+    color: var(--bs-body-color);
+    background: var(--bs-body-bg);
+}
+
+/* Bound-thread context chips. */
+.ai-chat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.55rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.ai-chat-toolbar-end {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+}
+
+/* Circular send/stop/retry buttons (Devin-style). */
+.ai-chat-sendbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: var(--bs-white);
+    background: var(--bs-secondary);
+}
+
+.ai-chat-sendbtn.primary {
+    background: var(--bs-primary);
+}
+
+.ai-chat-sendbtn.danger {
+    background: var(--bs-danger);
+}
+
+.ai-chat-sendbtn.secondary {
+    background: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+    border: 1px solid var(--bs-border-color);
+}
+
+.ai-chat-sendbtn:hover:not(:disabled) {
+    filter: brightness(0.92);
+}
+
+.ai-chat-sendbtn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+/* RF-006: centered chat column (Devin/OpenCode reading width ~48rem). */
+.ai-chat-messages {
+    padding-inline: max(0.75rem, calc((100% - 48rem) / 2));
+}
+
+@media (max-width: 767.98px) {
+    .ai-chat-toolbar {
+        row-gap: 0.25rem;
+    }
 }
 
 /* SPEC-20260919-ade-cockpit-hitl — cockpit timeline + unified diff viewer. */

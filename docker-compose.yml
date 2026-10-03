@@ -40,6 +40,36 @@ services:
       start_period: 20s
       retries: 3
 
+  # ── Test runner (opt-in) ────────────────────────────────────────────────
+  # The `test` target already ran format-verify + the full test suite during
+  # the image build (a red suite fails the build). This service re-runs the
+  # suites inside the container for a visible report / quick re-run:
+  #   docker compose --profile test run --rm tests
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    image: agent-harness:test
+    working_dir: /src
+    entrypoint: ["dotnet", "test", "Taskboard.sln", "-c", "Release", "--no-build", "--nologo"]
+
+  # ── Static validation (opt-in) — same gates as CI ───────────────────────
+  #   docker compose --profile validate run --rm validate
+  validate:
+    profiles: ["validate"]
+    build:
+      context: .
+      target: build
+    image: agent-harness:build
+    working_dir: /src
+    entrypoint:
+      [
+        "sh", "-c",
+        "dotnet format Taskboard.sln --verify-no-changes --no-restore --severity warn \
+          && dotnet build Taskboard.sln -c Release --no-restore",
+      ]
+
 volumes:
   # Legacy name kept intentionally — renaming orphans existing volumes
   # (SPEC-20260922-harness-home-rename RF-008).

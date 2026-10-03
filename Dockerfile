@@ -3,7 +3,17 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY . .
-RUN dotnet publish src/Taskboard.Server/Taskboard.Server.csproj -c Release -o /app/publish
+RUN dotnet restore Taskboard.sln \
+    && dotnet publish src/Taskboard.Server/Taskboard.Server.csproj -c Release --no-restore -o /app/publish
+
+# Test stage (opt-in) — mirrors the CI gate in .github/workflows/dotnet.yml:
+# format verify → build → unit + integration tests. A red suite fails the
+# image build:
+#   docker build --target test .
+#   docker compose --profile test run --rm tests
+FROM build AS test
+RUN dotnet format Taskboard.sln --verify-no-changes --no-restore --severity warn \
+    && dotnet test Taskboard.sln -c Release --no-restore --nologo
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
