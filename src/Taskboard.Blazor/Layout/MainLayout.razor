@@ -5,7 +5,7 @@
 
 <Toasts class="p-3" AutoHide="true" Delay="4000" Placement="ToastsPlacement.TopRight" />
 
-<a href="#app-main" class="skip-link">Skip to main content</a>
+<a href="#app-main" class="skip-link" @onclick="FocusMainAsync" @onclick:preventDefault="true">Skip to main content</a>
 <div class="app-shell">
     <div class="offcanvas-lg offcanvas-start app-sidebar" tabindex="-1" id="appSidebar" aria-label="Sidebar">
         <div class="app-sidebar-brand">
@@ -45,7 +45,7 @@
                 </form>
             </AuthorizeView>
         </header>
-        <main class="app-main" id="app-main" tabindex="-1">
+        <main class="app-main" id="app-main" tabindex="-1" @ref="_mainElement">
             <ErrorBoundary>
                 <ChildContent>
                     @Body
@@ -63,6 +63,7 @@
 @code {
     private bool _sidebarCollapsed;
     private string _pageTitle = "Board";
+    private ElementReference _mainElement;
 
     private static readonly (string Prefix, string Title)[] PageTitles =
     [
@@ -131,6 +132,18 @@
     }
 
     private Task ToggleSidebarAsync() => SetSidebarCollapsedAsync(!_sidebarCollapsed);
+
+    private async Task FocusMainAsync()
+    {
+        try
+        {
+            await _mainElement.FocusAsync();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop not available; the href still lands on #app-main.
+        }
+    }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
