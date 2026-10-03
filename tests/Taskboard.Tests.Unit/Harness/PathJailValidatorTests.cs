@@ -29,8 +29,8 @@ public class PathJailValidatorTests : IDisposable
 
     [Fact]
     public void Dado_PathAbsolutoDentro_Quando_Validate_Entao_Aceita()
-        => PathJailValidator.Validate(Path.Combine(_worktree, "a.txt"), _worktree)
-            .ShouldBe(Path.GetFullPath(Path.Combine(_worktree, "a.txt")));
+        => PathJailValidator.Validate(Path.Join(_worktree, "a.txt"), _worktree)
+            .ShouldBe(Path.GetFullPath(Path.Join(_worktree, "a.txt")));
 
     [Theory]
     [InlineData("/etc/passwd")]
@@ -59,7 +59,7 @@ public class PathJailValidatorTests : IDisposable
     {
         var inside = Path.Combine(_worktree, "real.txt");
         File.WriteAllText(inside, "x");
-        var link = Path.Combine(_worktree, "alias.txt");
+        var link = Path.Join(_worktree, "alias.txt");
         File.CreateSymbolicLink(link, inside);
 
         PathJailValidator.Validate("alias.txt", _worktree).ShouldBe(inside);

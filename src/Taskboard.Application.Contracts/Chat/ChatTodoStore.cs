@@ -4,7 +4,7 @@ namespace Taskboard.Application.Contracts.Chat;
 
 /// <summary>
 /// Per-conversation task list behind the <c>todo</c> chat tool — the OpenCode
-/// <c>todowrite</c> feature: the model tracks multi-step work items so progress
+/// write-todos feature: the model tracks multi-step work items so progress
 /// survives across turns of the same conversation. Items live in
 /// <c><dataDir>/chat-todos.json</c> keyed by conversation id, guarded by a lock.
 /// </summary>
@@ -16,7 +16,7 @@ public sealed class ChatTodoStore(string dataDir)
     public const int MaxContentChars = 500;
 
     private readonly object _gate = new();
-    private readonly string _file = Path.Combine(dataDir, "chat-todos.json");
+    private readonly string _file = Path.Join(dataDir, "chat-todos.json");
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -30,7 +30,7 @@ public sealed class ChatTodoStore(string dataDir)
         }
     }
 
-    /// <summary>Replaces the whole list — mirrors todowrite semantics.</summary>
+    /// <summary>Replaces the whole list — mirrors the write-todos semantics.</summary>
     public void Write(string conversationId, IReadOnlyList<ChatTodoItem> items)
     {
         lock (_gate)

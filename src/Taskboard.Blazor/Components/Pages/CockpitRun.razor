@@ -291,11 +291,14 @@
         try
         {
             previous.Cancel();
-            previous.Dispose();
         }
         catch (ObjectDisposedException)
         {
             // Already disposed — nothing to do.
+        }
+        finally
+        {
+            previous.Dispose();
         }
 
         var token = _refreshCts.Token;

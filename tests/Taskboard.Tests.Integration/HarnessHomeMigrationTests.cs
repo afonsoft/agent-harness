@@ -23,7 +23,7 @@ public class HarnessHomeMigrationTests : IClassFixture<HarnessHomeMigrationTests
 
     public sealed class LegacyDbFactory : WebApplicationFactory<Program>
     {
-        public string DataDir { get; } = Path.Combine(Path.GetTempPath(), $"tb-migrate-{Guid.NewGuid()}");
+        public string DataDir { get; } = Path.Join(Path.GetTempPath(), $"tb-migrate-{Guid.NewGuid()}");
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -49,8 +49,8 @@ public class HarnessHomeMigrationTests : IClassFixture<HarnessHomeMigrationTests
         // Pre-seed the legacy database file before the host boots (the host is
         // created lazily on the first CreateClient call).
         Directory.CreateDirectory(_factory.DataDir);
-        var legacyDb = Path.Combine(_factory.DataDir, "taskboard.sqlite");
-        var harnessDb = Path.Combine(_factory.DataDir, "harness.sqlite");
+        var legacyDb = Path.Join(_factory.DataDir, "taskboard.sqlite");
+        var harnessDb = Path.Join(_factory.DataDir, "harness.sqlite");
         await File.WriteAllTextAsync(legacyDb, "sentinel");
 
         using var client = _factory.CreateClient();

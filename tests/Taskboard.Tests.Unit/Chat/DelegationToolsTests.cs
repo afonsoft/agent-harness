@@ -112,7 +112,8 @@ public class DelegationToolsTests
     [Fact]
     public async Task Dado_SubAgent_Quando_ChamaTask_Entao_Refused_RecursaoBloqueada()
     {
-        var tool = new SubAgentTool(new OpenAiCompatibleClient(new HttpClient(new PlainHandler())));
+        using var http = new HttpClient(new PlainHandler());
+        var tool = new SubAgentTool(new OpenAiCompatibleClient(http));
 
         var result = await tool.ExecuteAsync(
             Args("""{"prompt":"explore"}"""), Ctx(depth: 1), CancellationToken.None);
@@ -124,7 +125,8 @@ public class DelegationToolsTests
     [Fact]
     public async Task Dado_Task_Quando_Executa_Entao_RetornaRespostaInline()
     {
-        var tool = new SubAgentTool(new OpenAiCompatibleClient(new HttpClient(new PlainHandler())));
+        using var http = new HttpClient(new PlainHandler());
+        var tool = new SubAgentTool(new OpenAiCompatibleClient(http));
 
         var result = await tool.ExecuteAsync(
             Args("""{"prompt":"resuma o workspace"}"""), Ctx(), CancellationToken.None);
@@ -138,7 +140,8 @@ public class DelegationToolsTests
     public async Task Dado_Task_Quando_Executa_Entao_ToolSetSemWriteNemRecursao()
     {
         var captured = new CapturingHandler();
-        var tool = new SubAgentTool(new OpenAiCompatibleClient(new HttpClient(captured)));
+        using var http = new HttpClient(captured);
+        var tool = new SubAgentTool(new OpenAiCompatibleClient(http));
         var toolSet = new Dictionary<string, IChatTool>(StringComparer.Ordinal)
         {
             ["read_file"] = new StubTool("read_file"),
@@ -202,8 +205,10 @@ public class DelegationToolsTests
     /// <summary>Provider fake: resposta final direta (sem tool calls).</summary>
     private sealed class PlainHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
                     """
@@ -212,7 +217,8 @@ public class DelegationToolsTests
                     data: [DONE]
 
                     """, Encoding.UTF8, "text/event-stream"),
-            });
+            };
+        }
     }
 
     /// <summary>Captura o payload para inspecionar o toolset enviado ao provider.</summary>

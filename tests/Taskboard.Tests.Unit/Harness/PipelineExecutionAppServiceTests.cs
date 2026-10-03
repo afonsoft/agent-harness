@@ -187,7 +187,7 @@ public class PipelineExecutionAppServiceTests : IDisposable
     {
         var exec = SalvarExecucaoConcluida();
         _isolation.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((WorktreeSessionDto?)null);
+            .Returns(default(WorktreeSessionDto));
 
         var ex = await Should.ThrowAsync<DomainException>(
             () => _sut.CreatePullRequestAsync(exec.Id.Value, "feat: jwt", null, CancellationToken.None));

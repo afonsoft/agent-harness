@@ -297,17 +297,16 @@ public sealed class AgentSessionManager : IAsyncDisposable
             return;
         }
 
-        IServiceScope? scope = null;
         try
         {
             var ready = await EnsureSessionAsync(threadId, cancellationToken).ConfigureAwait(false);
+            using var scope = ready ? _scopeFactory.CreateScope() : null;
             string? text = null;
             AiChatEvent? evt = null;
             IRepository<AiChatEvent>? eventRepo = null;
             if (ready)
             {
-                scope = _scopeFactory.CreateScope();
-                eventRepo = scope.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
+                eventRepo = scope!.ServiceProvider.GetRequiredService<IRepository<AiChatEvent>>();
                 evt = await eventRepo.GetAsync(AiChatEventId.From(eventId), cancellationToken).ConfigureAwait(false);
                 text = evt?.Content;
             }
@@ -322,27 +321,22 @@ public sealed class AgentSessionManager : IAsyncDisposable
                 return;
             }
 
-            if (evt is not null)
-            {
-                evt.MarkDispatched();
-                await eventRepo!.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                await _threadEvents.PublishAsync(
-                    threadId,
-                    new ServerSentEvent(SseEventName, evt.ToDto()),
-                    cancellationToken).ConfigureAwait(false);
-            }
+            // evt is provably non-null here: null evt ⇒ null text ⇒ sent
+            // was false and we returned above.
+            evt!.MarkDispatched();
+            await eventRepo!.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await _threadEvents.PublishAsync(
+                threadId,
+                new ServerSentEvent(SseEventName, evt.ToDto()),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to dispatch queued prompt '{EventId}' for thread '{ThreadId}'.", eventId, threadId);
             queue.DispatchFailed(eventId);
         }
-        finally
-        {
-            // C-03: the scope must be released on every dispatch path —
-            // an exception mid-flight used to leak it.
-            scope?.Dispose();
-        }
+        // C-03: the scope is released by the using-declaration on every
+        // dispatch path, including mid-flight exceptions.
     }
 
     private Task<bool> ExecuteOneShotFallbackAsync(AiChatThread thread, string text, CancellationToken cancellationToken)
@@ -440,13 +434,16 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
     private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset WindowStart)> _reconnects = new();
 
+    private static bool IsPayload(AgentSessionEvent e, string kind, string marker) =>
+        e.Kind == kind && e.PayloadJson?.Contains(marker, StringComparison.Ordinal) == true;
+
     private void HandleSessionEvent(string threadId, AgentSessionEvent e)
     {
         // RF-002/011: a "dead" lifecycle event means the channel died while the
         // session was still wanted (deliberate stops unregister the listener
         // first) — respawn so session/resume can restore the context. Bounded
         // to 3 attempts per 5-minute window to avoid crash-loops.
-        if (e.Kind == "lifecycle" && e.PayloadJson?.Contains("\"dead\"") == true)
+        if (IsPayload(e, "lifecycle", "\"dead\""))
         {
             _promptQueues.TryGetValue(threadId, out var deadQueue);
             deadQueue?.Reset();
@@ -455,14 +452,16 @@ public sealed class AgentSessionManager : IAsyncDisposable
 
         // RF-002: the turn boundary is the session/prompt response — free the
         // queue on stopReason or turn rejection, then dispatch the next item.
+        var turnRejected = e.Kind == "error"
+            && e.Content?.StartsWith("Prompt turn rejected", StringComparison.Ordinal) == true;
         var turnEnded =
-            (e.Kind == "session" && e.PayloadJson?.Contains("\"stopReason\"") == true)
-            || (e.Kind == "error" && e.Content?.StartsWith("Prompt turn rejected", StringComparison.Ordinal) == true)
-            || (e.Kind == "session" && e.PayloadJson?.Contains("\"dead\"") == true);
+            IsPayload(e, "session", "\"stopReason\"")
+            || turnRejected
+            || IsPayload(e, "session", "\"dead\"");
         if (turnEnded)
         {
             var queue = _promptQueues.GetOrAdd(threadId, _ => new PromptQueue());
-            if (e.Kind == "session" && e.PayloadJson?.Contains("\"dead\"") == true)
+            if (IsPayload(e, "session", "\"dead\""))
             {
                 queue.Reset();
             }

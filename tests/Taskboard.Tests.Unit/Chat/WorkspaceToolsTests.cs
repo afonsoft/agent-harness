@@ -14,8 +14,8 @@ namespace Taskboard.Tests.Unit.Chat;
 /// </summary>
 public sealed class WorkspaceToolsTests : IDisposable
 {
-    private readonly string _workspace = Path.Combine(Path.GetTempPath(), $"chat-ws-{Guid.NewGuid():N}");
-    private readonly string _storeDir = Path.Combine(Path.GetTempPath(), $"chat-todo-{Guid.NewGuid():N}");
+    private readonly string _workspace = Path.Join(Path.GetTempPath(), $"chat-ws-{Guid.NewGuid():N}");
+    private readonly string _storeDir = Path.Join(Path.GetTempPath(), $"chat-todo-{Guid.NewGuid():N}");
 
     public WorkspaceToolsTests()
     {
@@ -55,7 +55,7 @@ public sealed class WorkspaceToolsTests : IDisposable
     [Fact]
     public async Task Dado_TextoAmbiguo_Quando_EditFile_Entao_ExigeReplaceAll()
     {
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "a.txt"), "hello world hello world");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "a.txt"), "hello world hello world");
         var tool = new EditFileTool();
 
         var result = await tool.ExecuteAsync(
@@ -64,13 +64,13 @@ public sealed class WorkspaceToolsTests : IDisposable
 
         // "world" aparece 2x — sem replace_all deve recusar por ambiguidade.
         result.Json.ShouldContain("matches 2 times");
-        (await File.ReadAllTextAsync(Path.Combine(_workspace, "a.txt"))).ShouldBe("hello world hello world");
+        (await File.ReadAllTextAsync(Path.Join(_workspace, "a.txt"))).ShouldBe("hello world hello world");
     }
 
     [Fact]
     public async Task Dado_TextoUnicoComContexto_Quando_EditFile_Entao_Edita()
     {
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "b.txt"), "alpha beta gamma");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "b.txt"), "alpha beta gamma");
         var tool = new EditFileTool();
 
         var result = await tool.ExecuteAsync(
@@ -78,13 +78,13 @@ public sealed class WorkspaceToolsTests : IDisposable
             WorkspaceContext(), CancellationToken.None);
 
         result.Json.ShouldContain("\"edited\":true");
-        (await File.ReadAllTextAsync(Path.Combine(_workspace, "b.txt"))).ShouldBe("alpha BETA");
+        (await File.ReadAllTextAsync(Path.Join(_workspace, "b.txt"))).ShouldBe("alpha BETA");
     }
 
     [Fact]
     public async Task Dado_ReplaceAll_Quando_EditFile_Entao_SubstituiTodas()
     {
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "c.txt"), "x=1; x=2;");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "c.txt"), "x=1; x=2;");
         var tool = new EditFileTool();
 
         var result = await tool.ExecuteAsync(
@@ -92,7 +92,7 @@ public sealed class WorkspaceToolsTests : IDisposable
             WorkspaceContext(), CancellationToken.None);
 
         result.Json.ShouldContain("\"replacements\":2");
-        (await File.ReadAllTextAsync(Path.Combine(_workspace, "c.txt"))).ShouldBe("y=1; y=2;");
+        (await File.ReadAllTextAsync(Path.Join(_workspace, "c.txt"))).ShouldBe("y=1; y=2;");
     }
 
     [Fact]
@@ -112,9 +112,9 @@ public sealed class WorkspaceToolsTests : IDisposable
     [Fact]
     public async Task Dado_ArquivosNoWorkspace_Quando_SearchFiles_Entao_RetornaMatches()
     {
-        Directory.CreateDirectory(Path.Combine(_workspace, "src"));
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "src", "a.cs"), "class Foo {}\n// TODO: fix");
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "src", "b.txt"), "nothing here");
+        Directory.CreateDirectory(Path.Join(_workspace, "src"));
+        await File.WriteAllTextAsync(Path.Join(_workspace, "src", "a.cs"), "class Foo {}\n// TODO: fix");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "src", "b.txt"), "nothing here");
         var tool = new SearchFilesTool(new SecretScrubber());
 
         var result = await tool.ExecuteAsync(
@@ -142,7 +142,7 @@ public sealed class WorkspaceToolsTests : IDisposable
     [Fact]
     public async Task Dado_SegredoNaLinha_Quando_SearchFiles_Entao_Scrubado()
     {
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "secrets.txt"),
+        await File.WriteAllTextAsync(Path.Join(_workspace, "secrets.txt"),
             "token = ghp_abcdefghijklmnopqrstuvwxyz0123456789AB");
         var tool = new SearchFilesTool(new SecretScrubber());
 
@@ -159,10 +159,10 @@ public sealed class WorkspaceToolsTests : IDisposable
     [Fact]
     public async Task Dado_GlobSimples_Quando_FindFiles_Entao_ListaRecursivo()
     {
-        Directory.CreateDirectory(Path.Combine(_workspace, "sub", "deep"));
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "root.cs"), "");
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "sub", "deep", "leaf.cs"), "");
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "sub", "note.txt"), "");
+        Directory.CreateDirectory(Path.Join(_workspace, "sub", "deep"));
+        await File.WriteAllTextAsync(Path.Join(_workspace, "root.cs"), "");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "sub", "deep", "leaf.cs"), "");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "sub", "note.txt"), "");
         var tool = new FindFilesTool();
 
         var result = await tool.ExecuteAsync(
@@ -177,9 +177,9 @@ public sealed class WorkspaceToolsTests : IDisposable
     [Fact]
     public async Task Dado_GlobComChaves_Quando_FindFiles_Entao_CasaAlternativas()
     {
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "x.json"), "");
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "x.yaml"), "");
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "x.cs"), "");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "x.json"), "");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "x.yaml"), "");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "x.cs"), "");
         var tool = new FindFilesTool();
 
         var result = await tool.ExecuteAsync(
@@ -210,7 +210,7 @@ public sealed class WorkspaceToolsTests : IDisposable
 
         using var init = System.Diagnostics.Process.Start(psi)!;
         await init.WaitForExitAsync();
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "tracked.txt"), "new file");
+        await File.WriteAllTextAsync(Path.Join(_workspace, "tracked.txt"), "new file");
         var tool = new GitTool(new SecretScrubber());
 
         var result = await tool.ExecuteAsync(

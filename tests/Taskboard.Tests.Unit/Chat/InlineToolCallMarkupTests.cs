@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Shouldly;
 using Taskboard.Application.Chat;
@@ -63,16 +64,16 @@ public sealed class InlineToolCallMarkupTests
     {
         var filter = new InlineToolCallMarkup();
         var full = $"antes {DsmlFullwidth} depois";
-        var visible = string.Empty;
+        var visible = new StringBuilder();
 
         // Chunk de 7 chars — cruza os limites do marker de propósito.
         for (var i = 0; i < full.Length; i += 7)
         {
-            visible += filter.Feed(full.Substring(i, Math.Min(7, full.Length - i)));
+            visible.Append(filter.Feed(full.Substring(i, Math.Min(7, full.Length - i))));
         }
 
-        visible += filter.Flush();
-        visible.ShouldBe("antes  depois");
+        visible.Append(filter.Flush());
+        visible.ToString().ShouldBe("antes  depois");
         filter.MaterializeCalls().ShouldHaveSingleItem();
     }
 

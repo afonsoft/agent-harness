@@ -162,15 +162,9 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 config = config with { Url = null, ApiKey = null };
             }
 
-            string mode;
-            if (!string.IsNullOrWhiteSpace(config.Url))
-            {
-                mode = "configure";
-            }
-            else
-            {
-                mode = forceRemove ? "remove (explicit)" : "remove";
-            }
+            var mode = !string.IsNullOrWhiteSpace(config.Url)
+                ? "configure"
+                : forceRemove ? "remove (explicit)" : "remove";
             _log?.Info(
                 $"MCP provision started — name '{config.Name}', {mode} mode, " +
                 $"{targets.Count} target(s).");

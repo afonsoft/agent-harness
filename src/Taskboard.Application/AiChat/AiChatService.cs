@@ -809,16 +809,16 @@ public sealed class AiChatService
         fork.ConfigureCli(source.Transport, source.ContainerContext, source.AgentCliId);
 
         await _threadRepo.AddAsync(fork, ct);
-        foreach (var ev in events.Take(cut + 1))
-        {
-            var copy = AiChatEvent.CreateTyped(
+        foreach (var copy in events.Take(cut + 1)
+            .Select(ev => AiChatEvent.CreateTyped(
                 AiChatEventId.NewGuid(),
                 fork.Id,
                 ev.Role,
                 ev.Content,
                 ev.Kind,
                 ev.PayloadJson,
-                ev.CreatedAt);
+                ev.CreatedAt)))
+        {
             fork.AddEvent(copy);
             await _eventRepo.AddAsync(copy, ct);
         }

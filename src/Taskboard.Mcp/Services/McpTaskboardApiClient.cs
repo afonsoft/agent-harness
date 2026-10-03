@@ -18,9 +18,9 @@ public interface ITaskboardApiClient
 /// keeps the tool-facing contract — InvalidOperationException messages and an
 /// empty <see cref="JsonObject"/> instead of null on empty responses.
 /// </summary>
-public sealed class TaskboardApiClient : Taskboard.Domain.Shared.Http.TaskboardApiClient, ITaskboardApiClient
+public sealed class McpTaskboardApiClient : Taskboard.Domain.Shared.Http.TaskboardApiClient, ITaskboardApiClient
 {
-    public TaskboardApiClient(string baseUrl, string? apiKey = null, HttpMessageHandler? handler = null)
+    public McpTaskboardApiClient(string baseUrl, string? apiKey = null, HttpMessageHandler? handler = null)
         : base(baseUrl, apiKey, handler)
     {
     }

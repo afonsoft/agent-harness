@@ -278,9 +278,7 @@ public sealed class ChatService(
         var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
         var wire = await BuildTranscriptAsync(conversation, toolSet, ct).ConfigureAwait(false);
         var toolDefs = BuildToolDefinitions(toolSet);
-        int? tokensIn = null;
-        int? tokensOut = null;
-        string? error = null;
+        var state = new TurnState();
         var maxIterations = ParseInt("Taskboard:Chat:MaxToolIterations", 8);
         // Reasoning models burn output tokens on reasoning_content before the
         // answer — without an explicit budget gateways cap too low and the
@@ -299,20 +297,9 @@ public sealed class ChatService(
                 yield return ev;
             }
 
-            if (stream.Usage is { } usage)
-            {
-                tokensIn = usage.PromptTokens ?? tokensIn;
-                tokensOut = usage.CompletionTokens ?? tokensOut;
-            }
-
-            if (stream.StoppedByUser)
-            {
-                error = "stopped by user";
-            }
-
+            UpdateState(stream, state);
             if (stream.ProviderError is not null)
             {
-                error = stream.ProviderError.Message;
                 break;
             }
 
@@ -327,7 +314,7 @@ public sealed class ChatService(
             // is still persisted using the request token, which stays alive.
             var persistCt = stream.StoppedByUser ? requestAborted : ct;
             var toolCalls = await PersistAssistantTurnAsync(
-                    conversation, wire, stream, tokensIn, tokensOut, persistCt)
+                    conversation, wire, stream, state.TokensIn, state.TokensOut, persistCt)
                 .ConfigureAwait(false);
 
             if (toolCalls.Count == 0)
@@ -348,7 +335,36 @@ public sealed class ChatService(
         await conversations.SaveChangesAsync(requestAborted.IsCancellationRequested ? CancellationToken.None : requestAborted)
             .ConfigureAwait(false);
         runs.End(conversation.Id.Value, cts);
-        yield return new ChatDoneEvent(tokensIn, tokensOut, error is null ? "stop" : "error", error);
+        yield return new ChatDoneEvent(state.TokensIn, state.TokensOut, state.Error is null ? "stop" : "error", state.Error);
+    }
+
+    /// <summary>Mutable per-turn accumulators carried across tool-call iterations.</summary>
+    private sealed class TurnState
+    {
+        public int? TokensIn { get; set; }
+
+        public int? TokensOut { get; set; }
+
+        public string? Error { get; set; }
+    }
+
+    private static void UpdateState(StreamOutcome stream, TurnState state)
+    {
+        if (stream.Usage is { } usage)
+        {
+            state.TokensIn = usage.PromptTokens ?? state.TokensIn;
+            state.TokensOut = usage.CompletionTokens ?? state.TokensOut;
+        }
+
+        if (stream.StoppedByUser)
+        {
+            state.Error = "stopped by user";
+        }
+
+        if (stream.ProviderError is not null)
+        {
+            state.Error = stream.ProviderError.Message;
+        }
     }
 
     /// <summary>Persists the assistant turn and appends it to the provider wire transcript.</summary>

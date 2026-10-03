@@ -64,12 +64,10 @@ public sealed class AiChatCatalogService(
 
         // Custom entries are validated at POST time, but eligibility is dynamic —
         // a model whose agent was disabled since must not be offered.
-        foreach (var entry in custom.List())
+        foreach (var entry in custom.List()
+            .Where(entry => Enum.TryParse<AgentType>(entry.AgentType, true, out var customType) && eligible.Contains(customType)))
         {
-            if (Enum.TryParse<AgentType>(entry.AgentType, true, out var customType) && eligible.Contains(customType))
-            {
-                models.Add(entry with { Source = ProviderKindCustom });
-            }
+            models.Add(entry with { Source = ProviderKindCustom });
         }
 
         return models;

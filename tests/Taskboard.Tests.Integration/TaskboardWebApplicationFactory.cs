@@ -77,7 +77,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         {
             // Subclasses (e.g. SpecsFactory) may pre-seed a workspace with
             // fixtures before the host builds.
-            WorkspaceRoot = Path.Combine(dataDir, "repos");
+            WorkspaceRoot = Path.Join(dataDir, "repos");
         }
 
         builder.UseSetting("Taskboard:WorkspaceRoot", WorkspaceRoot);
@@ -361,14 +361,14 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         : Taskboard.Application.Contracts.Harness.IRepositoryProvisioningService
     {
         public string ResolveClonePath(string repositoryFullName) =>
-            Path.Combine(workspaceRoot,
+            Path.Join(workspaceRoot,
                 Taskboard.Workspace.WorkspacePaths.SanitizeRepoName(repositoryFullName));
 
         public Task<Taskboard.Application.Contracts.Harness.RepositoryCloneResult> EnsureCloneAsync(
             string repositoryFullName, CancellationToken cancellationToken = default)
         {
             var path = ResolveClonePath(repositoryFullName);
-            if (File.Exists(Path.Combine(path, ".foreign-repo")))
+            if (File.Exists(Path.Join(path, ".foreign-repo")))
             {
                 throw new Taskboard.DomainException(
                     Taskboard.TaskboardDomainErrorCodes.RepositoryProvisioningFailed,

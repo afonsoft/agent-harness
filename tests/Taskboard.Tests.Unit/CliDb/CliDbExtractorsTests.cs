@@ -200,9 +200,9 @@ public class CliDbExtractorsTests : IDisposable
 
         const string payload = "SEGREDO-QUE-NUNCA-DEVE-SAIR-DO-BANCO";
         result.Sessions.ShouldAllBe(s =>
-            (s.Title ?? "").Contains(payload, StringComparison.Ordinal) == false
-            && s.ExternalId.Contains(payload, StringComparison.Ordinal) == false
-            && (s.ModelName ?? "").Contains(payload, StringComparison.Ordinal) == false,
+            !(s.Title ?? "").Contains(payload, StringComparison.Ordinal)
+            && !s.ExternalId.Contains(payload, StringComparison.Ordinal)
+            && !(s.ModelName ?? "").Contains(payload, StringComparison.Ordinal),
             customMessage: "somente scalars length()/count saem do banco do vendor");
     }
 

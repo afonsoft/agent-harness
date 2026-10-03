@@ -72,12 +72,9 @@ public class MobileResponsiveTests
         foreach (var file in RazorFiles())
         {
             var source = File.ReadAllText(file);
-            foreach (Match m in Regex.Matches(source, @"<Modal\b[^>]*>"))
+            foreach (var m in Regex.Matches(source, @"<Modal\b[^>]*>").Where(m => !m.Value.Contains("Fullscreen=\"ModalFullscreen.SmallDown\"")))
             {
-                if (!m.Value.Contains("Fullscreen=\"ModalFullscreen.SmallDown\""))
-                {
-                    missing.Add($"{Path.GetFileName(file)}: {m.Value[..Math.Min(m.Value.Length, 80)]}");
-                }
+                missing.Add($"{Path.GetFileName(file)}: {m.Value[..Math.Min(m.Value.Length, 80)]}");
             }
         }
 
@@ -152,6 +149,7 @@ public class MobileResponsiveTests
 
         // FR-002: alvos de toque >= 44px sob ponteiro impreciso.
         var coarse = Regex.Match(css, @"@media \(pointer: coarse\)[^{]*\{(?<body>.*?)\n\}", RegexOptions.Singleline);
+        coarse.Success.ShouldBeTrue();
         css.ShouldContain("@media (pointer: coarse), (hover: none)");
         css.ShouldContain("min-height: 44px");
 

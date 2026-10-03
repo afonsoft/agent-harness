@@ -156,7 +156,7 @@ public class ChatMcpClientManagerTests
         // Hot-reload: mesmo binário, nome diferente → fingerprint muda.
         source.Data[ChatMcpClientManager.ServersKey] =
             $$"""[{"name":"fake2","command":"{{server.Command}}","args":{{JsonSerializer.Serialize(server.Args)}}}]""";
-        ((IConfigurationRoot)config).Reload();
+        config.Reload();
 
         var reloaded = await manager.GetToolsAsync(CancellationToken.None);
 
@@ -210,7 +210,7 @@ public class ChatMcpClientManagerTests
 
         public FakeMcpServer()
         {
-            var path = Path.Combine(Path.GetTempPath(), $"fake-mcp-{Guid.NewGuid():N}.py");
+            var path = Path.Join(Path.GetTempPath(), $"fake-mcp-{Guid.NewGuid():N}.py");
             File.WriteAllText(path, Script);
             Args = [path];
         }

@@ -500,12 +500,11 @@ public sealed class FinOpsService : IFinOpsService
             var day = DateOnly.FromDateTime(m.RecordedAtUtc);
             dailyCost[day] = dailyCost.GetValueOrDefault(day) + m.CostUsd;
         }
-        foreach (var agg in cliRows)
+        foreach (var (agg, day) in cliRows
+            .Select(agg => (Row: agg, Day: DateOnly.TryParse(agg.Day, CultureInfo.InvariantCulture, out var d) ? d : (DateOnly?)null))
+            .Where(t => t.Day is not null))
         {
-            if (DateOnly.TryParse(agg.Day, CultureInfo.InvariantCulture, out var day))
-            {
-                dailyCost[day] = dailyCost.GetValueOrDefault(day) + agg.CostUsd;
-            }
+            dailyCost[day.GetValueOrDefault()] = dailyCost.GetValueOrDefault(day.GetValueOrDefault()) + agg.CostUsd;
         }
         if (dailyCost.Count == 0)
         {

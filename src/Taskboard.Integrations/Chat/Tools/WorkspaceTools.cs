@@ -257,20 +257,23 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
                     continue;
                 }
 
-                var relative = Path.GetRelativePath(root, entry).Replace('\\', '/');
-                if (includeRegex is not null && !includeRegex.IsMatch(name) && !includeRegex.IsMatch(relative))
+                if (IncludeFile(root, entry, name, includeRegex))
                 {
-                    continue;
+                    yield return entry;
                 }
-
-                if (new FileInfo(entry).Length > MaxFileBytes)
-                {
-                    continue;
-                }
-
-                yield return entry;
             }
         }
+    }
+
+    private static bool IncludeFile(string root, string entry, string name, Regex? includeRegex)
+    {
+        var relative = Path.GetRelativePath(root, entry).Replace('\\', '/');
+        if (includeRegex is not null && !includeRegex.IsMatch(name) && !includeRegex.IsMatch(relative))
+        {
+            return false;
+        }
+
+        return new FileInfo(entry).Length <= MaxFileBytes;
     }
 }
 
@@ -338,56 +341,66 @@ public sealed class FindFilesTool() : IChatTool
     internal static Regex GlobToRegex(string glob)
     {
         var builder = new StringBuilder("^");
-        for (var i = 0; i < glob.Length; i++)
+        var i = 0;
+        while (i < glob.Length)
         {
-            var c = glob[i];
-            switch (c)
+            switch (glob[i])
             {
                 case '*':
-                    if (i + 1 < glob.Length && glob[i + 1] == '*')
-                    {
-                        // '**/' spans directories; '**' alone matches everything.
-                        var withSlash = i + 2 < glob.Length && glob[i + 2] == '/';
-                        builder.Append(withSlash ? "(?:[^/]+/)*" : ".*");
-                        i += withSlash ? 2 : 1;
-                    }
-                    else
-                    {
-                        builder.Append("[^/]*");
-                    }
-
+                    i += EmitStar(builder, glob, i);
+                    break;
+                case '{':
+                    i += EmitAlternates(builder, glob, i);
                     break;
                 case '?':
                     builder.Append("[^/]");
                     break;
-                case '{':
-                    {
-                        var end = glob.IndexOf('}', i + 1);
-                        if (end < 0)
-                        {
-                            builder.Append("\\{");
-                            break;
-                        }
-
-                        var alternates = glob[(i + 1)..end]
-                            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                            .Select(Regex.Escape);
-                        builder.Append("(?:").Append(string.Join('|', alternates)).Append(')');
-                        i = end;
-                        break;
-                    }
                 case '/':
                     builder.Append('/');
                     break;
                 default:
-                    builder.Append(Regex.Escape(c.ToString()));
+                    builder.Append(Regex.Escape(glob[i].ToString()));
                     break;
             }
+
+            i++;
         }
 
         builder.Append('$');
         return new Regex(builder.ToString(), RegexOptions.Compiled | RegexOptions.IgnoreCase,
             TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>Appends the regex fragment for a '*' at index i; returns the extra chars consumed.</summary>
+    private static int EmitStar(StringBuilder builder, string glob, int i)
+    {
+        if (i + 1 < glob.Length && glob[i + 1] == '*')
+        {
+            // '**/' spans directories; '**' alone matches everything.
+            var withSlash = i + 2 < glob.Length && glob[i + 2] == '/';
+            builder.Append(withSlash ? "(?:[^/]+/)*" : ".*");
+            return withSlash ? 2 : 1;
+        }
+
+        builder.Append("[^/]*");
+        return 0;
+    }
+
+    /// <summary>Appends the regex fragment for a '{a,b,c}' at index i; returns the extra chars consumed.</summary>
+    private static int EmitAlternates(StringBuilder builder, string glob, int i)
+    {
+        var end = glob.IndexOf('}', i + 1);
+        if (end < 0)
+        {
+            builder.Append("\\{");
+            return 0;
+        }
+
+        var alternates = glob[(i + 1)..end]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(Regex.Escape);
+        builder.Append("(?:").Append(string.Join('|', alternates)).Append(')');
+        return end - i;
     }
 }
 
@@ -565,7 +578,7 @@ public sealed class RunTestsTool(ISecretRedactor redactor) : IChatTool
 }
 
 /// <summary>
-/// Conversation task list — the OpenCode <c>todoread/todowrite</c> tools: the
+/// Conversation task list — the OpenCode <c>todo</c> read/write tools: the
 /// model breaks multi-step work into items (<c>write</c>) and re-reads the
 /// live list (<c>list</c>). Items persist per conversation in
 /// <see cref="ChatTodoStore"/>.

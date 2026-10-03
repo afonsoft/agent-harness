@@ -207,13 +207,23 @@ public sealed class CalculatorTool : IChatTool
             throw new FormatException($"unexpected character '{input[_position]}' at position {_position}");
         }
 
+        private bool IsNumberChar(int start)
+        {
+            var c = input[_position];
+            if (char.IsDigit(c) || c == '.')
+            {
+                return true;
+            }
+
+            var afterDigit = _position > start
+                && (char.IsDigit(input[_position - 1]) || input[_position - 1] == '.');
+            return c is 'e' or 'E' && afterDigit;
+        }
+
         private double ParseNumber()
         {
             var start = _position;
-            while (!AtEnd && (char.IsDigit(input[_position]) || input[_position] == '.'
-                || ((input[_position] is 'e' or 'E')
-                    && _position > start
-                    && (char.IsDigit(input[_position - 1]) || input[_position - 1] == '.'))))
+            while (!AtEnd && IsNumberChar(start))
             {
                 _position++;
                 if (!AtEnd && (input[_position] is '+' or '-')

@@ -74,7 +74,7 @@ public class AgentControlServiceTests
     public async Task Dado_IssueSemPipeline_Quando_Cancel_Entao_UsaOrchestrationLegada()
     {
         _pipelines.GetLatestByIssueAsync(IssueId, Arg.Any<CancellationToken>())
-            .Returns((PipelineExecutionDto?)null);
+            .Returns(default(PipelineExecutionDto));
         _orchestration.CancelAsync(IssueId, Arg.Any<CancellationToken>()).Returns(true);
 
         var result = await _sut.ExecuteAsync(

@@ -357,11 +357,14 @@ else if (_runs is not null)
         try
         {
             previous.Cancel();
-            previous.Dispose();
         }
         catch (ObjectDisposedException)
         {
             // Already disposed — nothing to do.
+        }
+        finally
+        {
+            previous.Dispose();
         }
 
         var token = _rowRefreshCts.Token;

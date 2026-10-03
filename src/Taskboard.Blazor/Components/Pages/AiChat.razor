@@ -495,8 +495,7 @@ else
                         }
                     }
                     <button type="button" class="ai-chat-sendbtn primary"
-                            disabled="@((_running && !IsAgentMode) || _sending
-                                || (string.IsNullOrWhiteSpace(_composer) && !(_activeThreadId is null && _cfgView == "terminal")))"
+                            disabled="@SendDisabled"
                             title="Send (Enter)" aria-label="Send"
                             @onclick="SendMessageAsync">
                         <Icon Name="IconName.SendFill" />
@@ -613,6 +612,20 @@ else
     private string _composer = string.Empty;
     private bool _running;
     private bool _sending;
+
+    private bool SendDisabled
+    {
+        get
+        {
+            if (_sending || (_running && !IsAgentMode))
+            {
+                return true;
+            }
+
+            var terminalWithoutThread = _activeThreadId is null && _cfgView == "terminal";
+            return string.IsNullOrWhiteSpace(_composer) && !terminalWithoutThread;
+        }
+    }
     private bool _sseError;
     private bool _scrollPending;
     // SPEC-20260928: rail state — collapsed (desktop icon rail), drawer (mobile overlay).
@@ -1540,13 +1553,12 @@ else
             return;
         }
 
-        foreach (var entry in values.EnumerateArray())
+        foreach (var val in values.EnumerateArray()
+            .Select(ExtractOptionValue)
+            .OfType<string>()
+            .Where(v => v.Length > 0 && !_modelOptions.Contains(v)))
         {
-            var val = ExtractOptionValue(entry);
-            if (val is { Length: > 0 } && !_modelOptions.Contains(val))
-            {
-                _modelOptions.Add(val);
-            }
+            _modelOptions.Add(val);
         }
     }
 

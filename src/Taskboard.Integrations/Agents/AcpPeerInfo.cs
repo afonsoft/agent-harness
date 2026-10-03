@@ -176,14 +176,10 @@ public sealed class AcpPeerInfo
             return [];
         }
 
-        var list = new List<AcpAuthMethod>();
-        foreach (var m in methods.EnumerateArray())
-        {
-            if (ParseAuthMethod(m, idProperty) is { } method)
-            {
-                list.Add(method);
-            }
-        }
+        var list = methods.EnumerateArray()
+            .Select(m => ParseAuthMethod(m, idProperty))
+            .OfType<AcpAuthMethod>()
+            .ToList();
 
         return list;
     }

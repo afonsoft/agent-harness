@@ -30,6 +30,7 @@ public sealed class PtySession : IPtySession
     private string? _ptySlavePath;
     private bool _ptyPathResolved;
 
+    /// <summary>Spawns a login bash (or an arbitrary argv via <paramref name="command"/>) inside a PTY.</summary>
     /// <param name="command">
     /// SPEC-20260928-ai-code-generic-cli RF-003: arbitrary argv to run inside
     /// the PTY (e.g. <c>claude --acp</c>, <c>docker exec -it dev bash</c>) —

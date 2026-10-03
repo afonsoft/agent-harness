@@ -169,17 +169,11 @@ public sealed class InlineToolCallMarkup
 
     private static int IndexOfAny(string text, IEnumerable<string> needles)
     {
-        var best = -1;
-        foreach (var needle in needles)
-        {
-            var at = text.IndexOf(needle, StringComparison.Ordinal);
-            if (at >= 0 && (best < 0 || at < best))
-            {
-                best = at;
-            }
-        }
-
-        return best;
+        return needles
+            .Select(needle => text.IndexOf(needle, StringComparison.Ordinal))
+            .Where(at => at >= 0)
+            .DefaultIfEmpty(-1)
+            .Min();
     }
 
     private static (int Index, string Closer) IndexOfCloser(string text, string[] closers)

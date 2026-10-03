@@ -59,9 +59,9 @@ internal static class Program
         return CliConfigService.Load().BaseUrl;
     }
 
-    internal static async Task<int> RunAsync(GlobalSettings settings, Func<TaskboardApiClient, CancellationToken, Task<int>> action, CancellationToken cancellationToken = default)
+    internal static async Task<int> RunAsync(GlobalSettings settings, Func<CliTaskboardApiClient, CancellationToken, Task<int>> action, CancellationToken cancellationToken = default)
     {
-        var client = new TaskboardApiClient(ResolveBaseUrl(settings.Url));
+        var client = new CliTaskboardApiClient(ResolveBaseUrl(settings.Url));
         try
         {
             return await action(client, cancellationToken);

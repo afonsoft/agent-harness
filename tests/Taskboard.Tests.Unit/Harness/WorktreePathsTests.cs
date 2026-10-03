@@ -15,15 +15,15 @@ public class WorktreePathsTests
     [Fact]
     public void Dado_ConfigVazia_Quando_ResolveRoot_Entao_DefaultHomeRepos()
     {
-        WorktreePaths.ResolveRoot(null, Home).ShouldBe(Path.Combine(Home, "repos"));
-        WorktreePaths.ResolveRoot("  ", Home).ShouldBe(Path.Combine(Home, "repos"));
+        WorktreePaths.ResolveRoot(null, Home).ShouldBe(Path.Join(Home, "repos"));
+        WorktreePaths.ResolveRoot("  ", Home).ShouldBe(Path.Join(Home, "repos"));
     }
 
     [Fact]
     public void Dado_ConfigComTilde_Quando_ResolveRoot_Entao_ExpandeHome()
     {
         WorktreePaths.ResolveRoot("~/wt", Home)
-            .ShouldBe(Path.Combine(Home, "wt"));
+            .ShouldBe(Path.Join(Home, "wt"));
         WorktreePaths.ResolveRoot("~", Home).ShouldBe(Home);
     }
 
@@ -37,9 +37,9 @@ public class WorktreePathsTests
     [Fact]
     public void Dado_Root_Quando_SessionDir_Entao_ConfinaRunIdSanitizado()
     {
-        var root = Path.Combine(Home, "repos");
+        var root = Path.Join(Home, "repos");
 
-        WorktreePaths.SessionDir(root, "run_01").ShouldBe(Path.Combine(root, "run_01"));
+        WorktreePaths.SessionDir(root, "run_01").ShouldBe(Path.Join(root, "run_01"));
         WorktreePaths.IsUnder(root, WorktreePaths.SessionDir(root, "../escape")).ShouldBeTrue();
     }
 }

@@ -49,9 +49,9 @@ public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
                 Refused: true, "unsupported runtime");
         }
 
-        var tmpDir = Path.Combine(context.WorkspacePath, ".chat-tmp");
+        var tmpDir = Path.Join(context.WorkspacePath, ".chat-tmp");
         Directory.CreateDirectory(tmpDir);
-        var file = Path.Combine(tmpDir, $"snippet-{Guid.NewGuid():N}{ExtensionFor(language)}");
+        var file = Path.Join(tmpDir, $"snippet-{Guid.NewGuid():N}{ExtensionFor(language)}");
         try
         {
             await File.WriteAllTextAsync(file, code, cancellationToken).ConfigureAwait(false);

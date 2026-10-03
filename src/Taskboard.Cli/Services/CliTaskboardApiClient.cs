@@ -7,9 +7,9 @@ namespace Taskboard.Cli.Services;
 /// <see cref="TaskboardApiException"/> into <see cref="CliException"/> with the
 /// exit codes taskctl has always used (SPEC-20261003-ops-hardening RF-002).
 /// </summary>
-public sealed class TaskboardApiClient : Taskboard.Domain.Shared.Http.TaskboardApiClient
+public sealed class CliTaskboardApiClient : Taskboard.Domain.Shared.Http.TaskboardApiClient
 {
-    public TaskboardApiClient(string baseUrl, string? apiKey = null, HttpMessageHandler? handler = null)
+    public CliTaskboardApiClient(string baseUrl, string? apiKey = null, HttpMessageHandler? handler = null)
         : base(baseUrl, apiKey, handler)
     {
     }

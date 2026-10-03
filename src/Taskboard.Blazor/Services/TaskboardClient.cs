@@ -966,14 +966,16 @@ public sealed class TaskboardClient
     }
 
     /// <summary>Opens the SSE stream of a chat turn — the caller reads <see cref="HttpResponseMessage.Content"/> incrementally.</summary>
-    public Task<HttpResponseMessage> SendChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
+    public async Task<HttpResponseMessage> SendChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post,
+        // ResponseHeadersRead: the request content is fully sent before the
+        // returned response is handed out — safe to dispose the request here.
+        using var request = new HttpRequestMessage(HttpMethod.Post,
             $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages")
         {
             Content = JsonContent.Create(new SendChatMessageRequest(content)),
         };
-        return _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
     }
 
     public async Task StopChatAsync(string id, CancellationToken cancellationToken = default)

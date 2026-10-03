@@ -393,9 +393,9 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     private static List<WorkspaceDiffFileDto> ParseNameStatus(string output)
     {
         var files = new List<WorkspaceDiffFileDto>();
-        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var parts in output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t')))
         {
-            var parts = line.Split('\t');
             if (parts.Length < 2 || parts[0].Length == 0)
             {
                 continue;
@@ -480,6 +480,9 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     /// <summary>Confina <paramref name="relativePath"/> ao worktree — traversal absoluto/`..` → 400.</summary>
     private static string ResolveInsideWorktree(string worktreePath, string? relativePath)
     {
+        // Path.Combine is intentional here (not Path.Join): an absolute
+        // relativePath must escape the worktree root so IsUnder rejects it —
+        // Join would silently re-root "/etc" as "<worktree>/etc" instead of 400.
         var target = Path.GetFullPath(Path.Combine(worktreePath, relativePath ?? string.Empty));
         if (!WorktreePaths.IsUnder(worktreePath, target))
         {
@@ -503,7 +506,7 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     /// real checkouts when the root is shared (~/repos).
     /// </summary>
     private static bool IsWorktreeDir(string path) =>
-        File.Exists(Path.Combine(path, ".git"));
+        File.Exists(Path.Join(path, ".git"));
 
     /// <summary>Symlinks apontando para fora do worktree são ocultados/negados (RF-003).</summary>
     private static bool EscapesViaLink(FileSystemInfo info, string root)

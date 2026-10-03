@@ -15,7 +15,7 @@ namespace Taskboard.Tests.Integration;
 public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>, IDisposable
 {
     private readonly TaskboardWebApplicationFactory _factory;
-    private readonly string _tempRoot = Path.Combine(Path.GetTempPath(), $"wt-itest-{Guid.NewGuid():N}");
+    private readonly string _tempRoot = Path.Join(Path.GetTempPath(), $"wt-itest-{Guid.NewGuid():N}");
 
     public WorktreeEndpointsTests(TaskboardWebApplicationFactory factory)
     {
@@ -71,13 +71,13 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
 
     private async Task<string> CriarWorktreeAsync(HttpClient client)
     {
-        var repoPath = Path.Combine(_tempRoot, "repo");
+        var repoPath = Path.Join(_tempRoot, "repo");
         Directory.CreateDirectory(repoPath);
         var git = new GitCommandRunner();
         (await git.RunAsync(repoPath, ["init", "-b", "main"])).ExitCode.ShouldBe(0);
         await git.RunAsync(repoPath, ["config", "user.email", "itest@local"]);
         await git.RunAsync(repoPath, ["config", "user.name", "itest"]);
-        await File.WriteAllTextAsync(Path.Combine(repoPath, "README.md"), "# repo\n");
+        await File.WriteAllTextAsync(Path.Join(repoPath, "README.md"), "# repo\n");
         await git.RunAsync(repoPath, ["add", "-A"]);
         (await git.RunAsync(repoPath, ["commit", "-m", "init"])).ExitCode.ShouldBe(0);
 

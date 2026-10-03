@@ -15,7 +15,7 @@ namespace Taskboard.Tests.Unit.Chat;
 /// </summary>
 public sealed class ChatToolTests : IDisposable
 {
-    private readonly string _workspace = Path.Combine(Path.GetTempPath(), $"chat-tools-{Guid.NewGuid():N}");
+    private readonly string _workspace = Path.Join(Path.GetTempPath(), $"chat-tools-{Guid.NewGuid():N}");
 
     public ChatToolTests()
     {
@@ -101,7 +101,7 @@ public sealed class ChatToolTests : IDisposable
             CancellationToken.None);
 
         written.Refused.ShouldBeFalse();
-        File.Exists(Path.Combine(_workspace, "docs", "nota.md")).ShouldBeTrue();
+        File.Exists(Path.Join(_workspace, "docs", "nota.md")).ShouldBeTrue();
         readBack.Refused.ShouldBeFalse();
         readBack.Json.ShouldContain("conteudo");
     }
@@ -209,7 +209,7 @@ public sealed class ChatToolTests : IDisposable
     {
         // B-19: `Replace(ph, file).Split(' ')` quebrava o path em espaços —
         // agora o placeholder vira um único elemento do argv.
-        var spaced = Path.Combine(_workspace, "dir with spaces");
+        var spaced = Path.Join(_workspace, "dir with spaces");
         Directory.CreateDirectory(spaced);
         var tool = new CodeInterpreterTool(new SecretScrubber());
 

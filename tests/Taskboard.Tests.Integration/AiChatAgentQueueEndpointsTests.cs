@@ -47,9 +47,10 @@ public class AiChatAgentQueueEndpointsTests : IClassFixture<AiChatAgentQueueEndp
 
     private static async Task<JsonArray> GetEventsAsync(HttpClient client, string threadId)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
         request.Headers.Accept.ParseAdd("application/json");
-        var body = await (await client.SendAsync(request)).Content.ReadFromJsonAsync<JsonObject>();
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
         return body!["events"]!.AsArray();
     }
 

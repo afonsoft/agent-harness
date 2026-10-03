@@ -24,7 +24,7 @@ static class Program
             ?? builder.Configuration["Taskboard:BaseUrl"]
             ?? DefaultHarnessBaseUrl;
 
-        builder.Services.AddSingleton<ITaskboardApiClient>(new TaskboardApiClient(baseUrl));
+        builder.Services.AddSingleton<ITaskboardApiClient>(new McpTaskboardApiClient(baseUrl));
 
         builder.Services
             .AddMcpServer()

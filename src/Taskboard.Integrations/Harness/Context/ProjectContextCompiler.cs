@@ -64,7 +64,7 @@ public sealed class ProjectContextCompiler : IContextCompiler
         // RF-001: hierarquia de instruções — arquivos de raiz primeiro.
         foreach (var relative in InstructionFiles)
         {
-            var fullPath = Path.Combine(worktreePath, relative);
+            var fullPath = Path.Join(worktreePath, relative);
             if (File.Exists(fullPath))
             {
                 AppendFile(fullPath, relative, prompt, injectedFiles, seenContents);

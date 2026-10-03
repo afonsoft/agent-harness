@@ -111,7 +111,7 @@ public class GitHubServiceWorkflowTests
     public async Task Dado_RepoComMuitosRuns_Quando_GetWorkflows_Entao_RecentRunsTop5()
     {
         var runs = Enumerable.Range(1, 7)
-            .Select(i => Run(i, 11, "ci", Now.AddMinutes(-i * 10)))
+            .Select(i => Run(i, 11, "ci", Now.AddMinutes(-i * 10.0)))
             .ToList();
         var connection = Connection([Workflow(11, "ci")], () => OkRuns(runs));
 

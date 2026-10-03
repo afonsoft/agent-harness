@@ -64,7 +64,7 @@ public sealed class SpecDriftDetector : ISpecDriftDetector
             }
 
             var missing = spec.ReferencedFiles
-                .Where(f => !File.Exists(Path.Combine(repoRoot, f)))
+                .Where(f => !File.Exists(Path.Join(repoRoot, f)))
                 .ToList();
 
             if (spec.Status is SpecStatus.Draft or SpecStatus.Approved or SpecStatus.InImplementation
@@ -102,7 +102,7 @@ public sealed class SpecDriftDetector : ISpecDriftDetector
         {
             return (null, null);
         }
-        var specsDir = Path.Combine(workdir, ".specs");
+        var specsDir = Path.Join(workdir, ".specs");
         return Directory.Exists(specsDir) ? (specsDir, workdir) : (null, null);
     }
 
