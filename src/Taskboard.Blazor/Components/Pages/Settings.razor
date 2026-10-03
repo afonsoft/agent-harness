@@ -241,6 +241,20 @@
                         <div class="alert alert-danger mt-2 mb-0">@_ragError</div>
                     }
 
+                    @if (_ragTestResult is not null)
+                    {
+                        <div class="alert @(_ragTestResult.Ok ? "alert-success" : "alert-warning") mt-2 mb-0">
+                            @if (_ragTestResult.Ok)
+                            {
+                                <span>Reachable — @_ragTestResult.Tools tool(s), @_ragTestResult.LatencyMs ms.</span>
+                            }
+                            else
+                            {
+                                <span>Not reachable: @_ragTestResult.Error</span>
+                            }
+                        </div>
+                    }
+
                     @if (_mcpStatus is not null && _mcpStatus.Agents.Count > 0)
                     {
                         <div class="d-flex flex-wrap gap-2 mt-3">
@@ -260,6 +274,10 @@
                                 title="@(string.IsNullOrWhiteSpace(_ragUrlSaved) ? "Save a URL first" : "Provision the saved configuration into all agent CLIs")"
                                 @onclick="SyncMcpAsync">Sync</button>
                         <button type="button" class="btn btn-outline-secondary" disabled="@_ragBusy" @onclick="VerifyMcpAsync">Verify</button>
+                        <button type="button" class="btn btn-outline-secondary"
+                                disabled="@(_ragBusy || string.IsNullOrWhiteSpace(_ragUrlSaved))"
+                                title="@(string.IsNullOrWhiteSpace(_ragUrlSaved) ? "Save a URL first" : "Run a live MCP handshake against the saved RAG server")"
+                                @onclick="TestRagAsync">Test connection</button>
                         @if (!_ragRemoveConfirm)
                         {
                             <button type="button" class="btn btn-outline-danger" disabled="@_ragBusy"
@@ -758,6 +776,7 @@
     private bool _ragBusy;
     private bool _ragRemoveConfirm;
     private string? _ragError;
+    private RagTestResult? _ragTestResult;
     private string _ragKeyInputType = "password";
     private string _ragKeyToggleLabel = "Show";
 
@@ -1244,6 +1263,24 @@
             await LoadMcpStatusAsync();
             var configured = _mcpStatus?.Agents.Count(a => a.Configured) ?? 0;
             await ToastService.NotifyAsync(new(ToastType.Info, $"MCP status refreshed — {configured} agent(s) configured"));
+        }
+        finally
+        {
+            _ragBusy = false;
+        }
+    }
+
+    private async Task TestRagAsync()
+    {
+        _ragBusy = true;
+        _ragTestResult = null;
+        try
+        {
+            _ragTestResult = await Client.TestRagConnectionAsync();
+        }
+        catch (Exception ex)
+        {
+            _ragTestResult = new RagTestResult(false, null, null, ex.Message);
         }
         finally
         {

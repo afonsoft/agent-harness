@@ -1,5 +1,7 @@
-# Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Build stage. Base images are pinned by digest (SPEC-20261003-ops-hardening
+# RF-001) so builds are reproducible — refresh the digests deliberately:
+#   docker buildx imagetools inspect mcr.microsoft.com/dotnet/sdk:10.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317 AS build
 WORKDIR /src
 
 # Fixed package-cache path shared between the root-owned build stage and the
@@ -30,8 +32,9 @@ USER testuser
 RUN dotnet format Taskboard.sln --verify-no-changes --no-restore --severity warn \
     && dotnet test Taskboard.sln -c Release --no-restore --nologo
 
-# Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+# Runtime stage (digest-pinned like the build stage — same refresh command,
+# swap dotnet/sdk for dotnet/aspnet).
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:222759b391a1aaf241166672c8f99b2d4ada452e7b5319f3c6e8f265a37b5ad4 AS runtime
 WORKDIR /app
 
 # git: skills repository sync (SPEC-20260915-skills-repo-sync)

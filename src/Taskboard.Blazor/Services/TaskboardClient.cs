@@ -394,6 +394,18 @@ public sealed class TaskboardClient
         CancellationToken cancellationToken = default) =>
         await PostMcpAsync("/api/mcp/remove", cancellationToken);
 
+    /// <summary>
+    /// Teste de conectividade do servidor RAG MCP — handshake real tools/list
+    /// (SPEC-20261003-ops-hardening RF-003). Sempre 200; <c>ok</c>/<c>error</c> no payload.
+    /// </summary>
+    public async Task<RagTestResult?> TestRagConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync("/api/mcp/rag/test", content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<RagTestResult>(cancellationToken)
+            : new RagTestResult(false, null, null, await ReadErrorMessageAsync(response, cancellationToken));
+    }
+
     private async Task<(McpProvisionStatus? Status, string? Error)> PostMcpAsync(
         string path, CancellationToken cancellationToken)
     {
