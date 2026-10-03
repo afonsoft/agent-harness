@@ -114,7 +114,7 @@ The same tools served by the `Taskboard.Mcp` stdio executable are also exposed o
 
 Clients must send `Accept: application/json, text/event-stream`. Request bodies are JSON-RPC 2.0 (`tools/list`, `tools/call`, ...).
 
-Tools (identical to the stdio server): `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`.
+Tools (identical to the stdio server, SPEC-20261003-mcp-tool-surface): `get_issue_history`, `list_github_issue_comments`, `add_github_issue_comment`, `cloud_status`, `list_issues`, `get_issue`, `move_issue`, `list_specs`, `get_spec`, `list_jobs`, `list_runs`, `get_run_status`.
 
 Tools call the local API through a loopback `ITaskboardApiClient` — the server authenticates itself with `Taskboard:ApiKey` (or `HARNESS_API_KEY`) when configured; without an API key the endpoint still answers `tools/list`, but tool calls that hit `/api` will fail with `401`.
 

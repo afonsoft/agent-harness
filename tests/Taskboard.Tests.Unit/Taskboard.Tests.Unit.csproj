@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Taskboard.Cli/Taskboard.Cli.csproj" />
+    <ProjectReference Include="../../src/Taskboard.Mcp/Taskboard.Mcp.csproj" />
     <ProjectReference Include="../../src/Taskboard.Server/Taskboard.Server.csproj" />
     <ProjectReference Include="../../src/Taskboard.Application/Taskboard.Application.csproj" />
     <ProjectReference Include="../../src/Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />
