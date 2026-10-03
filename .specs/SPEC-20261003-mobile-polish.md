@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20261003-mobile-polish` |
 | Technical owner | afonsoft |
-| Status | Draft |
+| Status | In implementation |
 | Date | 2026-10-03 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20260930-mobile-responsive-ui (Done via #424), SPEC-20261003-a11y-baseline |
