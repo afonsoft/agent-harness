@@ -15,6 +15,14 @@ public static class CliConfigService
     private static string ConfigPath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (string.IsNullOrEmpty(appData))
+        {
+            // Minimal containers: ApplicationData resolves empty when
+            // XDG_CONFIG_HOME is unset — fall back to ~/.config.
+            appData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
+        }
+
         var dir = Path.Combine(appData, "taskctl");
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "settings.json");

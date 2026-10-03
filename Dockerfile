@@ -2,6 +2,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Fixed package-cache path shared between the root-owned build stage and the
+# non-root test stage (root's ~/.nuget would be unreadable below).
+ENV NUGET_PACKAGES=/nuget
+
 COPY . .
 RUN dotnet restore Taskboard.sln \
     && dotnet publish src/Taskboard.Server/Taskboard.Server.csproj -c Release --no-restore -o /app/publish
@@ -12,6 +16,16 @@ RUN dotnet restore Taskboard.sln \
 #   docker build --target test .
 #   docker compose --profile test run --rm tests
 FROM build AS test
+# Non-root, on purpose: the suite's permission-model tests simulate an
+# inaccessible cache via chmod — root ignores DAC bits, so under root those
+# paths falsely report healthy and 12 tests fail.
+# python3: the suite's fake MCP servers and code_interpreter tests need it
+# (mirrors the runtime image, which needs it for the code_interpreter tool).
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m testuser \
+    && chown -R testuser:testuser /src /nuget
+USER testuser
 RUN dotnet format Taskboard.sln --verify-no-changes --no-restore --severity warn \
     && dotnet test Taskboard.sln -c Release --no-restore --nologo
 
@@ -21,8 +35,9 @@ WORKDIR /app
 
 # git: skills repository sync (SPEC-20260915-skills-repo-sync)
 # curl/ca-certificates: CLI installers; bsdutils: `script` PTY helper (SPEC-20260917-cli-agents-terminal)
+# python3: code_interpreter chat tool (Taskboard.Integrations Chat/Tools/CodeInterpreterTool)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl ca-certificates bsdutils xz-utils \
+    git curl ca-certificates bsdutils xz-utils python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js LTS — required by `npx skills add` and the npm-based agent CLIs
