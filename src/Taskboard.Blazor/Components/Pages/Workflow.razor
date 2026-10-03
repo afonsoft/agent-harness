@@ -19,7 +19,7 @@
 
 @if (_isLoading)
 {
-    <Loading Message="Loading repositories..." />
+    <Loading Message="Loading repositories…" />
 }
 else
 {
@@ -39,7 +39,7 @@ else
 
     @if (_isLoadingWorkflows && _workflows is null)
     {
-        <Loading Message="Loading workflows..." />
+        <Loading Message="Loading workflows…" />
     }
     else if (_workflows is not null)
     {
@@ -119,7 +119,7 @@ else
                         <div class="card-body p-0">
                             @if (_runsLoading.Contains(workflow.Id))
                             {
-                                <div class="p-3"><Loading Message="Loading runs..." /></div>
+                                <div class="p-3"><Loading Message="Loading runs…" /></div>
                             }
                             else if (_runs.TryGetValue(workflow.Id, out var runs))
                             {

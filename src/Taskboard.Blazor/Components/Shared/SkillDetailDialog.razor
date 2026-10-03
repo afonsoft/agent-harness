@@ -6,7 +6,7 @@
 
 @if (Skill is null)
 {
-    <Loading Message="Loading skill..." />
+    <Loading Message="Loading skill…" />
 }
 else
 {
@@ -83,7 +83,7 @@ else
             <SkillFileTree Nodes="_fileTree" SelectedFile="_selectedFile" OnFileSelected="LoadFileAsync" />
             @if (_fileLoading)
             {
-                <div class="small text-body-secondary mt-2">Loading file...</div>
+                <div class="small text-body-secondary mt-2">Loading file…</div>
             }
             else if (_fileError is not null)
             {

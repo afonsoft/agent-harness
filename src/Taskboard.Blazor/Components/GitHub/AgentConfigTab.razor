@@ -16,7 +16,7 @@
 {
     <div class="d-flex align-items-center pt-3">
         <Spinner Size="SpinnerSize.Small" Class="me-2" />
-        <span>Detectando agentes...</span>
+        <span>Detectando agentes…</span>
     </div>
 }
 else if (_agents is { Count: 0 })
@@ -83,7 +83,7 @@ else if (_agents is not null)
         <div class="mb-3">
             <label for="cfg-agent-prompt" class="form-label">Prompt <span class="text-danger">*</span></label>
             <textarea id="cfg-agent-prompt" class="form-control" rows="6" @bind="_prompt"
-                      placeholder="Instruções para o agente executar nesta issue..."></textarea>
+                      placeholder="Instruções para o agente executar nesta issue…"></textarea>
             @if (string.IsNullOrWhiteSpace(_prompt))
             {
                 <div class="form-text text-danger">O prompt é obrigatório.</div>

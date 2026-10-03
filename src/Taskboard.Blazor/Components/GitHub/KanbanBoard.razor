@@ -10,7 +10,7 @@
 
 @if (_isLoading)
 {
-    <Loading Message="Carregando issues..." />
+    <Loading Message="Carregando issues…" />
 }
 else if (!string.IsNullOrWhiteSpace(_errorMessage))
 {
@@ -31,7 +31,7 @@ else if (_columns is not null)
         <Button Color="ButtonColor.Primary" data-shortcut-new @onclick="OpenNewTaskDialogAsync">
             <Icon Name="IconName.Plus" class="me-2" />Nova Tarefa
         </Button>
-        <input type="search" class="form-control form-control-sm w-auto" enterkeyhint="search" data-shortcut-search placeholder="Filtrar por título, descrição ou label..."
+        <input type="search" class="form-control form-control-sm w-auto" enterkeyhint="search" data-shortcut-search placeholder="Filtrar por título, descrição ou label…"
                aria-label="Filtrar issues" @bind="_filterText" @bind:event="oninput" />
         <select class="form-select form-select-sm w-auto" aria-label="Filtrar por prioridade" @bind="_filterPriority">
             <option value="">Todas as prioridades</option>

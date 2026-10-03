@@ -42,7 +42,7 @@
                     <li class="py-2 border-bottom">
                         <div class="d-flex justify-content-between small text-body-secondary">
                             <span><Icon Name="IconName.PersonCircle" class="me-1" />@(c.AuthorLogin ?? "unknown")</span>
-                            <span>@c.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture)</span>
+                            <span>@UiFormat.DateTime(c.CreatedAt)</span>
                         </div>
                         @if (_showSource)
                         {

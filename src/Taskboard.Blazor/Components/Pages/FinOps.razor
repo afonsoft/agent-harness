@@ -25,7 +25,7 @@
             </div>
             <div class="d-flex gap-2">
                 <input class="form-control form-control-sm" style="width: 260px"
-                       placeholder="Run ID for telemetry..."
+                       placeholder="Run ID for telemetry…"
                        @bind="_runIdQuery" @bind:event="oninput"
                        @onkeyup="OnRunKeyUpAsync" />
                 <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
@@ -37,7 +37,7 @@
 
         @if (_loading && _summary is null)
         {
-            <Loading Message="Loading FinOps summary..." />
+            <Loading Message="Loading FinOps summary…" />
         }
         else if (_summary is { } summary)
         {
@@ -59,7 +59,7 @@
                 <div class="col-md-3">
                     <div class="border rounded p-3 h-100">
                         <div class="small text-body-secondary">Total cost</div>
-                        <div class="h3 mb-0">@summary.TotalCostUsd.ToString("C4")</div>
+                        <div class="h3 mb-0">@UiFormat.Usd(summary.TotalCostUsd)</div>
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -118,7 +118,7 @@
                         <div class="col-md-2">
                             <div class="small text-body-secondary">Cost</div>
                             <div>
-                                @cli.CostUsd.ToString("C4")
+                                @UiFormat.Usd(cli.CostUsd)
                                 @if (cli.EstimatedShare > 0)
                                 {
                                     <span class="badge text-bg-secondary" title="@(cli.EstimatedShare.ToString("P0")) of sessions have estimated tokens">~ @(cli.EstimatedShare.ToString("P0"))</span>
@@ -128,7 +128,7 @@
                     </div>
                     @if (cli.ByCli is { Count: > 0 } byCli)
                     {
-                        <table class="table table-sm align-middle mb-0">
+                        <table class="table table-sm tabular-nums align-middle mb-0">
                             <thead>
                                 <tr>
                                     <th>CLI</th>
@@ -157,7 +157,7 @@
                                         <td class="text-end">@row.TokensOutput.ToString("N0")</td>
                                         <td class="text-end">@row.TokensCached.ToString("N0")</td>
                                         <td class="text-end">
-                                            @row.CostUsd.ToString("C4")
+                                            @UiFormat.Usd(row.CostUsd)
                                             @if (row.EstimatedShare > 0)
                                             {
                                                 <span class="badge text-bg-secondary" title="@(row.EstimatedShare.ToString("P0")) of sessions have estimated tokens">~ @(row.EstimatedShare.ToString("P0"))</span>
@@ -174,13 +174,13 @@
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
                     <h2 class="h6 fw-semibold">Cost by agent</h2>
-                    <table class="table table-sm align-middle mb-0">
+                    <table class="table table-sm tabular-nums align-middle mb-0">
                         <tbody>
                             @foreach (var kv in summary.CostByAgent.OrderByDescending(kv => kv.Value))
                             {
                                 <tr>
                                     <td>@kv.Key</td>
-                                    <td class="text-end">@kv.Value.ToString("C4")</td>
+                                    <td class="text-end">@UiFormat.Usd(kv.Value)</td>
                                     <td style="width: 40%">
                                         <div class="progress" style="height: 8px">
                                             <div class="progress-bar" style="width: @BarWidth(kv.Value, summary.CostByAgent)%"></div>
@@ -193,13 +193,13 @@
                 </div>
                 <div class="col-md-6">
                     <h2 class="h6 fw-semibold">Cost by model</h2>
-                    <table class="table table-sm align-middle mb-0">
+                    <table class="table table-sm tabular-nums align-middle mb-0">
                         <tbody>
                             @foreach (var kv in summary.CostByModel.OrderByDescending(kv => kv.Value))
                             {
                                 <tr>
                                     <td><code class="small">@kv.Key</code></td>
-                                    <td class="text-end">@kv.Value.ToString("C4")</td>
+                                    <td class="text-end">@UiFormat.Usd(kv.Value)</td>
                                     <td style="width: 40%">
                                         <div class="progress" style="height: 8px">
                                             <div class="progress-bar bg-info" style="width: @BarWidth(kv.Value, summary.CostByModel)%"></div>
@@ -215,7 +215,7 @@
             @if (summary.ModelUsage is { Count: > 0 } modelUsage)
             {
                 <h2 class="h6 fw-semibold">Usage distribution — Source · Model</h2>
-                <table class="table table-sm align-middle mb-4">
+                <table class="table table-sm tabular-nums align-middle mb-4">
                     <tbody>
                         @foreach (var kv in modelUsage.OrderByDescending(kv => kv.Value))
                         {
@@ -243,12 +243,12 @@
                         var pct = maxTokens > 0 ? (double)bin.Tokens / maxTokens * 100.0 : 0;
                         <div class="bg-primary rounded-top flex-fill"
                              style="height: @(Math.Max(pct, bin.Tokens > 0 ? 2 : 0).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%; min-height: 1px"
-                             title="@bin.Start.ToString("g") — @bin.Sessions sessions, @bin.Messages messages, @bin.Tokens.ToString("N0") tokens"></div>
+                             title="@UiFormat.DateTime(bin.Start) — @bin.Sessions sessions, @bin.Messages messages, @bin.Tokens.ToString("N0") tokens"></div>
                     }
                 </div>
                 <div class="d-flex justify-content-between small text-body-secondary mb-4">
-                    <span>@bins[0].Start.ToString("g")</span>
-                    <span>@bins[^1].Start.ToString("g")</span>
+                    <span>@UiFormat.DateTime(bins[0].Start)</span>
+                    <span>@UiFormat.DateTime(bins[^1].Start)</span>
                 </div>
             }
 
@@ -256,7 +256,7 @@
             {
                 <h2 class="h6 fw-semibold">Recent sessions</h2>
                 <div class="table-responsive mb-4">
-                    <table class="table table-sm align-middle mb-0">
+                    <table class="table table-sm tabular-nums align-middle mb-0">
                         <thead>
                             <tr>
                                 <th>Source</th><th>Session</th><th>Model</th><th>Status</th>
@@ -284,9 +284,9 @@
                                     <td class="text-end small">
                                         @s.Tokens.ToString("N0")@if (s.Estimated) { <span class="text-body-secondary" title="estimated">~</span> }
                                     </td>
-                                    <td class="text-end small">@(s.CostUsd?.ToString("C4") ?? "—")@if (s.Estimated && s.CostUsd > 0) { <span class="text-body-secondary" title="estimated">~</span> }</td>
-                                    <td class="small text-nowrap">@s.StartedAtUtc.ToString("MM-dd HH:mm")</td>
-                                    <td class="small text-nowrap">@s.LastActivityUtc.ToString("MM-dd HH:mm")</td>
+                                    <td class="text-end small">@UiFormat.UsdOrDash(s.CostUsd)@if (s.Estimated && s.CostUsd > 0) { <span class="text-body-secondary" title="estimated">~</span> }</td>
+                                    <td class="small text-nowrap">@UiFormat.CompactDateTime(s.StartedAtUtc)</td>
+                                    <td class="small text-nowrap">@UiFormat.CompactDateTime(s.LastActivityUtc)</td>
                                 </tr>
                             }
                         </tbody>
@@ -298,7 +298,7 @@
             @if (_sources is { Count: > 0 })
             {
                 <div class="table-responsive mb-4">
-                    <table class="table table-sm align-middle mb-0">
+                    <table class="table table-sm tabular-nums align-middle mb-0">
                         <thead>
                             <tr><th>Source</th><th>Status</th><th>Path</th><th>Last sync</th><th class="text-end">Rows</th><th>Detail</th></tr>
                         </thead>
@@ -309,7 +309,7 @@
                                     <td class="small">@src.Kind / @src.SourceName</td>
                                     <td><span class="badge @SourceBadge(src.Status)">@src.Status</span></td>
                                     <td class="small"><code class="small">@(src.Path ?? "—")</code></td>
-                                    <td class="small text-nowrap">@(src.LastSyncUtc?.ToString("MM-dd HH:mm") ?? "—")</td>
+                                    <td class="small text-nowrap">@(src.LastSyncUtc is { } t ? UiFormat.CompactDateTime(t) : "—")</td>
                                     <td class="text-end small">@src.RowCount.ToString("N0")</td>
                                     <td class="small text-body-secondary">@(src.LastError ?? (src.SchemaDrifted ? "schema drifted" : ""))</td>
                                 </tr>
@@ -327,7 +327,7 @@
 
             <h2 class="h6 fw-semibold">Daily burn</h2>
             <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
+                <table class="table table-sm tabular-nums align-middle mb-0">
                     <thead>
                         <tr><th>Date</th><th class="text-end">Tokens</th><th class="text-end">Cost</th></tr>
                     </thead>
@@ -335,9 +335,9 @@
                         @foreach (var day in summary.DailyCosts.OrderByDescending(d => d.Date))
                         {
                             <tr>
-                                <td>@day.Date.ToString("yyyy-MM-dd")</td>
+                                <td>@UiFormat.Date(day.Date)</td>
                                 <td class="text-end">@day.TotalTokens.ToString("N0")</td>
-                                <td class="text-end">@day.CostUsd.ToString("C4")</td>
+                                <td class="text-end">@UiFormat.Usd(day.CostUsd)</td>
                             </tr>
                         }
                     </tbody>
@@ -354,12 +354,12 @@
             <hr class="my-4" />
             <h2 class="h6 fw-semibold">Run telemetry — <code>@telemetry.RunId</code></h2>
             <div class="row g-3">
-                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Cost</div><div>@telemetry.CostUsd.ToString("C4")</div></div></div>
+                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Cost</div><div>@UiFormat.Usd(telemetry.CostUsd)</div></div></div>
                 <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Tokens</div><div>@telemetry.TotalTokens.ToString("N0") (in @telemetry.InputTokens.ToString("N0") / out @telemetry.OutputTokens.ToString("N0") / cache @telemetry.CacheTokens.ToString("N0"))</div></div></div>
                 <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Duration</div><div>@(telemetry.DurationSeconds?.ToString("F1") ?? "—")s</div></div></div>
-                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Budget cap</div><div>@(telemetry.BudgetCapUsd?.ToString("C2") ?? "—")</div></div></div>
+                <div class="col-md-3"><div class="border rounded p-2"><div class="small text-body-secondary">Budget cap</div><div>@UiFormat.UsdOrDash(telemetry.BudgetCapUsd, 2)</div></div></div>
             </div>
-            <table class="table table-sm mt-3">
+            <table class="table table-sm tabular-nums mt-3">
                 <thead><tr><th>When</th><th>Agent</th><th>Model</th><th>Stage</th><th class="text-end">Tokens</th><th class="text-end">Cost</th></tr></thead>
                 <tbody>
                     @foreach (var m in telemetry.Metrics)
@@ -370,7 +370,7 @@
                             <td><code class="small">@(m.ModelName ?? "—")</code></td>
                             <td class="small">@(m.StageKey ?? "—")</td>
                             <td class="text-end">@((m.InputTokens + m.OutputTokens + m.CacheTokens).ToString("N0"))</td>
-                            <td class="text-end">@m.CostUsd.ToString("C4")</td>
+                            <td class="text-end">@UiFormat.Usd(m.CostUsd)</td>
                         </tr>
                     }
                 </tbody>
