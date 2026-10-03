@@ -717,6 +717,7 @@ void RegisterSkillsVscodeServices()
 {
     builder.Services.AddSingleton<SkillsOperationLog>();
     builder.Services.AddSingleton<McpOperationLog>();
+    builder.Services.AddSingleton<RagConnectionProbe>();
 
     builder.Services.AddSingleton<ISkillsSyncService>(sp => new SkillsSyncService(
         sp.GetRequiredService<IConfiguration>(),
@@ -3123,6 +3124,25 @@ void MapOperationsEndpoints()
         overridesProvider.Reload();
         mcp.RequestProvision();
         return Results.NoContent();
+    }).RequireAuthorization();
+
+    // SPEC-20261003-ops-hardening RF-003: live MCP handshake against the
+    // configured RAG server so Settings can show reachable/unreachable instead
+    // of only reporting provisioning state.
+    api.MapPost("mcp/rag/test", async (
+        RagConnectionProbe probe,
+        SqliteConfigurationProvider overridesProvider,
+        IConfiguration cfg,
+        CancellationToken ct) =>
+    {
+        overridesProvider.Reload();
+        var result = await probe.TestAsync(
+            cfg["Taskboard:Rag:Url"],
+            cfg["Taskboard:Rag:ApiKey"],
+            ct);
+        return result.Ok
+            ? Results.Ok(new { ok = true, latencyMs = result.LatencyMs, tools = result.ToolCount })
+            : Results.Ok(new { ok = false, error = result.Error });
     }).RequireAuthorization();
 }
 

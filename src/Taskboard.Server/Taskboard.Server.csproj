@@ -5,6 +5,7 @@
     <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Taskboard.Tests.Unit" />
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
     <PackageReference Include="Yarp.ReverseProxy" />
