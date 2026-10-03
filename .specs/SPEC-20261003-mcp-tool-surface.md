@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20261003-mcp-tool-surface` |
 | Technical owner | afonsoft |
-| Status | In implementation |
+| Status | Done |
 | Date | 2026-10-03 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20261001-chat-mcp-client (Done), SPEC-20260917-rag-mcp-provisioning |
