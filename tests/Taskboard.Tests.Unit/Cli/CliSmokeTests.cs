@@ -115,5 +115,7 @@ public class CliSmokeTests
             new object[] { "cloud:login" },
             new object[] { "cloud:status" },
             new object[] { "cloud:logout" },
+            new object[] { "backup" },
+            new object[] { "restore" },
         };
 }

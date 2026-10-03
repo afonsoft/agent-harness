@@ -37,6 +37,10 @@ internal static class Program
         config.AddCommand<CloudLoginCommand>("cloud:login");
         config.AddCommand<CloudStatusCommand>("cloud:status");
         config.AddCommand<CloudLogoutCommand>("cloud:logout");
+
+        // Local SQLite backup/restore (SPEC-20261003-sqlite-backup)
+        config.AddCommand<BackupCommand>("backup");
+        config.AddCommand<RestoreCommand>("restore");
     }
 
     internal static string ResolveBaseUrl(string? urlArg)
@@ -324,4 +328,80 @@ public class GitHubIssueCommentAddCommand : AsyncCommand<GitHubIssueCommentAddSe
                 new AddIssueCommentRequest(settings.Body), ct);
             return await Program.WriteOutputAsync(settings.Json, result, "comment");
         }, cancellationToken);
+}
+
+// ---- Local SQLite backup/restore (SPEC-20261003-sqlite-backup) ----
+// These commands touch files directly — no server round-trip. The DB path
+// resolves via --db > HARNESS_DATA_DIR > ~/.agent-harness.
+
+public class BackupSettings : GlobalSettings
+{
+    [CommandArgument(0, "<destDir>")]
+    public string DestDir { get; set; } = default!;
+
+    [CommandOption("--keep")]
+    public int? Keep { get; set; }
+
+    [CommandOption("--db")]
+    public string? Db { get; set; }
+}
+
+public class BackupCommand : AsyncCommand<BackupSettings>
+{
+    protected override Task<int> ExecuteAsync(CommandContext context, BackupSettings settings, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var source = DatabaseBackupService.ResolveDatabasePath(settings.Db);
+            var dest = DatabaseBackupService.Backup(source, settings.DestDir, settings.Keep ?? 7);
+            Console.WriteLine(dest);
+            return Task.FromResult(0);
+        }
+        catch (CliException ex)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return Task.FromResult(ex.ExitCode);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return Task.FromResult(1);
+        }
+    }
+}
+
+public class RestoreSettings : GlobalSettings
+{
+    [CommandArgument(0, "<backupFile>")]
+    public string BackupFile { get; set; } = default!;
+
+    [CommandOption("--db")]
+    public string? Db { get; set; }
+
+    [CommandOption("--force")]
+    public bool Force { get; set; }
+}
+
+public class RestoreCommand : AsyncCommand<RestoreSettings>
+{
+    protected override Task<int> ExecuteAsync(CommandContext context, RestoreSettings settings, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var target = DatabaseBackupService.ResolveDatabasePath(settings.Db);
+            DatabaseBackupService.Restore(settings.BackupFile, target, settings.Force);
+            Console.WriteLine(target);
+            return Task.FromResult(0);
+        }
+        catch (CliException ex)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return Task.FromResult(ex.ExitCode);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return Task.FromResult(1);
+        }
+    }
 }

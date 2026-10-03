@@ -252,7 +252,37 @@ volumes:
   - ${HARNESS_REPOS_DIR}:/data/home/repos   # ex.: HARNESS_REPOS_DIR=~/repos
 ```
 
-Arquivos criados pelos agentes dentro do bind mount ficam como root no host (o container roda como root); use `user: "$(id -u):$(id -g)"` apenas se também ajustar o ownership do conteúdo do volume.
+Arquivos criados pelos agentes dentro do bind mount ficam como uid 1000 no host (o container roda como o usuário `harness`); use `user: "$(id -u):$(id -g)"` apenas se também ajustar o ownership do conteúdo do volume.
+
+## Backup & restore (SPEC-20261003-sqlite-backup)
+
+O `taskctl backup` faz uma cópia consistente do `harness.sqlite` via `VACUUM INTO` do SQLite — seguro rodar **com o servidor no ar** (o snapshot é lido em uma única transação e não bloqueia escritas além da semântica normal do SQLite).
+
+```bash
+# Resolução do caminho do DB: --db > $HARNESS_DATA_DIR/harness.sqlite > ~/.agent-harness/harness.sqlite
+taskctl backup /data/backups            # imprime o caminho do arquivo criado
+taskctl backup ./backups --keep 14      # mantém os 14 mais novos, apaga os antigos
+taskctl backup ./backups --db ./.data/harness.sqlite   # DB de origem explícito
+```
+
+O `taskctl restore` copia um backup por cima do DB ativo. Ele recusa arquivos que não são SQLite (checagem de header) e exige `--force` antes de sobrescrever um DB existente. **Pare o servidor primeiro** — restaurar com o servidor rodando não é suportado:
+
+```bash
+docker compose stop harness
+docker compose run --rm --no-deps -T --entrypoint taskctl harness \
+    restore /data/backups/harness-backup-20261003-120000.sqlite --force
+docker compose start harness
+```
+
+Backups agendados: o `taskctl` vem embutido na imagem de runtime, então um cron do host pode acioná-lo via `docker compose exec` (o `--keep` limita a retenção dentro de `/data/backups`):
+
+```cron
+# /etc/cron.d/harness-backup — diário às 03:30, mantém 14 cópias
+30 3 * * * root docker compose -f /opt/agent-harness/docker-compose.yml \
+    exec -T harness taskctl backup /data/backups --keep 14
+```
+
+> Os backups cobrem **somente o `harness.sqlite`** (board, runs, threads de chat, overrides de configuração, telemetria FinOps). Credenciais de CLIs em `/data/home` *não* são incluídas — para recuperação de desastre faça um tarball do volume inteiro (`docker run --rm -v taskboard-data:/data -v $PWD:/out alpine tar czf /out/data.tar.gz /data`).
 
 ## Próximos passos
 

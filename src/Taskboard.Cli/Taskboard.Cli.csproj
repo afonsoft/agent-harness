@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Taskboard.Tests.Unit" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="Spectre.Console.Cli" />
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />

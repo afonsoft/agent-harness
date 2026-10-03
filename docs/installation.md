@@ -252,7 +252,37 @@ volumes:
   - ${HARNESS_REPOS_DIR}:/data/home/repos   # e.g. HARNESS_REPOS_DIR=~/repos
 ```
 
-Files the agents create inside the bind mount belong to root on the host (the container runs as root); run `user: "$(id -u):$(id -g)"` only if you also chown the volume content.
+Files the agents create inside the bind mount belong to uid 1000 on the host (the container runs as the `harness` user); run `user: "$(id -u):$(id -g)"` only if you also chown the volume content.
+
+## Backup & restore (SPEC-20261003-sqlite-backup)
+
+`taskctl backup` takes an online-consistent copy of `harness.sqlite` via SQLite `VACUUM INTO` — safe to run **while the server is running** (the snapshot is read in a single transaction and never blocks writers beyond normal SQLite semantics).
+
+```bash
+# DB path resolution: --db > $HARNESS_DATA_DIR/harness.sqlite > ~/.agent-harness/harness.sqlite
+taskctl backup /data/backups            # prints the created file path
+taskctl backup ./backups --keep 14      # keep the 14 newest, prune older ones
+taskctl backup ./backups --db ./.data/harness.sqlite   # explicit source DB
+```
+
+`taskctl restore` copies a backup over the live DB. It refuses non-SQLite files (header check) and requires `--force` before overwriting an existing DB. **Stop the server first** — restoring under a running server is not supported:
+
+```bash
+docker compose stop harness
+docker compose run --rm --no-deps -T --entrypoint taskctl harness \
+    restore /data/backups/harness-backup-20261003-120000.sqlite --force
+docker compose start harness
+```
+
+Scheduled backups: `taskctl` is bundled in the runtime image, so a host cron can drive it through `docker compose exec` (the `--keep` flag bounds retention inside `/data/backups`):
+
+```cron
+# /etc/cron.d/harness-backup — daily 03:30, keep 14 copies
+30 3 * * * root docker compose -f /opt/agent-harness/docker-compose.yml \
+    exec -T harness taskctl backup /data/backups --keep 14
+```
+
+> Backups cover **`harness.sqlite` only** (board, runs, chat threads, settings overrides, FinOps telemetry). CLI credentials under `/data/home` are *not* included — take a full-volume tarball (`docker run --rm -v taskboard-data:/data -v $PWD:/out alpine tar czf /out/data.tar.gz /data`) for disaster recovery.
 
 ## Next steps
 
