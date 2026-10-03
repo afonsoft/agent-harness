@@ -100,13 +100,11 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
     private static IReadOnlyDictionary<AgentType, string> BuildKnownAgents()
     {
         var map = new Dictionary<AgentType, string>();
-        foreach (var type in Enum.GetValues<AgentType>())
+        foreach (var (type, spec) in Enum.GetValues<AgentType>()
+            .Select(type => (Type: type, Spec: AgentCliMap.CliKindFor(type) is { } kind ? AgentCliMap.GetSpec(kind) : null))
+            .Where(t => t.Spec is not null))
         {
-            if (AgentCliMap.CliKindFor(type) is { } kind
-                && AgentCliMap.GetSpec(kind) is { } spec)
-            {
-                map[type] = spec.Binary;
-            }
+            map[type] = spec!.Binary;
         }
 
         // OpenHands is the only AgentType without an AgentCliKind entry.

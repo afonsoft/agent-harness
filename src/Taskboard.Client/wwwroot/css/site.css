@@ -1932,6 +1932,8 @@ html[data-terminal-focus] .terminal-focus-exit {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
+    /* RF-006: centered chat column (Devin/OpenCode reading width ~48rem). */
+    padding-inline: max(0.75rem, calc((100% - 48rem) / 2));
 }
 
 .ai-chat-msg {
@@ -2267,11 +2269,6 @@ html[data-terminal-focus] .terminal-focus-exit {
 .ai-chat-sendbtn:disabled {
     opacity: 0.45;
     cursor: default;
-}
-
-/* RF-006: centered chat column (Devin/OpenCode reading width ~48rem). */
-.ai-chat-messages {
-    padding-inline: max(0.75rem, calc((100% - 48rem) / 2));
 }
 
 @media (max-width: 767.98px) {

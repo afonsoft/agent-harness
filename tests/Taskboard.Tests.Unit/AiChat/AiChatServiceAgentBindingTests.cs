@@ -119,7 +119,7 @@ public class AiChatServiceAgentBindingTests
     {
         var defs = Substitute.For<IAgentCliDefinitionRepository>();
         defs.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((Taskboard.Dtos.AgentCliDefinitionDto?)null);
+            .Returns(default(Taskboard.Dtos.AgentCliDefinitionDto));
 
         var sut = CriarServico(eligible: [], cliDefinitions: defs);
 
@@ -154,7 +154,7 @@ public class AiChatServiceAgentBindingTests
     public async Task Dado_BuiltinNaoInstalado_Quando_CriarThreadPty_Entao_InvalidValue()
     {
         var discovery = Substitute.For<IAgentDiscoveryService>();
-        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns((string?)null);
+        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns(default(string));
 
         var sut = CriarServico(eligible: [], discovery: discovery);
 
@@ -188,7 +188,7 @@ public class AiChatServiceAgentBindingTests
         // SPEC-20260929-docker-cli-context RF-002: com container, a CLI é
         // validada contra a descoberta do contêiner — não o PATH do host.
         var discovery = Substitute.For<IAgentDiscoveryService>();
-        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns((string?)null);
+        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns(default(string));
         var containers = Substitute.For<IContainerCliDiscovery>();
         containers.ListContainersAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Taskboard.Dtos.DockerContainerDto>
@@ -210,7 +210,7 @@ public class AiChatServiceAgentBindingTests
     public async Task Dado_CliSoNoContainer_Quando_CriarThreadPty_Entao_AceitaSemInstalacaoNoHost()
     {
         var discovery = Substitute.For<IAgentDiscoveryService>();
-        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns((string?)null);
+        discovery.ResolveExecutablePath(Arg.Any<AgentType>()).Returns(default(string));
         var containers = Substitute.For<IContainerCliDiscovery>();
         containers.ListContainersAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Taskboard.Dtos.DockerContainerDto>

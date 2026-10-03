@@ -113,7 +113,7 @@ public sealed partial class SpecAppService : ISpecAppService
             {
                 return null;
             }
-            var specsDir = Path.Combine(workdir, ".specs");
+            var specsDir = Path.Join(workdir, ".specs");
             return Directory.Exists(specsDir) ? specsDir : null;
         }
         return ResolveDefaultSpecsDir(_configuredSpecsDir);
@@ -153,7 +153,7 @@ public sealed partial class SpecAppService : ISpecAppService
         {
             return null;
         }
-        var candidate = Path.Combine(specsDir, specId + ".md");
+        var candidate = Path.Join(specsDir, specId + ".md");
         return File.Exists(candidate) ? candidate : null;
     }
 

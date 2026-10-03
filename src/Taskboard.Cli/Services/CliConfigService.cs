@@ -19,7 +19,7 @@ public static class CliConfigService
         {
             // Minimal containers: ApplicationData resolves empty when
             // XDG_CONFIG_HOME is unset — fall back to ~/.config.
-            appData = Path.Combine(
+            appData = Path.Join(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
 

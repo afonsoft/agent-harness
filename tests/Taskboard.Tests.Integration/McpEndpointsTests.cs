@@ -136,7 +136,7 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
 
         // Provision runs in background — wait on the observable run status
         // (GET /api/mcp/status) instead of polling the file on a fixed deadline.
-        var claudeConfig = Path.Combine(_factory.HomeDir, ".claude.json");
+        var claudeConfig = Path.Join(_factory.HomeDir, ".claude.json");
         await WaitForClaudeAgentStateAsync(client, McpAgentStateConfigured);
 
         HasManagedEntry(claudeConfig).ShouldBeTrue();
@@ -188,14 +188,14 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
         {
             name = "knowledge",
             url = "https://rag.afonsoft.dev/mcp",
-            apiKey = (string?)null
+            apiKey = default(string?)
         });
         put.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         var response = await client.PostAsync("/api/mcp/sync", content: null);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-        var claudeConfig = Path.Combine(_factory.HomeDir, ".claude.json");
+        var claudeConfig = Path.Join(_factory.HomeDir, ".claude.json");
         await WaitForClaudeAgentStateAsync(client, McpAgentStateConfigured);
 
         HasManagedEntry(claudeConfig).ShouldBeTrue();
@@ -211,7 +211,7 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
         {
             name = "knowledge",
             url = "",
-            apiKey = (string?)null
+            apiKey = default(string?)
         });
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -236,9 +236,9 @@ public class McpEndpointsTests : IClassFixture<McpEndpointsTests.AuthenticatedFa
         {
             name = "knowledge",
             url = "https://rag.afonsoft.dev/mcp",
-            apiKey = (string?)null
+            apiKey = default(string?)
         });
-        var claudeConfig = Path.Combine(_factory.HomeDir, ".claude.json");
+        var claudeConfig = Path.Join(_factory.HomeDir, ".claude.json");
         await WaitForClaudeAgentStateAsync(client, McpAgentStateConfigured);
 
         var response = await client.PostAsync("/api/mcp/remove", content: null);

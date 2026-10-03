@@ -16,7 +16,7 @@ namespace Taskboard.Tests.Unit.Chat;
 /// </summary>
 public sealed class ChatOpenWebuiToolTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"chat-owui-{Guid.NewGuid():N}");
+    private readonly string _dir = Path.Join(Path.GetTempPath(), $"chat-owui-{Guid.NewGuid():N}");
 
     public void Dispose()
     {
@@ -97,7 +97,8 @@ public sealed class ChatOpenWebuiToolTests : IDisposable
     [Fact]
     public async Task Dado_UrlNaoHttp_Quando_FetchUrl_Entao_Recusado()
     {
-        var tool = new FetchUrlTool(new HttpClient(new FakeFetchHandler("")));
+        using var http = new HttpClient(new FakeFetchHandler(""));
+        var tool = new FetchUrlTool(http);
 
         var result = await tool.ExecuteAsync(Args("""{"url":"file:///etc/passwd"}"""), Context(), CancellationToken.None);
 
@@ -110,7 +111,8 @@ public sealed class ChatOpenWebuiToolTests : IDisposable
     {
         const string html = "<html><head><script>alert(1)</script></head>"
             + "<body><h1>Titulo</h1><p>paragrafo util</p></body></html>";
-        var tool = new FetchUrlTool(new HttpClient(new FakeFetchHandler(html, "text/html")));
+        using var http = new HttpClient(new FakeFetchHandler(html, "text/html"));
+        var tool = new FetchUrlTool(http);
 
         var result = await tool.ExecuteAsync(
             Args("""{"url":"https://exemplo.test/pagina"}"""), Context(), CancellationToken.None);
@@ -173,11 +175,14 @@ public sealed class ChatOpenWebuiToolTests : IDisposable
 
     private sealed class FakeFetchHandler(string body, string mediaType = "text/html") : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, mediaType),
-            });
+            };
+        }
     }
 }

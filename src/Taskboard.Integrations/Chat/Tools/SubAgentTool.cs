@@ -149,34 +149,43 @@ public sealed class SubAgentTool(OpenAiCompatibleClient client) : IChatTool
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false))
         {
-            if (chunk.ContentDelta is { Length: > 0 } delta)
-            {
-                round.Append(delta);
-            }
-
-            if (chunk.ToolCallDeltas is { Count: > 0 })
-            {
-                foreach (var tc in chunk.ToolCallDeltas)
-                {
-                    var current = toolAccumulator.TryGetValue(tc.Index, out var v)
-                        ? v
-                        : (null, null, new StringBuilder());
-                    toolAccumulator[tc.Index] = (
-                        tc.Id ?? current.Item1,
-                        tc.Name ?? current.Item2,
-                        current.Item3.Append(tc.ArgumentsDelta));
-                }
-            }
+            AccumulateChunk(chunk, round, toolAccumulator);
         }
 
         var toolCalls = toolAccumulator
-            .Select(kv => new OpenAiToolCall(
-                kv.Value.Id ?? $"call_{kv.Key}",
-                kv.Value.Name ?? "unknown",
-                kv.Value.Args.Length == 0 ? "{}" : kv.Value.Args.ToString()))
+            .Select(MaterializeToolCall)
             .ToList();
         return (round, toolCalls);
     }
+
+    private static void AccumulateChunk(
+        OpenAiStreamEvent chunk,
+        StringBuilder round,
+        SortedDictionary<int, (string? Id, string? Name, StringBuilder Args)> toolAccumulator)
+    {
+        if (chunk.ContentDelta is { Length: > 0 } delta)
+        {
+            round.Append(delta);
+        }
+
+        foreach (var tc in chunk.ToolCallDeltas ?? [])
+        {
+            var current = toolAccumulator.TryGetValue(tc.Index, out var v)
+                ? v
+                : (null, null, new StringBuilder());
+            toolAccumulator[tc.Index] = (
+                tc.Id ?? current.Item1,
+                tc.Name ?? current.Item2,
+                current.Item3.Append(tc.ArgumentsDelta));
+        }
+    }
+
+    private static OpenAiToolCall MaterializeToolCall(
+        KeyValuePair<int, (string? Id, string? Name, StringBuilder Args)> kv) =>
+        new(
+            kv.Value.Id ?? $"call_{kv.Key}",
+            kv.Value.Name ?? "unknown",
+            kv.Value.Args.Length == 0 ? "{}" : kv.Value.Args.ToString());
 
     private static async Task ExecuteToolCallsAsync(
         List<OpenAiToolCall> toolCalls,

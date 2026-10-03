@@ -17,8 +17,8 @@ public class SpecAppServiceTests : IDisposable
 
     public SpecAppServiceTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "specs-" + Guid.NewGuid().ToString("N"));
-        _workspaceRoot = Path.Combine(Path.GetTempPath(), "ws-" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Join(Path.GetTempPath(), "specs-" + Guid.NewGuid().ToString("N"));
+        _workspaceRoot = Path.Join(Path.GetTempPath(), "ws-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
         Directory.CreateDirectory(_workspaceRoot);
     }
@@ -35,7 +35,7 @@ public class SpecAppServiceTests : IDisposable
         public string ResolveCardWorkdir(string? repositoryFullName, out bool exists)
         {
             var name = repositoryFullName?.Split('/')[^1] ?? string.Empty;
-            var dir = Path.Combine(root, name);
+            var dir = Path.Join(root, name);
             exists = !string.IsNullOrEmpty(name) && Directory.Exists(dir);
             return exists ? dir : root;
         }
@@ -58,7 +58,7 @@ public class SpecAppServiceTests : IDisposable
 
     private static string EscreverSpecEm(string dir, string nome, string status)
     {
-        var path = Path.Combine(dir, nome + ".md");
+        var path = Path.Join(dir, nome + ".md");
         File.WriteAllText(path, $"""
             # {nome}
 
@@ -78,7 +78,7 @@ public class SpecAppServiceTests : IDisposable
 
     private string ClonarRepoComSpec(string repoName, string specNome)
     {
-        var specsDir = Path.Combine(_workspaceRoot, repoName, ".specs");
+        var specsDir = Path.Join(_workspaceRoot, repoName, ".specs");
         Directory.CreateDirectory(specsDir);
         return EscreverSpecEm(specsDir, specNome, "`Draft`");
     }
@@ -165,7 +165,7 @@ public class SpecAppServiceTests : IDisposable
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Taskboard:SpecsDir"] = Path.Combine(_dir, "nao-existe")
+                    ["Taskboard:SpecsDir"] = Path.Join(_dir, "nao-existe")
                 })
                 .Build(),
             new FakeWorkspaceResolver(_workspaceRoot),
@@ -198,7 +198,7 @@ public class SpecAppServiceTests : IDisposable
     [Fact]
     public async Task Dado_RepoClonadoSemSpecsDir_Quando_ListComRepo_Entao_Vazio()
     {
-        Directory.CreateDirectory(Path.Combine(_workspaceRoot, "myrepo"));
+        Directory.CreateDirectory(Path.Join(_workspaceRoot, "myrepo"));
 
         var lista = await CriarService().ListAsync(null, null, "owner/myrepo");
 
@@ -213,7 +213,7 @@ public class SpecAppServiceTests : IDisposable
         var dto = await CriarService().GetAsync("SPEC-9-repo", "owner/myrepo");
 
         dto.ShouldNotBeNull();
-        dto.RepositoryPath.ShouldBe(Path.Combine(_workspaceRoot, "myrepo"));
+        dto.RepositoryPath.ShouldBe(Path.Join(_workspaceRoot, "myrepo"));
     }
 
     [Fact]

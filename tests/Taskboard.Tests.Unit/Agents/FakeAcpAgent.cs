@@ -85,7 +85,7 @@ internal sealed class FakeAcpAgent : IAsyncDisposable
     {
         try
         {
-            var socket = await _listener.AcceptTcpClientAsync(_cts.Token);
+            using var socket = await _listener.AcceptTcpClientAsync(_cts.Token);
             var stream = socket.GetStream();
             _writer = new StreamWriter(stream) { AutoFlush = true };
             var reader = new StreamReader(stream);
@@ -114,9 +114,11 @@ internal sealed class FakeAcpAgent : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+            // Encerramento esperado no Dispose.
         }
         catch (IOException)
         {
+            // Socket fechado durante o shutdown do fake.
         }
     }
 

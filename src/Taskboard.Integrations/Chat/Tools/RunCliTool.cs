@@ -72,13 +72,13 @@ public sealed class RunCliTool(ISecretRedactor redactor) : IChatTool
     private static string? ResolveOnPath(string binary)
     {
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        var found = pathEnv
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(dir => Path.Join(dir.Trim(), binary))
+            .FirstOrDefault(File.Exists);
+        if (found is not null)
         {
-            var candidate = Path.Combine(dir.Trim(), binary);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
+            return found;
         }
 
         return null;

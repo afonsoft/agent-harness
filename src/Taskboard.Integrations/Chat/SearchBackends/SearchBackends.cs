@@ -78,7 +78,7 @@ public sealed class BraveSearchBackend(HttpClient http, string apiKey) : ISearch
     public async Task<IReadOnlyList<ChatSearchResult>> SearchAsync(
         string query, int maxResults, CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get,
+        using var request = new HttpRequestMessage(HttpMethod.Get,
             $"https://api.search.brave.com/res/v1/web/search?q={Uri.EscapeDataString(query)}&count={maxResults}");
         request.Headers.Accept.ParseAdd("application/json");
         request.Headers.TryAddWithoutValidation("X-Subscription-Token", apiKey);

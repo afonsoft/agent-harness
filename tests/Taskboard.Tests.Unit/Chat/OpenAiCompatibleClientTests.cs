@@ -12,12 +12,26 @@ namespace Taskboard.Tests.Unit.Chat;
 /// protocolo OpenAI-compatível (models, chat completions em SSE com tool
 /// calls, images) contra um handler HTTP fake.
 /// </summary>
-public sealed class OpenAiCompatibleClientTests
+public sealed class OpenAiCompatibleClientTests : IDisposable
 {
     private const string BaseUrl = "http://provider.test";
 
-    private static OpenAiCompatibleClient Client(FakeHandler handler) =>
-        new(new HttpClient(handler) { BaseAddress = new Uri(BaseUrl) });
+    private readonly List<HttpClient> _httpClients = [];
+
+    private OpenAiCompatibleClient Client(FakeHandler handler)
+    {
+        var http = new HttpClient(handler) { BaseAddress = new Uri(BaseUrl) };
+        _httpClients.Add(http);
+        return new OpenAiCompatibleClient(http);
+    }
+
+    public void Dispose()
+    {
+        foreach (var http in _httpClients)
+        {
+            http.Dispose();
+        }
+    }
 
     [Fact]
     public async Task Dado_ProviderComModels_Quando_ListarModels_Entao_IdsOrdenados()
@@ -114,6 +128,7 @@ public sealed class OpenAiCompatibleClientTests
             BaseUrl, "sk-test", "m1",
             [new OpenAiChatMessage("user", "oi")], null, maxTokens: 4096))
         {
+            _ = unused;
         }
 
         handler.RequestBodies.Single().ShouldContain("\"max_tokens\":4096");

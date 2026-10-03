@@ -59,13 +59,13 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_DirOcupadoPorClone_Quando_CreateWorktree_Entao_RecusaENaoApaga()
     {
         var path = WorktreePaths.SessionDir(_worktreeRoot, "run_clone");
-        Directory.CreateDirectory(Path.Combine(path, ".git")); // clone: .git é diretório
-        await File.WriteAllTextAsync(Path.Combine(path, "KEEP.txt"), "precious");
+        Directory.CreateDirectory(Path.Join(path, ".git")); // clone: .git é diretório
+        await File.WriteAllTextAsync(Path.Join(path, "KEEP.txt"), "precious");
 
         await Should.ThrowAsync<DomainException>(
             () => _sut.CreateWorktreeAsync("run_clone", _repoPath, "main", "x"));
 
-        File.Exists(Path.Combine(path, "KEEP.txt")).ShouldBeTrue();
+        File.Exists(Path.Join(path, "KEEP.txt")).ShouldBeTrue();
     }
 
     [Fact]
@@ -73,14 +73,14 @@ public class GitWorktreeManagerTests : IDisposable
     {
         var path = WorktreePaths.SessionDir(_worktreeRoot, "run_stale");
         Directory.CreateDirectory(path);
-        await File.WriteAllTextAsync(Path.Combine(path, ".git"), "gitdir: /tmp/stale"); // worktree: .git é arquivo
-        await File.WriteAllTextAsync(Path.Combine(path, "junk.txt"), "old");
+        await File.WriteAllTextAsync(Path.Join(path, ".git"), "gitdir: /tmp/stale"); // worktree: .git é arquivo
+        await File.WriteAllTextAsync(Path.Join(path, "junk.txt"), "old");
 
         var dto = await _sut.CreateWorktreeAsync("run_stale", _repoPath, "main", "x");
 
         dto.Path.ShouldBe(path);
-        File.Exists(Path.Combine(path, "junk.txt")).ShouldBeFalse();
-        File.Exists(Path.Combine(path, "README.md")).ShouldBeTrue();
+        File.Exists(Path.Join(path, "junk.txt")).ShouldBeFalse();
+        File.Exists(Path.Join(path, "README.md")).ShouldBeTrue();
     }
 
     // Covers RF-002 / AC-02: diff retorna arquivos + patch
@@ -203,7 +203,7 @@ public class GitWorktreeManagerTests : IDisposable
     [Fact]
     public async Task Dado_BaseInexistente_Quando_CreateWorktree_Entao_FallbackParaDefaultDoClone()
     {
-        var masterRepo = Path.Combine(_tempRoot, "repo-master");
+        var masterRepo = Path.Join(_tempRoot, "repo-master");
         Directory.CreateDirectory(masterRepo);
         InitRepo(masterRepo, "master");
 
@@ -227,8 +227,8 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_WorktreeComArquivos_Quando_ListFiles_Entao_ListaSemGitERelativo()
     {
         var dto = await _sut.CreateWorktreeAsync("run_e1", _repoPath, "main", "explorer");
-        Directory.CreateDirectory(Path.Combine(dto.Path, "src"));
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "src", "App.cs"), "class App {}\n");
+        Directory.CreateDirectory(Path.Join(dto.Path, "src"));
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "src", "App.cs"), "class App {}\n");
 
         var root = await _sut.ListFilesAsync("run_e1", null);
 
@@ -265,7 +265,7 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_ArquivoTexto_Quando_ReadFile_Entao_ConteudoCompleto()
     {
         var dto = await _sut.CreateWorktreeAsync("run_e4", _repoPath, "main", "read");
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "nota.md"), "# nota\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "nota.md"), "# nota\n");
 
         var file = await _sut.ReadFileAsync("run_e4", "nota.md");
 
@@ -280,7 +280,7 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_ArquivoBinario_Quando_ReadFile_Entao_BinarySemConteudo()
     {
         var dto = await _sut.CreateWorktreeAsync("run_e5", _repoPath, "main", "binary");
-        await File.WriteAllBytesAsync(Path.Combine(dto.Path, "img.bin"), [0x89, 0x50, 0x00, 0x47]);
+        await File.WriteAllBytesAsync(Path.Join(dto.Path, "img.bin"), [0x89, 0x50, 0x00, 0x47]);
 
         var file = await _sut.ReadFileAsync("run_e5", "img.bin");
 
@@ -294,7 +294,7 @@ public class GitWorktreeManagerTests : IDisposable
     {
         var dto = await _sut.CreateWorktreeAsync("run_e6", _repoPath, "main", "large");
         await File.WriteAllTextAsync(
-            Path.Combine(dto.Path, "grande.txt"), new string('x', GitWorktreeManager.MaxContentBytes + 100));
+            Path.Join(dto.Path, "grande.txt"), new string('x', GitWorktreeManager.MaxContentBytes + 100));
 
         var file = await _sut.ReadFileAsync("run_e6", "grande.txt");
 
@@ -323,8 +323,8 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_DiffComArquivos_Quando_GetDiff_Entao_ContadoresPorArquivo()
     {
         var dto = await _sut.CreateWorktreeAsync("run_e9", _repoPath, "main", "numstat");
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "README.md"), "l1\nl2\nl3\n");
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "novo.cs"), "class Novo {}\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "README.md"), "l1\nl2\nl3\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "novo.cs"), "class Novo {}\n");
 
         var diff = await _sut.GetDiffAsync("run_e9");
 
@@ -341,7 +341,7 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_AlteracaoCommitada_Quando_GetDiff_Entao_ArquivoEmFiles()
     {
         var dto = await _sut.CreateWorktreeAsync("run_diff_commit", _repoPath, "main", "committed");
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "comitado.cs"), "class C {}\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "comitado.cs"), "class C {}\n");
         await _git.RunAsync(dto.Path, ["add", "-A"]);
         (await _git.RunAsync(dto.Path, ["commit", "-m", "feat: add comitado"]))
             .ExitCode.ShouldBe(0);
@@ -358,12 +358,12 @@ public class GitWorktreeManagerTests : IDisposable
     public async Task Dado_AlteracaoCommitadaEPendente_Quando_GetDiff_Entao_AmbasEmFiles()
     {
         var dto = await _sut.CreateWorktreeAsync("run_diff_mix", _repoPath, "main", "mixed");
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "comitado.cs"), "class C {}\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "comitado.cs"), "class C {}\n");
         await _git.RunAsync(dto.Path, ["add", "-A"]);
         (await _git.RunAsync(dto.Path, ["commit", "-m", "feat: add comitado"]))
             .ExitCode.ShouldBe(0);
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "README.md"), "changed\n");
-        await File.WriteAllTextAsync(Path.Combine(dto.Path, "solto.cs"), "class S {}\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "README.md"), "changed\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "solto.cs"), "class S {}\n");
 
         var diff = await _sut.GetDiffAsync("run_diff_mix");
 

@@ -20,12 +20,12 @@ public class SpecEndpointsTests : IClassFixture<SpecEndpointsTests.SpecsFactory>
 
         public SpecsFactory()
         {
-            WorkspaceRoot = Path.Combine(Path.GetTempPath(), "tb-itest-ws-" + Guid.NewGuid().ToString("N"));
+            WorkspaceRoot = Path.Join(Path.GetTempPath(), "tb-itest-ws-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(SpecsDir);
             // SPEC-20260920 RF-005 fixture: clone myrepo with its own .specs/.
-            var repoSpecsDir = Path.Combine(WorkspaceRoot, "myrepo", ".specs");
+            var repoSpecsDir = Path.Join(WorkspaceRoot, "myrepo", ".specs");
             Directory.CreateDirectory(repoSpecsDir);
-            File.WriteAllText(Path.Combine(repoSpecsDir, "SPEC-9-repo.md"), """
+            File.WriteAllText(Path.Join(repoSpecsDir, "SPEC-9-repo.md"), """
                 # SPEC-9-repo
 
                 ## 0. Metadata

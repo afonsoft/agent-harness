@@ -547,12 +547,11 @@
         var options = new List<PermOption>();
         if (root.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
         {
-            foreach (var o in opts.EnumerateArray())
+            foreach (var option in opts.EnumerateArray()
+                .Select(ParsePermOption)
+                .OfType<PermOption>())
             {
-                if (ParsePermOption(o) is { } option)
-                {
-                    options.Add(option);
-                }
+                options.Add(option);
             }
         }
 

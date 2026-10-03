@@ -32,10 +32,10 @@ public static class DatabaseBackupService
         var dataDir = HarnessEnv.Get("HARNESS_DATA_DIR");
         if (!string.IsNullOrWhiteSpace(dataDir))
         {
-            return Path.Combine(dataDir, DatabaseFileName);
+            return Path.Join(dataDir, DatabaseFileName);
         }
 
-        return Path.Combine(
+        return Path.Join(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".agent-harness", DatabaseFileName);
     }
@@ -58,7 +58,7 @@ public static class DatabaseBackupService
         }
 
         Directory.CreateDirectory(destDir);
-        var dest = Path.Combine(destDir, NextBackupFileName(destDir));
+        var dest = Path.Join(destDir, NextBackupFileName(destDir));
 
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -144,9 +144,11 @@ public static class DatabaseBackupService
     {
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
         var name = $"{BackupPrefix}{stamp}{BackupExtension}";
-        for (var i = 2; File.Exists(Path.Combine(destDir, name)); i++)
+        var i = 2;
+        while (File.Exists(Path.Join(destDir, name)))
         {
             name = $"{BackupPrefix}{stamp}-{i}{BackupExtension}";
+            i++;
         }
 
         return name;

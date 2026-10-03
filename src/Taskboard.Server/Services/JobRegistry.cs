@@ -247,7 +247,9 @@ public sealed class JobRegistry : IJobRegistry
         await _loadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_overridesLoaded)
+            // Double-check under the gate: another loader may have run while
+            // we waited — Volatile.Read keeps this from being folded to false.
+            if (Volatile.Read(ref _overridesLoaded))
             {
                 return;
             }

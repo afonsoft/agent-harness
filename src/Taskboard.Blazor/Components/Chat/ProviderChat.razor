@@ -321,14 +321,9 @@
         try
         {
             _models = await Client.GetChatProviderModelsAsync(_providerId);
-            if (_defaultChatModel is { Length: > 0 } d && _models.Contains(d))
-            {
-                _model = d;
-            }
-            else
-            {
-                _model = _models.Count > 0 ? _models[0] : string.Empty;
-            }
+            _model = _defaultChatModel is { Length: > 0 } d && _models.Contains(d)
+                ? d
+                : _models.Count > 0 ? _models[0] : string.Empty;
         }
         catch (Exception ex)
         {
@@ -505,14 +500,7 @@
 
     private void OnSlashSelect(SlashCommandPalette.SlashItem item)
     {
-        if (item.Kind == "skill")
-        {
-            _composer = $"/{item.Command} ";
-        }
-        else
-        {
-            _composer = $"/{item.Command}";
-        }
+        _composer = item.Kind == "skill" ? $"/{item.Command} " : $"/{item.Command}";
     }
 
     private async Task OnComposerKey(KeyboardEventArgs e)
@@ -743,6 +731,7 @@
 
     private async Task StreamAssistantReplyAsync(string conversationId, string content, CancellationTokenSource streamCts)
     {
+        using var streamCtsGuard = streamCts;
         try
         {
             using var response = await Client.SendChatMessageAsync(conversationId, content, streamCts.Token);
@@ -789,7 +778,6 @@
             _streaming = null;
             _statusPhase = null;
             _statusLabel = null;
-            streamCts.Dispose();
             _streamCts = null;
             await ReloadConversationAsync();
         }

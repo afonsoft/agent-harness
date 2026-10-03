@@ -5,6 +5,7 @@ namespace Taskboard.Application.Contracts.Specs;
 /// <summary>Living-spec catalog operations (SPEC-20260919-ade-living-specs §5).</summary>
 public interface ISpecAppService
 {
+    /// <summary>Lists living specs filtered by status and free-text query.</summary>
     /// <param name="repo">Optional <c>owner/name</c> — reads <c>~/repos/&lt;name&gt;/.specs</c>;
     /// absent → the configured default specs dir (SPEC-20260920 RF-005).</param>
     Task<IReadOnlyList<LivingSpecDto>> ListAsync(

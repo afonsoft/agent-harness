@@ -16,9 +16,8 @@
         <pre class="mb-2 small font-monospace toolcall-output p-2">@Request.Detail</pre>
     }
     <div class="d-flex gap-2 flex-wrap">
-        @foreach (var option in VisibleOptions)
+        @foreach (var mapped in VisibleOptions.Select(MapOption))
         {
-            var mapped = MapOption(option);
             <Button Color="mapped.Color" Size="ButtonSize.Small" @onclick='() => ReplyAsync(mapped.Outcome)'>
                 @mapped.Label
             </Button>

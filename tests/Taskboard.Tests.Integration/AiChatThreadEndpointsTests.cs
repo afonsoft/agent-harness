@@ -140,9 +140,9 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         // proxy → 502 no EventSource).
         var client = await ApiClientAsync();
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/local/ai/threads/ghost-sse/events");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/local/ai/threads/ghost-sse/events");
         request.Headers.Accept.ParseAdd("text/event-stream");
-        var response = await client.SendAsync(request);
+        using var response = await client.SendAsync(request);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         var body = await response.Content.ReadAsStringAsync();
@@ -154,9 +154,9 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
     {
         var client = await ApiClientAsync();
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/local/ai/threads/ghost-json/events");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/local/ai/threads/ghost-json/events");
         request.Headers.Accept.ParseAdd("application/json");
-        var response = await client.SendAsync(request);
+        using var response = await client.SendAsync(request);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -293,7 +293,7 @@ public class AiChatThreadEndpointsTests : IClassFixture<TaskboardWebApplicationF
         // SPEC-20260921-ai-code-thread-config RF-003: o repositório resolve
         // {WorkspaceRoot}/<repo-name> quando WorkspacePath não é informado.
         var client = await ApiClientAsync();
-        var repoDir = Path.Combine(_factory.WorkspaceRoot, "meu-repo");
+        var repoDir = Path.Join(_factory.WorkspaceRoot, "meu-repo");
         Directory.CreateDirectory(repoDir);
 
         var create = await client.PostAsJsonAsync("/api/local/ai/threads", new
@@ -503,7 +503,7 @@ public class AiChatSseEndpointsTests : IClassFixture<AiChatSseEndpointsTests.Fas
         var client = await _factory.CreateAuthenticatedClientAsync();
         var threadId = await CreateThreadAsync(client, "sse disconnect");
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
         request.Headers.Accept.ParseAdd("text/event-stream");
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -518,7 +518,7 @@ public class AiChatSseEndpointsTests : IClassFixture<AiChatSseEndpointsTests.Fas
 
     private static async Task<string> ReadSseAsync(HttpClient client, string threadId, string until, TimeSpan timeout)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/local/ai/threads/{threadId}/events");
         request.Headers.Accept.ParseAdd("text/event-stream");
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);

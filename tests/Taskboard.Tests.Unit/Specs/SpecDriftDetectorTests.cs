@@ -17,8 +17,8 @@ public class SpecDriftDetectorTests : IDisposable
     public SpecDriftDetectorTests()
     {
         _repoRoot = Path.Combine(Path.GetTempPath(), "repo-" + Guid.NewGuid().ToString("N"));
-        _specsDir = Path.Combine(_repoRoot, ".specs");
-        _workspaceRoot = Path.Combine(Path.GetTempPath(), "ws-" + Guid.NewGuid().ToString("N"));
+        _specsDir = Path.Join(_repoRoot, ".specs");
+        _workspaceRoot = Path.Join(Path.GetTempPath(), "ws-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_specsDir);
         Directory.CreateDirectory(_workspaceRoot);
     }
@@ -35,7 +35,7 @@ public class SpecDriftDetectorTests : IDisposable
         public string ResolveCardWorkdir(string? repositoryFullName, out bool exists)
         {
             var name = repositoryFullName?.Split('/')[^1] ?? string.Empty;
-            var dir = Path.Combine(root, name);
+            var dir = Path.Join(root, name);
             exists = !string.IsNullOrEmpty(name) && Directory.Exists(dir);
             return exists ? dir : root;
         }
@@ -141,7 +141,7 @@ public class SpecDriftDetectorTests : IDisposable
             new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Taskboard:SpecsDir"] = Path.Combine(_repoRoot, "vazio")
+                    ["Taskboard:SpecsDir"] = Path.Join(_repoRoot, "vazio")
                 })
                 .Build(),
             new FakeWorkspaceResolver(_workspaceRoot));
@@ -155,14 +155,14 @@ public class SpecDriftDetectorTests : IDisposable
 
     private void ClonarRepoComSpec(string repoName, string specNome, string status, params string[] files)
     {
-        var specsDir = Path.Combine(_workspaceRoot, repoName, ".specs");
+        var specsDir = Path.Join(_workspaceRoot, repoName, ".specs");
         Directory.CreateDirectory(specsDir);
         var filesBlock = files.Length == 0
             ? ""
             : "### Files to create or modify\n\n```text\n"
                 + string.Join('\n', files.Select(f => f + "   [new]"))
                 + "\n```\n";
-        File.WriteAllText(Path.Combine(specsDir, specNome + ".md"), $"""
+        File.WriteAllText(Path.Join(specsDir, specNome + ".md"), $"""
             # {specNome}
 
             ## 0. Metadata
@@ -181,9 +181,9 @@ public class SpecDriftDetectorTests : IDisposable
     public async Task Dado_RepoClonadoComSpecs_Quando_DriftComRepo_Entao_ScanDoClone()
     {
         ClonarRepoComSpec("myrepo", "SPEC-9-repo", "Approved", "src/Foo.cs");
-        var srcDir = Path.Combine(_workspaceRoot, "myrepo", "src");
+        var srcDir = Path.Join(_workspaceRoot, "myrepo", "src");
         Directory.CreateDirectory(srcDir);
-        File.WriteAllText(Path.Combine(srcDir, "Foo.cs"), "// existe");
+        File.WriteAllText(Path.Join(srcDir, "Foo.cs"), "// existe");
 
         var report = await Criar().BuildReportAsync("owner/myrepo");
 

@@ -10,10 +10,10 @@ public sealed class ChatImageStore(string dataDir)
     {
         try
         {
-            var dir = Path.Combine(dataDir, "chat-images");
+            var dir = Path.Join(dataDir, "chat-images");
             Directory.CreateDirectory(dir);
             var file = $"{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid():N}.png";
-            File.WriteAllBytes(Path.Combine(dir, file), Convert.FromBase64String(base64));
+            File.WriteAllBytes(Path.Join(dir, file), Convert.FromBase64String(base64));
             return file;
         }
         catch (FormatException)
@@ -37,7 +37,7 @@ public sealed class ChatImageStore(string dataDir)
             return null;
         }
 
-        var full = Path.Combine(dataDir, "chat-images", fileName);
+        var full = Path.Join(dataDir, "chat-images", fileName);
         return File.Exists(full) ? full : null;
     }
 }

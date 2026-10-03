@@ -29,6 +29,7 @@ public static class AcpProtocolParser
     /// <param name="PlanId">v2 plan correlation id (plan_update).</param>
     /// <param name="PatchOp">Upsert merge hint — append (default/null), replace or clear.</param>
     /// <param name="IsToolCallUpsert">v2 tool_call_update: first-seen resolves to tool_call, patches to tool_output.</param>
+    /// <summary>Normalized result of a parsed ACP JSON-RPC envelope.</summary>
     public sealed record Parsed(
         MessageType Type,
         string Method,
@@ -159,14 +160,12 @@ public static class AcpProtocolParser
         if (content.ValueKind == JsonValueKind.Array)
         {
             var sb = new System.Text.StringBuilder();
-            foreach (var block in content.EnumerateArray())
-            {
-                if (block.ValueKind == JsonValueKind.Object
+            foreach (var block in content.EnumerateArray()
+                .Where(block => block.ValueKind == JsonValueKind.Object
                     && block.TryGetProperty("text", out var bt)
-                    && bt.ValueKind == JsonValueKind.String)
-                {
-                    sb.Append(bt.GetString());
-                }
+                    && bt.ValueKind == JsonValueKind.String))
+            {
+                sb.Append(block.GetProperty("text").GetString());
             }
 
             return sb.Length > 0 ? sb.ToString() : null;

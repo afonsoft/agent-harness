@@ -20,7 +20,7 @@ public static class WorktreePaths
     public static string ResolveRoot(string? configured, string home)
     {
         var root = string.IsNullOrWhiteSpace(configured)
-            ? Path.Combine(home, WorkspacePaths.DefaultRootName)
+            ? Path.Join(home, WorkspacePaths.DefaultRootName)
             : WorkspacePaths.ExpandHome(configured.Trim(), home);
         return Path.GetFullPath(root);
     }

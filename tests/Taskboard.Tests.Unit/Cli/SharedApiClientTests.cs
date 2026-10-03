@@ -38,10 +38,10 @@ public class SharedApiClientTests
             Task.FromException<HttpResponseMessage>(_error);
     }
 
-    private static TaskboardApiClient CliClient(HttpResponseMessage response) =>
+    private static CliTaskboardApiClient CliClient(HttpResponseMessage response) =>
         new("http://localhost:1", apiKey: null, handler: new StubHandler(response));
 
-    private static Taskboard.Mcp.Services.TaskboardApiClient McpClient(HttpResponseMessage response) =>
+    private static Taskboard.Mcp.Services.McpTaskboardApiClient McpClient(HttpResponseMessage response) =>
         new("http://localhost:1", apiKey: null, handler: new StubHandler(response));
 
     private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
@@ -71,7 +71,7 @@ public class SharedApiClientTests
     [Fact]
     public async Task Dado_Cli_Quando_ErroDeTransporte_Entao_CliExceptionComExitCode3()
     {
-        var failing = new TaskboardApiClient(
+        var failing = new CliTaskboardApiClient(
             "http://localhost:1", apiKey: null,
             handler: new FailingHandler(new HttpRequestException("connection refused")));
 
@@ -108,7 +108,7 @@ public class SharedApiClientTests
     public async Task Dado_ApiKey_Quando_Configurada_Entao_HeaderXApiKeyEnviado()
     {
         var handler = new StubHandler(Json(HttpStatusCode.OK, "{}"));
-        var client = new TaskboardApiClient("http://localhost:1", "my-key", handler);
+        var client = new CliTaskboardApiClient("http://localhost:1", "my-key", handler);
 
         await client.GetAsync("/api/x", CancellationToken.None);
 

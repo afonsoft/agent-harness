@@ -44,6 +44,7 @@ public sealed record ChatToolResult(string Json, bool Refused = false, string? R
 /// </summary>
 public interface IChatActivityReporter
 {
+    /// <summary>Reports the current execution phase for the chat activity indicator.</summary>
     /// <param name="phase">e.g. <c>running_tool|running_mcp|running_agent|running_subagent|waiting_permission</c>.</param>
     /// <param name="label">Human label — tool name, <c>server/tool</c>, agent name.</param>
     void Report(string phase, string label);

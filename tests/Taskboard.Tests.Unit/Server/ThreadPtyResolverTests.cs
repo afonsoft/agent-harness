@@ -89,7 +89,7 @@ public class ThreadPtyResolverTests
             Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Agents.DockerCliDiscovery>.Instance,
             executableLocator: _ => "/usr/bin/docker",
             runner: new FakeRunner { PsOutput = dockerPsOutput });
-        var workspaceRoot = Path.Combine(Path.GetTempPath(), "resolver-ws");
+        var workspaceRoot = Path.Join(Path.GetTempPath(), "resolver-ws");
         var workspace = new Taskboard.Integrations.Workspace.WorkspaceService(
             workspaceRoot,
             Path.GetTempPath(),
@@ -247,7 +247,7 @@ public class ThreadPtyResolverTests
 
         error.ShouldBeNull();
         result!.WorkingDirectory.ShouldBe(
-            Path.Combine(Path.GetTempPath(), "resolver-ws"));
+            Path.Join(Path.GetTempPath(), "resolver-ws"));
         result.WorkingDirectory.ShouldNotBe(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
     }

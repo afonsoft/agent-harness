@@ -17,7 +17,7 @@ public sealed class ChatMemoryStore(string dataDir)
     public const int MaxContentChars = 2000;
 
     private readonly object _gate = new();
-    private readonly string _file = Path.Combine(dataDir, "chat-memory.json");
+    private readonly string _file = Path.Join(dataDir, "chat-memory.json");
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

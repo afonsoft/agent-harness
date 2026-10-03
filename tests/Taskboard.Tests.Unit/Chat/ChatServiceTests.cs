@@ -26,6 +26,7 @@ public sealed class ChatServiceTests : IDisposable
     private readonly TaskboardDbContext _context;
     private readonly ChatService _service;
     private readonly ChatProvider _provider;
+    private readonly List<HttpClient> _httpClients = [];
 
     public ChatServiceTests()
     {
@@ -64,7 +65,7 @@ public sealed class ChatServiceTests : IDisposable
             new EfCoreRepository<ChatProvider>(_context),
             new EfCoreRepository<ChatConversation>(_context),
             new EfCoreRepository<ChatMessage>(_context),
-            new OpenAiCompatibleClient(new HttpClient(handler)),
+            new OpenAiCompatibleClient(TrackHttp(handler)),
             new ChatCapabilityRegistry(tools, new FakeSkillDiscovery(), configuration),
             new FakeSkillDiscovery(),
             new FakeWorkspaceResolver(),
@@ -72,8 +73,20 @@ public sealed class ChatServiceTests : IDisposable
             coordinator);
     }
 
+    private HttpClient TrackHttp(HttpMessageHandler handler)
+    {
+        var client = new HttpClient(handler);
+        _httpClients.Add(client);
+        return client;
+    }
+
     public void Dispose()
     {
+        foreach (var client in _httpClients)
+        {
+            client.Dispose();
+        }
+
         _context.Dispose();
         if (File.Exists(_dbPath))
         {
@@ -125,8 +138,9 @@ public sealed class ChatServiceTests : IDisposable
     {
         var conversation = await _service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
-        await foreach (var _ in await _service.SendMessageAsync(conversation.Id, "termo-unico-xyz", CancellationToken.None))
+        await foreach (var unused in await _service.SendMessageAsync(conversation.Id, "termo-unico-xyz", CancellationToken.None))
         {
+            _ = unused;
         }
 
         var list = await _service.ListConversationsAsync("termo-unico-xyz");
@@ -229,17 +243,18 @@ public sealed class ChatServiceTests : IDisposable
     /// <summary>Provider fake que emite reasoning_content antes da resposta.</summary>
     private sealed class ReasoningProviderHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            await Task.CompletedTask;
             var body = string.Concat(
                 """data: {"choices":[{"delta":{"content":"","reasoning_content":"thinking"}}]}""", "\n",
                 """data: {"choices":[{"delta":{"reasoning_content":"pong"}}]}""", "\n",
                 """data: {"choices":[{"delta":{"content":"pong"}}],"usage":{"prompt_tokens":5,"completion_tokens":3}}""", "\n",
                 "data: [DONE]\n");
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
-            });
+            };
         }
     }
 
@@ -253,6 +268,7 @@ public sealed class ChatServiceTests : IDisposable
 
         await foreach (var unused in await service.SendMessageAsync(conversation.Id, "gere um gato", CancellationToken.None))
         {
+            _ = unused;
         }
 
         var detail = await service.GetConversationAsync(conversation.Id);
@@ -278,16 +294,17 @@ public sealed class ChatServiceTests : IDisposable
     {
         private int _calls;
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            await Task.CompletedTask;
             var call = Interlocked.Increment(ref _calls);
             var body = call == 1
                 ? """data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_img","function":{"name":"generate_image","arguments":"{\"prompt\":\"cat\"}"}}]}}]}""" + "\ndata: [DONE]\n"
                 : """data: {"choices":[{"delta":{"content":"aqui está"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" + "\ndata: [DONE]\n";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
-            });
+            };
         }
     }
 
@@ -325,16 +342,17 @@ public sealed class ChatServiceTests : IDisposable
     {
         private int _calls;
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            await Task.CompletedTask;
             var call = Interlocked.Increment(ref _calls);
             var body = call == 1
                 ? Sse("""data: {"choices":[{"delta":{"content":"vou rodar <｜DSML｜function_calls><｜DSML｜invoke name=\"echo_tool\"><｜DSML｜parameter name=\"text\" string=\"true\">rode</｜DSML｜parameter></｜DSML｜invoke></｜DSML｜function_calls>"}}]}""")
                 : Sse("""data: {"choices":[{"delta":{"content":"feito"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}""");
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
-            });
+            };
         }
 
         private static string Sse(string line) => $"{line}\ndata: [DONE]\n";
@@ -382,16 +400,17 @@ public sealed class ChatServiceTests : IDisposable
     {
         private int _calls;
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            await Task.CompletedTask;
             var call = Interlocked.Increment(ref _calls);
             var body = call == 1
                 ? Sse("""data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"echo_tool","arguments":"{\"text\":\"rode\"}"}}]}}]}""")
                 : Sse("""data: {"choices":[{"delta":{"content":"pronto"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}""");
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
-            });
+            };
         }
 
         private static string Sse(string line) => $"{line}\ndata: [DONE]\n";
@@ -407,11 +426,14 @@ public sealed class ChatServiceTests : IDisposable
 
         public TaskCompletionSource ReleaseSecond { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StreamContent(new GatedStream(FirstDeltaSent, ReleaseSecond.Task)),
-            });
+            };
+        }
 
         private sealed class GatedStream(TaskCompletionSource firstSent, Task releaseSecond) : Stream
         {

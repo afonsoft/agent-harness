@@ -661,14 +661,12 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
             // RF-005: tool calls that never received a terminal update are
             // marked cancelled locally so the timeline doesn't show them stuck.
-            foreach (var toolCallId in holder.OpenToolCalls.Keys)
+            foreach (var toolCallId in holder.OpenToolCalls.Keys
+                .Where(id => holder.OpenToolCalls.TryRemove(id, out _)))
             {
-                if (holder.OpenToolCalls.TryRemove(toolCallId, out _))
-                {
-                    EmitEvent(threadId, AgentEventKinds.ToolOutput, EventRoleAssistant, null,
-                        JsonSerializer.Serialize(new { toolCallId, status = OutcomeCancelled }),
-                        toolCallId: toolCallId);
-                }
+                EmitEvent(threadId, AgentEventKinds.ToolOutput, EventRoleAssistant, null,
+                    JsonSerializer.Serialize(new { toolCallId, status = OutcomeCancelled }),
+                    toolCallId: toolCallId);
             }
         }
         catch
@@ -771,12 +769,13 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             "always" => "allow",
             _ => normalized,
         };
-        return options.FirstOrDefault(o =>
-                (o.OptionId.Contains(probe, StringComparison.OrdinalIgnoreCase))
-                || (o.Name?.Contains(probe, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (normalized == "deny" && (o.Name?.Contains("deny", StringComparison.OrdinalIgnoreCase) ?? false)))
-            ?.OptionId
-            ?? (normalized == "deny" ? null : options.FirstOrDefault()?.OptionId);
+        var byProbe = options.FirstOrDefault(o =>
+            o.OptionId.Contains(probe, StringComparison.OrdinalIgnoreCase)
+            || (o.Name?.Contains(probe, StringComparison.OrdinalIgnoreCase) ?? false));
+        var fallback = normalized == "deny"
+            ? options.FirstOrDefault(o => o.Name?.Contains("deny", StringComparison.OrdinalIgnoreCase) ?? false)
+            : options.FirstOrDefault();
+        return byProbe?.OptionId ?? fallback?.OptionId;
     }
 
     public bool IsSessionActive(string threadId)
@@ -981,7 +980,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             _ = WriteLineAsync(holder, new
             {
                 jsonrpc = "2.0",
-                id = (string?)null,
+                id = default(string),
                 error = new { code = -32600, message = "invalid request" }
             }, CancellationToken.None);
             return;
@@ -1235,6 +1234,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
 
     private async Task DispatchClientMethodAsync(SessionHolder holder, AcpProtocolParser.Parsed parsed, CancellationTokenSource? requestCts)
     {
+        using var cts = requestCts;
         try
         {
             var response = await InvokeClientMethodAsync(holder, parsed, requestCts).ConfigureAwait(false);
@@ -1249,10 +1249,6 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         catch
         {
             // Channel failed — the session will die via the read loop.
-        }
-        finally
-        {
-            requestCts?.Dispose();
         }
     }
 
@@ -1420,14 +1416,10 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
                 return [];
             }
 
-            var list = new List<AcpPermissionOption>();
-            foreach (var o in opts.EnumerateArray())
-            {
-                if (ParseOption(o) is { } option)
-                {
-                    list.Add(option);
-                }
-            }
+            var list = opts.EnumerateArray()
+                .Select(ParseOption)
+                .OfType<AcpPermissionOption>()
+                .ToList();
 
             return list;
         }

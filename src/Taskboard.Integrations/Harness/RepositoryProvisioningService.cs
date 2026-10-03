@@ -44,7 +44,7 @@ public sealed class RepositoryProvisioningService : IRepositoryProvisioningServi
                 $"Repository '{repositoryFullName}' is not a valid 'owner/name'.");
         }
 
-        var path = Path.Combine(_workspace.EnsureRoot(), name);
+        var path = Path.Join(_workspace.EnsureRoot(), name);
         if (!WorkspacePaths.IsUnder(_workspace.Root, path))
         {
             throw new DomainException(

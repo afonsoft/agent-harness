@@ -35,15 +35,9 @@ public sealed record ToolCallRenderModel(
     /// </summary>
     public static ToolCallRenderModel Generic(string name, string? arguments, string? status, string? output)
     {
-        string? combined;
-        if (arguments is { Length: > 0 })
-        {
-            combined = output is { Length: > 0 } ? $"{arguments}\n{output}" : arguments;
-        }
-        else
-        {
-            combined = output;
-        }
+        var combined = arguments is { Length: > 0 }
+            ? output is { Length: > 0 } ? $"{arguments}\n{output}" : arguments
+            : output;
 
         return new ToolCallRenderModel(null, name, "other", status ?? "running", null, null, null, combined, null, 0, 0);
     }
@@ -65,12 +59,11 @@ public static class ToolCallRender
             acc.ApplyCall(call);
         }
 
-        foreach (var uj in updateJsons)
+        foreach (var update in updateJsons
+            .Select(uj => TryParse(uj, out var el) ? el : (JsonElement?)null)
+            .OfType<JsonElement>())
         {
-            if (TryParse(uj, out var update))
-            {
-                acc.ApplyUpdate(update);
-            }
+            acc.ApplyUpdate(update);
         }
 
         return acc.ToModel();

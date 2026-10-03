@@ -154,28 +154,27 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
     private void StopLocked()
     {
         _listening = false;
-        var process = _process;
+        using var process = _process;
         _process = null;
         if (process is null)
         {
             return;
         }
 
-        try
+        using (process)
         {
-            if (!process.HasExited)
+            try
             {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit(5000);
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(5000);
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "code-server kill on restart failed.");
-        }
-        finally
-        {
-            process.Dispose();
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "code-server kill on restart failed.");
+            }
         }
     }
 

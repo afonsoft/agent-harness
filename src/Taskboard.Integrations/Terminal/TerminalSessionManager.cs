@@ -272,16 +272,13 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     public Task OrphanAllForConnectionAsync(string connectionId)
     {
         var now = DateTimeOffset.UtcNow;
-        foreach (var pair in _sessions)
+        foreach (var pair in _sessions.Where(pair => pair.Value.ConnectionId == connectionId))
         {
-            if (pair.Value.ConnectionId == connectionId)
-            {
-                pair.Value.ConnectionId = null;
-                pair.Value.OrphanedAtUtc = now;
-                _logger.LogInformation(
-                    "Terminal session {SessionId} orphaned (connection {ConnectionId} ended).",
-                    pair.Key, connectionId);
-            }
+            pair.Value.ConnectionId = null;
+            pair.Value.OrphanedAtUtc = now;
+            _logger.LogInformation(
+                "Terminal session {SessionId} orphaned (connection {ConnectionId} ended).",
+                pair.Key, connectionId);
         }
 
         return Task.CompletedTask;

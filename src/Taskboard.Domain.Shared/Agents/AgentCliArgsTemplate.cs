@@ -20,16 +20,10 @@ public static class AgentCliArgsTemplate
     {
         var args = new List<string>();
         var hasModelToken = template?.Contains("{model}", StringComparison.Ordinal) == true;
-        foreach (var token in Split(template))
+        foreach (var rendered in Split(template)
+            .Select(token => model is null ? token : token.Replace("{model}", model, StringComparison.Ordinal))
+            .Select(token => prompt is null ? token : token.Replace("{prompt}", prompt, StringComparison.Ordinal)))
         {
-            var rendered = model is null
-                ? token
-                : token.Replace("{model}", model, StringComparison.Ordinal);
-            if (prompt is not null)
-            {
-                rendered = rendered.Replace("{prompt}", prompt, StringComparison.Ordinal);
-            }
-
             args.Add(rendered);
         }
 

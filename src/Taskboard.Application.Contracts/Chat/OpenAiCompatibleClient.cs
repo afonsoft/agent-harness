@@ -68,12 +68,10 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
         var models = new List<string>();
         if (body.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
         {
-            foreach (var item in data.EnumerateArray())
+            foreach (var item in data.EnumerateArray()
+                .Where(item => item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String))
             {
-                if (item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String)
-                {
-                    models.Add(item.GetProperty("id").GetString()!);
-                }
+                models.Add(item.GetProperty("id").GetString()!);
             }
         }
 

@@ -976,7 +976,7 @@ void RegisterPlatformServices()
     // group. The loopback ITaskboardApiClient lets the tools reuse the local
     // API unchanged (it authenticates itself via HARNESS_API_KEY).
     builder.Services.AddSingleton<ITaskboardApiClient>(sp =>
-        new TaskboardApiClient(
+        new McpTaskboardApiClient(
             HarnessEnv.Get("HARNESS_URL")
             ?? builder.Configuration["Taskboard:BaseUrl"]
             ?? DefaultHarnessBaseUrl,

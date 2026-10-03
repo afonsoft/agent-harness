@@ -58,12 +58,10 @@ public sealed class AcpSessionModelCatalog(AcpSessionClient acp) : IAgentSession
 
         if (opt.TryGetProperty("options", out var arr) && arr.ValueKind == JsonValueKind.Array)
         {
-            foreach (var o in arr.EnumerateArray())
+            foreach (var o in arr.EnumerateArray()
+                .Where(o => o.TryGetProperty("value", out var v) && v.GetString() is { Length: > 0 }))
             {
-                if (o.TryGetProperty("value", out var v) && v.GetString() is { } value && value.Length > 0)
-                {
-                    models.Add(Entry(agentType, value));
-                }
+                models.Add(Entry(agentType, o.GetProperty("value").GetString()!));
             }
         }
         else if (opt.TryGetProperty("value", out var single) && single.GetString() is { } current && current.Length > 0)
