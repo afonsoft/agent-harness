@@ -24,31 +24,31 @@
     <div class="ms-auto d-flex align-items-center gap-2">
         <div class="ai-chat-modeswitch" role="group" aria-label="Conversation mode">
             <button type="button"
-                    class="ai-chat-modebtn @(CurrentMode == "provider" ? "active" : "")"
+                    class="ai-chat-modebtn @(ActiveMode == "provider" ? "active" : "")"
                     title="Chat — provider direto com tools (Ask)" aria-label="Chat mode"
                     @onclick='() => SetModeAsync("provider")'>
                 <Icon Name="IconName.ChatDots" />
-                @if (CurrentMode == "provider")
+                @if (ActiveMode == "provider")
                 {
                     <span class="ms-1 d-none d-md-inline">Chat</span>
                 }
             </button>
             <button type="button"
-                    class="ai-chat-modebtn @(CurrentMode == "assistant" ? "active" : "")"
+                    class="ai-chat-modebtn @(ActiveMode == "assistant" ? "active" : "")"
                     title="Assistant — chat estruturado com CLI (ACP)" aria-label="Assistant mode"
                     @onclick='() => SetModeAsync("assistant")'>
                 <Icon Name="IconName.ChatLeftText" />
-                @if (CurrentMode == "assistant")
+                @if (ActiveMode == "assistant")
                 {
                     <span class="ms-1 d-none d-md-inline">Assistant</span>
                 }
             </button>
             <button type="button"
-                    class="ai-chat-modebtn @(CurrentMode == "agent" ? "active" : "")"
+                    class="ai-chat-modebtn @(ActiveMode == "agent" ? "active" : "")"
                     title="Agent — sessão com tools, sandbox e permissões" aria-label="Agent mode"
                     @onclick='() => SetModeAsync("agent")'>
                 <Icon Name="IconName.Robot" />
-                @if (CurrentMode == "agent")
+                @if (ActiveMode == "agent")
                 {
                     <span class="ms-1 d-none d-md-inline">Agent</span>
                 }
@@ -689,7 +689,7 @@ else
 
     // SPEC-20261003-ai-code-devin-layout RF-002: segmented mode toggle at the
     // top (Devin "Agent | Ask") — the active thread's mode wins over config.
-    private string CurrentMode => _cfgMode == "provider"
+    private string ActiveMode => _cfgMode == "provider"
         ? "provider"
         : _activeThread?.Mode ?? _cfgMode;
 
@@ -737,7 +737,7 @@ else
     {
         get
         {
-            if (CurrentMode == "provider")
+            if (ActiveMode == "provider")
             {
                 return "Provider chat";
             }
