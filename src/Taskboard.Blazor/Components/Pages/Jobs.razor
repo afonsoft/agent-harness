@@ -53,7 +53,7 @@
                                         <details class="small mt-1">
                                             <summary class="text-body-secondary">Recent log (@job.Log.Count)</summary>
                                             <ul class="list-unstyled mb-0 mt-1 font-monospace small">
-                                                @foreach (var entry in job.Log.AsEnumerable().Reverse())
+                                                @foreach (var entry in ReversedLog(job))
                                                 {
                                                     <li>
                                                         <span class="text-body-secondary">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
@@ -152,6 +152,10 @@
     private IReadOnlyList<JobStatusDto>? _jobs;
     private readonly Dictionary<string, int> _intervalDrafts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, bool> _enabledDrafts = new(StringComparer.Ordinal);
+    // SPEC-20261003-perf-pass RF-004: the newest-first copy of each job's log
+    // is computed once per refresh — reversing inside the razor re-enumerated
+    // the whole log on every render pass.
+    private readonly Dictionary<string, IReadOnlyList<JobLogEntry>> _reversedLogs = new(StringComparer.Ordinal);
     private bool _loading;
     private bool _saving;
     private string? _error;
@@ -188,8 +192,10 @@
         {
             _jobs = await Client.GetJobsAsync();
             _error = null;
+            _reversedLogs.Clear();
             foreach (var job in _jobs)
             {
+                _reversedLogs[job.Key] = job.Log.Reverse().ToList();
                 // B-20: re-seed drafts when the user is NOT mid-edit — otherwise
                 // a server-side change never reaches the field while a stale
                 // draft keeps overriding it silently.
@@ -212,6 +218,9 @@
 
         await InvokeAsync(StateHasChanged);
     }
+
+    private IReadOnlyList<JobLogEntry> ReversedLog(JobStatusDto job) =>
+        _reversedLogs.TryGetValue(job.Key, out var log) ? log : job.Log;
 
     private int GetIntervalDraft(JobStatusDto job) =>
         _intervalDrafts.TryGetValue(job.Key, out var draft) ? draft : job.IntervalSeconds;
