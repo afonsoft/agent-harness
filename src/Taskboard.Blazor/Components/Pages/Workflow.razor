@@ -87,12 +87,15 @@ else
             {
                 var expanded = _expanded.Contains(workflow.Id);
                 <div class="card mb-2" @key="workflow.Id">
-                    <div class="card-header d-flex align-items-center gap-2 py-2" role="button" @onclick="() => ToggleWorkflowAsync(workflow)">
-                        <Icon Name="@(expanded ? IconName.ChevronDown : IconName.ChevronRight)" class="text-body-secondary" />
-                        <div class="me-auto">
-                            <span class="fw-semibold">@workflow.Name</span>
-                            <span class="small text-body-secondary ms-2">@ShortPath(workflow.Path)</span>
-                        </div>
+                    <div class="card-header d-flex align-items-center gap-2 py-2">
+                        <button type="button" class="workflow-toggle d-flex align-items-center gap-2 flex-grow-1"
+                                aria-expanded="@(expanded ? "true" : "false")"
+                                @onclick="() => ToggleWorkflowAsync(workflow)">
+                            <Icon Name="@(expanded ? IconName.ChevronDown : IconName.ChevronRight)" class="text-body-secondary" />
+                            <span class="me-auto">
+                                <span class="fw-semibold">@workflow.Name</span>
+                                <span class="small text-body-secondary ms-2">@ShortPath(workflow.Path)</span>
+                            </span>
                         @if (workflow.State != "active")
                         {
                             <span class="badge text-bg-secondary">@workflow.State</span>
@@ -108,7 +111,8 @@ else
                         {
                             <span class="small text-body-secondary">No runs yet</span>
                         }
-                        <a href="@workflow.HtmlUrl" target="_blank" rel="noopener" class="small" @onclick:stopPropagation="true">↗</a>
+                        </button>
+                        <a href="@workflow.HtmlUrl" target="_blank" rel="noopener" class="small" aria-label="Open @workflow.Name on GitHub">↗</a>
                     </div>
                     @if (expanded)
                     {

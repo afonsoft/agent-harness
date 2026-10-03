@@ -9,7 +9,7 @@
         {
             var index = i;
             var item = Filtered[i];
-            <button type="button" role="option" aria-selected="@(index == ActiveIndex)"
+            <button type="button" role="option" aria-selected="@(index == ActiveIndex ? "true" : "false")"
                     class="slash-item @(index == ActiveIndex ? "active" : null)"
                     @onclick="() => OnSelect.InvokeAsync(item)">
                 <span class="slash-item-cmd">/@item.Command</span>

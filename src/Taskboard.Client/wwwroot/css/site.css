@@ -122,6 +122,36 @@ body {
     min-width: 0;
 }
 
+/* SPEC-20261003-a11y-baseline RF-002: skip link visible only on focus. */
+.skip-link {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 2100;
+    padding: 0.5rem 0.75rem;
+    background: var(--bs-primary);
+    color: #fff;
+    border-radius: var(--bs-border-radius);
+    text-decoration: none;
+    transform: translateY(-250%);
+    transition: transform 0.15s ease;
+}
+
+.skip-link:focus {
+    transform: none;
+    color: #fff;
+}
+
+/* SPEC-20261003-a11y-baseline RF-004: workflow card toggle rendered as a real button. */
+.workflow-toggle {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: start;
+}
+
 .app-topbar {
     display: flex;
     align-items: center;
@@ -2164,6 +2194,11 @@ html[data-terminal-focus] .terminal-focus-exit {
 .ai-chat-select:focus {
     outline: none;
     box-shadow: none;
+}
+
+.ai-chat-select:focus-visible {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: 1px;
 }
 
 .ai-chat-select option {

@@ -11,12 +11,13 @@
 <div class="card">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <div class="d-flex gap-1 flex-wrap">
+            <div class="d-flex gap-1 flex-wrap" role="group" aria-label="Time period">
                 @foreach (var p in new[] { ("24h", "24h"), ("last-7-days", "7 days"), ("last-30-days", "30 days"), ("all", "All") })
                 {
                     var period = p;
                     <Button Color="@(_period == period.Item1 ? ButtonColor.Primary : ButtonColor.Secondary)"
                             Outline="true" Size="ButtonSize.Small"
+                            aria-pressed="@(_period == period.Item1 ? "true" : "false")"
                             @onclick="() => SetPeriodAsync(period.Item1)">
                         @period.Item2
                     </Button>

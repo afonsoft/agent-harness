@@ -23,7 +23,7 @@
         {
             <li class="nav-item" @key="tab">
                 <div class="nav-link terminal-tab @(tab == _activeTab ? "active" : "") state-@tab.State.ToString().ToLowerInvariant()"
-                     role="tab" aria-selected="@(tab == _activeTab)" @onclick="() => ActivateTabAsync(tab)">
+                     role="tab" aria-selected="@(tab == _activeTab ? "true" : "false")" @onclick="() => ActivateTabAsync(tab)">
                     <span class="terminal-tab-dot"></span>
                     <span class="terminal-tab-title">@tab.Title</span>
                     <button type="button" class="btn-close terminal-tab-close" title="Close tab" aria-label="Close tab"
@@ -41,14 +41,14 @@
            keybar toggle outside focus mode — hidden on fine pointers via CSS. *@
         <li class="nav-item terminal-keybar-toggle ms-auto">
             <button type="button" class="nav-link terminal-tab-new" title="Virtual keyboard"
-                    aria-pressed="@_keybarVisible" aria-label="Toggle virtual keyboard"
+                    aria-pressed="@(_keybarVisible ? "true" : "false")" aria-label="Toggle virtual keyboard"
                     @onclick="ToggleKeybarAsync">
                 <Icon Name="IconName.Keyboard" />
             </button>
         </li>
         <li class="nav-item">
             <button type="button" class="nav-link terminal-tab-new" title="@(_focusMode ? "Restore terminal" : "Expand terminal")"
-                    aria-pressed="@_focusMode" aria-label="@(_focusMode ? "Restore terminal" : "Expand terminal")"
+                    aria-pressed="@(_focusMode ? "true" : "false")" aria-label="@(_focusMode ? "Restore terminal" : "Expand terminal")"
                     @onclick="ToggleFocusModeAsync">
                 <Icon Name="@(_focusMode ? IconName.FullscreenExit : IconName.Fullscreen)" />
             </button>
@@ -107,7 +107,7 @@
         <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[5~")'>PgUp</button>
         <button type="button" class="keybar-key" disabled="@(!KeybarEnabled)" @onclick='() => SendVirtualKeyAsync("\x1b[6~")'>PgDn</button>
         <button type="button" class="keybar-key keybar-ctrl @(_ctrlArmed ? "armed" : "")" disabled="@(!KeybarEnabled)"
-                aria-pressed="@_ctrlArmed" title="Sticky Ctrl — tap, then the next key" @onclick="ToggleCtrlAsync">Ctrl</button>
+                aria-pressed="@(_ctrlArmed ? "true" : "false")" title="Sticky Ctrl — tap, then the next key" @onclick="ToggleCtrlAsync">Ctrl</button>
         <button type="button" class="keybar-key" disabled="@(_activeTab is null)" @onclick="PasteClipboardAsync">Paste</button>
     </div>
 

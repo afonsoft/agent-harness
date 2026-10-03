@@ -3,7 +3,7 @@
 
 <div class="cockpit-thought card my-1 border-secondary-subtle">
     <button type="button" class="card-header py-1 px-2 d-flex align-items-center gap-2 btn btn-link text-decoration-none text-body text-start"
-            @onclick="Toggle" aria-expanded="@(!_collapsed)">
+            @onclick="Toggle" aria-expanded="@(_collapsed ? "false" : "true")">
         <Icon Name="@(_collapsed ? IconName.ChevronRight : IconName.ChevronDown)" />
         <span class="badge @BadgeClass">@Label</span>
         <span class="small text-body-secondary">@Preview</span>

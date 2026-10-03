@@ -30,7 +30,7 @@
                     {
                         var id = tab.Id;
                         <button type="button" role="tab" class="nav-link text-nowrap @(id == _activeTab ? "active" : "")"
-                                aria-selected="@(id == _activeTab)" tabindex="@(id == _activeTab ? 0 : -1)"
+                                aria-selected="@(id == _activeTab ? "true" : "false")" tabindex="@(id == _activeTab ? 0 : -1)"
                                 data-tab="@id" @onclick="() => SelectTab(id)">
                             @tab.Label
                         </button>
