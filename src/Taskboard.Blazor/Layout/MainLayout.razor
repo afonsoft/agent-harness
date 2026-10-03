@@ -5,6 +5,7 @@
 
 <Toasts class="p-3" AutoHide="true" Delay="4000" Placement="ToastsPlacement.TopRight" />
 
+<a href="#app-main" class="skip-link">Skip to main content</a>
 <div class="app-shell">
     <div class="offcanvas-lg offcanvas-start app-sidebar" tabindex="-1" id="appSidebar" aria-label="Sidebar">
         <div class="app-sidebar-brand">
@@ -14,7 +15,7 @@
                     class="sidebar-collapse-btn ms-auto d-none d-lg-inline-flex"
                     title="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")"
                     aria-label="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")"
-                    aria-expanded="@(!_sidebarCollapsed)"
+                    aria-expanded="@(_sidebarCollapsed ? "false" : "true")"
                     @onclick="ToggleSidebarAsync">
                 <Icon Name="@(_sidebarCollapsed ? IconName.ChevronBarRight : IconName.ChevronBarLeft)" />
             </button>
@@ -44,7 +45,7 @@
                 </form>
             </AuthorizeView>
         </header>
-        <main class="app-main">
+        <main class="app-main" id="app-main" tabindex="-1">
             <ErrorBoundary>
                 <ChildContent>
                     @Body
@@ -74,6 +75,10 @@
         ("terminal", "Terminal"),
         ("settings", "Settings"),
         ("skills", "Skills"),
+        ("finops", "FinOps"),
+        ("cockpit", "Cockpit"),
+        ("jobs", "Jobs"),
+        ("specs", "Specs"),
     ];
 
     protected override void OnInitialized()

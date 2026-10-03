@@ -4,7 +4,7 @@
 <div class="repo-combobox" @onfocusout="OnFocusOutAsync">
     <input id="@Id" type="text" role="combobox"
            class="form-control form-control-sm"
-           aria-expanded="@_open"
+           aria-expanded="@(_open ? "true" : "false")"
            aria-controls="@_listboxId"
            aria-activedescendant="@ActiveDescendantId"
            aria-label="@AriaLabel"
@@ -39,7 +39,7 @@
                     <li id="@OptionId(index)"
                         class="repo-combobox-option @(index == _activeIndex ? "active" : null)"
                         role="option"
-                        aria-selected="@(index == _activeIndex)"
+                        aria-selected="@(index == _activeIndex ? "true" : "false")"
                         @onmousedown:preventDefault
                         @onclick="() => CommitAsync(repo)">
                         @repo

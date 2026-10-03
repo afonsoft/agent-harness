@@ -62,7 +62,9 @@ else if (_runs is not null)
             <tbody>
                 @foreach (var run in _runs)
                 {
-                    <tr role="button" style="cursor: pointer" @onclick="() => OpenRun(run.PipelineExecutionId)">
+                    <tr role="button" tabindex="0" style="cursor: pointer"
+                        @onclick="() => OpenRun(run.PipelineExecutionId)"
+                        @onkeydown="e => OnRunRowKeyDown(e, run.PipelineExecutionId)">
                         <td>
                             <StatusBadge Status="@run.Status" />
                             @* RF-005: approval gates surface on the list, not only on the run page. *@
@@ -95,7 +97,7 @@ else if (_runs is not null)
                 </select>
             </div>
             <div class="col-md-6">
-                <label class="form-label">Repository</label>
+                <label class="form-label" for="cockpit-repo">Repository</label>
                 <RepositoryCombobox Id="cockpit-repo" AriaLabel="Repository" Placeholder="owner/repo"
                                     Repositories="@_repoNames" IsLoading="@_reposLoading"
                                     @bind-Value="_start.RepositoryFullName" />
@@ -162,7 +164,7 @@ else if (_runs is not null)
                 <div class="col-12">
                     <button type="button" class="btn btn-sm btn-outline-secondary"
                             @onclick="() => _optionsOpen = !_optionsOpen"
-                            aria-expanded="@_optionsOpen" aria-controls="cockpit-stage-options">
+                            aria-expanded="@(_optionsOpen ? "true" : "false")" aria-controls="cockpit-stage-options">
                         <Icon Name="@(_optionsOpen ? IconName.ChevronDown : IconName.ChevronRight)" class="me-1" />
                         Options — @selectedTemplate.Stages.Count steps
                     </button>
@@ -651,6 +653,14 @@ else if (_runs is not null)
         Enum.TryParse<AgentModelTier>(value, out var tier) ? tier : null;
 
     private void OpenRun(string runId) => Nav.NavigateTo($"/cockpit/runs/{runId}");
+
+    private void OnRunRowKeyDown(KeyboardEventArgs e, string runId)
+    {
+        if (e.Code is "Enter" or "Space")
+        {
+            OpenRun(runId);
+        }
+    }
 
     private static int CompletedStages(PipelineExecutionDto run) =>
         run.Stages.Count(s => s.Status is "Completed" or "Skipped");
