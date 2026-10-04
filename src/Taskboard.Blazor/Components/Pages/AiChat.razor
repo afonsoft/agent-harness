@@ -893,6 +893,7 @@ else
                 is { } match)
         {
             _cfgCli = match.Value;
+            _ = RefreshCliSlashItemsAsync();
         }
     }
 
@@ -980,6 +981,11 @@ else
     // palette on the thread composer — builtins + enabled skills, same
     // behavior as ProviderChat (FR-003/004 of SPEC-20261001).
     private IReadOnlyList<SlashCommandPalette.SlashItem> _slashItems = [];
+    private IReadOnlyList<SlashCommandPalette.SlashItem> _skillItems = [];
+    // SPEC-20261004-cli-slash-commands: commands/skills of the selected CLI.
+    private IReadOnlyList<SlashCommandPalette.SlashItem> _cliItems = [];
+    // ACP-advertised commands (available_commands_update) — verbatim send.
+    private IReadOnlyList<SlashCommandPalette.SlashItem> _acpItems = [];
     private int _slashIndex;
     private bool _slashPreventDefault;
 
@@ -1003,9 +1009,48 @@ else
     private IReadOnlyList<SlashCommandPalette.SlashItem> SlashFiltered =>
         SlashCommandPalette.ApplyFilter(_slashItems, SlashFilter);
 
+    /// <summary>Merges builtins → cli → skill keeping the first Command
+    /// occurrence (builtin shadows cli shadows skill).</summary>
+    private void RebuildSlashItems() =>
+        _slashItems = AiChatBuiltinCommands
+            .Concat(_cliItems)
+            .Concat(_acpItems)
+            .Concat(_skillItems)
+            .GroupBy(i => i.Command, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+    /// <summary>Reloads the cli slice of the palette for the selected CLI
+    /// (best-effort — unknown/custom CLIs get no extra items).</summary>
+    private async Task RefreshCliSlashItemsAsync()
+    {
+        var cliName = SelectedCli?.AgentType?.ToString();
+        if (string.IsNullOrEmpty(cliName))
+        {
+            _cliItems = [];
+            RebuildSlashItems();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        try
+        {
+            _cliItems = (await Client.GetCliCommandsAsync(cliName))
+                .Select(c => new SlashCommandPalette.SlashItem(c.Name, c.Description, "cli", cliName))
+                .ToList();
+        }
+        catch
+        {
+            _cliItems = [];
+        }
+
+        RebuildSlashItems();
+        await InvokeAsync(StateHasChanged);
+    }
+
     private void OnSlashSelect(SlashCommandPalette.SlashItem item)
     {
-        _composer = item.Kind == "skill" ? $"/{item.Command} " : $"/{item.Command}";
+        _composer = item.Kind is "skill" or "cli" ? $"/{item.Command} " : $"/{item.Command}";
     }
 
     /// <summary>Slash-palette keys — true when the key was consumed by the palette.</summary>
@@ -1072,7 +1117,7 @@ else
             case "help":
                 _composer = string.Empty;
                 await ToastService.NotifyAsync(new(ToastType.Info,
-                    "Comandos: /new, /agent, /tools, /clear, /help — /<skill> injeta uma skill global."));
+                    "Comandos: /new, /agent, /tools, /clear, /help — /<command> injeta um comando da CLI selecionada, /<skill> injeta uma skill global."));
                 return true;
             default:
                 return false;
@@ -1094,6 +1139,15 @@ else
             return (true, content);
         }
 
+        // SPEC-20261004-cli-slash-commands RF-003: cli commands resolve
+        // before global skills — the selected CLI wins on name collision.
+        var cliItem = _slashItems.FirstOrDefault(i =>
+            i.Kind == "cli" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
+        if (cliItem is not null)
+        {
+            return await ResolveCliCommandAsync(cliItem, rest, content);
+        }
+
         var skill = _slashItems.FirstOrDefault(i =>
             i.Kind == "skill" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
         if (skill is null)
@@ -1103,6 +1157,42 @@ else
 
         var composed = await ComposeSkillMessageAsync(skill, rest);
         return composed is null ? (true, content) : (false, composed);
+    }
+
+    /// <summary>
+    /// File-backed commands inject their body (chip + &lt;command&gt; block,
+    /// $ARGUMENTS → rest); body-less ones forward verbatim — the CLI resolves
+    /// its own native/ACP-advertised command.
+    /// </summary>
+    private async Task<(bool Consumed, string Content)> ResolveCliCommandAsync(
+        SlashCommandPalette.SlashItem item, string rest, string content)
+    {
+        var cliName = SelectedCli?.AgentType?.ToString();
+        if (cliName is null)
+        {
+            return (false, content);
+        }
+
+        try
+        {
+            var detail = await Client.GetCliCommandDetailAsync(cliName, item.Command);
+            // Unknown to the discovery service (ACP-advertised or removed
+            // between list and send) → forward verbatim; the CLI resolves
+            // its own native command.
+            if (detail is null || string.IsNullOrWhiteSpace(detail.Body))
+            {
+                return (false, content);
+            }
+
+            var composed = SlashCommandComposer.ComposeCliCommand(
+                detail.Name, detail.Source, detail.Body, rest, detail.Kind);
+            return (false, composed);
+        }
+        catch (Exception ex)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Falha ao carregar comando '{item.Command}': {ex.Message}"));
+            return (true, content);
+        }
     }
 
     private async Task<string?> ComposeSkillMessageAsync(SlashCommandPalette.SlashItem skill, string rest)
@@ -1381,16 +1471,18 @@ else
         // builtins; capabilities endpoint is best-effort.
         try
         {
-            _slashItems = (await Client.GetChatCapabilitiesAsync())
+            _skillItems = (await Client.GetChatCapabilitiesAsync())
                 .Where(c => c.Kind == Taskboard.Application.Contracts.Chat.ChatCapabilityKind.Skill && c.Enabled)
                 .Select(c => new SlashCommandPalette.SlashItem(c.Name, c.Description, "skill"))
-                .Concat(AiChatBuiltinCommands)
                 .ToList();
         }
         catch
         {
-            _slashItems = AiChatBuiltinCommands;
+            _skillItems = [];
         }
+
+        // SPEC-20261004-cli-slash-commands: merge the selected CLI's commands.
+        await RefreshCliSlashItemsAsync();
 
         try
         {
@@ -1646,6 +1738,7 @@ else
     {
         _cfgCli = e.Value?.ToString() ?? string.Empty;
         _cfgModelId = string.Empty; // reset to CLI default when switching agents
+        await RefreshCliSlashItemsAsync();
         // A CLI without ACP forces the terminal view only inside a legacy
         // thread pane — the agent-chat surface works with any CLI.
         if (_activeThread is not null && !SelectedCliSupportsChat)
@@ -1688,6 +1781,7 @@ else
 
                 _cfgCli = first.Value;
                 _cfgModelId = string.Empty;
+                _ = RefreshCliSlashItemsAsync();
             }
 
             _cfgView = "chat";
@@ -1723,6 +1817,7 @@ else
         _modelConfigId = null;
         _currentModel = null;
         _currentMode = null;
+        _acpItems = [];
         _running = thread.Status == "running";
         _sseError = false;
         _scrollPending = true;
@@ -1738,6 +1833,7 @@ else
             _cfgCli = cliOption;
             _cfgView = thread.Transport == "pty" ? "terminal" : "chat";
             _cfgContext = thread.ContainerContext ?? string.Empty;
+            await RefreshCliSlashItemsAsync();
             try
             {
                 await JS.InvokeVoidAsync("taskboard.setAiChatLastAgent", _cfgCli);
@@ -1954,6 +2050,11 @@ else
         {
             _events.Add(ev);
             _scrollPending = true;
+            if (ev.Kind == "commands")
+            {
+                UpdateAcpSlashItems(ev.PayloadJson);
+            }
+
             return;
         }
 
@@ -1963,6 +2064,43 @@ else
         if (index >= 0)
         {
             _events[index] = ev;
+        }
+    }
+
+    /// <summary>
+    /// SPEC-20261004-cli-slash-commands RF-004: the agent's
+    /// available_commands_update merges into the palette (verbatim send —
+    /// the CLI resolves its own native command).
+    /// </summary>
+    private void UpdateAcpSlashItems(string? payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            if (!doc.RootElement.TryGetProperty("availableCommands", out var commands)
+                || commands.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            var origin = SelectedCli?.AgentType?.ToString() ?? "acp";
+            _acpItems = commands.EnumerateArray()
+                .Select(c => new SlashCommandPalette.SlashItem(
+                    c.TryGetProperty("name", out var n) ? n.GetString() ?? string.Empty : string.Empty,
+                    c.TryGetProperty("description", out var d) ? d.GetString() ?? string.Empty : string.Empty,
+                    "cli", origin))
+                .Where(i => i.Command.Length > 0)
+                .ToList();
+            RebuildSlashItems();
+        }
+        catch (JsonException)
+        {
+            // Malformed payload — palette keeps the file-discovered items.
         }
     }
 
