@@ -20,6 +20,13 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
+    // Agent-chat binding (SPEC-20261003-ai-code-agent-chat) — null on plain
+    // provider-chat conversations.
+    public string? AgentCli { get; private set; }
+    public string? RepositoryFullName { get; private set; }
+    public string? WorkspacePath { get; private set; }
+    public string? AgentModel { get; private set; }
+
     private ChatConversation()
     {
     }
@@ -84,6 +91,22 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
         Model = model;
         UpdatedAt = now;
     }
+
+    /// <summary>
+    /// Binds the conversation to an agent CLI/workspace — the delegated tools
+    /// (run_agent, run_cli) default to these values.
+    /// </summary>
+    public void SetAgentContext(
+        string? agentCli, string? repositoryFullName, string? workspacePath, string? agentModel)
+    {
+        AgentCli = NullIfBlank(agentCli);
+        RepositoryFullName = NullIfBlank(repositoryFullName);
+        WorkspacePath = NullIfBlank(workspacePath);
+        AgentModel = NullIfBlank(agentModel);
+    }
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     public void Touch(DateTime now) => UpdatedAt = now;
 }

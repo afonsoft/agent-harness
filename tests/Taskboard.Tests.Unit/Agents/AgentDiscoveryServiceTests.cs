@@ -32,7 +32,9 @@ public class AgentDiscoveryServiceTests
             claude.ExecutablePath.ShouldBe(executablePath);
             // Versions come from the probe snapshot — none here.
             claude.Version.ShouldBeNull();
-            claude.Transport.ShouldBe("acp");
+            // Claude Code has no native ACP (needs the claude-code-acp
+            // bridge binary) — discovery reports the pty transport.
+            claude.Transport.ShouldBe("pty");
 
             agents
                 .Where(agent => agent.Type != AgentType.Claude)

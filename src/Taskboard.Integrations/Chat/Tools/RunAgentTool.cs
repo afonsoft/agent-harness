@@ -52,9 +52,11 @@ public sealed class RunAgentTool(
         var wait = arguments.TryGetProperty("wait", out var w) && w.ValueKind is JsonValueKind.True;
 
         var agents = await orchestration.GetAvailableAgentsAsync(cancellationToken).ConfigureAwait(false);
+        // SPEC-20261003-ai-code-agent-chat: an omitted agent arg falls back to
+        // the CLI picked in the conversation's Agent bar.
         var requested = arguments.TryGetProperty("agent", out var a) && a.ValueKind == JsonValueKind.String
             ? a.GetString()
-            : null;
+            : context.DefaultAgentCli;
         var agent = requested is null
             ? agents.FirstOrDefault(x => x.Status == AgentStatus.Available)
             : agents.FirstOrDefault(x =>
@@ -82,7 +84,11 @@ public sealed class RunAgentTool(
             Branch: null,
             Scope: null,
             Instructions: $"(delegated from chat conversation {context.ConversationId})\n\n{prompt}",
-            AgentType: agent.Type);
+            AgentType: agent.Type,
+            ResolvedModelName: string.IsNullOrWhiteSpace(context.DefaultAgentModel)
+                ? null
+                : context.DefaultAgentModel,
+            OmitModelFlag: string.IsNullOrWhiteSpace(context.DefaultAgentModel));
 
         context.Activity?.Report("running_agent", agent.Name);
 

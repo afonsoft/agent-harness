@@ -66,11 +66,14 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         var flag = AgentCliModels.ModelFlag(agentType);
         var model = flag is not null && !string.IsNullOrWhiteSpace(modelName) ? new[] { flag, modelName } : [];
 
+        // ACP is a subcommand for devin/codex/opencode (`devin acp`, `codex acp`)
+        // — the `--acp` flag form exits with "unexpected argument" (ProcessDied).
+        // Claude Code keeps the --acp flag.
         return agentType switch
         {
             AgentType.OpenCode => ["acp", .. model],
-            AgentType.Claude => ["--acp", .. model],
-            AgentType.Codex => ["--acp", .. model],
+            AgentType.Devin => ["acp", .. model],
+            AgentType.Codex => ["acp", .. model],
             _ => ["--acp", .. model]
         };
     }

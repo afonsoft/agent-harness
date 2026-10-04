@@ -72,7 +72,15 @@ public sealed record ChatToolContext(
     /// The effective (already filtered) tool set of the current turn — lets
     /// meta-tools like <c>task</c> sub-agents inherit only enabled tools.
     /// </summary>
-    IReadOnlyDictionary<string, IChatTool>? ToolSet = null);
+    IReadOnlyDictionary<string, IChatTool>? ToolSet = null,
+    /// <summary>
+    /// Agent-chat (SPEC-20261003-ai-code-agent-chat): CLI picked in the Agent
+    /// bar — default agent for <c>run_agent</c> and default binary for
+    /// <c>run_cli</c>. <see cref="Agents.AgentType"/> name for builtins.
+    /// </summary>
+    string? DefaultAgentCli = null,
+    /// <summary>Agent-chat: model picked for delegated runs (<c>run_agent</c>).</summary>
+    string? DefaultAgentModel = null);
 
 /// <summary>Web search backend behind the <c>web_search</c> tool (RF-007).</summary>
 public interface ISearchBackend

@@ -219,24 +219,43 @@ window.taskboardSse = {
 // the whole container on every SSE delta would be O(n²).
 window.taskboardChat = {
     _last: 0,
+    _stick: {},
+
+    // Auto-scroll: stick to the bottom while the user is at the bottom; a
+    // manual scroll up detaches until they return (24px tolerance).
+    _bindScroll: function (container) {
+        if (container._chatScrollBound) {
+            return;
+        }
+        container._chatScrollBound = true;
+        this._stick[container.id] = true;
+        var self = this;
+        container.addEventListener('scroll', function () {
+            self._stick[container.id] =
+                container.scrollHeight - container.scrollTop - container.clientHeight < 24;
+        });
+    },
 
     highlight: function (containerId) {
         var container = document.getElementById(containerId);
-        if (!container || !window.hljs) {
+        if (!container) {
             return;
         }
+        this._bindScroll(container);
         var now = Date.now();
-        if (now - this._last < 400) {
-            return;
+        if (window.hljs && now - this._last >= 400) {
+            this._last = now;
+            container.querySelectorAll('pre code:not(.hljs)').forEach(function (block) {
+                try {
+                    window.hljs.highlightElement(block);
+                } catch (e) {
+                    /* unknown language — leave plain */
+                }
+            });
         }
-        this._last = now;
-        container.querySelectorAll('pre code:not(.hljs)').forEach(function (block) {
-            try {
-                window.hljs.highlightElement(block);
-            } catch (e) {
-                /* unknown language — leave plain */
-            }
-        });
+        if (this._stick[containerId]) {
+            container.scrollTop = container.scrollHeight;
+        }
     },
 
     // SPEC-20261001-ai-chat-openwebui: clipboard for message actions.

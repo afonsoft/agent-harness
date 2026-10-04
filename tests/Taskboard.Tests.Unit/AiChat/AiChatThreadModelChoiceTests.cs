@@ -142,13 +142,14 @@ public class AiChatThreadModelChoiceTests
     {
         // Covers RF-006: nome da tabela curada (fora do probe) → "curated".
         var probe = Substitute.For<IAgentModelCatalogService>();
-        probe.ListAvailableAsync(AgentType.Claude, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        probe.ListAvailableAsync(AgentType.Codex, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(["outro-modelo-qualquer"]);
 
-        var sut = CriarServico(eligible: [AgentType.Claude], probe: probe);
+        var sut = CriarServico(eligible: [AgentType.Codex], probe: probe);
 
         var dto = await sut.CreateThreadAsync(
-            new CreateAiChatThreadRequest("t", "sonnet", "none", "read-only", AgentType: "Claude"),
+            // "gpt-5.1-codex" está na tabela curada do Codex (fora do probe).
+            new CreateAiChatThreadRequest("t", "gpt-5.1-codex", "none", "read-only", AgentType: "Codex"),
             Actor.LocalUser());
 
         dto.ModelSource.ShouldBe("curated");
@@ -160,13 +161,13 @@ public class AiChatThreadModelChoiceTests
         // Covers RF-006: nome fora do probe e da tabela curada (ex.: entrada
         // registrada via POST /api/local/ai/catalog) → "custom".
         var probe = Substitute.For<IAgentModelCatalogService>();
-        probe.ListAvailableAsync(AgentType.Claude, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        probe.ListAvailableAsync(AgentType.Codex, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
 
-        var sut = CriarServico(eligible: [AgentType.Claude], probe: probe);
+        var sut = CriarServico(eligible: [AgentType.Codex], probe: probe);
 
         var dto = await sut.CreateThreadAsync(
-            new CreateAiChatThreadRequest("t", "meu-modelo", "none", "read-only", AgentType: "Claude"),
+            new CreateAiChatThreadRequest("t", "meu-modelo", "none", "read-only", AgentType: "Codex"),
             Actor.LocalUser());
 
         dto.ModelSource.ShouldBe("custom");

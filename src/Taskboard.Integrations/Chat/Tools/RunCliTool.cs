@@ -17,7 +17,7 @@ public sealed class RunCliTool(ISecretRedactor redactor) : IChatTool
         + "`taskctl --help`). The binary must be one of the installed Harness CLIs; arguments are passed "
         + "directly to the process (no shell).";
     public string ParametersJson => """
-        {"type":"object","properties":{"cli":{"type":"string","description":"Installed CLI binary name (e.g. devin, claude, opencode, taskctl)"},"args":{"type":"array","items":{"type":"string"},"description":"Arguments for the CLI"}},"required":["cli"]}
+        {"type":"object","properties":{"cli":{"type":"string","description":"Installed CLI binary name (e.g. devin, claude, opencode, taskctl); omit to use the conversation's selected agent CLI"},"args":{"type":"array","items":{"type":"string"},"description":"Arguments for the CLI"}}}
         """;
 
     public async Task<ChatToolResult> ExecuteAsync(
@@ -30,6 +30,18 @@ public sealed class RunCliTool(ISecretRedactor redactor) : IChatTool
             ? a.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String)
                 .Select(e => e.GetString() ?? string.Empty).ToList()
             : [];
+
+        if (string.IsNullOrWhiteSpace(cli) && context.DefaultAgentCli is { } bound)
+        {
+            // SPEC-20261003-ai-code-agent-chat: the Agent bar's CLI (an
+            // AgentType name like "Devin") maps to its binary for the
+            // allowlist; custom-def ids stay as-is and fail cleanly below.
+            cli = Enum.TryParse<AgentType>(bound, ignoreCase: true, out var boundType)
+                && AgentCliMap.CliKindFor(boundType) is { } kind
+                && AgentCliMap.GetSpec(kind) is { } spec
+                ? spec.Binary
+                : bound;
+        }
 
         if (string.IsNullOrWhiteSpace(cli))
         {
