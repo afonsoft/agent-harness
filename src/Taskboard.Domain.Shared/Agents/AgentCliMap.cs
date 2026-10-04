@@ -48,11 +48,18 @@ public sealed record AgentCliSpec(
     string? ExpectedProcess = null,
     /// <summary>Insert <c>--</c> before a positional prompt (argv terminator).</summary>
     bool ArgvPromptSeparator = false,
-    AgentCliPromptDelivery PromptDelivery = AgentCliPromptDelivery.Argv)
+    AgentCliPromptDelivery PromptDelivery = AgentCliPromptDelivery.Argv,
+    /// <summary>Native resume argv template with <c>{id}</c> for the session id;
+    /// null when the CLI cannot resume saved sessions.</summary>
+    IReadOnlyList<string>? ResumeArgs = null)
 {
     /// <summary>Binary + aliases — every name probed on PATH.</summary>
     public IReadOnlyList<string> DetectionNames =>
         Aliases is { Count: > 0 } ? [Binary, .. Aliases] : [Binary];
+
+    /// <summary>Resume argv for <paramref name="sessionId"/>, or null when the CLI has no resume.</summary>
+    public IReadOnlyList<string>? BuildResumeArgs(string sessionId) =>
+        ResumeArgs?.Select(a => a.Replace("{id}", sessionId, StringComparison.Ordinal)).ToArray();
 }
 
 /// <summary>
@@ -101,7 +108,8 @@ public static class AgentCliMap
                 ".claude/.credentials.json",
                 "claude",
                 "npm i -g @anthropic-ai/claude-code",
-                NpmInstall("@anthropic-ai/claude-code")),
+                NpmInstall("@anthropic-ai/claude-code"),
+                ResumeArgs: ["--resume", "{id}"]),
             [AgentCliKind.Codex] = new(
                 "Codex",
                 "codex",
@@ -109,7 +117,8 @@ public static class AgentCliMap
                 ".codex/auth.json",
                 "codex login",
                 "npm i -g @openai/codex",
-                NpmInstall("@openai/codex")),
+                NpmInstall("@openai/codex"),
+                ResumeArgs: ["resume", "{id}"]),
             [AgentCliKind.OpenCode] = new(
                 "OpenCode",
                 "opencode",
@@ -117,7 +126,8 @@ public static class AgentCliMap
                 ".local/share/opencode/auth.json",
                 "opencode auth login",
                 "npm i -g opencode-ai",
-                NpmInstall("opencode-ai")),
+                NpmInstall("opencode-ai"),
+                ResumeArgs: ["--session", "{id}"]),
             [AgentCliKind.Devin] = new(
                 "Devin CLI",
                 "devin",

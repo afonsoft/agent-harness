@@ -4,6 +4,7 @@ using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Configuration;
+using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
@@ -448,6 +449,23 @@ public sealed class TaskboardClient
         return response?.Agents ?? [];
     }
 
+    /// <summary>SPEC-20261006 RF-001: agent dashboard columns (scope = conversation; default 'harness').</summary>
+    public async Task<AgentDashboardDto?> GetDelegationDashboardAsync(
+        string? scope = null, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentDashboardDto>(
+            $"/api/local/delegation/dashboard{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            cancellationToken);
+
+    /// <summary>SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.</summary>
+    public async Task<IReadOnlyList<AgentSessionInfoDto>> GetAgentSessionsAsync(
+        string? cli = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<AgentSessionsResponse>(
+            $"/api/agents/sessions{(string.IsNullOrWhiteSpace(cli) ? "" : $"?cli={Uri.EscapeDataString(cli)}")}",
+            cancellationToken);
+        return response?.Sessions ?? [];
+    }
+
     /// <summary>Defs de CLI customizadas (SPEC-20260928-ai-code-generic-cli RF-002).</summary>
     public async Task<IReadOnlyList<AgentCliDefinitionDto>> GetCustomAgentClisAsync(
         CancellationToken cancellationToken = default) =>
@@ -877,6 +895,8 @@ public sealed class TaskboardClient
     private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);
 
     private sealed record InstalledAgentsResponse(List<AgentInfo> Agents);
+
+    private sealed record AgentSessionsResponse(List<AgentSessionInfoDto> Sessions);
 
     // SPEC-20260929-ai-code-provider-chat.
     public async Task<IReadOnlyList<ChatProviderDto>> GetChatProvidersAsync(CancellationToken cancellationToken = default)

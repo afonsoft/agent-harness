@@ -452,6 +452,12 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddScoped<IAgentMailboxRepository, EfCoreAgentMailboxRepository>();
     builder.Services.AddScoped<IDelegationService, DelegationService>();
     builder.Services.AddHostedService<DelegationDispatcherService>();
+
+    // SPEC-20261006-agent-dashboard-sessions-checkpoints: dashboard aggregation,
+    // CLI session scan/resume and worktree checkpoints.
+    builder.Services.AddScoped<IDelegationDashboardService, DelegationDashboardService>();
+    builder.Services.AddScoped<IWorkspaceCheckpointService, WorkspaceCheckpointService>();
+    builder.Services.AddSingleton<IAgentSessionScanner, AgentSessionScanner>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -552,6 +558,10 @@ void RegisterWorkspaceAndChatServices()
             new DelegateCompareTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentSendTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentInboxTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261006 RF-004/RF-005: decision gate + worktree checkpoints.
+            new AgentDecideTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new WorktreeCheckpointTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new WorktreeCheckpointsTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
         ];
@@ -2012,6 +2022,12 @@ void MapSettingsAndChatEndpoints()
         });
     });
 
+    // SPEC-20261006 RF-001: agent dashboard columns.
+    api.MapGet("local/delegation/dashboard", async (
+        string? scope, IDelegationDashboardService dashboard, CancellationToken ct) =>
+        Results.Ok(await dashboard.GetAsync(
+            string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 20, ct)));
+
     // SPEC-20260929-ai-code-provider-chat: provider chat endpoints (RF-001..RF-009).
     var chat = api.MapGroup("local/chat").RequireAuthorization();
 
@@ -2661,6 +2677,11 @@ void MapAgentsEndpoints()
         var discovered = await discovery.DiscoverAsync(ct);
         return Results.Ok(new { agents = discovered.Where(a => a.Status == AgentStatus.Available) });
     });
+
+    // SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.
+    agents.MapGet("sessions", async (
+        string? cli, IAgentSessionScanner scanner, CancellationToken ct) =>
+        Results.Ok(new { sessions = await scanner.ScanAsync(cli, takePerCli: 50, ct) }));
 
     agents.MapPost("executions", async (
         AgentExecutionRequest request,
