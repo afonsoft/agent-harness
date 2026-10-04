@@ -193,6 +193,6 @@ public class P3ToolsAndScannerTests : IDisposable
         AgentCliMap.GetSpec(AgentCliKind.Codex)!.BuildResumeArgs("id1")
             .ShouldBe(["resume", "id1"]);
         AgentCliMap.GetSpec(AgentCliKind.Devin)!.BuildResumeArgs("id1")
-            .ShouldBeNull();
+            .ShouldBe(["--resume", "id1"]);
     }
 }

@@ -139,7 +139,8 @@ public static class AgentCliMap
                 ".local/share/devin/credentials.toml",
                 "devin auth login",
                 $"curl -fsSL {DevinInstallUrl} | bash",
-                ScriptInstall(DevinInstallUrl)),
+                ScriptInstall(DevinInstallUrl),
+                ResumeArgs: ["--resume", "{id}"]),
             [AgentCliKind.Antigravity] = new(
                 "Antigravity (agy)",
                 "agy",
@@ -148,7 +149,8 @@ public static class AgentCliMap
                 "agy",
                 $"curl -fsSL {AntigravityInstallUrl} | bash",
                 ScriptInstall(AntigravityInstallUrl),
-                Aliases: ["antigravity"]),
+                Aliases: ["antigravity"],
+                ResumeArgs: ["--conversation", "{id}"]),
             [AgentCliKind.Kimi] = new(
                 "Kimi Code",
                 "kimi",
