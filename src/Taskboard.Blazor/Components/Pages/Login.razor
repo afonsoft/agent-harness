@@ -1,26 +1,27 @@
 @page "/login"
 @layout MinimalLayout
+@inject ILocaleService L
 
-<PageTitle>Login - Harness</PageTitle>
+<PageTitle>@L.T("login.pageTitle")</PageTitle>
 
 <div class="d-flex align-items-start justify-content-center pt-4 pt-sm-5" style="min-height: 80vh;">
     <div class="card w-100" style="max-width: 24rem;">
         <div class="card-body p-4">
             <div class="mb-4 text-center">
                 <h1 class="h3 fw-bold">Harness</h1>
-                <p class="mt-1 small text-body-secondary mb-0">Sign in to continue</p>
+                <p class="mt-1 small text-body-secondary mb-0">@L.T("login.subtitle")</p>
             </div>
             <form method="post" action="/api/login">
                 <div class="mb-3">
-                    <label for="username" class="form-label">Username</label>
+                    <label for="username" class="form-label">@L.T("login.username")</label>
                     <input id="username" type="text" name="Username" required autofocus class="form-control" placeholder="user" autocomplete="username" />
                 </div>
                 <div class="mb-3">
-                    <label for="password" class="form-label">Password</label>
+                    <label for="password" class="form-label">@L.T("login.password")</label>
                     <input id="password" type="password" name="Password" required class="form-control" placeholder="••••••••" autocomplete="current-password" />
                 </div>
                 <input type="hidden" name="ReturnUrl" value="/" />
-                <button type="submit" class="btn btn-primary w-100">Sign in</button>
+                <button type="submit" class="btn btn-primary w-100">@L.T("login.signin")</button>
             </form>
         </div>
     </div>

@@ -1,17 +1,18 @@
 @inject IAgentOrchestrationService OrchestrationService
 @inject TaskboardClient Client
 @inject ToastService ToastService
+@inject ILocaleService L
 @using Taskboard.Agents
 
 <div class="agent-log-tab">
     <div class="agent-log-header">
-        <strong>Execução do Agente</strong>
+        <strong>@L.T("tasklog.title")</strong>
         <div class="d-flex gap-2">
             <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="ClearAsync">
-                Limpar
+                @L.T("tasklog.clear")
             </Button>
             <Button Color="ButtonColor.Danger" Outline="true" Size="ButtonSize.Small" @onclick="CancelAsync">
-                Cancelar
+                @L.T("common.cancel")
             </Button>
         </div>
     </div>
@@ -34,7 +35,7 @@
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao limpar logs: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("tasklog.clearError", ex.Message)));
         }
     }
 
@@ -46,12 +47,12 @@
                 new AgentControlRequest("issue", IssueId, "cancel"));
             if (!accepted)
             {
-                await ToastService.NotifyAsync(new(ToastType.Warning, "Nenhuma execução ativa para cancelar."));
+                await ToastService.NotifyAsync(new(ToastType.Warning, L.T("tasklog.noActiveRun")));
             }
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao cancelar: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("tasklog.cancelError", ex.Message)));
         }
     }
 
@@ -72,12 +73,12 @@
                 new AgentPermissionReplyRequest("issue", IssueId, requestId, outcome));
             if (!ok)
             {
-                await ToastService.NotifyAsync(new(ToastType.Warning, "Permissão expirada ou já respondida."));
+                await ToastService.NotifyAsync(new(ToastType.Warning, L.T("tasklog.permissionExpired")));
             }
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao responder permissão: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("tasklog.permissionError", ex.Message)));
         }
     }
 

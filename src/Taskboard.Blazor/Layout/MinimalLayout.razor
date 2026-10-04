@@ -1,7 +1,21 @@
 @inherits LayoutComponentBase
+@inject ILocaleService L
 
 <div class="d-flex align-items-center justify-content-center min-vh-100 bg-body-tertiary">
+    <div class="position-fixed top-0 end-0 p-3">
+        <LocalePicker />
+    </div>
     <main class="w-100 px-3" style="max-width: 26rem;">
         @Body
     </main>
 </div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await L.InitializeAsync();
+        }
+    }
+}

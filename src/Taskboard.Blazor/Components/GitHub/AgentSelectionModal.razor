@@ -1,13 +1,14 @@
 @inject IAgentOrchestrationService OrchestrationService
 @inject ToastService ToastService
+@inject ILocaleService L
 
-<h6 class="mb-3">Selecionar Agente CLI</h6>
+<h6 class="mb-3">@L.T("agentselect.title")</h6>
 
 @if (_isLoading)
 {
     <div class="d-flex align-items-center">
         <Spinner Size="SpinnerSize.Small" Class="me-2" />
-        <span>Detectando agentes…</span>
+        <span>@L.T("agentselect.detecting")</span>
     </div>
 }
 else if (_agents is not null)
@@ -15,15 +16,15 @@ else if (_agents is not null)
     @if (_agents.Count == 0)
     {
         <div class="alert alert-warning" role="status">
-            Nenhum agente CLI habilitado e autenticado. Ative um agente em
-            <a href="/settings" class="alert-link">Settings → Agents</a> ou faça login pelo
-            <a href="/terminal" class="alert-link">Terminal</a>.
+            @L.T("agentselect.noAgents1")
+            <a href="/settings" class="alert-link">@L.T("nav.settings") → @L.T("nav.agents")</a> @L.T("agentselect.noAgents2")
+            <a href="/terminal" class="alert-link">@L.T("nav.terminal")</a>.
         </div>
     }
     else
     {
     <div class="mb-3">
-        <label for="agent-select" class="form-label">Agente</label>
+        <label for="agent-select" class="form-label">@L.T("agentselect.agent")</label>
         <select id="agent-select" class="form-select" @bind="_selectedAgentType">
             @foreach (var agent in _agents)
             {
@@ -33,30 +34,30 @@ else if (_agents is not null)
     </div>
 
     <div class="mb-3">
-        <label for="agent-branch" class="form-label">Branch de trabalho</label>
+        <label for="agent-branch" class="form-label">@L.T("agentselect.branch")</label>
         <input id="agent-branch" type="text" class="form-control" @bind="_branch" />
     </div>
 
     <div class="mb-3">
-        <label for="agent-scope" class="form-label">Escopo</label>
+        <label for="agent-scope" class="form-label">@L.T("agentselect.scope")</label>
         <input id="agent-scope" type="text" class="form-control" @bind="_scope" />
     </div>
 
     <div class="mb-3">
-        <label for="agent-instructions" class="form-label">Instruções <span class="text-danger">*</span></label>
+        <label for="agent-instructions" class="form-label">@L.T("agentselect.instructions") <span class="text-danger">*</span></label>
         <textarea id="agent-instructions" class="form-control" rows="5" @bind="_instructions"></textarea>
         @if (string.IsNullOrWhiteSpace(_instructions))
         {
-            <div class="form-text text-danger">As instruções são obrigatórias.</div>
+            <div class="form-text text-danger">@L.T("agentselect.instructionsRequired")</div>
         }
     </div>
     }
 }
 
 <div class="d-flex justify-content-end gap-2 pt-3 border-top">
-    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">Cancelar</Button>
+    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">@L.T("common.cancel")</Button>
     <Button Color="ButtonColor.Primary" @onclick="ConfirmAsync" Disabled="!CanConfirm()">
-        Iniciar Agente
+        @L.T("agentselect.start")
     </Button>
 </div>
 
@@ -103,7 +104,7 @@ else if (_agents is not null)
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("agentselect.detectError", ex.Message)));
         }
         finally
         {

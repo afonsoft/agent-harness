@@ -1,11 +1,12 @@
 @inject IJSRuntime JS
 @inject SelectedRepositoryService RepoService
+@inject ILocaleService L
 @implements IDisposable
 
-<nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="Sidebar navigation">
+<nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="@L.T("nav.sidebarNav")">
     <div class="sidebar-repo-selector">
         <RepositoryCombobox Id="sidebar-repo"
-                            AriaLabel="Repository"
+                            AriaLabel="@L.T("nav.repository")"
                             Placeholder="owner/repo"
                             Repositories="@RepoService.Repositories"
                             IsLoading="@(!RepoService.IsLoaded)"
@@ -22,73 +23,73 @@
         }
     </div>
     <button type="button" class="nav-link sidebar-repo-rail"
-            data-label="@(RepoService.Selected ?? "Repository")"
-            title="@(RepoService.Selected ?? "Select repository")"
-            aria-label="Select repository"
+            data-label="@(RepoService.Selected ?? L.T("nav.repository"))"
+            title="@(RepoService.Selected ?? L.T("nav.selectRepo"))"
+            aria-label="@L.T("nav.selectRepo")"
             @onclick="ExpandSidebarAsync">
         <Icon Name="IconName.Folder2" />
         <span class="rail-label">@RepoShortName</span>
     </button>
-    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="Board" data-label="Board" title='@RailTitle("Board")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" aria-label="@L.T("nav.board")" data-label="@L.T("nav.board")" title='@RailTitle(L.T("nav.board"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Kanban" />
-        <span class="nav-label">Board</span>
+        <span class="nav-label">@L.T("nav.board")</span>
     </NavLink>
-    <NavLink class="nav-link" href="ai-chat" aria-label="AI Code" data-label="AI Code" title='@RailTitle("AI Code")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="ai-chat" aria-label="@L.T("nav.aicode")" data-label="@L.T("nav.aicode")" title='@RailTitle(L.T("nav.aicode"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.ChatDots" />
-        <span class="nav-label">AI Code</span>
+        <span class="nav-label">@L.T("nav.aicode")</span>
     </NavLink>
-    <NavLink class="nav-link" href="terminal" aria-label="Terminal" data-label="Terminal" title='@RailTitle("Terminal")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="terminal" aria-label="@L.T("nav.terminal")" data-label="@L.T("nav.terminal")" title='@RailTitle(L.T("nav.terminal"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Terminal" />
-        <span class="nav-label">Terminal</span>
+        <span class="nav-label">@L.T("nav.terminal")</span>
     </NavLink>
-    <NavLink class="nav-link" href="gantt" aria-label="Gantt" data-label="Gantt" title='@RailTitle("Gantt")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="gantt" aria-label="@L.T("nav.gantt")" data-label="@L.T("nav.gantt")" title='@RailTitle(L.T("nav.gantt"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.BarChart" />
-        <span class="nav-label">Gantt</span>
+        <span class="nav-label">@L.T("nav.gantt")</span>
     </NavLink>
-    <NavLink class="nav-link" href="workflow" aria-label="Workflow" data-label="Workflow" title='@RailTitle("Workflow")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="workflow" aria-label="@L.T("nav.workflow")" data-label="@L.T("nav.workflow")" title='@RailTitle(L.T("nav.workflow"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Diagram3" />
-        <span class="nav-label">Workflow</span>
+        <span class="nav-label">@L.T("nav.workflow")</span>
     </NavLink>
-    <NavLink class="nav-link" href="specs" aria-label="Specs" data-label="Specs" title='@RailTitle("Specs")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="specs" aria-label="@L.T("nav.specs")" data-label="@L.T("nav.specs")" title='@RailTitle(L.T("nav.specs"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.FileEarmarkText" />
-        <span class="nav-label">Specs</span>
+        <span class="nav-label">@L.T("nav.specs")</span>
     </NavLink>
-    <NavLink class="nav-link" href="editor" aria-label="VS Code" data-label="VS Code" title='@RailTitle("VS Code")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="editor" aria-label="@L.T("nav.editor")" data-label="@L.T("nav.editor")" title='@RailTitle(L.T("nav.editor"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.CodeSlash" />
-        <span class="nav-label">VS Code</span>
+        <span class="nav-label">@L.T("nav.editor")</span>
     </NavLink>
     <hr class="app-sidebar-divider" />
-    <NavLink class="nav-link" href="cockpit" aria-label="Cockpit" data-label="Cockpit" title='@RailTitle("Cockpit")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="cockpit" aria-label="@L.T("nav.cockpit")" data-label="@L.T("nav.cockpit")" title='@RailTitle(L.T("nav.cockpit"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Speedometer2" />
-        <span class="nav-label">Cockpit</span>
+        <span class="nav-label">@L.T("nav.cockpit")</span>
     </NavLink>
-    <NavLink class="nav-link" href="agents" aria-label="CLI Agents" data-label="CLI Agents" title='@RailTitle("CLI Agents")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="agents" aria-label="@L.T("nav.agents")" data-label="@L.T("nav.agents")" title='@RailTitle(L.T("nav.agents"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Robot" />
-        <span class="nav-label">CLI Agents</span>
+        <span class="nav-label">@L.T("nav.agents")</span>
     </NavLink>
-    <NavLink class="nav-link" href="finops" aria-label="FinOps" data-label="FinOps" title='@RailTitle("FinOps")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="finops" aria-label="@L.T("nav.finops")" data-label="@L.T("nav.finops")" title='@RailTitle(L.T("nav.finops"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.CurrencyDollar" />
-        <span class="nav-label">FinOps</span>
+        <span class="nav-label">@L.T("nav.finops")</span>
     </NavLink>
-    <NavLink class="nav-link" href="settings" aria-label="Settings" data-label="Settings" title='@RailTitle("Settings")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="settings" aria-label="@L.T("nav.settings")" data-label="@L.T("nav.settings")" title='@RailTitle(L.T("nav.settings"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Gear" />
-        <span class="nav-label">Settings</span>
+        <span class="nav-label">@L.T("nav.settings")</span>
     </NavLink>
-    <NavLink class="nav-link" href="skills" aria-label="Skills" data-label="Skills" title='@RailTitle("Skills")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="skills" aria-label="@L.T("nav.skills")" data-label="@L.T("nav.skills")" title='@RailTitle(L.T("nav.skills"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Lightning" />
-        <span class="nav-label">Skills</span>
+        <span class="nav-label">@L.T("nav.skills")</span>
     </NavLink>
-    <NavLink class="nav-link" href="jobs" aria-label="Jobs" data-label="Jobs" title='@RailTitle("Jobs")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="jobs" aria-label="@L.T("nav.jobs")" data-label="@L.T("nav.jobs")" title='@RailTitle(L.T("nav.jobs"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.ClockHistory" />
-        <span class="nav-label">Jobs</span>
+        <span class="nav-label">@L.T("nav.jobs")</span>
     </NavLink>
-    <NavLink class="nav-link" href="prompts/taskboard/manage-taskboard" aria-label="Prompts" data-label="Prompts" title='@RailTitle("Prompts")' @onclick="CloseSidebarAsync">
+    <NavLink class="nav-link" href="prompts/taskboard/manage-taskboard" aria-label="@L.T("nav.prompts")" data-label="@L.T("nav.prompts")" title='@RailTitle(L.T("nav.prompts"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.FileText" />
-        <span class="nav-label">Prompts</span>
+        <span class="nav-label">@L.T("nav.prompts")</span>
     </NavLink>
-    <a class="nav-link" href="https://github.com/afonsoft/agent-harness/issues" target="_blank" rel="noopener noreferrer" aria-label="Issues" data-label="Issues" title='@RailTitle("Issues")' @onclick="CloseSidebarAsync">
+    <a class="nav-link" href="https://github.com/afonsoft/agent-harness/issues" target="_blank" rel="noopener noreferrer" aria-label="@L.T("nav.issues")" data-label="@L.T("nav.issues")" title='@RailTitle(L.T("nav.issues"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.RecordCircle" />
-        <span class="nav-label">Issues</span>
+        <span class="nav-label">@L.T("nav.issues")</span>
     </a>
 </nav>
 
@@ -102,7 +103,7 @@
     private string RepoShortName =>
         RepoService.Selected?.Split('/') is { Length: > 0 } parts
             ? parts[^1]
-            : "Repo";
+            : L.T("nav.repoShort");
 
     protected override async Task OnInitializedAsync()
     {
@@ -120,7 +121,7 @@
     {
         if (!await RepoService.SelectAsync(value))
         {
-            _repoWarning = $"Invalid repository '{value}'. Use the format owner/repo.";
+            _repoWarning = L.T("nav.repoInvalid", value);
             _repoInput = RepoService.Selected ?? string.Empty;
             return;
         }

@@ -2,27 +2,28 @@
 @inject IGitHubService GitHubService
 @inject IAgentOrchestrationService OrchestrationService
 @inject ToastService ToastService
+@inject ILocaleService L
 
 <Tabs EnableFadeEffect="true">
-    <Tab Title="Detalhes" IsActive="true">
+    <Tab Title="@L.T("detail.tabDetails")" IsActive="true">
         <Content>
             <div class="pt-3">
                 @if (_editing)
                 {
                     <div class="mb-3">
-                        <label for="edit-issue-title" class="form-label">Título <span class="text-danger">*</span></label>
+                        <label for="edit-issue-title" class="form-label">@L.T("newtask.title") <span class="text-danger">*</span></label>
                         <input id="edit-issue-title" type="text" class="form-control" maxlength="250" @bind="_editTitle" />
                     </div>
                     <Tabs EnableFadeEffect="false">
-                        <Tab Title="Escrever" IsActive="true">
+                        <Tab Title="@L.T("common.write")" IsActive="true">
                             <Content>
                                 <div class="pt-2">
-                                    <label for="edit-issue-body" class="form-label">Descrição (markdown)</label>
+                                    <label for="edit-issue-body" class="form-label">@L.T("newtask.description")</label>
                                     <textarea id="edit-issue-body" class="form-control" rows="8" @bind="_editBody"></textarea>
                                 </div>
                             </Content>
                         </Tab>
-                        <Tab Title="Visualizar">
+                        <Tab Title="@L.T("common.preview")">
                             <Content>
                                 <div class="pt-2 markdown-body">
                                     @((MarkupString)MarkdownRenderer.ToSafeHtml(_editBody))
@@ -31,13 +32,13 @@
                         </Tab>
                     </Tabs>
                     <div class="d-flex justify-content-end gap-2 pt-3">
-                        <Button Color="ButtonColor.Secondary" Disabled="_saving" @onclick="CancelEdit">Cancelar</Button>
+                        <Button Color="ButtonColor.Secondary" Disabled="_saving" @onclick="CancelEdit">@L.T("common.cancel")</Button>
                         <Button Color="ButtonColor.Primary" Disabled="_saving || string.IsNullOrWhiteSpace(_editTitle)" @onclick="SaveEditAsync">
                             @if (_saving)
                             {
                                 <Spinner Size="SpinnerSize.Small" Class="me-2" />
                             }
-                            Salvar
+                            @L.T("common.save")
                         </Button>
                     </div>
                 }
@@ -45,21 +46,21 @@
                 {
                     <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
                         <h6 class="mb-0">@Issue?.Title</h6>
-                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small" @onclick="StartEdit" aria-label="Editar issue">
-                            <Icon Name="IconName.PencilSquare" /> Editar
+                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small" @onclick="StartEdit" aria-label="@L.T("common.edit")">
+                            <Icon Name="IconName.PencilSquare" /> @L.T("common.edit")
                         </Button>
                     </div>
                     <p class="small text-body-secondary mb-2">
-                        <strong>Repositório:</strong> @RepositoryFullName
+                        <strong>@L.T("detail.repo")</strong> @RepositoryFullName
                     </p>
                     <p class="small text-body-secondary mb-2">
-                        <strong>Coluna:</strong> @Issue?.Column.ToDisplayName()
+                        <strong>@L.T("detail.column")</strong> @Issue?.Column.ToDisplayName()
                     </p>
                     <p class="small text-body-secondary mb-2">
-                        <strong>Agente:</strong>
+                        <strong>@L.T("detail.agent")</strong>
                         @if (_latestRun is null)
                         {
-                            <span>Nenhum agente executou nesta issue</span>
+                            <span>@L.T("detail.noAgentRan")</span>
                         }
                         else
                         {
@@ -70,14 +71,14 @@
                             @if (_latestRun.FinishedAt is not null)
                             {
                                 <span class="d-block text-body-secondary">
-                                    iniciado @UiFormat.DateTime(_latestRun.StartedAt)
-                                    · finalizado @UiFormat.DateTime(_latestRun.FinishedAt.Value)
+                                    @L.T("detail.started") @UiFormat.DateTime(_latestRun.StartedAt)
+                                    · @L.T("detail.finished") @UiFormat.DateTime(_latestRun.FinishedAt.Value)
                                 </span>
                             }
                             else
                             {
                                 <span class="d-block text-body-secondary">
-                                    iniciado @UiFormat.DateTime(_latestRun.StartedAt)
+                                    @L.T("detail.started") @UiFormat.DateTime(_latestRun.StartedAt)
                                 </span>
                             }
                         }
@@ -89,21 +90,21 @@
                         </div>
                     }
                     <a href="@Issue?.HtmlUrl" target="_blank" class="d-block mt-3">
-                        <Icon Name="IconName.BoxArrowUpRight" class="me-1" />Abrir no GitHub
+                        <Icon Name="IconName.BoxArrowUpRight" class="me-1" />@L.T("detail.openGithub")
                     </a>
                     <a href="/api/vscode/open?repo=@Uri.EscapeDataString(RepositoryFullName)" target="_blank" class="d-block mt-2">
                         <Icon Name="IconName.CodeSlash" class="me-1" />Open in VS Code
                     </a>
                     <div class="d-flex justify-content-end mt-4 pt-3 border-top">
                         <Button Color="ButtonColor.Primary" @onclick="() => _showMoveSheet = true">
-                            <Icon Name="IconName.ArrowLeftRight" class="me-1" />Mover para…
+                            <Icon Name="IconName.ArrowLeftRight" class="me-1" />@L.T("board.moveTo")
                         </Button>
                     </div>
                 }
             </div>
         </Content>
     </Tab>
-    <Tab Title="Agent Config">
+    <Tab Title="@L.T("detail.tabAgentConfig")">
         <Content>
             @if (Issue is not null)
             {
@@ -111,7 +112,7 @@
             }
         </Content>
     </Tab>
-    <Tab Title="Logs do Agente">
+    <Tab Title="@L.T("detail.tabLogs")">
         <Content>
             <div class="pt-3">
                 @if (Issue is not null)
@@ -121,7 +122,7 @@
             </div>
         </Content>
     </Tab>
-    <Tab Title="Histórico">
+    <Tab Title="@L.T("detail.tabHistory")">
         <Content>
             @if (Issue is not null)
             {
@@ -129,7 +130,7 @@
             }
         </Content>
     </Tab>
-    <Tab Title="Comentários">
+    <Tab Title="@L.T("detail.tabComments")">
         <Content>
             @if (Issue is not null)
             {
@@ -218,12 +219,12 @@
             Issue = await GitHubService.UpdateIssueAsync(
                 RepositoryFullName, Issue.Number, _editTitle, _editBody);
             _editing = false;
-            await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{Issue.Number} atualizada."));
+            await ToastService.NotifyAsync(new(ToastType.Success, L.T("detail.updated", Issue.Number)));
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao salvar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("detail.saveError", ex.Message)));
         }
         finally
         {
@@ -243,12 +244,12 @@
         {
             Issue = await GitHubService.UpdateIssueColumnAsync(
                 RepositoryFullName, Issue.Number, Issue.Column, column);
-            await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{Issue.Number} movida para {column.ToLabel()}."));
+            await ToastService.NotifyAsync(new(ToastType.Success, L.T("board.moved", Issue.Number, column.ToLabel())));
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao mover issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("board.moveError", ex.Message)));
         }
     }
 
@@ -263,12 +264,12 @@
         try
         {
             Issue = await GitHubService.CloseIssueAsync(RepositoryFullName, Issue.Number, resolution);
-            await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{Issue.Number} fechada ({resolution})."));
+            await ToastService.NotifyAsync(new(ToastType.Success, L.T("board.issueClosed", Issue.Number, resolution)));
             await OnChanged.InvokeAsync();
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("board.closeError", ex.Message)));
         }
     }
 

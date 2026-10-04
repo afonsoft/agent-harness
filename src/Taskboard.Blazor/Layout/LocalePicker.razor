@@ -1,0 +1,26 @@
+@* SPEC-20261008-locale-picker RF-002: top-right language combo. *@
+@inject ILocaleService L
+
+<label class="locale-picker d-flex align-items-center gap-1 mb-0">
+    <Icon Name="IconName.Globe2" />
+    <select class="form-select form-select-sm w-auto locale-picker-select"
+            aria-label="@L.T("topbar.language")"
+            title="@L.T("topbar.language")"
+            value="@L.Culture"
+            @onchange="OnCultureChangedAsync">
+        @foreach (var option in L.Options)
+        {
+            <option value="@option.Culture" selected="@(option.Culture == L.Culture)">@option.Label</option>
+        }
+    </select>
+</label>
+
+@code {
+    private async Task OnCultureChangedAsync(ChangeEventArgs e)
+    {
+        if (e.Value is string culture)
+        {
+            await L.SetCultureAsync(culture);
+        }
+    }
+}

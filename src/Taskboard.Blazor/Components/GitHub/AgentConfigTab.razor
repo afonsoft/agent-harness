@@ -6,6 +6,7 @@
 @inject TaskboardClient Client
 @inject ToastService ToastService
 @inject IJSRuntime JS
+@inject ILocaleService L
 
 @*
     SPEC-20260918-kanban-card-ux RF-006: agente elegível + prompt por issue.
@@ -16,15 +17,15 @@
 {
     <div class="d-flex align-items-center pt-3">
         <Spinner Size="SpinnerSize.Small" Class="me-2" />
-        <span>Detectando agentes…</span>
+        <span>@L.T("agentselect.detecting")</span>
     </div>
 }
 else if (_agents is { Count: 0 })
 {
     <div class="alert alert-warning mt-3" role="status">
-        Nenhum agente CLI habilitado e autenticado. Ative um agente em
-        <a href="/settings" class="alert-link">Settings → Agents</a> ou faça login pelo
-        <a href="/terminal" class="alert-link">Terminal</a>.
+        @L.T("agentselect.noAgents1")
+        <a href="/settings" class="alert-link">@L.T("nav.settings") → @L.T("nav.agents")</a> @L.T("agentselect.noAgents2")
+        <a href="/terminal" class="alert-link">@L.T("nav.terminal")</a>.
     </div>
 }
 else if (_agents is not null)
@@ -33,7 +34,7 @@ else if (_agents is not null)
         @if (!string.IsNullOrWhiteSpace(RepositoryFullName))
         {
             <div class="mb-3">
-                <label class="form-label">Repositório</label>
+                <label class="form-label">@L.T("agentconfig.repo")</label>
                 <div>
                     <a href="https://github.com/@RepositoryFullName" target="_blank" rel="noopener noreferrer" class="text-decoration-none">
                         <i class="bi bi-github me-1"></i>@RepositoryFullName
@@ -44,7 +45,7 @@ else if (_agents is not null)
 
         <div class="row g-3 mb-3">
             <div class="col-sm-6">
-                <label for="cfg-agent-select" class="form-label">Agente</label>
+                <label for="cfg-agent-select" class="form-label">@L.T("agentselect.agent")</label>
                 <select id="cfg-agent-select" class="form-select" @bind="_selectedAgentType">
                     @foreach (var agent in _agents)
                     {
@@ -55,7 +56,7 @@ else if (_agents is not null)
                 </select>
             </div>
             <div class="col-sm-6">
-                <label for="cfg-model-select" class="form-label">Modelo</label>
+                <label for="cfg-model-select" class="form-label">@L.T("agentconfig.model")</label>
                 @if (AgentCliModels.SupportsModelSelection(_selectedAgentType))
                 {
                     <select id="cfg-model-select" class="form-select" @bind="_modelTier">
@@ -68,25 +69,25 @@ else if (_agents is not null)
                 else
                 {
                     <select id="cfg-model-select" class="form-select" disabled>
-                        <option>Gerenciado pela CLI</option>
+                        <option>@L.T("agentconfig.managedByCli")</option>
                     </select>
-                    <div class="form-text">A CLI escolhe o modelo</div>
+                    <div class="form-text">@L.T("agentconfig.cliPicksModel")</div>
                 }
             </div>
         </div>
 
         <div class="mb-3">
-            <label class="form-label">Comando</label>
+            <label class="form-label">@L.T("agentconfig.command")</label>
             <pre class="agent-command-preview border rounded p-2 mb-0 small"><code>@AgentCliInvocation.PreviewCommandLine(_selectedAgentType, _modelTier)</code></pre>
         </div>
 
         <div class="mb-3">
             <label for="cfg-agent-prompt" class="form-label">Prompt <span class="text-danger">*</span></label>
             <textarea id="cfg-agent-prompt" class="form-control" rows="6" @bind="_prompt"
-                      placeholder="Instruções para o agente executar nesta issue…"></textarea>
+                      placeholder="@L.T("agentconfig.promptPlaceholder")"></textarea>
             @if (string.IsNullOrWhiteSpace(_prompt))
             {
-                <div class="form-text text-danger">O prompt é obrigatório.</div>
+                <div class="form-text text-danger">@L.T("agentconfig.promptRequired")</div>
             }
         </div>
 
@@ -96,7 +97,7 @@ else if (_agents is not null)
                 {
                     <Spinner Size="SpinnerSize.Small" Class="me-2" />
                 }
-                Executar
+                @L.T("common.run")
             </Button>
         </div>
     </div>
@@ -165,7 +166,7 @@ else if (_agents is not null)
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao detectar agentes: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("agentselect.detectError", ex.Message)));
         }
         finally
         {
@@ -292,12 +293,12 @@ else if (_agents is not null)
 
             await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, _prompt);
             await ToastService.NotifyAsync(new(ToastType.Success,
-                $"Agente {_selectedAgentType} iniciado para a issue #{Issue.Number} — abra no Cockpit."));
+                L.T("agentconfig.agentStarted", _selectedAgentType, Issue.Number)));
             await OnExecuted.InvokeAsync(run);
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao executar agente: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("agentconfig.execError", ex.Message)));
         }
         finally
         {

@@ -2,6 +2,7 @@
 @inject IGitHubService GitHubService
 @inject IAgentOrchestrationService OrchestrationService
 @inject TaskboardClient Client
+@inject ILocaleService L
 @inject ToastService ToastService
 
 <Modal @ref="_agentModal" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true" OnHidden="OnAgentModalHidden" />
@@ -10,7 +11,7 @@
 
 @if (_isLoading)
 {
-    <Loading Message="Carregando issues…" />
+    <Loading Message="@L.T("board.loadingIssues")" />
 }
 else if (!string.IsNullOrWhiteSpace(_errorMessage))
 {
@@ -22,19 +23,19 @@ else if (_columns is not null)
     {
         <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3" role="status">
             <Icon Name="IconName.Play" />
-            <span>Run iniciado para a issue #@_lastRun.Value.IssueNumber — acompanhe pelo Cockpit.</span>
-            <a href="/cockpit/runs/@_lastRun.Value.RunId" class="alert-link">Abrir no Cockpit</a>
-            <button type="button" class="btn-close ms-auto" aria-label="Fechar" @onclick="() => _lastRun = null"></button>
+            <span>@L.T("board.runStarted", _lastRun.Value.IssueNumber)</span>
+            <a href="/cockpit/runs/@_lastRun.Value.RunId" class="alert-link">@L.T("board.openInCockpit")</a>
+            <button type="button" class="btn-close ms-auto" aria-label="@L.T("common.close")" @onclick="() => _lastRun = null"></button>
         </div>
     }
     <div class="d-flex gap-2 mb-3 flex-wrap">
         <Button Color="ButtonColor.Primary" data-shortcut-new @onclick="OpenNewTaskDialogAsync">
-            <Icon Name="IconName.Plus" class="me-2" />Nova Tarefa
+            <Icon Name="IconName.Plus" class="me-2" />@L.T("newtask.dialogTitle")
         </Button>
-        <input type="search" class="form-control form-control-sm w-auto" enterkeyhint="search" data-shortcut-search placeholder="Filtrar por título, descrição ou label…"
-               aria-label="Filtrar issues" @bind="_filterText" @bind:event="oninput" />
-        <select class="form-select form-select-sm w-auto" aria-label="Filtrar por prioridade" @bind="_filterPriority">
-            <option value="">Todas as prioridades</option>
+        <input type="search" class="form-control form-control-sm w-auto" enterkeyhint="search" data-shortcut-search placeholder="@L.T("board.filterPlaceholder")"
+               aria-label="@L.T("board.filterAria")" @bind="_filterText" @bind:event="oninput" />
+        <select class="form-select form-select-sm w-auto" aria-label="@L.T("board.filterPriorityAria")" @bind="_filterPriority">
+            <option value="">@L.T("board.allPriorities")</option>
             @foreach (var priority in _priorities)
             {
                 <option value="@priority">@priority</option>
@@ -69,7 +70,7 @@ else if (_columns is not null)
                                  draggable="true"
                                  role="button"
                                  tabindex="0"
-                                 aria-label="@context.Title, drag to move"
+                                 aria-label="@L.T("board.dragAria", context.Title)"
                                  @ondragstart="() => OnDragStart(context, column.Column)"
                                  @ondragend="OnDragEnd"
                                  @onclick="() => OpenTaskDetailAsync(context)">
@@ -78,7 +79,7 @@ else if (_columns is not null)
                                     <div class="dropdown task-card-actions">
                                         <button type="button" class="task-card-menu" data-bs-toggle="dropdown"
                                                 aria-expanded="false" aria-haspopup="menu"
-                                                aria-label="Ações da issue #@context.Number"
+                                                aria-label="@L.T("board.issueActions", context.Number)"
                                                 @onclick:stopPropagation @ondragstart:stopPropagation>
                                             <Icon Name="IconName.ThreeDotsVertical" />
                                         </button>
@@ -87,11 +88,11 @@ else if (_columns is not null)
                                                 <button type="button" class="dropdown-item" role="menuitem"
                                                         @onclick="() => OpenMoveSheet(context)"
                                                         @onclick:stopPropagation>
-                                                    Mover para…
+                                                    @L.T("board.moveTo")
                                                 </button>
                                             </li>
                                             <li><hr class="dropdown-divider" /></li>
-                                            <li><h6 class="dropdown-header">Prioridade</h6></li>
+                                            <li><h6 class="dropdown-header">@L.T("board.priorityHeader")</h6></li>
                                             @foreach (var priority in _priorities)
                                             {
                                                 <li>
@@ -120,7 +121,7 @@ else if (_columns is not null)
                                 }
                                 <div class="task-meta">
                                     <span class="task-priority-swatch" style="@GetPrioritySwatchStyle(context)"
-                                          title="Prioridade: @context.Priority"></span>
+                                          title="@L.T("board.priorityTitle", context.Priority)"></span>
                                     <span>@context.Priority</span>
                                     @if (context.AssigneeLogin is not null)
                                     {
@@ -214,7 +215,7 @@ else if (_columns is not null)
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Erro ao carregar issues: {ex.Message}";
+            _errorMessage = L.T("board.loadError", ex.Message);
         }
         finally
         {
@@ -365,12 +366,12 @@ else if (_columns is not null)
         {
             await GitHubService.CloseIssueAsync(RepositoryFullName, issue.Number, resolution);
             await ToastService.NotifyAsync(new(ToastType.Success,
-                $"Issue #{issue.Number} fechada ({resolution})."));
+                L.T("board.issueClosed", issue.Number, resolution)));
             await LoadIssuesAsync();
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao fechar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("board.closeError", ex.Message)));
         }
     }
 
@@ -383,7 +384,7 @@ else if (_columns is not null)
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao atualizar prioridade: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("board.priorityError", ex.Message)));
         }
     }
 
@@ -438,19 +439,19 @@ else if (_columns is not null)
                 }
 
                 await ToastService.NotifyAsync(new(ToastType.Success,
-                    $"Issue #{issue.Number} movida para {toColumn.ToLabel()} e agente {request.AgentType} iniciado — abra no Cockpit."));
+                    L.T("board.movedWithAgent", issue.Number, toColumn.ToLabel(), request.AgentType)));
             }
             else
             {
                 await GitHubService.UpdateIssueColumnAsync(RepositoryFullName, issue.Number, fromColumn, toColumn);
-                await ToastService.NotifyAsync(new(ToastType.Success, $"Issue #{issue.Number} movida para {toColumn.ToLabel()}."));
+                await ToastService.NotifyAsync(new(ToastType.Success, L.T("board.moved", issue.Number, toColumn.ToLabel())));
             }
 
             await LoadIssuesAsync();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Erro ao mover issue: {ex.Message}";
+            _errorMessage = L.T("board.moveError", ex.Message);
             await ToastService.NotifyAsync(new(ToastType.Danger, _errorMessage));
         }
     }
@@ -524,7 +525,7 @@ else if (_columns is not null)
             { nameof(NewTaskDialog.OnCancel), EventCallback.Factory.Create(this, OnNewTaskCanceledAsync) }
         };
 
-        await _newTaskModal.ShowAsync<NewTaskDialog>(title: "Nova Tarefa", parameters: parameters);
+        await _newTaskModal.ShowAsync<NewTaskDialog>(title: L.T("newtask.dialogTitle"), parameters: parameters);
 
         if (await _newTaskTcs.Task)
         {
@@ -565,15 +566,15 @@ else if (_columns is not null)
         return initials.Length > 0 ? initials : login[..Math.Min(2, login.Length)].ToUpperInvariant();
     }
 
-    private static string RelativeTime(DateTimeOffset timestamp)
+    private string RelativeTime(DateTimeOffset timestamp)
     {
         var elapsed = DateTimeOffset.UtcNow - timestamp;
         return elapsed switch
         {
-            { TotalMinutes: < 1 } => "agora",
-            { TotalHours: < 1 } => $"há {(int)elapsed.TotalMinutes}min",
-            { TotalDays: < 1 } => $"há {(int)elapsed.TotalHours}h",
-            { TotalDays: < 30 } => $"há {(int)elapsed.TotalDays}d",
+            { TotalMinutes: < 1 } => L.T("board.agoNow"),
+            { TotalHours: < 1 } => L.T("board.agoMin", (int)elapsed.TotalMinutes),
+            { TotalDays: < 1 } => L.T("board.agoHours", (int)elapsed.TotalHours),
+            { TotalDays: < 30 } => L.T("board.agoDays", (int)elapsed.TotalDays),
             _ => timestamp.ToLocalTime().ToString("d", CultureInfo.CurrentCulture)
         };
     }
