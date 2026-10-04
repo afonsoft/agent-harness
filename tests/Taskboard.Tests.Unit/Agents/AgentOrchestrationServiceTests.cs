@@ -192,6 +192,48 @@ public class AgentOrchestrationServiceTests
         }
     }
 
+    // Regression: runs delegadas (task worktree, sem issue de board) chegam com
+    // RepositoryFullName vazio — MoveToReview não deve chamar o GitHub nem
+    // sujar o log com "Failed to move issue to review".
+    [Fact]
+    public async Task Dado_RunSemBoardContext_Quando_ProcessarFila_Entao_NaoMoveIssueParaReview()
+    {
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(),
+                Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new AgentExecutionResult(0, true)));
+        var gitHubService = Substitute.For<IGitHubService>();
+        var runRepository = Substitute.For<IAgentRunRepository>();
+        var service = CriarService(acpClient: acpClient, gitHubService: gitHubService, agentRunRepository: runRepository);
+        var request = CriarRequest() with { RepositoryFullName = "", IssueNumber = 0 };
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () => await Task.FromResult(
+                runRepository.ReceivedCalls().Any(call =>
+                    call.GetMethodInfo().Name == nameof(IAgentRunRepository.FinishAsync) &&
+                    call.GetArguments().Contains(AgentRunState.Succeeded))));
+            await Task.Delay(200); // margem p/ a chamada indevida aterrissar
+
+            await gitHubService.DidNotReceive().UpdateIssueColumnAsync(
+                Arg.Any<string>(),
+                Arg.Any<int>(),
+                Arg.Any<GitHubBoardColumn?>(),
+                Arg.Any<GitHubBoardColumn>(),
+                Arg.Any<CancellationToken>());
+            (await service.GetLogsAsync(request.IssueId))
+                .ShouldNotContain(log => log.Content.Contains("Failed to move issue to review", StringComparison.Ordinal));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
     [Fact]
     public async Task Dado_ExecucaoEmAndamento_Quando_Cancelar_Entao_RegistraCancelamento()
     {

@@ -330,8 +330,41 @@ public class GitWorktreeManagerTests : IDisposable
 
         var readme = diff.Files.Single(f => f.Path == "README.md");
         (readme.Insertions + readme.Deletions).ShouldBeGreaterThan(0);
-        diff.Files.Single(f => f.Path == "novo.cs").Insertions.ShouldBe(0); // untracked não entra no diff
-        diff.Insertions.ShouldBeGreaterThanOrEqualTo(readme.Insertions);
+        // Untracked não sai no `git diff` — as linhas são contadas do disco.
+        diff.Files.Single(f => f.Path == "novo.cs").Insertions.ShouldBe(1);
+        diff.Insertions.ShouldBeGreaterThanOrEqualTo(readme.Insertions + 1);
+    }
+
+    // Regression: diretório só-untracked colapsa como 'dir/' no porcelain —
+    // o diffstat deve somar as linhas de todos os arquivos dentro dele.
+    [Fact]
+    public async Task Dado_DiretorioUntracked_Quando_GetDiff_Entao_SomaLinhasDosNovos()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_untracked_dir", _repoPath, "main", "untracked-dir");
+        Directory.CreateDirectory(Path.Join(dto.Path, "lib"));
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "lib", "a.cs"), "a1\na2\n");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "lib", "b.cs"), "b1\n");
+
+        var diff = await _sut.GetDiffAsync("run_untracked_dir");
+
+        diff.Files.Single(f => f.Path == "lib/").Insertions.ShouldBe(3);
+        diff.Insertions.ShouldBe(3);
+    }
+
+    // Edge cases do diffstat untracked: última linha sem '\n' conta (como no
+    // git); binário vale 0 (o '-' do numstat); inexistente/deleted mid-race → 0.
+    [Fact]
+    public async Task Dado_ArquivosUntrackedVariados_Quando_GetDiff_Entao_DiffstatCoerente()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_untracked_mix", _repoPath, "main", "untracked-mix");
+        await File.WriteAllTextAsync(Path.Join(dto.Path, "sem-newline.txt"), "fim sem nl");
+        await File.WriteAllBytesAsync(Path.Join(dto.Path, "bin.dat"), [0x50, 0x4B, 0x00, 0x00, 0x01]);
+
+        var diff = await _sut.GetDiffAsync("run_untracked_mix");
+
+        diff.Files.Single(f => f.Path == "sem-newline.txt").Insertions.ShouldBe(1);
+        diff.Files.Single(f => f.Path == "bin.dat").Insertions.ShouldBe(0);
+        diff.Insertions.ShouldBe(1);
     }
 
     // Regression: mudança commitada na branch do run sai do `status --porcelain`

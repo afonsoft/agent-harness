@@ -129,12 +129,28 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         var known = new HashSet<string>(files.Select(f => f.Path), StringComparer.Ordinal);
         files.AddRange(ParseStatus(status.StandardOutput).Where(f => known.Add(f.Path)));
 
+        // Untracked nunca sai no `git diff` (não há blob no index): conta as
+        // linhas no disco como insertions, senão o diffstat mostra +0−0 para
+        // arquivos novos — FilesChanged/promote já os consideravam.
+        var untracked = files.Any(f => f.Status == "Untracked" && !perFile.ContainsKey(f.Path))
+            ? await CountUntrackedLinesAsync(session.Path, cancellationToken)
+            : [];
+
+        var extraInsertions = 0;
         files = files
-            .Select(f => perFile.TryGetValue(f.Path, out var counts)
-                ? f with { Insertions = counts.Insertions, Deletions = counts.Deletions }
-                : f)
+            .Select(f =>
+            {
+                if (perFile.TryGetValue(f.Path, out var counts))
+                {
+                    return f with { Insertions = counts.Insertions, Deletions = counts.Deletions };
+                }
+
+                var ins = UntrackedInsertions(f, untracked);
+                extraInsertions += ins;
+                return ins > 0 ? f with { Insertions = ins } : f;
+            })
             .ToList();
-        var insertions = perFile.Values.Sum(v => v.Insertions);
+        var insertions = perFile.Values.Sum(v => v.Insertions) + extraInsertions;
         var deletions = perFile.Values.Sum(v => v.Deletions);
 
         return new WorkspaceDiffDto(files.Count, insertions, deletions, files, patch.StandardOutput);
@@ -448,6 +464,110 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         }
 
         return files;
+    }
+
+    /// <summary>Insertions de um arquivo untracked (linhas lidas do disco, por path).</summary>
+    private async Task<Dictionary<string, int>> CountUntrackedLinesAsync(
+        string worktreePath, CancellationToken cancellationToken)
+    {
+        // --exclude-standard honra .gitignore — mesmo conjunto que o '??' do
+        // porcelain cobre (incluindo o interior de diretórios colapsados).
+        var ls = await _git.RunAsync(
+            worktreePath, ["ls-files", "--others", "--exclude-standard"], GitTimeout, cancellationToken);
+        EnsureSuccess(ls, "git ls-files --others");
+
+        var map = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var line in ls.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var rel = line.TrimEnd();
+            if (rel.Length > 0)
+            {
+                map[rel] = CountTextLines(worktreePath, rel);
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Linhas de texto de um arquivo (sniff de binário idêntico ao do
+    /// explorer); arquivo ausente, diretório ou binário → 0, como o
+    /// <c>-</c> que o numstat mostraria.
+    /// </summary>
+    private static int CountTextLines(string worktreePath, string relativePath)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(Path.Join(worktreePath, relativePath));
+            var info = new FileInfo(fullPath);
+            if (!info.Exists || info.Length == 0 || EscapesViaLink(info, worktreePath))
+            {
+                return 0;
+            }
+
+            var buffer = new byte[64 * 1024];
+            var lines = 0;
+            var sniffed = 0;
+            var lastByte = -1;
+            using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            int read;
+            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                if (sniffed < BinarySniffBytes)
+                {
+                    var window = Math.Min(read, BinarySniffBytes - sniffed);
+                    if (buffer.AsSpan(0, window).IndexOf((byte)0) >= 0)
+                    {
+                        return 0;
+                    }
+
+                    sniffed += window;
+                }
+
+                for (var i = 0; i < read; i++)
+                {
+                    if (buffer[i] == (byte)'\n')
+                    {
+                        lines++;
+                    }
+                }
+
+                lastByte = buffer[read - 1];
+            }
+
+            // Última linha sem '\n' final também conta, como no diff do git.
+            return lastByte >= 0 && lastByte != '\n' ? lines + 1 : lines;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return 0; // corrida de deleção/lock — não pode derrubar o diff
+        }
+    }
+
+    /// <summary>Insertions de uma entrada Untracked: direto do mapa ou soma sob um 'dir/' colapsado.</summary>
+    private static int UntrackedInsertions(WorkspaceDiffFileDto file, IReadOnlyDictionary<string, int> untrackedLines)
+    {
+        if (file.Status != "Untracked")
+        {
+            return 0;
+        }
+
+        // `status --porcelain` colapsa diretórios só-untracked como 'dir/'.
+        if (file.Path.EndsWith('/'))
+        {
+            var sum = 0;
+            foreach (var (path, count) in untrackedLines)
+            {
+                if (path.StartsWith(file.Path, StringComparison.Ordinal))
+                {
+                    sum += count;
+                }
+            }
+
+            return sum;
+        }
+
+        return untrackedLines.TryGetValue(file.Path, out var lines) ? lines : 0;
     }
 
     /// <summary>--numstat por arquivo (renames resolvem para o path novo).</summary>
