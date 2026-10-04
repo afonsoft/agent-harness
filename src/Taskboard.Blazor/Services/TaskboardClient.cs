@@ -456,6 +456,40 @@ public sealed class TaskboardClient
             $"/api/local/delegation/dashboard{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
             cancellationToken);
 
+    /// <summary>SPEC-20261007 RF-001: reply to a mailbox message (answers escalations/decisions).</summary>
+    public async Task<string?> ReplyMailboxAsync(
+        string messageId, string body, string? scope = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/delegation/mailbox/{Uri.EscapeDataString(messageId)}/reply{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            new { body }, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? null
+            : await ReadErrorAsync(response, cancellationToken);
+    }
+
+    /// <summary>SPEC-20261007 RF-001: dismiss a mailbox message without replying.</summary>
+    public async Task<string?> DismissMailboxAsync(
+        string messageId, string? scope = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/local/delegation/mailbox/{Uri.EscapeDataString(messageId)}/dismiss{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? null
+            : await ReadErrorAsync(response, cancellationToken);
+    }
+
+    /// <summary>SPEC-20261007 RF-004: per-leg diffstat + bounded patch of a fan-out group.</summary>
+    public async Task<IReadOnlyList<FanoutCompareLegDto>> GetFanoutCompareAsync(
+        string groupId, string? scope = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetFromJsonAsync<FanoutCompareResponse>(
+            $"/api/local/delegation/fanout/{Uri.EscapeDataString(groupId)}/compare{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            cancellationToken);
+        return response?.Legs ?? [];
+    }
+
     /// <summary>SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.</summary>
     public async Task<IReadOnlyList<AgentSessionInfoDto>> GetAgentSessionsAsync(
         string? cli = null, CancellationToken cancellationToken = default)
@@ -897,6 +931,8 @@ public sealed class TaskboardClient
     private sealed record InstalledAgentsResponse(List<AgentInfo> Agents);
 
     private sealed record AgentSessionsResponse(List<AgentSessionInfoDto> Sessions);
+
+    private sealed record FanoutCompareResponse(string GroupId, List<FanoutCompareLegDto> Legs);
 
     // SPEC-20260929-ai-code-provider-chat.
     public async Task<IReadOnlyList<ChatProviderDto>> GetChatProvidersAsync(CancellationToken cancellationToken = default)

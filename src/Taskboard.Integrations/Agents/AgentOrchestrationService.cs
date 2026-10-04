@@ -57,16 +57,21 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     {
         var discovered = await _discoveryService.DiscoverAsync(cancellationToken);
         var eligible = await GetEligibleTypesAsync(cancellationToken);
-        var busyTypes = _running.Values
-            .Select(r => r.Request.AgentType)
-            .ToHashSet();
+        var busyByType = _running.Values
+            .GroupBy(r => r.Request.AgentType)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.StartedAtUtc).First());
+        var now = DateTimeOffset.UtcNow;
 
         return discovered
             .Where(a => a.Status == AgentStatus.Available && eligible.Contains(a.Type))
-            .Select(a => a with
-            {
-                Status = busyTypes.Contains(a.Type) ? AgentStatus.Busy : a.Status
-            })
+            .Select(a => busyByType.TryGetValue(a.Type, out var busy)
+                ? a with
+                {
+                    Status = AgentStatus.Busy,
+                    ActiveIssueId = busy.Request.IssueId,
+                    ActiveElapsedSeconds = Math.Max(0, (now - busy.StartedAtUtc).TotalSeconds),
+                }
+                : a)
             .ToList()
             .AsReadOnly();
     }
@@ -649,9 +654,12 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         {
             Request = request;
             CancellationTokenSource = cancellationTokenSource;
+            StartedAtUtc = DateTimeOffset.UtcNow;
         }
 
         public AgentExecutionRequest Request { get; }
         public CancellationTokenSource CancellationTokenSource { get; }
+        /// <summary>SPEC-20261007 RF-005: when the job started running — busy-agent liveness.</summary>
+        public DateTimeOffset StartedAtUtc { get; }
     }
 }

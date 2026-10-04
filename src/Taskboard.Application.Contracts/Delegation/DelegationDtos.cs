@@ -55,3 +55,6 @@ public sealed record PostMailboxMessageRequest(
     string ToAgent,
     string Payload,
     string Kind = AgentMailboxKinds.Text);
+
+/// <summary>SPEC-20261007 RF-001: human reply to a mailbox message (body required; from defaults to "human").</summary>
+public sealed record MailboxReplyRequest(string? Body, string? From);

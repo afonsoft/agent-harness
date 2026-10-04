@@ -62,13 +62,14 @@ public sealed class DelegationDashboardService : IDelegationDashboardService
                 case DelegationTaskStatus.Running:
                     working.Add(new DashboardItemDto(
                         "task", task.Id, task.Prompt, StatusDetail(task),
-                        task.CliName, task.LastHeartbeatAt ?? task.StartedAt ?? task.CreatedAt));
+                        task.CliName, task.LastHeartbeatAt ?? task.StartedAt ?? task.CreatedAt,
+                        task.FanoutGroupId));
                     break;
                 case DelegationTaskStatus.Ready:
                 case DelegationTaskStatus.Pending:
                     working.Add(new DashboardItemDto(
                         "task", task.Id, task.Prompt, task.Status.ToString().ToLowerInvariant(),
-                        task.CliName, task.CreatedAt));
+                        task.CliName, task.CreatedAt, task.FanoutGroupId));
                     break;
                 case DelegationTaskStatus.Failed:
                 case DelegationTaskStatus.Stale:
@@ -76,12 +77,12 @@ public sealed class DelegationDashboardService : IDelegationDashboardService
                     needsYou.Add(new DashboardItemDto(
                         "task", task.Id, task.Prompt,
                         $"{task.Status.ToString().ToLowerInvariant()}: {task.Error}",
-                        task.CliName, task.FinishedAt ?? task.CreatedAt));
+                        task.CliName, task.FinishedAt ?? task.CreatedAt, task.FanoutGroupId));
                     break;
                 case DelegationTaskStatus.Done:
                     done.Add(new DashboardItemDto(
                         "task", task.Id, task.Prompt, task.ResultSummary ?? string.Empty,
-                        task.CliName, task.FinishedAt ?? task.CreatedAt));
+                        task.CliName, task.FinishedAt ?? task.CreatedAt, task.FanoutGroupId));
                     break;
             }
         }

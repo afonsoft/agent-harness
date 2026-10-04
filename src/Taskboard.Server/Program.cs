@@ -554,6 +554,10 @@ void RegisterWorkspaceAndChatServices()
             new DelegateFanoutTool(
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<IGitCommandRunner>()),
+            // SPEC-20261007 RF-002: coordinator plan — multi-task DAG in one call.
+            new DelegatePlanTool(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<IGitCommandRunner>()),
             new DelegateStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateCompareTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentSendTool(sp.GetRequiredService<IServiceScopeFactory>()),
@@ -2027,6 +2031,99 @@ void MapSettingsAndChatEndpoints()
         string? scope, IDelegationDashboardService dashboard, CancellationToken ct) =>
         Results.Ok(await dashboard.GetAsync(
             string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 20, ct)));
+
+    // SPEC-20261007 RF-001: human reply path — answers a Needs You
+    // escalation/decision; resolves the original message.
+    api.MapPost("local/delegation/mailbox/{id}/reply", async (
+        string id, MailboxReplyRequest request, string? scope,
+        IDelegationService delegation, CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(request.Body))
+        {
+            return Results.BadRequest(new { error = "body is required" });
+        }
+
+        var reply = await delegation.ReplyMailboxAsync(
+            string.IsNullOrWhiteSpace(scope) ? "harness" : scope,
+            id,
+            string.IsNullOrWhiteSpace(request.From) ? "human" : request.From.Trim(),
+            request.Body, ct);
+        return reply is null
+            ? Results.NotFound(new { error = "mailbox-message-not-found" })
+            : Results.Ok(new { reply });
+    });
+
+    api.MapPost("local/delegation/mailbox/{id}/dismiss", async (
+        string id, string? scope, IDelegationService delegation, CancellationToken ct) =>
+        await delegation.DismissMailboxAsync(
+            string.IsNullOrWhiteSpace(scope) ? "harness" : scope, [id], ct) == 0
+            ? Results.NotFound(new { error = "mailbox-message-not-found" })
+            : Results.NoContent());
+
+    // SPEC-20261007 RF-004: fan-out compare — per-leg diffstat + bounded patch.
+    api.MapGet("local/delegation/fanout/{groupId}/compare", async (
+        string groupId, string? scope, IDelegationService delegation,
+        IWorkspaceIsolationService isolation, CancellationToken ct) =>
+    {
+        const int patchMaxLength = 8000;
+        var tasks = await delegation.ListTasksAsync(
+            string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 200, ct);
+        var legs = new List<FanoutCompareLegDto>();
+        foreach (var task in tasks.Where(t =>
+            string.Equals(t.FanoutGroupId, groupId, StringComparison.Ordinal)))
+        {
+            var status = task.Status.ToString().ToLowerInvariant();
+            if (task.WorktreeRunId is null)
+            {
+                legs.Add(new FanoutCompareLegDto(
+                    task.Id, task.CliName, status, null, null, null, "no worktree"));
+                continue;
+            }
+
+            try
+            {
+                var diff = await isolation.GetDiffAsync(task.WorktreeRunId, ct);
+                legs.Add(new FanoutCompareLegDto(
+                    task.Id, task.CliName, status, task.WorktreeRunId,
+                    new FanoutCompareFilesDto(
+                        diff.FilesChanged, diff.Insertions, diff.Deletions, diff.Files),
+                    diff.Patch.Length <= patchMaxLength
+                        ? diff.Patch
+                        : diff.Patch[..patchMaxLength] + "…",
+                    null));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                legs.Add(new FanoutCompareLegDto(
+                    task.Id, task.CliName, status, task.WorktreeRunId,
+                    null, null, $"diff failed: {ex.Message}"));
+            }
+        }
+
+        return legs.Count == 0
+            ? Results.NotFound(new { error = "fanout-group-not-found" })
+            : Results.Ok(new { groupId, legs });
+    });
+
+    // SPEC-20261007 RF-003: builtin model probe — spec-declared ModelListArgs
+    // run bounded + TTL-cached (same path as custom defs).
+    api.MapGet("agents/builtin/{agentType}/models", async (
+        AgentType agentType, CliProbeSnapshotService probes, CancellationToken ct) =>
+    {
+        var kind = AgentCliMap.CliKindFor(agentType);
+        var spec = kind is null ? null : AgentCliMap.GetSpec(kind.Value);
+        if (spec?.ModelListArgs is not { Count: > 0 } probeArgs)
+        {
+            return Results.Ok(new { models = Array.Empty<string>() });
+        }
+
+        var models = await probes.GetDefModelsAsync(
+            $"builtin:{kind}", spec.Binary, string.Join(' ', probeArgs),
+            TimeSpan.FromSeconds(
+                app.Configuration.GetValue("Taskboard:AgentCliProbe:TtlSeconds", 120)),
+            ct);
+        return Results.Ok(new { models });
+    });
 
     // SPEC-20260929-ai-code-provider-chat: provider chat endpoints (RF-001..RF-009).
     var chat = api.MapGroup("local/chat").RequireAuthorization();
