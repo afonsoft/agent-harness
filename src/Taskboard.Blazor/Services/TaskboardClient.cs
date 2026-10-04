@@ -965,6 +965,17 @@ public sealed class TaskboardClient
         response.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// SPEC-20261003-ai-code-agent-chat: persists the Agent-bar binding (CLI,
+    /// repo, model) on the active conversation. <paramref name="agent"/> with
+    /// all-null fields clears the binding.
+    /// </summary>
+    public async Task UpdateChatConversationAgentAsync(string id, ChatAgentContext agent, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PatchAsJsonAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", new PatchChatConversationRequest(Agent: agent), cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Opens the SSE stream of a chat turn — the caller reads <see cref="HttpResponseMessage.Content"/> incrementally.</summary>
     public async Task<HttpResponseMessage> SendChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
     {

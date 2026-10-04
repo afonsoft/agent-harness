@@ -176,6 +176,23 @@ public sealed class ChatToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_CliVinculado_Quando_RunCliSemArg_Entao_ResolveBinarioDoContexto()
+    {
+        // SPEC-20261003-ai-code-agent-chat: sem "cli" nos args, a tool usa o
+        // AgentCli da conversa ("Devin" → binário "devin"). O binário não
+        // existe neste host de teste — o erro prova a resolução do default.
+        var tool = new RunCliTool(new SecretScrubber());
+
+        var result = await tool.ExecuteAsync(
+            JsonDocument.Parse("""{"args":["--version"]}""").RootElement,
+            WorkspaceContext() with { DefaultAgentCli = "Devin" },
+            CancellationToken.None);
+
+        result.Json.Contains("devin", StringComparison.Ordinal).ShouldBeTrue();
+        result.Json.Contains("empty cli", StringComparison.Ordinal).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Dado_LinguagemNaoSuportada_Quando_CodeInterpreter_Entao_ErroLegivel()
     {
         var tool = new CodeInterpreterTool(new SecretScrubber());

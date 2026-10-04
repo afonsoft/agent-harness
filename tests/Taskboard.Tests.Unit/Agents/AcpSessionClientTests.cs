@@ -47,6 +47,33 @@ public sealed class AcpSessionClientTests
         cliDefault.Arguments.ShouldNotContain("-m");
     }
 
+    [Theory]
+    // SPEC-20261003-ai-code-agent-chat: ACP é SUBCOMANDO em devin/codex/
+    // opencode (`devin acp`); a forma `--acp` mata o processo com
+    // "unexpected argument" antes do handshake (bug do Agent mode).
+    [InlineData(AgentType.Devin, "acp")]
+    [InlineData(AgentType.Codex, "acp")]
+    [InlineData(AgentType.OpenCode, "acp")]
+    public void Dado_AgenteAcp_Quando_BuildSessionCommand_Entao_FormatoDeArgvCorreto(
+        AgentType agentType, string expectedAcpArg)
+    {
+        var adapter = new KnownCliAgentAdapter();
+
+        var cmd = adapter.BuildSessionCommand(agentType, "/tmp", Sandbox.WorkspaceWrite, null);
+
+        cmd.Arguments.ShouldContain(expectedAcpArg);
+        cmd.Arguments.ShouldNotContain("--acp");
+    }
+
+    [Fact]
+    public void Dado_Claude_Quando_ConsultadoAcp_Entao_SemSuporteNativo()
+    {
+        // `claude --acp` não existe — ACP no Claude Code exige o binário
+        // separado `claude-code-acp`; marcar como suportado quebrava o
+        // handshake igual a devin/codex.
+        AgentCliMap.SupportsAcp(AgentType.Claude).ShouldBeFalse();
+    }
+
     [Fact]
     public void Dado_CliGerenciadaComModelo_Quando_BuildSessionCommand_Entao_SemFlag()
     {

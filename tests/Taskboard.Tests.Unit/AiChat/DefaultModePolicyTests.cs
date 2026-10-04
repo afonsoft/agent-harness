@@ -19,10 +19,12 @@ public class DefaultModePolicyTests
     }
 
     [Fact]
-    public void Dado_ModoAuto_Quando_SoCliChatCapable_Entao_DefaultAssistant()
+    public void Dado_ModoAuto_Quando_SoCliChatCapable_Entao_DefaultAgent()
     {
+        // SPEC-20261003-ai-code-agent-chat: o modo assistant foi removido —
+        // Agent É a superfície de chat com delegação para CLIs.
         var r = DefaultModePolicy.Resolve("auto", providerChatAvailable: false, cliChatAvailable: true);
-        r.Mode.ShouldBe("assistant");
+        r.Mode.ShouldBe("agent");
         r.FellBack.ShouldBeFalse();
     }
 
@@ -43,10 +45,10 @@ public class DefaultModePolicyTests
     }
 
     [Fact]
-    public void Dado_ModoChat_Quando_SoCliCapable_Entao_AssistantSemFallback()
+    public void Dado_ModoChat_Quando_SoCliCapable_Entao_AgentSemFallback()
     {
         var r = DefaultModePolicy.Resolve("chat", providerChatAvailable: false, cliChatAvailable: true);
-        r.Mode.ShouldBe("assistant");
+        r.Mode.ShouldBe("agent");
         r.FellBack.ShouldBeFalse();
     }
 
@@ -69,6 +71,6 @@ public class DefaultModePolicyTests
     public void Dado_ConfigNull_Quando_Resolve_Entao_ComportaComoAuto()
     {
         var r = DefaultModePolicy.Resolve(null, providerChatAvailable: false, cliChatAvailable: true);
-        r.Mode.ShouldBe("assistant");
+        r.Mode.ShouldBe("agent");
     }
 }

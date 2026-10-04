@@ -148,6 +148,13 @@ public sealed class ChatService(
 
         var conversation = ChatConversation.Create(
             ChatConversationId.NewGuid(), provider.Id, provider.Name, request.Model, request.Title, UtcNow);
+        if (request.Agent is not null)
+        {
+            conversation.SetAgentContext(
+                request.Agent.AgentCli, request.Agent.RepositoryFullName,
+                request.Agent.WorkspacePath, request.Agent.AgentModel);
+        }
+
         await conversations.AddAsync(conversation, ct).ConfigureAwait(false);
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(conversation, null);
@@ -222,6 +229,13 @@ public sealed class ChatService(
         if (!string.IsNullOrWhiteSpace(request.Model))
         {
             conversation.ChangeModel(request.Model, UtcNow);
+        }
+
+        if (request.Agent is not null)
+        {
+            conversation.SetAgentContext(
+                request.Agent.AgentCli, request.Agent.RepositoryFullName,
+                request.Agent.WorkspacePath, request.Agent.AgentModel);
         }
 
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -658,7 +672,11 @@ public sealed class ChatService(
         }
 
         var context = new ChatToolContext(
-            WorkspacePath: workspace.ResolveCardWorkdir(null, out _),
+            // Agent-chat: an explicit workspace wins; otherwise the bound repo
+            // resolves (null → the default ~/repos root).
+            WorkspacePath: !string.IsNullOrWhiteSpace(conversation.WorkspacePath)
+                ? conversation.WorkspacePath
+                : workspace.ResolveCardWorkdir(conversation.RepositoryFullName, out _),
             ProviderId: provider.Id,
             ProviderBaseUrl: provider.BaseUrl,
             ProviderApiKey: provider.ApiKey,
@@ -670,7 +688,9 @@ public sealed class ChatService(
             Model: conversation.Model,
             DelegationDepth: 0,
             Activity: new ChannelActivityReporter(activity),
-            ToolSet: toolSet);
+            ToolSet: toolSet,
+            DefaultAgentCli: conversation.AgentCli,
+            DefaultAgentModel: conversation.AgentModel);
 
         try
         {
@@ -840,7 +860,13 @@ public sealed class ChatService(
         conversation.Title,
         conversation.CreatedAt,
         conversation.UpdatedAt,
-        preview);
+        preview,
+        conversation.AgentCli is null && conversation.RepositoryFullName is null
+            && conversation.WorkspacePath is null && conversation.AgentModel is null
+            ? null
+            : new ChatAgentContext(
+                conversation.AgentCli, conversation.RepositoryFullName,
+                conversation.WorkspacePath, conversation.AgentModel));
 
     private static ChatMessageDto ToDto(ChatMessage message) => new(
         message.Id.Value,

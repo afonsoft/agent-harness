@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @implements IAsyncDisposable
 @using System.Text.Json
+@using Taskboard.Application.Contracts.Chat
 @inject TaskboardClient Client
 @inject IAgentOrchestrationService OrchestrationService
 @inject IGitHubService GitHubService
@@ -33,19 +34,12 @@
                     <span class="ms-1 d-none d-md-inline">Chat</span>
                 }
             </button>
-            <button type="button"
-                    class="ai-chat-modebtn @(ActiveMode == "assistant" ? "active" : "")"
-                    title="Assistant — chat estruturado com CLI (ACP)" aria-label="Assistant mode"
-                    @onclick='() => SetModeAsync("assistant")'>
-                <Icon Name="IconName.ChatLeftText" />
-                @if (ActiveMode == "assistant")
-                {
-                    <span class="ms-1 d-none d-md-inline">Assistant</span>
-                }
-            </button>
+            @* SPEC-20261003-ai-code-agent-chat: Assistant mode was removed —
+               Agent mode IS the provider-chat surface bound to the agent bar
+               (CLI delegation via tools, no ACP session). *@
             <button type="button"
                     class="ai-chat-modebtn @(ActiveMode == "agent" ? "active" : "")"
-                    title="Agent — sessão com tools, sandbox e permissões" aria-label="Agent mode"
+                    title="Agent — chat com tools que delega runs aos CLIs" aria-label="Agent mode"
                     @onclick='() => SetModeAsync("agent")'>
                 <Icon Name="IconName.Robot" />
                 @if (ActiveMode == "agent")
@@ -98,6 +92,87 @@ else
                replaces the agent-CLI UI with the open-webui-like layout. *@
             <div class="card-body p-2">
                 <ProviderChat OnSwitchToAgent="SwitchToAgentMode" />
+            </div>
+        }
+        else if (_activeThread is null)
+        {
+            @* SPEC-20261003-ai-code-agent-chat: Agent mode — the provider chat
+               bound to the agent bar below. The assistant answers normally and
+               delegates CLI runs via run_agent/run_cli (exec argv, never ACP);
+               CLI/repo/model persist on the conversation. The bar stays
+               editable while no legacy thread is bound. *@
+            <div class="card-body p-2">
+                <ProviderChat @key="_agentChatKey"
+                              AgentContext="CurrentAgentContext"
+                              SeedConversationId="_seedConversationId"
+                              OnSwitchToAgent="SwitchToAgentMode" />
+            </div>
+            <div class="card-footer p-2">
+                <div class="ai-chat-toolbar small">
+                    <label class="ai-chat-ctl"
+                           title="Structured agent chat or a raw CLI terminal (PTY) thread">
+                        <Icon Name="IconName.Terminal" />
+                        <select class="ai-chat-select"
+                                value="@_cfgView" @onchange="OnCfgViewChanged">
+                            <option value="chat">chat</option>
+                            <option value="terminal">terminal</option>
+                        </select>
+                    </label>
+                    <label class="ai-chat-ctl" title="Agent CLI — default for delegated runs">
+                        <Icon Name="IconName.Robot" />
+                        <select class="ai-chat-select"
+                                value="@_cfgCli" @onchange="OnCfgCliChanged">
+                            @foreach (var opt in _cliOptions)
+                            {
+                                // Agent-chat delegates via exec argv — every
+                                // selectable CLI works (no ACP requirement).
+                                <option value="@opt.Value"
+                                        disabled="@(!opt.Selectable)">@opt.Label</option>
+                            }
+                        </select>
+                    </label>
+                    @if (_dockerContainers?.Count > 0)
+                    {
+                        <label class="ai-chat-ctl"
+                               title="Run the CLI on this host or inside a running container">
+                            <Icon Name="IconName.Box" />
+                            <select class="ai-chat-select"
+                                    value="@_cfgContext" @onchange="OnCfgContextChanged">
+                                <option value="">host</option>
+                                @foreach (var name in _dockerContainers.Select(container => container.Name))
+                                {
+                                    <option value="@name">⬢ @name</option>
+                                }
+                            </select>
+                        </label>
+                    }
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                            title="Repository (optional — resolves to ~/repos/<name>)"
+                            @onclick="ShowRepoModalAsync">
+                        <Icon Name="IconName.Folder" />
+                        <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : _cfgRepo)</span>
+                    </button>
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                            title="Model for delegated CLI runs"
+                            @onclick="ShowModelModalAsync">
+                        <Icon Name="IconName.Cpu" />
+                        <span class="ms-1">@ConfigModelLabel</span>
+                    </button>
+                    @if (_chatUnavailableHint)
+                    {
+                        <span class="text-body-secondary small">
+                            Chat indisponível — configure um provider ou CLI com chat em
+                            <a href="/settings" class="alert-link">Settings → Chat</a>.
+                        </span>
+                    }
+                    @if (_agents is not null && !_cliOptions.Any(o => o.Selectable))
+                    {
+                        <span class="text-warning">
+                            No enabled CLI —
+                            <a href="/settings" class="alert-link">Settings → Agents</a>
+                        </span>
+                    }
+                </div>
             </div>
         }
         else
@@ -645,7 +720,13 @@ else
     private IReadOnlyList<AgentInfo>? _agents;
     private IReadOnlyList<AiChatModelDto> _catalog = [];
     private IReadOnlyList<string> _repoNames = [];
-    private string _cfgMode = "assistant";
+    private string _cfgMode = "agent";
+
+    // SPEC-20261003-ai-code-agent-chat: @key remounts the agent-chat surface
+    // on "New conversation"; _seedConversationId carries a provider-chat
+    // conversation into agent mode (/agent builtin, mode switch).
+    private int _agentChatKey;
+    private string? _seedConversationId;
     private string _cfgRepo = string.Empty;
     private string _cfgModelTier = string.Empty;
     private string _cfgModelId = string.Empty;
@@ -683,6 +764,16 @@ else
     private CliOption? SelectedCli =>
         _cliOptions.FirstOrDefault(o => o.Value == _cfgCli);
 
+    /// <summary>
+    /// SPEC-20261003-ai-code-agent-chat: snapshot of the agent bar bound to
+    /// the agent-chat conversation — CLI/repo/model delegated-run defaults.
+    /// </summary>
+    private ChatAgentContext CurrentAgentContext => new(
+        AgentCli: SelectedCli?.AgentType?.ToString() ?? SelectedCli?.AgentCliId,
+        RepositoryFullName: string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim(),
+        WorkspacePath: null,
+        AgentModel: string.IsNullOrWhiteSpace(_cfgModelId) ? null : _cfgModelId);
+
     /// <summary>Chat estruturado (ACP) exige CLI elegível/autenticada ou def acp resolvida.</summary>
     private bool SelectedCliSupportsChat => SelectedCli?.SupportsChat == true;
 
@@ -702,9 +793,7 @@ else
 
     // SPEC-20261003-ai-code-devin-layout RF-002: segmented mode toggle at the
     // top (Devin "Agent | Ask") — the active thread's mode wins over config.
-    private string ActiveMode => _cfgMode == "provider"
-        ? "provider"
-        : _activeThread?.Mode ?? _cfgMode;
+    private string ActiveMode => _cfgMode == "provider" ? "provider" : "agent";
 
     /// <summary>
     /// RF-002: switching the top toggle is like picking a different thread
@@ -717,12 +806,14 @@ else
         if (mode == "provider")
         {
             // Provider chat replaces the pane — the thread stays bound so the
-            // user can switch back to Assistant/Agent without losing context.
+            // user can switch back to Agent without losing context.
             _cfgMode = mode;
             return;
         }
 
-        if (_activeThread is not null && _activeThread.Mode != mode)
+        // agent: always detach — the agent-chat surface takes over; the legacy
+        // thread stays reachable from the rail.
+        if (_activeThread is not null)
         {
             await JS.InvokeVoidAsync("taskboardSse.disconnect", "ai-chat");
             _activeThread = null;
@@ -739,7 +830,7 @@ else
             _sseError = false;
         }
 
-        _cfgMode = mode;
+        _cfgMode = "agent";
     }
 
     /// <summary>
@@ -934,11 +1025,16 @@ else
     /// installed-but-not-eligible builtins (terminal only) and enabled custom
     /// defs. Order: chat-capable first, then terminal-only, then custom.
     /// </summary>
-    /// <summary>/agent builtin — chat hand-off to agent mode (SPEC-20261001-chat-skills-slash-commands).</summary>
-    private void SwitchToAgentMode()
+    /// <summary>
+    /// /agent from the provider chat carries the open conversation into agent
+    /// mode — it re-opens with the Agent-bar binding applied
+    /// (SPEC-20261001-chat-skills-slash-commands + SPEC-20261003-ai-code-agent-chat).
+    /// </summary>
+    private async Task SwitchToAgentMode(string? conversationId)
     {
-        _cfgMode = "agent";
-        _chatUnavailableHint = false;
+        _seedConversationId = conversationId;
+        _agentChatKey++;
+        await SetModeAsync("agent");
     }
 
     private void OnCfgContextChanged(ChangeEventArgs e)
@@ -1283,7 +1379,7 @@ else
         }
         catch
         {
-            // Provider list best-effort — keep the "assistant" default.
+            // Provider list best-effort — keep the "agent" default.
         }
     }
 
@@ -1902,6 +1998,16 @@ else
         _running = false;
         _sseError = false;
         _scrollPending = false;
+
+        if (_cfgMode != "provider" && _cfgView != "terminal")
+        {
+            // SPEC-20261003-ai-code-agent-chat: "+" in Agent mode starts a
+            // fresh agent-chat — a new provider conversation is created on
+            // the next send; no legacy thread is materialized.
+            _seedConversationId = null;
+            _agentChatKey++;
+            return;
+        }
 
         var cli = SelectedCli;
         // RF-002: the global repository selector wins over the repo inherited

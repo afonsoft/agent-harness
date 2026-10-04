@@ -181,7 +181,9 @@ public static class AgentCliMap
     /// chat transport (SPEC-20260929-docker-cli-context).
     /// </summary>
     public static bool SupportsAcp(AgentType type) =>
-        type is AgentType.OpenCode or AgentType.Claude or AgentType.Codex or AgentType.Devin;
+        // Claude Code has no native ACP — it requires the separate
+        // `claude-code-acp` bridge binary, which `claude` cannot impersonate.
+        type is AgentType.OpenCode or AgentType.Codex or AgentType.Devin;
 
     /// <summary>Returns the spec for <paramref name="kind"/>, or <c>null</c> for unknown members.</summary>
     public static AgentCliSpec? GetSpec(AgentCliKind kind) =>

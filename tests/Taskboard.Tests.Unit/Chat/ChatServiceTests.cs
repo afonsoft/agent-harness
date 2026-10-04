@@ -149,6 +149,39 @@ public sealed class ChatServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Dado_ConversaComAgentContext_Quando_CriarEPatchear_Entao_Persiste()
+    {
+        // SPEC-20261003-ai-code-agent-chat: o vínculo agente (CLI/repo/modelo)
+        // persiste na conversa e PATCH substitui o bloco inteiro.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1",
+                Agent: new ChatAgentContext(
+                    AgentCli: "Devin", RepositoryFullName: "owner/repo", AgentModel: "devin-x")));
+
+        conversation.Agent.ShouldNotBeNull();
+        conversation.Agent.AgentCli.ShouldBe("Devin");
+        conversation.Agent.RepositoryFullName.ShouldBe("owner/repo");
+        conversation.Agent.AgentModel.ShouldBe("devin-x");
+
+        var reopened = await _service.GetConversationAsync(conversation.Id);
+        reopened.ShouldNotBeNull();
+        reopened.Conversation.Agent!.AgentCli.ShouldBe("Devin");
+
+        var patched = await _service.PatchConversationAsync(
+            conversation.Id,
+            new PatchChatConversationRequest(Agent: new ChatAgentContext(AgentCli: "Codex")));
+        patched.ShouldNotBeNull();
+        patched.Agent!.AgentCli.ShouldBe("Codex");
+        patched.Agent.RepositoryFullName.ShouldBeNull("PATCH substitui o contexto inteiro");
+
+        var cleared = await _service.PatchConversationAsync(
+            conversation.Id,
+            new PatchChatConversationRequest(Agent: new ChatAgentContext()));
+        cleared.ShouldNotBeNull();
+        cleared.Agent.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Dado_ProviderInexistente_Quando_Enviar_Entao_ChatValidationException()
     {
         var conversation = await _service.CreateConversationAsync(

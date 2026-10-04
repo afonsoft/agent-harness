@@ -4,8 +4,12 @@ namespace Taskboard.Application.Contracts.AiChat;
 /// Resolves the default /ai-chat mode (SPEC-20261001-chat-default-mode).
 /// <c>Taskboard:AiChat:DefaultMode</c> = <c>auto|chat|agent</c>.
 /// <c>auto</c> prefers the richest chat surface configured: provider chat
-/// first, then a chat-capable agent CLI; falls back to Agent mode with a
+/// first, then the agent-chat CLI surface; falls back to Agent mode with a
 /// <see cref="FellBack"/> flag so the UI can show a hint.
+///
+/// SPEC-20261003-ai-code-agent-chat: Assistant mode was removed — Agent mode
+/// IS the chat surface with CLI delegation, so every former "assistant"
+/// resolution returns "agent".
 /// </summary>
 public static class DefaultModePolicy
 {
@@ -29,10 +33,10 @@ public static class DefaultModePolicy
         {
             ModeAgent => new Resolution(ModeAgent, FellBack: false),
             "chat" when chatAvailable => new Resolution(
-                providerChatAvailable ? "provider" : "assistant", FellBack: false),
+                providerChatAvailable ? "provider" : ModeAgent, FellBack: false),
             "chat" => new Resolution(ModeAgent, FellBack: true),
             _ when chatAvailable => new Resolution(
-                providerChatAvailable ? "provider" : "assistant", FellBack: false),
+                providerChatAvailable ? "provider" : ModeAgent, FellBack: false),
             _ => new Resolution(ModeAgent, FellBack: true),
         };
     }

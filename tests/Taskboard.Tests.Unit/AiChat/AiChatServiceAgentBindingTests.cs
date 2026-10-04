@@ -38,7 +38,9 @@ public class AiChatServiceAgentBindingTests
         var sut = CriarServico(eligible: [AgentType.Codex]);
 
         var ex = await Should.ThrowAsync<DomainException>(() => sut.CreateThreadAsync(
-            new CreateAiChatThreadRequest("t", "m", "none", "read-only", AgentType: "Claude"),
+            // Devin é ACP-capable mas não elegível: a checagem de elegibilidade
+            // é quem recusa (AgentNotEligible, não InvalidValue).
+            new CreateAiChatThreadRequest("t", "m", "none", "read-only", AgentType: "Devin"),
             Actor.LocalUser()));
 
         ex.Code.ShouldBe(TaskboardDomainErrorCodes.AgentNotEligible);
@@ -294,23 +296,23 @@ public class AiChatServiceAgentBindingTests
     [Fact]
     public async Task Dado_ChatEmContainerComCliAcp_Quando_CriarThread_Entao_AceitaSemElegibilidadeHost()
     {
-        // Claude dentro do contêiner: Chat (ACP) vale mesmo sem CLI elegível no host.
+        // Codex dentro do contêiner: Chat (ACP) vale mesmo sem CLI elegível no host.
         var containers = Substitute.For<IContainerCliDiscovery>();
         containers.ListContainersAsync(Arg.Any<CancellationToken>())
             .Returns(new List<Taskboard.Dtos.DockerContainerDto>
             {
-                new("dev", "img", ["claude"]),
+                new("dev", "img", ["codex"]),
             });
 
         var sut = CriarServico(eligible: [], containerDiscovery: containers);
 
         var dto = await sut.CreateThreadAsync(
             new CreateAiChatThreadRequest("t", "m", "none", "read-only",
-                AgentType: "Claude", Transport: "acp", ContainerContext: "dev"),
+                AgentType: "Codex", Transport: "acp", ContainerContext: "dev"),
             Actor.LocalUser());
 
         dto.ContainerContext.ShouldBe("dev");
-        dto.AgentType.ShouldBe("Claude");
+        dto.AgentType.ShouldBe("Codex");
     }
 
     // SPEC-20260929-ai-chat-capabilities RF-001/RF-002/RF-003.

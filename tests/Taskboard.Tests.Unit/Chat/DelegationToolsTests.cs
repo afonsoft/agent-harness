@@ -20,7 +20,9 @@ public class DelegationToolsTests
     private static ChatToolContext Ctx(
         IReadOnlyDictionary<string, IChatTool>? toolSet = null,
         int depth = 0,
-        RecordingActivity? activity = null) =>
+        RecordingActivity? activity = null,
+        string? defaultAgentCli = null,
+        string? defaultAgentModel = null) =>
         new(
             WorkspacePath: Path.GetTempPath(),
             ProviderId: Guid.NewGuid(),
@@ -34,7 +36,9 @@ public class DelegationToolsTests
             Model: "m1",
             DelegationDepth: depth,
             Activity: activity,
-            ToolSet: toolSet);
+            ToolSet: toolSet,
+            DefaultAgentCli: defaultAgentCli,
+            DefaultAgentModel: defaultAgentModel);
 
     private static JsonElement Args(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 
@@ -107,6 +111,53 @@ public class DelegationToolsTests
         activity.Phases.ShouldContain("running_agent");
     }
 
+    [Fact]
+    public async Task Dado_RunAgent_Quando_SemArgECliVinculado_Entao_UsaCliDoContexto()
+    {
+        // SPEC-20261003-ai-code-agent-chat: o CLI da barra Agent é o default
+        // quando a tool call omite "agent".
+        var orchestration = new FakeOrchestration(eligible: true, agents:
+        [
+            new AgentInfo("codex", "/bin/codex", AgentType.Codex, AgentStatus.Available, "1.0", null),
+            new AgentInfo("devin", "/bin/devin", AgentType.Devin, AgentStatus.Available, "1.0", null),
+        ]);
+        var tool = new RunAgentTool(orchestration, Config());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"faça X","wait":false}"""),
+            Ctx(defaultAgentCli: "Devin"), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        orchestration.LastRequest!.AgentType.ShouldBe(AgentType.Devin);
+    }
+
+    [Fact]
+    public async Task Dado_RunAgent_Quando_ModeloVinculado_Entao_PropagaResolvedModelName()
+    {
+        var orchestration = new FakeOrchestration(eligible: true);
+        var tool = new RunAgentTool(orchestration, Config());
+
+        await tool.ExecuteAsync(
+            Args("""{"prompt":"x","wait":false}"""),
+            Ctx(defaultAgentModel: "gpt-codex-x"), CancellationToken.None);
+
+        orchestration.LastRequest!.ResolvedModelName.ShouldBe("gpt-codex-x");
+        orchestration.LastRequest.OmitModelFlag.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_RunAgent_Quando_SemModeloVinculado_Entao_OmiteFlagDeModelo()
+    {
+        var orchestration = new FakeOrchestration(eligible: true);
+        var tool = new RunAgentTool(orchestration, Config());
+
+        await tool.ExecuteAsync(
+            Args("""{"prompt":"x","wait":false}"""), Ctx(), CancellationToken.None);
+
+        orchestration.LastRequest!.ResolvedModelName.ShouldBeNull();
+        orchestration.LastRequest.OmitModelFlag.ShouldBeTrue();
+    }
+
     // ---- task (sub-agent) ----
 
     [Fact]
@@ -169,16 +220,17 @@ public class DelegationToolsTests
         public void Report(string phase, string label) => Phases.Add(phase);
     }
 
-    private sealed class FakeOrchestration(bool eligible) : IAgentOrchestrationService
+    private sealed class FakeOrchestration(bool eligible, IReadOnlyList<AgentInfo>? agents = null)
+        : IAgentOrchestrationService
     {
         public List<AgentExecutionRequest> Requests { get; } = [];
 
         public AgentExecutionRequest? LastRequest => Requests.LastOrDefault();
 
         public Task<IReadOnlyList<AgentInfo>> GetAvailableAgentsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<AgentInfo>>(eligible
+            Task.FromResult(agents ?? (IReadOnlyList<AgentInfo>)(eligible
                 ? [new AgentInfo("codex", "/bin/codex", AgentType.Codex, AgentStatus.Available, "1.0", null)]
-                : []);
+                : []));
 
         public Task<bool> EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
         {

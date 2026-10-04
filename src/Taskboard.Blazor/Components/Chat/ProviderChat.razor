@@ -47,6 +47,10 @@
             {
                 <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Histórico">☰</button>
             }
+            @if (AgentContext is not null)
+            {
+                <span class="badge text-bg-primary" title="Agent mode — delegated CLI runs bound to this conversation">agent</span>
+            }
             <span class="text-body-secondary small header-label">Provider</span>
             <select class="form-select form-select-sm w-auto" @bind="_providerId" @bind:after="OnProviderChangedAsync">
                 <option value="">—</option>
@@ -233,8 +237,20 @@
     private string? _conversationTitle;
     private readonly List<ChatMessageDto> _messages = [];
 
-    /// <summary>Host switch request (/agent builtin) — AiChat flips to agent mode.</summary>
-    [Parameter] public EventCallback OnSwitchToAgent { get; set; }
+    /// <summary>Host switch request (/agent builtin) — AiChat flips to agent mode, carrying the current conversation id.</summary>
+    [Parameter] public EventCallback<string?> OnSwitchToAgent { get; set; }
+
+    /// <summary>
+    /// SPEC-20261003-ai-code-agent-chat: Agent-mode binding — when set, the
+    /// conversation persists the picked CLI/repo/model and the delegated
+    /// tools (run_agent, run_cli) default to them.
+    /// </summary>
+    [Parameter] public ChatAgentContext? AgentContext { get; set; }
+
+    /// <summary>Conversation to open on mount (mode switch carries context).</summary>
+    [Parameter] public string? SeedConversationId { get; set; }
+
+    private ChatAgentContext? _appliedAgentContext;
 
     private string _composer = string.Empty;
     private string _search = string.Empty;
@@ -293,10 +309,39 @@
                 _providerId = _providers[0].Id;
                 await OnProviderChangedAsync();
             }
+
+            if (SeedConversationId is not null)
+            {
+                await OpenConversationAsync(SeedConversationId);
+            }
         }
         catch (Exception ex)
         {
             _error = $"Falha ao carregar providers: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Agent-bar changes push straight into the open conversation so the next
+    /// delegated run sees them (SPEC-20261003-ai-code-agent-chat).
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Equals(_appliedAgentContext, AgentContext) || _conversationId is null)
+        {
+            _appliedAgentContext = AgentContext;
+            return;
+        }
+
+        _appliedAgentContext = AgentContext;
+        try
+        {
+            await Client.UpdateChatConversationAgentAsync(
+                _conversationId, AgentContext ?? new ChatAgentContext());
+        }
+        catch
+        {
+            // Best-effort — the binding refreshes on the next change or send.
         }
     }
 
@@ -393,7 +438,8 @@
         _busy = true;
         try
         {
-            var conversation = await Client.CreateChatConversationAsync(new CreateChatConversationRequest(_providerId, _model));
+            var conversation = await Client.CreateChatConversationAsync(
+                new CreateChatConversationRequest(_providerId, _model, Agent: AgentContext));
             _conversationId = conversation.Id;
             _conversationTitle = conversation.Title;
             _messages.Clear();
@@ -572,7 +618,7 @@
                 return true;
             case "agent":
                 _composer = string.Empty;
-                await OnSwitchToAgent.InvokeAsync();
+                await OnSwitchToAgent.InvokeAsync(_conversationId);
                 return true;
             case "tools":
                 _composer = string.Empty;
