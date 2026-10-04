@@ -147,6 +147,118 @@
     </div>
 </div>
 
+@* SPEC-20261006 RF-001: agent dashboard — attention columns built from
+   delegation tasks, live runs and the mailbox. *@
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <h2 class="h6 fw-semibold mb-0">Agent Dashboard</h2>
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadDashboardAsync" Disabled="_dashboardLoading">
+                <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+            </Button>
+        </div>
+        @if (_dashboard is null)
+        {
+            <p class="small text-body-secondary mb-0">
+                @(_dashboardLoading ? "Loading…" : "No delegation activity yet — delegate work from the AI Code chat (delegate_task/delegate_fanout).")
+            </p>
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var (title, color, items) in DashboardColumns())
+                {
+                    <div class="col-12 col-md-6 col-xl-3">
+                        <div class="border rounded p-2 h-100">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="fw-semibold small">@title</span>
+                                <Badge Color="@color">@items.Count</Badge>
+                            </div>
+                            @if (items.Count == 0)
+                            {
+                                <p class="small text-body-secondary mb-0">—</p>
+                            }
+                            else
+                            {
+                                <ul class="list-unstyled mb-0 small">
+                                    @foreach (var item in items)
+                                    {
+                                        <li class="mb-2" @key="item.Id">
+                                            <span class="fw-semibold">@item.CliName</span>
+                                            <span class="text-body-secondary">· @item.Kind</span>
+                                            <div class="text-truncate" title="@item.Detail">@item.Title</div>
+                                            @if (!string.IsNullOrEmpty(item.Detail))
+                                            {
+                                                <div class="text-body-secondary text-truncate" title="@item.Detail">@item.Detail</div>
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@* SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions. *@
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <h2 class="h6 fw-semibold mb-0">CLI Sessions</h2>
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadSessionsAsync" Disabled="_sessionsLoading">
+                <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+            </Button>
+        </div>
+        @if (_sessions.Count == 0)
+        {
+            <p class="small text-body-secondary mb-0">
+                @(_sessionsLoading ? "Scanning transcripts…" : "No on-disk sessions found for claude/codex/opencode under $HOME.")
+            </p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>CLI</th>
+                            <th>Session</th>
+                            <th>Directory</th>
+                            <th>Modified</th>
+                            <th class="text-end">Resume</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var session in _sessions)
+                        {
+                            <tr @key="session.SourcePath">
+                                <td class="fw-semibold">@session.Cli</td>
+                                <td class="small"><code>@session.SessionId</code></td>
+                                <td class="small text-body-secondary text-truncate" style="max-width: 24rem;" title="@session.SourcePath">
+                                    @(session.WorkingDirectory ?? session.SourcePath)
+                                </td>
+                                <td class="small">@session.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="text-end">
+                                    @if (session.ResumeCommand is not null)
+                                    {
+                                        <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(session.ResumeCommand)"
+                                           title="@session.ResumeCommand">
+                                            <Icon Name="IconName.Play" class="me-1" /> Resume
+                                        </a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
 @* SPEC-20260928-ai-code-generic-cli RF-002: user-declared CLIs persisted via
    /api/agents/custom — usable as AI Code threads (chat when acp, terminal
    otherwise). *@
@@ -369,9 +481,65 @@
     private bool _templateSaving;
     private bool _templateCustomized;
 
+    // SPEC-20261006: agent dashboard + resumable CLI sessions.
+    private AgentDashboardDto? _dashboard;
+    private bool _dashboardLoading = true;
+    private IReadOnlyList<AgentSessionInfoDto> _sessions = [];
+    private bool _sessionsLoading = true;
+
     protected override async Task OnInitializedAsync()
     {
-        await Task.WhenAll(RefreshAsync(), LoadTemplateAsync(), LoadCustomDefsAsync());
+        await Task.WhenAll(
+            RefreshAsync(), LoadTemplateAsync(), LoadCustomDefsAsync(),
+            LoadDashboardAsync(), LoadSessionsAsync());
+    }
+
+    private async Task LoadDashboardAsync()
+    {
+        _dashboardLoading = true;
+        try
+        {
+            _dashboard = await Client.GetDelegationDashboardAsync();
+        }
+        catch
+        {
+            _dashboard = null;
+        }
+        finally
+        {
+            _dashboardLoading = false;
+        }
+    }
+
+    private async Task LoadSessionsAsync()
+    {
+        _sessionsLoading = true;
+        try
+        {
+            _sessions = await Client.GetAgentSessionsAsync();
+        }
+        catch
+        {
+            _sessions = [];
+        }
+        finally
+        {
+            _sessionsLoading = false;
+        }
+    }
+
+    private IEnumerable<(string Title, BadgeColor Color, IReadOnlyList<DashboardItemDto> Items)>
+        DashboardColumns()
+    {
+        if (_dashboard is null)
+        {
+            yield break;
+        }
+
+        yield return ("Needs You", BadgeColor.Danger, _dashboard.NeedsYou);
+        yield return ("Working", BadgeColor.Primary, _dashboard.Working);
+        yield return ("Done", BadgeColor.Success, _dashboard.Done);
+        yield return ("Idle", BadgeColor.Secondary, _dashboard.Idle);
     }
 
     private async Task LoadCustomDefsAsync()

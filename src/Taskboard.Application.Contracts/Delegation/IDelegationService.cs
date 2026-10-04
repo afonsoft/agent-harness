@@ -45,6 +45,11 @@ public interface IDelegationService
 
     Task<MailboxMessageDto> PostAsync(PostMailboxMessageRequest request, CancellationToken ct = default);
 
+    /// <summary>Posts a system <c>decision</c> message to <c>@all</c> — the decision
+    /// gate (SPEC-20261006 RF-005): the coordinator asks, humans answer via mailbox.</summary>
+    Task<MailboxMessageDto> PostDecisionAsync(
+        string scope, string fromAgent, string question, CancellationToken ct = default);
+
     /// <summary>Inbox read; <paramref name="markRead"/> stamps ReadAt on the returned unread ones.</summary>
     Task<IReadOnlyList<MailboxMessageDto>> ReadInboxAsync(
         string scope, IReadOnlyCollection<string> recipients,

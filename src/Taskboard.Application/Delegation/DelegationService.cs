@@ -187,6 +187,21 @@ public sealed class DelegationService : IDelegationService
     public Task<MailboxMessageDto> PostAsync(PostMailboxMessageRequest request, CancellationToken ct = default) =>
         _mailbox.AddAsync(request, ct);
 
+    public Task<MailboxMessageDto> PostDecisionAsync(
+        string scope, string fromAgent, string question, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue, "question is required");
+        }
+
+        return _mailbox.AddAsync(
+            new PostMailboxMessageRequest(
+                scope, fromAgent, "@all", question.Trim(), AgentMailboxKinds.Decision),
+            ct);
+    }
+
     public async Task<IReadOnlyList<MailboxMessageDto>> ReadInboxAsync(
         string scope, IReadOnlyCollection<string> recipients,
         int take = 50, bool unreadOnly = true, bool markRead = true, CancellationToken ct = default)
