@@ -133,6 +133,46 @@ public static class AcpProtocolParser
     }
 
     /// <summary>
+    /// SPEC-20261004-permission-question-cards RF-001: shared option normalizer
+    /// for <c>session/request_permission</c> — preserves {optionId,name,kind} in
+    /// the normalized payload so the UI can show the agent's own labels and
+    /// distinguish permission prompts from agent questions.
+    /// </summary>
+    internal static List<object> NormalizePermissionOptions(JsonElement p)
+    {
+        var options = new List<object>();
+        if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var opt in opts.EnumerateArray())
+            {
+                if (opt.ValueKind == JsonValueKind.Object
+                    && opt.TryGetProperty("optionId", out var oid)
+                    && oid.GetString() is { } optionId)
+                {
+                    options.Add(new
+                    {
+                        optionId,
+                        name = opt.TryGetProperty("name", out var n) ? n.GetString() : null,
+                        kind = opt.TryGetProperty("kind", out var k) ? k.GetString() : null,
+                    });
+                }
+                else if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { } legacy)
+                {
+                    options.Add(new { optionId = legacy, name = (string?)null, kind = (string?)null });
+                }
+            }
+        }
+
+        if (options.Count == 0)
+        {
+            options.Add(new { optionId = "allow", name = "Allow", kind = "allow_once" });
+            options.Add(new { optionId = "deny", name = "Deny", kind = "reject_once" });
+        }
+
+        return options;
+    }
+
+    /// <summary>
     /// Extracts display text from an ACP content field — plain string, a single
     /// content block (<c>{type:"text", text}</c>) or a v2 content-block array.
     /// Non-text blocks (diff/image/resource) stay in the raw payload.

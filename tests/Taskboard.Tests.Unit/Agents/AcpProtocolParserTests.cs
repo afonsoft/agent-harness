@@ -1,5 +1,7 @@
+using System.Text.Json;
 using Shouldly;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Integrations.Agents;
 using Xunit;
 
@@ -169,11 +171,60 @@ public sealed class AcpProtocolParserTests
     }
 
     [Fact]
+    public void Dado_RequestPermissionAcpReal_Quando_Parse_Entao_OptionsEstruturadasNoPayload()
+    {
+        // SPEC-20261004-permission-question-cards RF-001: o payload normalizado
+        // deve preservar {optionId,name,kind} — sem eles a UI não consegue
+        // mostrar o label real nem distinguir permissão de pergunta.
+        var json = """
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "s",
+                "toolCall": { "toolCallId": "c1", "title": "git push", "kind": "execute" },
+                "options": [
+                    { "optionId": "opt-allow", "name": "Allow once", "kind": "allow_once" },
+                    { "optionId": "opt-reject", "name": "Reject", "kind": "reject_once" }
+                ]
+            }
+        }
+        """;
+
+        var parsed = AcpProtocolParser.Parse(json);
+
+        using var doc = JsonDocument.Parse(parsed!.PayloadJson!);
+        var options = doc.RootElement.GetProperty("options");
+        options.GetArrayLength().ShouldBe(2);
+        options[0].GetProperty("optionId").GetString().ShouldBe("opt-allow");
+        options[0].GetProperty("name").GetString().ShouldBe("Allow once");
+        options[0].GetProperty("kind").GetString().ShouldBe("allow_once");
+        options[1].GetProperty("optionId").GetString().ShouldBe("opt-reject");
+    }
+
+    [Fact]
+    public void Dado_OutcomeIgualOptionId_Quando_MapaOpcao_Entao_SelecionaExato()
+    {
+        // SPEC-20261004-permission-question-cards RF-002: um reply carregando o
+        // optionId literal (perguntas com escolhas arbitrárias) deve casar pelo
+        // id exato — não pelo primeiro substring que aparecer.
+        var options = new[]
+        {
+            new AcpSessionClient.AcpPermissionOption("opt-b-extra", "Do thing B extra", null),
+            new AcpSessionClient.AcpPermissionOption("opt-b", "Do thing B", null),
+        };
+
+        AcpSessionClient.MapOutcomeToOption("opt-b", options).ShouldBe("opt-b");
+    }
+
+    [Fact]
     public void Dado_PayloadPermissionNormalizado_Quando_ParsePermissionRequest_Entao_ExtraiRequestId()
     {
         // The normalized flat payload (no params wrapper) produced by
-        // AcpProtocolParser must still reach the PermissionGate consumer.
-        var payload = """{"requestId":"7","tool":"git push","detail":"{}","options":["allow_once","reject_once"]}""";
+        // AcpProtocolParser must still reach the PermissionGate consumer —
+        // now with structured options (SPEC-20261004 RF-001).
+        var payload = """{"requestId":"7","tool":"git push","detail":"{}","options":[{"optionId":"allow_once","name":"Allow once","kind":"allow_once"},{"optionId":"reject_once","name":"Reject","kind":"reject_once"}]}""";
 
         var req = AcpSessionMessageParser.ParsePermissionRequest(payload);
 
@@ -181,6 +232,9 @@ public sealed class AcpProtocolParserTests
         req!.RequestId.ShouldBe("7");
         req.Tool.ShouldBe("git push");
         req.Options.ShouldBe(["allow_once", "reject_once"]);
+        req.OptionDetails.ShouldBe([
+            new PermissionOptionInfo("allow_once", "Allow once", "allow_once"),
+            new PermissionOptionInfo("reject_once", "Reject", "reject_once")]);
     }
 
     [Fact]
@@ -193,6 +247,9 @@ public sealed class AcpProtocolParserTests
         req.ShouldNotBeNull();
         req!.RequestId.ShouldBe("p1");
         req.Options.ShouldBe(["allow", "deny"]);
+        req.OptionDetails.ShouldBe([
+            new PermissionOptionInfo("allow", "allow", null),
+            new PermissionOptionInfo("deny", "deny", null)]);
     }
 
     [Fact]

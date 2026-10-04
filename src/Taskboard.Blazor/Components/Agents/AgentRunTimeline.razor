@@ -418,7 +418,7 @@
                 <div class="d-flex gap-2 mt-2">
                     @foreach (var opt in perm.Options)
                     {
-                        <button type="button" class="btn btn-sm @(IsDenyOption(opt.Id) ? "btn-outline-danger" : "btn-outline-success")"
+                        <button type="button" class="btn btn-sm @OptionButtonClass(opt)"
                                 @onclick="() => OnPermissionReply(evt, opt.Id)">@opt.Label</button>
                     }
                 </div>
@@ -426,9 +426,16 @@
         </div>
     };
 
-    private static bool IsDenyOption(string optionId) =>
-        optionId.Contains("deny", StringComparison.OrdinalIgnoreCase)
-        || optionId.Contains("reject", StringComparison.OrdinalIgnoreCase);
+    // SPEC-20261004-permission-question-cards: color by the ACP option kind
+    // (allow_*/reject_*) falling back to the id for untagged options.
+    private static string OptionButtonClass(PermOption opt) =>
+        (opt.Kind ?? opt.Id).ToLowerInvariant() switch
+        {
+            var k when k.Contains("always") => "btn-outline-primary",
+            var k when k.StartsWith("reject") || k.StartsWith("deny") => "btn-outline-danger",
+            var k when k.StartsWith("allow") => "btn-outline-success",
+            _ => "btn-outline-secondary",
+        };
 
     private static RenderFragment RenderPlan(AgentExecutionEvent evt) => __builder =>
     {
@@ -478,7 +485,7 @@
     }
 
     private sealed record ToolPayload(string Name, string? Arguments, string? Status, string? Output);
-    private sealed record PermOption(string Id, string Label);
+    private sealed record PermOption(string Id, string Label, string? Kind);
     private sealed record PermPayload(string? Tool, string? Detail, IReadOnlyList<PermOption> Options);
     private sealed record PlanEntry(string Title, string Status);
 
@@ -520,7 +527,7 @@
 
     private static PermPayload ParsePermission(string? json)
     {
-        var fallback = new List<PermOption> { new("allow", "allow"), new("deny", "deny") };
+        var fallback = new List<PermOption> { new("allow", "allow", null), new("deny", "deny", null) };
         if (string.IsNullOrWhiteSpace(json))
         {
             return new PermPayload(null, null, fallback);
@@ -564,7 +571,7 @@
     {
         if (o.ValueKind == JsonValueKind.String && o.GetString() is { Length: > 0 } s)
         {
-            return new PermOption(s, s);
+            return new PermOption(s, s, null);
         }
 
         if (o.ValueKind == JsonValueKind.Object
@@ -572,7 +579,8 @@
             && oid.GetString() is { Length: > 0 } id)
         {
             var label = o.TryGetProperty("name", out var nm) ? nm.GetString() : null;
-            return new PermOption(id, label ?? id);
+            var kind = o.TryGetProperty("kind", out var kd) ? kd.GetString() : null;
+            return new PermOption(id, label ?? id, kind);
         }
 
         return null;

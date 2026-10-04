@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Taskboard.Application.Contracts.AiChat;
 
 /// <summary>
@@ -12,13 +14,33 @@ public sealed record ToolCallInfo(
     string? Diff = null);
 
 /// <summary>
+/// Opção estruturada oferecida pelo agente numa requisição de
+/// permissão/pergunta (SPEC-20261004-permission-question-cards): o id que deve
+/// fazer round-trip na resposta, o label de exibição e o kind ACP
+/// (allow_once/allow_always/reject_*/outros) quando anunciado.
+/// </summary>
+public sealed record PermissionOptionInfo(string OptionId, string Label, string? Kind);
+
+/// <summary>
 /// Informações estruturadas de uma requisição de permissão emitida pelo agente.
 /// </summary>
+/// <param name="Options">Option ids (normalized wire shape).</param>
+/// <param name="OptionDetails">Options with label/kind, when the producer carried them.</param>
 public sealed record PermissionRequestInfo(
     string RequestId,
     string Tool,
     string Detail,
-    IReadOnlyList<string> Options);
+    IReadOnlyList<string> Options,
+    IReadOnlyList<PermissionOptionInfo>? OptionDetails = null)
+{
+    /// <summary>Options with display metadata — OptionDetails when present,
+    /// else derived from the flat option ids.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<PermissionOptionInfo> EffectiveOptions =>
+        OptionDetails is { Count: > 0 } details
+            ? details
+            : Options.Select(id => new PermissionOptionInfo(id, id, null)).ToList();
+}
 
 /// <summary>
 /// Structured agent session event emitted to the thread.

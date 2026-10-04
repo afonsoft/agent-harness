@@ -287,7 +287,7 @@ public sealed class AcpV2Dialect : IAcpDialect
         // tolerate the v1 toolCall shape for draft implementations.
         var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
         var (tool, detail) = ExtractToolDetail(p);
-        var options = ExtractOptionIds(p);
+        var options = AcpProtocolParser.NormalizePermissionOptions(p);
         var effectiveRequestId = ResolveRequestId(p, requestId, isRequest);
 
         var payload = JsonSerializer.Serialize(new
@@ -348,34 +348,6 @@ public sealed class AcpV2Dialect : IAcpDialect
         return subject.ValueKind == JsonValueKind.String
             ? subject.GetString() ?? string.Empty
             : subject.GetRawText();
-    }
-
-    private static List<string> ExtractOptionIds(JsonElement p)
-    {
-        var options = new List<string>();
-        if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var opt in opts.EnumerateArray())
-            {
-                if (opt.ValueKind == JsonValueKind.Object
-                    && opt.TryGetProperty("optionId", out var oid)
-                    && oid.GetString() is { } optionId)
-                {
-                    options.Add(optionId);
-                }
-                else if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { } legacy)
-                {
-                    options.Add(legacy);
-                }
-            }
-        }
-
-        if (options.Count == 0)
-        {
-            options.AddRange(["allow", "deny"]);
-        }
-
-        return options;
     }
 
     // In real ACP the JSON-RPC request id is the reply correlation;

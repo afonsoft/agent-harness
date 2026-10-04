@@ -744,6 +744,17 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     internal static string? MapOutcomeToOption(string outcome, IReadOnlyList<AcpPermissionOption> options)
     {
         var normalized = outcome.ToLowerInvariant();
+
+        // SPEC-20261004-permission-question-cards RF-002: a reply carrying the
+        // literal optionId (question-shaped option sets) wins by exact match —
+        // substring probing could select a longer sibling id by accident.
+        var exact = options.FirstOrDefault(o =>
+            string.Equals(o.OptionId, outcome, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            return exact.OptionId;
+        }
+
         var wanted = normalized switch
         {
             "allow" => new[] { "allow_once", "allow_always" },

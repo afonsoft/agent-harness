@@ -147,7 +147,7 @@ public sealed class AcpV1Dialect : IAcpDialect
         // Legacy shape: params { requestId, tool, detail, options: ["allow","deny"] }
         var sessionId = p.TryGetProperty("sessionId", out var sid) ? sid.GetString() : null;
         var (tool, detail) = ExtractToolDetail(p);
-        var options = ExtractOptionIds(p);
+        var options = AcpProtocolParser.NormalizePermissionOptions(p);
         var effectiveRequestId = ResolveRequestId(p, requestId, isRequest);
 
         var payload = JsonSerializer.Serialize(new
@@ -185,34 +185,6 @@ public sealed class AcpV1Dialect : IAcpDialect
         return (
             p.TryGetProperty("tool", out var t) ? t.GetString() ?? string.Empty : string.Empty,
             p.TryGetProperty("detail", out var d) ? d.GetString() ?? string.Empty : string.Empty);
-    }
-
-    private static List<string> ExtractOptionIds(JsonElement p)
-    {
-        var options = new List<string>();
-        if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var opt in opts.EnumerateArray())
-            {
-                if (opt.ValueKind == JsonValueKind.Object
-                    && opt.TryGetProperty("optionId", out var oid)
-                    && oid.GetString() is { } optionId)
-                {
-                    options.Add(optionId);
-                }
-                else if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { } legacy)
-                {
-                    options.Add(legacy);
-                }
-            }
-        }
-
-        if (options.Count == 0)
-        {
-            options.AddRange(["allow", "deny"]);
-        }
-
-        return options;
     }
 
     // In real ACP the JSON-RPC request id is the reply correlation;
