@@ -51,25 +51,6 @@
             {
                 <span class="badge text-bg-primary" title="Agent mode — delegated CLI runs bound to this conversation">agent</span>
             }
-            <span class="text-body-secondary small header-label">Provider</span>
-            <select class="form-select form-select-sm w-auto" @bind="_providerId" @bind:after="OnProviderChangedAsync">
-                <option value="">—</option>
-                @foreach (var provider in _providers)
-                {
-                    <option value="@provider.Id" selected="@(provider.Id == _providerId)">@provider.Name</option>
-                }
-            </select>
-            <span class="text-body-secondary small header-label">Model</span>
-            <select class="form-select form-select-sm w-auto" @bind="_model" @bind:after="OnModelChangedAsync" disabled="@(_models.Count == 0)">
-                @if (_models.Count == 0)
-                {
-                    <option value="">no models</option>
-                }
-                @foreach (var model in _models)
-                {
-                    <option value="@model" selected="@(model == _model)">@model</option>
-                }
-            </select>
             @if (_conversationTitle is { Length: > 0 })
             {
                 <span class="ms-auto small text-body-secondary text-truncate d-none d-md-block">@_conversationTitle</span>
@@ -201,20 +182,47 @@
                     <textarea class="provider-chat-input" rows="2" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" data-shortcut-command placeholder="Send a message… (/ comandos e skills, Enter envia)"
                               @bind="_composer" @bind:event="oninput" @onkeydown="OnComposerKey"
                               @onkeydown:preventDefault="_slashPreventDefault"></textarea>
-                    <div class="provider-chat-composer-actions">
-                        @if (_running)
-                        {
-                            <button type="button" class="provider-chat-send stop" @onclick="StopAsync" title="Stop" aria-label="Stop">
-                                <Icon Name="IconName.StopCircle" />
-                            </button>
-                        }
-                        else
-                        {
-                            <button type="button" class="provider-chat-send" @onclick="SendAsync" title="Enviar" aria-label="Send"
-                                    disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model))">
-                                <Icon Name="IconName.Send" />
-                            </button>
-                        }
+                    <div class="provider-chat-composer-footer">
+                        <div class="provider-chat-composer-picks">
+                            <label class="provider-pick" title="Provider">
+                                <Icon Name="IconName.Cloud" />
+                                <select class="provider-pick-select" @bind="_providerId" @bind:after="OnProviderChangedAsync" aria-label="Provider">
+                                    <option value="">provider</option>
+                                    @foreach (var provider in _providers)
+                                    {
+                                        <option value="@provider.Id" selected="@(provider.Id == _providerId)">@provider.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="provider-pick" title="Model">
+                                <Icon Name="IconName.Cpu" />
+                                <select class="provider-pick-select" @bind="_model" @bind:after="OnModelChangedAsync" disabled="@(_models.Count == 0)" aria-label="Model">
+                                    @if (_models.Count == 0)
+                                    {
+                                        <option value="">no models</option>
+                                    }
+                                    @foreach (var model in _models)
+                                    {
+                                        <option value="@model" selected="@(model == _model)">@model</option>
+                                    }
+                                </select>
+                            </label>
+                        </div>
+                        <div class="provider-chat-composer-actions">
+                            @if (_running)
+                            {
+                                <button type="button" class="provider-chat-send stop" @onclick="StopAsync" title="Stop" aria-label="Stop">
+                                    <Icon Name="IconName.StopCircle" />
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="provider-chat-send" @onclick="SendAsync" title="Enviar" aria-label="Send"
+                                        disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model))">
+                                    <Icon Name="IconName.Send" />
+                                </button>
+                            }
+                        </div>
                     </div>
                 </div>
             </div>
