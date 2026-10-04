@@ -623,7 +623,7 @@
         {
             _dashboard = await Client.GetDelegationDashboardAsync();
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _dashboard = null;
         }
@@ -640,7 +640,7 @@
         {
             _sessions = await Client.GetAgentSessionsAsync();
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _sessions = [];
         }
@@ -695,7 +695,7 @@
         {
             _compareLegs = await Client.GetFanoutCompareAsync(groupId);
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _compareLegs = [];
         }
@@ -725,7 +725,7 @@
         {
             _customDefs = await Client.GetCustomAgentClisAsync();
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _customDefs = [];
         }
@@ -810,7 +810,7 @@
             _builtinTemplate = info.Builtin;
             _templateCustomized = info.Customized;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao carregar prompt padrão: {ex.Message}"));
         }
@@ -829,7 +829,7 @@
             await ToastService.NotifyAsync(new(ToastType.Success, "Prompt padrão salvo."));
             await LoadTemplateAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao salvar prompt: {ex.Message}"));
         }
@@ -848,7 +848,7 @@
             await ToastService.NotifyAsync(new(ToastType.Success, "Prompt padrão restaurado."));
             await LoadTemplateAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao restaurar prompt: {ex.Message}"));
         }
@@ -866,7 +866,7 @@
         {
             _agents = await Client.GetAgentClisAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _error = $"Could not load agent CLI status: {ex.Message}";
         }
@@ -889,7 +889,7 @@
             _metrics = await summaryTask;
             _sources = await sourcesTask;
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _metrics = null;
             _sources = [];
@@ -906,7 +906,7 @@
         {
             await Client.RefreshAgentClisAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await ToastService.NotifyAsync(new(ToastType.Warning,
                 $"Could not schedule a CLI probe refresh: {ex.Message}"));
@@ -951,7 +951,7 @@
 
             _agents = await Client.GetAgentClisAsync();
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Probe tracking is best-effort — the snapshot is already on screen.
         }
@@ -983,7 +983,7 @@
             }
             await RefreshAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao sincronizar métricas: {ex.Message}"));
         }

@@ -382,9 +382,14 @@
         try
         {
             _models = await Client.GetChatProviderModelsAsync(_providerId);
-            _model = _defaultChatModel is { Length: > 0 } d && _models.Contains(d)
-                ? d
-                : _models.Count > 0 ? _models[0] : string.Empty;
+            if (_defaultChatModel is { Length: > 0 } d && _models.Contains(d))
+            {
+                _model = d;
+            }
+            else
+            {
+                _model = _models.Count > 0 ? _models[0] : string.Empty;
+            }
         }
         catch (Exception ex)
         {

@@ -1981,6 +1981,8 @@ void MapAiChatEndpoints()
 
 void MapSettingsAndChatEndpoints()
 {
+    const string defaultScope = "harness";
+
     api.MapGet("settings", async (SettingsService settings, CancellationToken ct) =>
     {
         var result = await settings.GetSettingsAsync(ct);
@@ -2009,7 +2011,7 @@ void MapSettingsAndChatEndpoints()
         Results.Ok(new
         {
             tasks = await tasks.ListByScopeAsync(
-                string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 100, ct),
+                string.IsNullOrWhiteSpace(scope) ? defaultScope : scope, take: 100, ct),
         }));
 
     api.MapGet("local/delegation/mailbox", async (
@@ -2021,7 +2023,7 @@ void MapSettingsAndChatEndpoints()
         return Results.Ok(new
         {
             messages = await mailbox.ListForRecipientAsync(
-                string.IsNullOrWhiteSpace(scope) ? "harness" : scope,
+                string.IsNullOrWhiteSpace(scope) ? defaultScope : scope,
                 recipients, take: 100, unreadOnly: false, ct),
         });
     });
@@ -2030,7 +2032,7 @@ void MapSettingsAndChatEndpoints()
     api.MapGet("local/delegation/dashboard", async (
         string? scope, IDelegationDashboardService dashboard, CancellationToken ct) =>
         Results.Ok(await dashboard.GetAsync(
-            string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 20, ct)));
+            string.IsNullOrWhiteSpace(scope) ? defaultScope : scope, take: 20, ct)));
 
     // SPEC-20261007 RF-001: human reply path — answers a Needs You
     // escalation/decision; resolves the original message.
@@ -2044,7 +2046,7 @@ void MapSettingsAndChatEndpoints()
         }
 
         var reply = await delegation.ReplyMailboxAsync(
-            string.IsNullOrWhiteSpace(scope) ? "harness" : scope,
+            string.IsNullOrWhiteSpace(scope) ? defaultScope : scope,
             id,
             string.IsNullOrWhiteSpace(request.From) ? "human" : request.From.Trim(),
             request.Body, ct);
@@ -2055,10 +2057,13 @@ void MapSettingsAndChatEndpoints()
 
     api.MapPost("local/delegation/mailbox/{id}/dismiss", async (
         string id, string? scope, IDelegationService delegation, CancellationToken ct) =>
-        await delegation.DismissMailboxAsync(
-            string.IsNullOrWhiteSpace(scope) ? "harness" : scope, [id], ct) == 0
+    {
+        var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
+        var dismissed = await delegation.DismissMailboxAsync(effectiveScope, [id], ct);
+        return dismissed == 0
             ? Results.NotFound(new { error = "mailbox-message-not-found" })
-            : Results.NoContent());
+            : Results.NoContent();
+    });
 
     // SPEC-20261007 RF-004: fan-out compare — per-leg diffstat + bounded patch.
     api.MapGet("local/delegation/fanout/{groupId}/compare", async (
@@ -2067,7 +2072,7 @@ void MapSettingsAndChatEndpoints()
     {
         const int patchMaxLength = 8000;
         var tasks = await delegation.ListTasksAsync(
-            string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 200, ct);
+            string.IsNullOrWhiteSpace(scope) ? defaultScope : scope, take: 200, ct);
         var legs = new List<FanoutCompareLegDto>();
         foreach (var task in tasks.Where(t =>
             string.Equals(t.FanoutGroupId, groupId, StringComparison.Ordinal)))
@@ -2984,6 +2989,8 @@ void MapAgentsEndpoints()
 
 void MapOperationsEndpoints()
 {
+    const string customCliNotFound = "custom-cli-not-found";
+
     api.MapGet("skills/sync/status", (ISkillsSyncService sync) =>
         Results.Ok(sync.GetStatus()))
         .RequireAuthorization();
@@ -3060,7 +3067,7 @@ void MapOperationsEndpoints()
         var def = await defs.GetAsync(id, ct);
         if (def is null)
         {
-            return Results.NotFound(new { error = "custom-cli-not-found" });
+            return Results.NotFound(new { error = customCliNotFound });
         }
 
         var models = string.IsNullOrWhiteSpace(def.ModelListArgs)
@@ -3101,7 +3108,7 @@ void MapOperationsEndpoints()
         var existing = await defs.GetAsync(id, ct);
         if (existing is null)
         {
-            return Results.NotFound(new { error = "custom-cli-not-found" });
+            return Results.NotFound(new { error = customCliNotFound });
         }
 
         // Renaming onto another definition's display name conflicts.
@@ -3115,7 +3122,7 @@ void MapOperationsEndpoints()
         {
             var def = await defs.UpdateAsync(id, request, ct);
             return def is null
-                ? Results.NotFound(new { error = "custom-cli-not-found" })
+                ? Results.NotFound(new { error = customCliNotFound })
                 : Results.Ok(def with
                 {
                     Resolved = PathSearch.FindExecutable(def.Executable) is not null,
@@ -3131,7 +3138,7 @@ void MapOperationsEndpoints()
     api.MapDelete("agents/custom/{id}", async (string id, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
         await defs.DeleteAsync(id, ct)
             ? Results.NoContent()
-            : Results.NotFound(new { error = "custom-cli-not-found" }))
+            : Results.NotFound(new { error = customCliNotFound }))
         .RequireAuthorization();
 
     // SPEC-20260928-ai-code-generic-cli RF-004: running containers + per-container

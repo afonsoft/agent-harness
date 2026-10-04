@@ -330,6 +330,13 @@ public sealed class DelegationService : IDelegationService
         return "dependency failed";
     }
 
-    private static string Truncate(string? text, int max = DetailMaxLength) =>
-        string.IsNullOrEmpty(text) ? string.Empty : text.Length <= max ? text : text[..max] + "…";
+    private static string Truncate(string? text, int max = DetailMaxLength)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        return text.Length <= max ? text : text[..max] + "…";
+    }
 }

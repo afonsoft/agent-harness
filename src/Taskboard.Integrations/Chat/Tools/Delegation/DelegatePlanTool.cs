@@ -53,10 +53,40 @@ public sealed class DelegatePlanTool(
             return DelegationToolSupport.Error("delegation not allowed inside a sub-agent", "recursion blocked");
         }
 
+        var specs = ParseSpecs(arguments, out var parseError);
+        if (parseError is not null)
+        {
+            return parseError;
+        }
+
+        var repoResult = await ResolveRepoAsync(
+            specs!, arguments, context, cancellationToken).ConfigureAwait(false);
+        if (repoResult.Error is not null)
+        {
+            return repoResult.Error;
+        }
+
+        var scope = DelegationToolSupport.ScopeOf(context);
+        var created = await CreatePlanAsync(
+            specs!, repoResult.RepoPath, arguments, scope, context, cancellationToken)
+            .ConfigureAwait(false);
+        if (created.Error is not null)
+        {
+            return created.Error;
+        }
+
+        context.Activity?.Report("delegated_plan", $"{created.Items.Count} tasks");
+        return DelegationToolSupport.Ok(new { created = created.Items, scope });
+    }
+
+    private static List<PlanTask>? ParseSpecs(JsonElement arguments, out ChatToolResult? error)
+    {
+        error = null;
         if (!arguments.TryGetProperty("tasks", out var tasksEl)
             || tasksEl.ValueKind != JsonValueKind.Array)
         {
-            return DelegationToolSupport.Error("tasks array is required", "missing tasks");
+            error = DelegationToolSupport.Error("tasks array is required", "missing tasks");
+            return null;
         }
 
         var specs = new List<PlanTask>();
@@ -66,14 +96,16 @@ public sealed class DelegatePlanTool(
             var prompt = ReadString(el, "prompt");
             if (string.IsNullOrWhiteSpace(prompt))
             {
-                return DelegationToolSupport.Error($"tasks[{index}].prompt is required", "empty prompt");
+                error = DelegationToolSupport.Error($"tasks[{index}].prompt is required", "empty prompt");
+                return null;
             }
 
             var deps = ReadDeps(el);
             if (deps is null)
             {
-                return DelegationToolSupport.Error(
+                error = DelegationToolSupport.Error(
                     $"tasks[{index}].deps must be integers", "bad dep index");
+                return null;
             }
 
             specs.Add(new PlanTask(
@@ -84,49 +116,67 @@ public sealed class DelegatePlanTool(
             index++;
         }
 
+        return ValidateSpecs(specs, out error) ? specs : null;
+    }
+
+    private static bool ValidateSpecs(List<PlanTask> specs, out ChatToolResult? error)
+    {
+        error = null;
         if (specs.Count == 0)
         {
-            return DelegationToolSupport.Error("tasks array is empty", "empty plan");
+            error = DelegationToolSupport.Error("tasks array is empty", "empty plan");
+            return false;
         }
 
         if (specs.Count > MaxTasks)
         {
-            return DelegationToolSupport.Error($"delegate_plan supports at most {MaxTasks} tasks", "too many tasks");
+            error = DelegationToolSupport.Error(
+                $"delegate_plan supports at most {MaxTasks} tasks", "too many tasks");
+            return false;
         }
 
         for (var i = 0; i < specs.Count; i++)
         {
-            foreach (var dep in specs[i].Deps)
+            var bad = specs[i].Deps.FirstOrDefault(dep => dep >= i, -1);
+            if (bad >= 0)
             {
-                if (dep >= i)
-                {
-                    return DelegationToolSupport.Error(
-                        $"tasks[{i}].deps must point to earlier tasks (got {dep})", "bad dep index");
-                }
+                error = DelegationToolSupport.Error(
+                    $"tasks[{i}].deps must point to earlier tasks (got {bad})", "bad dep index");
+                return false;
             }
         }
 
-        var needsWorktree = specs.Any(s => s.UseWorktree);
+        return true;
+    }
+
+    private async Task<RepoResult> ResolveRepoAsync(
+        List<PlanTask> specs, JsonElement arguments, ChatToolContext context,
+        CancellationToken cancellationToken)
+    {
         var rawRepo = ReadString(arguments, "repository_path");
-        if (needsWorktree && string.IsNullOrWhiteSpace(rawRepo))
+        if (specs.Any(s => s.UseWorktree) && string.IsNullOrWhiteSpace(rawRepo))
         {
-            return DelegationToolSupport.Error(
-                "worktree tasks need repository_path", "missing repository");
+            return new(null, DelegationToolSupport.Error(
+                "worktree tasks need repository_path", "missing repository"));
         }
 
-        string? repoPath = null;
-        if (needsWorktree || rawRepo is not null)
+        if (!specs.Any(s => s.UseWorktree) && rawRepo is null)
         {
-            repoPath = await DelegationToolSupport.ResolveGitRootAsync(
-                git, rawRepo, context.WorkspacePath, cancellationToken).ConfigureAwait(false);
-            if (repoPath is null)
-            {
-                return DelegationToolSupport.Error(
-                    "repository_path is not inside a git checkout", "not a git repo");
-            }
+            return new(null, null);
         }
 
-        var scope = DelegationToolSupport.ScopeOf(context);
+        var repoPath = await DelegationToolSupport.ResolveGitRootAsync(
+            git, rawRepo, context.WorkspacePath, cancellationToken).ConfigureAwait(false);
+        return repoPath is null
+            ? new(null, DelegationToolSupport.Error(
+                "repository_path is not inside a git checkout", "not a git repo"))
+            : new(repoPath, null);
+    }
+
+    private async Task<CreateResult> CreatePlanAsync(
+        List<PlanTask> specs, string? repoPath, JsonElement arguments, string scope,
+        ChatToolContext context, CancellationToken cancellationToken)
+    {
         var created = new List<object>();
         var createdIds = new List<string>();
         IDelegationService? service = null;
@@ -140,72 +190,84 @@ public sealed class DelegatePlanTool(
 
             for (var i = 0; i < specs.Count; i++)
             {
-                var spec = specs[i];
-                var dependsOn = spec.Deps.Count == 0
-                    ? null
-                    : spec.Deps.Select(d => createdIds[d]).ToList();
-                var cli = string.IsNullOrWhiteSpace(spec.Cli)
-                    ? context.DefaultAgentCli ?? "opencode"
-                    : spec.Cli!.Trim();
-
-                var task = await service.CreateTaskAsync(
-                    new CreateDelegationTaskRequest(
-                        spec.Prompt, cli, scope, context.WorkspacePath,
-                        dependsOn, RetryOf: null, FanoutGroupId: null,
-                        spec.UseWorktree, repoPath, BaseCommitSha: null),
-                    cancellationToken).ConfigureAwait(false);
-
-                var status = "pending";
-                if (spec.UseWorktree)
-                {
-                    if (isolation is null)
-                    {
-                        throw new InvalidOperationException("worktree service unavailable");
-                    }
-
-                    var session = await isolation.CreateWorktreeAsync(
-                        task.Id, repoPath!, baseBranch,
-                        $"plan-{task.Id[^Math.Min(8, task.Id.Length)..]}",
-                        retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-                    task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
-                        .ConfigureAwait(false)) ?? task;
-                }
-
+                var task = await CreateOneAsync(
+                    specs[i], i, createdIds, service, isolation, repoPath, baseBranch,
+                    scope, context, cancellationToken).ConfigureAwait(false);
                 createdIds.Add(task.Id);
-                created.Add(new
-                {
-                    index = i,
-                    id = task.Id,
-                    cli = task.CliName,
-                    status,
-                });
+                created.Add(new { index = i, id = task.Id, cli = task.CliName, status = "pending" });
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            if (service is not null)
-            {
-                foreach (var id in createdIds)
-                {
-                    try
-                    {
-                        await service.CancelTaskAsync(id, "plan-aborted", CancellationToken.None)
-                            .ConfigureAwait(false);
-                    }
-                    catch (DomainException)
-                    {
-                        // Best-effort rollback — a task that already started keeps running.
-                    }
-                }
-            }
-
+            await RollbackAsync(service, createdIds).ConfigureAwait(false);
             var message = ex is DomainException ? ex.Message : $"plan aborted: {ex.Message}";
-            return DelegationToolSupport.Error(message, "plan-aborted");
+            return new([], DelegationToolSupport.Error(message, "plan-aborted"));
         }
 
-        context.Activity?.Report("delegated_plan", $"{created.Count} tasks");
-        return DelegationToolSupport.Ok(new { created, scope });
+        return new(created, null);
     }
+
+    private static async Task<DelegationTaskDto> CreateOneAsync(
+        PlanTask spec, int index, List<string> createdIds, IDelegationService service,
+        IWorkspaceIsolationService? isolation, string? repoPath, string baseBranch,
+        string scope, ChatToolContext context, CancellationToken cancellationToken)
+    {
+        var dependsOn = spec.Deps.Count == 0
+            ? null
+            : spec.Deps.Select(d => createdIds[d]).ToList();
+        var cli = string.IsNullOrWhiteSpace(spec.Cli)
+            ? context.DefaultAgentCli ?? "opencode"
+            : spec.Cli!.Trim();
+
+        var task = await service.CreateTaskAsync(
+            new CreateDelegationTaskRequest(
+                spec.Prompt, cli, scope, context.WorkspacePath,
+                dependsOn, RetryOf: null, FanoutGroupId: null,
+                spec.UseWorktree, repoPath, BaseCommitSha: null),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!spec.UseWorktree)
+        {
+            return task;
+        }
+
+        if (isolation is null)
+        {
+            throw new InvalidOperationException("worktree service unavailable");
+        }
+
+        var session = await isolation.CreateWorktreeAsync(
+            task.Id, repoPath!, baseBranch,
+            $"plan-{task.Id[^Math.Min(8, task.Id.Length)..]}",
+            retainOnFailure: false, cancellationToken).ConfigureAwait(false);
+        return (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
+            .ConfigureAwait(false)) ?? task;
+    }
+
+    private static async Task RollbackAsync(IDelegationService? service, List<string> createdIds)
+    {
+        if (service is null)
+        {
+            return;
+        }
+
+        foreach (var id in createdIds)
+        {
+            try
+            {
+                await service.CancelTaskAsync(id, "plan-aborted", CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (DomainException)
+            {
+                // Best-effort rollback — a task that already started keeps running.
+            }
+        }
+    }
+
+    private sealed record RepoResult(string? RepoPath, ChatToolResult? Error);
+
+    private sealed record CreateResult(IReadOnlyList<object> Items, ChatToolResult? Error);
 
     private sealed record PlanTask(
         string Prompt, string? Cli, IReadOnlyList<int> Deps, bool UseWorktree);

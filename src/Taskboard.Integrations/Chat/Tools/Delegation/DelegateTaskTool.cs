@@ -69,24 +69,15 @@ public sealed class DelegateTaskTool(
 
         if (useWorktree || rawRepo is not null)
         {
-            repoPath = await DelegationToolSupport.ResolveGitRootAsync(
-                git, rawRepo, context.WorkspacePath, cancellationToken).ConfigureAwait(false);
-            if (repoPath is null)
+            var resolved = await ResolveRepoAsync(rawRepo, useWorktree, context, cancellationToken)
+                .ConfigureAwait(false);
+            if (resolved.Error is not null)
             {
-                return DelegationToolSupport.Error(
-                    "repository_path is not inside a git checkout", "not a git repo");
+                return resolved.Error;
             }
 
-            if (useWorktree)
-            {
-                // Worktree legs compare diffs against the base branch — the
-                // stale-base guard only applies to shared-checkout tasks.
-            }
-            else
-            {
-                baseSha = await DelegationToolSupport.HeadShaAsync(git, repoPath, cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            repoPath = resolved.RepoPath;
+            baseSha = resolved.BaseSha;
         }
 
         var dependsOn = ReadStringList(arguments, "depends_on");
@@ -108,30 +99,15 @@ public sealed class DelegateTaskTool(
 
             if (useWorktree)
             {
-                var isolation = diScope.ServiceProvider.GetService<IWorkspaceIsolationService>();
-                if (isolation is null)
+                var attach = await AttachWorktreeAsync(
+                    diScope.ServiceProvider.GetService<IWorkspaceIsolationService>(),
+                    service, task, repoPath!, arguments, cancellationToken).ConfigureAwait(false);
+                if (attach.Error is not null)
                 {
-                    await service.CancelTaskAsync(task.Id, "worktree service unavailable", cancellationToken)
-                        .ConfigureAwait(false);
-                    return DelegationToolSupport.Error("worktree service unavailable", "no isolation");
+                    return attach.Error;
                 }
 
-                try
-                {
-                    var session = await isolation.CreateWorktreeAsync(
-                        task.Id, repoPath!, ReadString(arguments, "base_branch") ?? "main",
-                        $"delegation-{task.Id[^Math.Min(8, task.Id.Length)..]}",
-                        retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-                    task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
-                        .ConfigureAwait(false)) ?? task;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    await service.CancelTaskAsync(task.Id, $"worktree create failed: {ex.Message}", cancellationToken)
-                        .ConfigureAwait(false);
-                    return DelegationToolSupport.Error(
-                        $"worktree create failed: {ex.Message}", "worktree error");
-                }
+                task = attach.Task!;
             }
         }
         catch (DomainException ex)
@@ -152,6 +128,61 @@ public sealed class DelegateTaskTool(
             worktreeRunId = task.WorktreeRunId,
         });
     }
+
+    private async Task<RepoResult> ResolveRepoAsync(
+        string? rawRepo, bool useWorktree, ChatToolContext context, CancellationToken cancellationToken)
+    {
+        var repoPath = await DelegationToolSupport.ResolveGitRootAsync(
+            git, rawRepo, context.WorkspacePath, cancellationToken).ConfigureAwait(false);
+        if (repoPath is null)
+        {
+            return new(null, null, DelegationToolSupport.Error(
+                "repository_path is not inside a git checkout", "not a git repo"));
+        }
+
+        // Worktree legs compare diffs against the base branch — the
+        // stale-base guard only applies to shared-checkout tasks.
+        var baseSha = useWorktree
+            ? null
+            : await DelegationToolSupport.HeadShaAsync(git, repoPath, cancellationToken)
+                .ConfigureAwait(false);
+        return new(repoPath, baseSha, null);
+    }
+
+    private static async Task<AttachResult> AttachWorktreeAsync(
+        IWorkspaceIsolationService? isolation, IDelegationService service,
+        DelegationTaskDto task, string repoPath, JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        if (isolation is null)
+        {
+            await service.CancelTaskAsync(task.Id, "worktree service unavailable", cancellationToken)
+                .ConfigureAwait(false);
+            return new(null, DelegationToolSupport.Error("worktree service unavailable", "no isolation"));
+        }
+
+        try
+        {
+            var session = await isolation.CreateWorktreeAsync(
+                task.Id, repoPath, ReadString(arguments, "base_branch") ?? "main",
+                $"delegation-{task.Id[^Math.Min(8, task.Id.Length)..]}",
+                retainOnFailure: false, cancellationToken).ConfigureAwait(false);
+            task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
+                .ConfigureAwait(false)) ?? task;
+            return new(task, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await service.CancelTaskAsync(task.Id, $"worktree create failed: {ex.Message}", cancellationToken)
+                .ConfigureAwait(false);
+            return new(null, DelegationToolSupport.Error(
+                $"worktree create failed: {ex.Message}", "worktree error"));
+        }
+    }
+
+    private sealed record RepoResult(string? RepoPath, string? BaseSha, ChatToolResult? Error);
+
+    private sealed record AttachResult(DelegationTaskDto? Task, ChatToolResult? Error);
 
     private static string? ReadString(JsonElement args, string name) =>
         args.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String

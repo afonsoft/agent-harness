@@ -77,7 +77,7 @@ public sealed class DelegationDispatcherService : BackgroundService
             {
                 return;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "delegation dispatcher tick failed");
             }
@@ -126,9 +126,10 @@ public sealed class DelegationDispatcherService : BackgroundService
             return;
         }
 
-        foreach (var task in open
+        foreach (var taskId in open
             .Where(t => t.Status == DelegationTaskStatus.Ready && !staled.Contains(t.Id))
-            .OrderBy(t => t.CreatedAt))
+            .OrderBy(t => t.CreatedAt)
+            .Select(t => t.Id))
         {
             if (capacity <= 0)
             {
@@ -137,13 +138,13 @@ public sealed class DelegationDispatcherService : BackgroundService
 
             using var scope = _scopeFactory.CreateScope();
             var delegation = scope.ServiceProvider.GetRequiredService<IDelegationService>();
-            if (await delegation.BeginRunAsync(task.Id, now, ct).ConfigureAwait(false) is null)
+            if (await delegation.BeginRunAsync(taskId, now, ct).ConfigureAwait(false) is null)
             {
                 continue;
             }
 
-            _inflight[task.Id] = Task.Run(
-                () => ExecuteTaskAsync(task.Id, ct), CancellationToken.None);
+            _inflight[taskId] = Task.Run(
+                () => ExecuteTaskAsync(taskId, ct), CancellationToken.None);
             capacity--;
         }
     }
@@ -177,7 +178,7 @@ public sealed class DelegationDispatcherService : BackgroundService
         {
             // Host shutting down — the heartbeat sweep will reclaim the task.
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "delegated task {TaskId} crashed", taskId);
             await FinishAsync(taskId, ok: false, $"execution crashed: {ex.Message}")
@@ -323,7 +324,7 @@ public sealed class DelegationDispatcherService : BackgroundService
                 _logger.LogWarning("delegated task {TaskId} vanished before finalize", taskId);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "delegated task {TaskId} finalize failed", taskId);
         }
@@ -336,8 +337,13 @@ public sealed class DelegationDispatcherService : BackgroundService
         return res.ExitCode == 0 ? res.StandardOutput.Trim() : null;
     }
 
-    private static string Truncate(string? text) =>
-        string.IsNullOrEmpty(text)
-            ? string.Empty
-            : text.Length <= ResultSummaryMaxLength ? text : text[..ResultSummaryMaxLength] + "…";
+    private static string Truncate(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        return text.Length <= ResultSummaryMaxLength ? text : text[..ResultSummaryMaxLength] + "…";
+    }
 }

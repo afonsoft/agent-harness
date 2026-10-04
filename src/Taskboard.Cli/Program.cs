@@ -348,24 +348,26 @@ public class BackupSettings : GlobalSettings
 
 public class BackupCommand : AsyncCommand<BackupSettings>
 {
-    protected override Task<int> ExecuteAsync(CommandContext context, BackupSettings settings, CancellationToken cancellationToken)
+    protected override async Task<int> ExecuteAsync(CommandContext context, BackupSettings settings, CancellationToken cancellationToken)
     {
         try
         {
             var source = DatabaseBackupService.ResolveDatabasePath(settings.Db);
-            var dest = DatabaseBackupService.Backup(source, settings.DestDir, settings.Keep ?? 7);
+            var dest = await Task.Run(
+                () => DatabaseBackupService.Backup(source, settings.DestDir, settings.Keep ?? 7),
+                cancellationToken).ConfigureAwait(false);
             Console.WriteLine(dest);
-            return Task.FromResult(0);
+            return 0;
         }
         catch (CliException ex)
         {
             Console.Error.WriteLine($"error: {ex.Message}");
-            return Task.FromResult(ex.ExitCode);
+            return ex.ExitCode;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine($"error: {ex.Message}");
-            return Task.FromResult(1);
+            return 1;
         }
     }
 }
@@ -384,24 +386,26 @@ public class RestoreSettings : GlobalSettings
 
 public class RestoreCommand : AsyncCommand<RestoreSettings>
 {
-    protected override Task<int> ExecuteAsync(CommandContext context, RestoreSettings settings, CancellationToken cancellationToken)
+    protected override async Task<int> ExecuteAsync(CommandContext context, RestoreSettings settings, CancellationToken cancellationToken)
     {
         try
         {
             var target = DatabaseBackupService.ResolveDatabasePath(settings.Db);
-            DatabaseBackupService.Restore(settings.BackupFile, target, settings.Force);
+            await Task.Run(
+                () => DatabaseBackupService.Restore(settings.BackupFile, target, settings.Force),
+                cancellationToken).ConfigureAwait(false);
             Console.WriteLine(target);
-            return Task.FromResult(0);
+            return 0;
         }
         catch (CliException ex)
         {
             Console.Error.WriteLine($"error: {ex.Message}");
-            return Task.FromResult(ex.ExitCode);
+            return ex.ExitCode;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine($"error: {ex.Message}");
-            return Task.FromResult(1);
+            return 1;
         }
     }
 }

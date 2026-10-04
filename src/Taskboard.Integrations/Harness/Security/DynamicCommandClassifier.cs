@@ -340,9 +340,8 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         }
 
         var name = token[..eq];
-        return char.IsLetter(name[0]) || name[0] == '_'
-            ? name.All(c => char.IsLetterOrDigit(c) || c == '_')
-            : false;
+        return (char.IsLetter(name[0]) || name[0] == '_')
+            && name.All(c => char.IsLetterOrDigit(c) || c == '_');
     }
 
     /// <summary>

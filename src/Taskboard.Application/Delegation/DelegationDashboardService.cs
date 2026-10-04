@@ -16,20 +16,17 @@ public sealed class DelegationDashboardService : IDelegationDashboardService
     private readonly IAgentMailboxRepository _mailbox;
     private readonly IAgentOrchestrationService _orchestration;
     private readonly IAgentDiscoveryService _discovery;
-    private readonly TimeProvider _time;
 
     public DelegationDashboardService(
         IDelegationTaskRepository tasks,
         IAgentMailboxRepository mailbox,
         IAgentOrchestrationService orchestration,
-        IAgentDiscoveryService discovery,
-        TimeProvider? time = null)
+        IAgentDiscoveryService discovery)
     {
         _tasks = tasks;
         _mailbox = mailbox;
         _orchestration = orchestration;
         _discovery = discovery;
-        _time = time ?? TimeProvider.System;
     }
 
     public async Task<AgentDashboardDto> GetAsync(

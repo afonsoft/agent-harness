@@ -234,17 +234,7 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
         while (pending.Count > 0 && !ct.IsCancellationRequested)
         {
             var dir = pending.Pop();
-            IEnumerable<string> entries;
-            try
-            {
-                entries = Directory.EnumerateFileSystemEntries(dir);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                continue;
-            }
-
-            foreach (var entry in entries)
+            foreach (var entry in EnumerateEntries(dir))
             {
                 var name = Path.GetFileName(entry);
                 if (Directory.Exists(entry))
@@ -253,15 +243,24 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
                     {
                         pending.Push(entry);
                     }
-
-                    continue;
                 }
-
-                if (IncludeFile(root, entry, name, includeRegex))
+                else if (IncludeFile(root, entry, name, includeRegex))
                 {
                     yield return entry;
                 }
             }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateEntries(string dir)
+    {
+        try
+        {
+            return Directory.EnumerateFileSystemEntries(dir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
         }
     }
 

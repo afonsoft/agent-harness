@@ -247,7 +247,7 @@ public class DelegationServiceTests
     [Fact]
     public async Task Dado_MsgInexistente_Quando_Responde_Entao_NullSemPostar()
     {
-        _mailbox.GetAsync("msg-x", Arg.Any<CancellationToken>()).Returns((MailboxMessageDto?)null);
+        _mailbox.GetAsync("msg-x", Arg.Any<CancellationToken>()).Returns(default(MailboxMessageDto));
 
         var reply = await _service.ReplyMailboxAsync("conv-1", "msg-x", "human", "oi");
 

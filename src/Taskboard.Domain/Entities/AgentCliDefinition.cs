@@ -117,9 +117,10 @@ public sealed class AgentCliDefinition : Entity<string>
         VersionArgs = string.IsNullOrWhiteSpace(versionArgs) ? "--version" : versionArgs.Trim();
         Enabled = enabled;
         PromptDelivery = ValidatePromptDelivery(promptDelivery ?? PromptDelivery);
-        ModelListArgs = modelListArgs is null && promptDelivery is null
-            ? ModelListArgs
-            : string.IsNullOrWhiteSpace(modelListArgs) ? null : modelListArgs.Trim();
+        if (modelListArgs is not null || promptDelivery is not null)
+        {
+            ModelListArgs = string.IsNullOrWhiteSpace(modelListArgs) ? null : modelListArgs.Trim();
+        }
         UpdatedAt = now ?? DateTime.UtcNow;
     }
 

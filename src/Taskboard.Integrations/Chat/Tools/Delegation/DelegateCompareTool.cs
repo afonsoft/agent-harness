@@ -56,6 +56,7 @@ public sealed class DelegateCompareTool(IServiceScopeFactory scopeFactory) : ICh
         }
 
         var legs = new List<object>();
+        object? noFiles = null;
         foreach (var task in selected)
         {
             if (task.WorktreeRunId is null || isolation is null)
@@ -65,7 +66,7 @@ public sealed class DelegateCompareTool(IServiceScopeFactory scopeFactory) : ICh
                     taskId = task.Id,
                     task.CliName,
                     status = task.Status.ToString().ToLowerInvariant(),
-                    files = (object?)null,
+                    files = noFiles,
                     note = "no worktree",
                 });
                 continue;
@@ -99,7 +100,7 @@ public sealed class DelegateCompareTool(IServiceScopeFactory scopeFactory) : ICh
                     taskId = task.Id,
                     task.CliName,
                     status = task.Status.ToString().ToLowerInvariant(),
-                    files = (object?)null,
+                    files = noFiles,
                     note = $"diff failed: {ex.Message}",
                 });
             }

@@ -248,7 +248,7 @@ window.taskboardChat = {
         }
         container._chatScrollBound = true;
         this._stick[container.id] = true;
-        var self = this;
+        var stick = this._stick;
         container.addEventListener('scroll', function () {
             // Scroll events are dispatched async — a programmatic scrollTop set
             // inside highlight() can be observed *after* a streamed chunk grew
@@ -258,7 +258,7 @@ window.taskboardChat = {
             if (setTop !== undefined && Math.abs(container.scrollTop - setTop) <= 1) {
                 return;
             }
-            self._stick[container.id] =
+            stick[container.id] =
                 container.scrollHeight - container.scrollTop - container.clientHeight < 24;
         });
     },

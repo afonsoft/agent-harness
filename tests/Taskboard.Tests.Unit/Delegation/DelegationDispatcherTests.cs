@@ -122,7 +122,7 @@ public class DelegationDispatcherTests
         // Fill via reflection is fragile — instead assert default config keeps
         // ready tasks queued when BeginRunAsync returns null (task vanished).
         _delegation.BeginRunAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
-            .Returns((DelegationTaskDto?)null);
+            .Returns(default(DelegationTaskDto));
 
         await _dispatcher.TickAsync();
 
