@@ -43,6 +43,8 @@ Capacidades principais:
 | ![Métricas de tokens e custo por run, agente e modelo](docs/screenshots/finops.jpg) | ![CLIs de agentes detectados com versões, auth e métricas](docs/screenshots/cli-agents.jpg) |
 | **Terminal** | **Settings** |
 | ![Abas bash PTY interativas via SignalR](docs/screenshots/terminal.jpg) | ![Switches de features e overrides de configuração](docs/screenshots/settings.jpg) |
+| **Agent Dashboard** | **Seletor de workspace** |
+| ![Colunas Needs You / Working / Done / Idle e sessões de CLI retomáveis](docs/screenshots/agents-dashboard.jpg) | ![Modal de seleção de workspace listando subpastas de ~/repos](docs/screenshots/workspace-picker.jpg) |
 
 ## Stack Tecnológico
 
@@ -81,8 +83,8 @@ src/
   Taskboard.Maui/                   # Desktop Blazor Hybrid (opcional)
   Taskboard.Blazor/                 # UI web Blazor WebAssembly
 tests/
-  Taskboard.Tests.Unit/             # 1.470+ testes unitários
-  Taskboard.Tests.Integration/      # 300+ testes de integração
+  Taskboard.Tests.Unit/             # 1.550+ testes unitários
+  Taskboard.Tests.Integration/      # 315+ testes de integração
 ```
 
 ## Início Rápido
