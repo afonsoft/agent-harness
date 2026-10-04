@@ -27,3 +27,14 @@ public static class AgentMailboxKinds
     public static readonly IReadOnlySet<string> AgentWritable =
         new HashSet<string>(StringComparer.Ordinal) { Text };
 }
+
+/// <summary>
+/// SPEC-20261009 RF-001: what a delegation task does when dispatched.
+/// <c>task</c> runs the prompt on its CLI; <c>coordinate</c> runs a planner CLI
+/// and materializes the returned plan as child tasks in the same scope.
+/// </summary>
+public static class DelegationTaskKinds
+{
+    public const string Task = "task";
+    public const string Coordinate = "coordinate";
+}

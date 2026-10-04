@@ -152,7 +152,9 @@ public sealed class DelegationDispatcherService : BackgroundService
     private static string Short(string sha) =>
         sha[..Math.Min(12, sha.Length)];
 
-    /// <summary>Executes one task: builtin → orchestration queue; custom def → inline runner.</summary>
+    /// <summary>Executes one task: builtin → orchestration queue; custom def → inline runner.
+    /// SPEC-20261009 RF-001: <c>coordinate</c> tasks run a planner prompt and materialize the
+    /// returned plan as child tasks in the same scope.</summary>
     private async Task ExecuteTaskAsync(string taskId, CancellationToken ct)
     {
         try
@@ -163,11 +165,19 @@ public sealed class DelegationDispatcherService : BackgroundService
                 return;
             }
 
-            if (Enum.TryParse(task.CliName, ignoreCase: true, out AgentType agentType)
-                && AgentCliMap.CliKindFor(agentType) is { } cliKind
-                && AgentCliMap.GetSpec(cliKind) is not null)
+            var agentType = Enum.TryParse(task.CliName, ignoreCase: true, out AgentType parsed)
+                && AgentCliMap.CliKindFor(parsed) is { } k
+                && AgentCliMap.GetSpec(k) is not null
+                    ? parsed
+                    : (AgentType?)null;
+
+            if (task.Kind == DelegationTaskKinds.Coordinate)
             {
-                await ExecuteBuiltinAsync(task, agentType, ct).ConfigureAwait(false);
+                await ExecuteCoordinatorAsync(task, agentType, ct).ConfigureAwait(false);
+            }
+            else if (agentType is { } builtin)
+            {
+                await ExecuteBuiltinAsync(task, builtin, ct).ConfigureAwait(false);
             }
             else
             {
@@ -200,6 +210,38 @@ public sealed class DelegationDispatcherService : BackgroundService
     private async Task ExecuteBuiltinAsync(DelegationTaskDto task, AgentType agentType, CancellationToken ct)
     {
         var issueId = $"task:{task.Id}";
+        var (run, enqueued) = await EnqueueAndPollAsync(task, agentType, issueId, ct)
+            .ConfigureAwait(false);
+        if (!enqueued)
+        {
+            await FinishAsync(task.Id, ok: false, "agent not eligible (disabled or unauthenticated)")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (run is null)
+        {
+            return; // host shutting down — heartbeat sweep reclaims
+        }
+
+        if (run.State == AgentRunState.Succeeded)
+        {
+            await FinishAsync(task.Id, ok: true, $"run {run.Id} succeeded").ConfigureAwait(false);
+        }
+        else
+        {
+            await FinishAsync(task.Id, ok: false, $"run {run.Id} {run.State}").ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Enqueues a builtin-CLI run and polls it to a terminal state, heartbeating the
+    /// task every pass. Returns the final run (null when the host is shutting down);
+    /// <c>enqueued=false</c> when the agent was not eligible.
+    /// </summary>
+    private async Task<(AgentRunDto? Run, bool Enqueued)> EnqueueAndPollAsync(
+        DelegationTaskDto task, AgentType agentType, string issueId, CancellationToken ct)
+    {
         var repoPath = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
         var request = new AgentExecutionRequest(
             IssueId: issueId,
@@ -214,12 +256,9 @@ public sealed class DelegationDispatcherService : BackgroundService
 
         if (!await _orchestration.EnqueueAsync(request, ct).ConfigureAwait(false))
         {
-            await FinishAsync(task.Id, ok: false, "agent not eligible (disabled or unauthenticated)")
-                .ConfigureAwait(false);
-            return;
+            return (null, false);
         }
 
-        // Poll run state until terminal; heartbeat every pass.
         while (!ct.IsCancellationRequested)
         {
             using (var scope = _scopeFactory.CreateScope())
@@ -236,33 +275,44 @@ public sealed class DelegationDispatcherService : BackgroundService
                 case AgentRunState.Running:
                     await Task.Delay(RunPollInterval, ct).ConfigureAwait(false);
                     continue;
-                case AgentRunState.Succeeded:
-                    await FinishAsync(task.Id, ok: true, $"run {runs[0].Id} succeeded").ConfigureAwait(false);
-                    return;
                 default:
-                    await FinishAsync(task.Id, ok: false, $"run {runs[0].Id} {runs[0].State}")
-                        .ConfigureAwait(false);
-                    return;
+                    return (runs[0], true);
             }
         }
+
+        return (null, true);
     }
 
     private async Task ExecuteCustomDefAsync(DelegationTaskDto task, CancellationToken ct)
     {
+        var result = await RunCustomDefAsync(task, ct).ConfigureAwait(false);
+        if (result.FailDetail is not null)
+        {
+            await FinishAsync(task.Id, ok: false, result.FailDetail).ConfigureAwait(false);
+            return;
+        }
+
+        var summary = string.IsNullOrWhiteSpace(result.Stdout) ? "(no output)" : result.Stdout;
+        await FinishAsync(task.Id, ok: true, Truncate(summary)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a custom-def CLI for <paramref name="task"/> and returns its stdout.
+    /// <c>FailDetail</c> is set on any failure (missing def/executable, timeout, non-zero exit).
+    /// </summary>
+    private async Task<(string? Stdout, string? FailDetail)> RunCustomDefAsync(
+        DelegationTaskDto task, CancellationToken ct)
+    {
         var found = await CustomCliRunner.FindAsync(_scopeFactory, task.CliName, ct).ConfigureAwait(false);
         if (found is null)
         {
-            await FinishAsync(task.Id, ok: false, $"custom cli not found or disabled: {task.CliName}")
-                .ConfigureAwait(false);
-            return;
+            return (null, $"custom cli not found or disabled: {task.CliName}");
         }
 
         var resolved = CustomCliRunner.ResolveExecutable(found.Executable);
         if (resolved is null)
         {
-            await FinishAsync(task.Id, ok: false, $"executable not found: {found.Executable}")
-                .ConfigureAwait(false);
-            return;
+            return (null, $"executable not found: {found.Executable}");
         }
 
         var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
@@ -273,23 +323,117 @@ public sealed class DelegationDispatcherService : BackgroundService
 
         if (result.TimedOut)
         {
-            await FinishAsync(task.Id, ok: false, $"timeout ({CustomCliTimeout.TotalSeconds:0}s)")
+            return (null, $"timeout ({CustomCliTimeout.TotalSeconds:0}s)");
+        }
+
+        if (result.ExitCode != 0)
+        {
+            var detail = string.IsNullOrWhiteSpace(result.Stderr) ? result.Stdout : result.Stderr;
+            return (null, $"exit {result.ExitCode}: {Truncate(detail)}");
+        }
+
+        return (result.Stdout, null);
+    }
+
+    /// <summary>
+    /// SPEC-20261009 RF-001: a <c>coordinate</c> task runs its prompt through the
+    /// planner CLI wrapped in a strict-JSON preamble, extracts the returned plan
+    /// (<c>{"tasks":[...]}</c>) and materializes the children in the same scope
+    /// via <see cref="DelegationPlanCreator"/>.
+    /// </summary>
+    private async Task ExecuteCoordinatorAsync(
+        DelegationTaskDto task, AgentType? agentType, CancellationToken ct)
+    {
+        var planner = task with { Prompt = BuildPlannerPrompt(task.Prompt) };
+        string? output;
+        if (agentType is { } builtin)
+        {
+            var issueId = $"task:{task.Id}";
+            var (run, enqueued) = await EnqueueAndPollAsync(planner, builtin, issueId, ct)
+                .ConfigureAwait(false);
+            if (!enqueued)
+            {
+                await FinishAsync(task.Id, ok: false, "planner agent not eligible (disabled or unauthenticated)")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            if (run is null)
+            {
+                return; // host shutting down
+            }
+
+            if (run.State != AgentRunState.Succeeded)
+            {
+                await FinishAsync(task.Id, ok: false, $"planner run {run.Id} {run.State}")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            var logs = await _orchestration.GetLogsAsync(issueId, ct).ConfigureAwait(false);
+            output = string.Join("\n", logs.Select(l => l.Content));
+        }
+        else
+        {
+            var result = await RunCustomDefAsync(planner, ct).ConfigureAwait(false);
+            if (result.FailDetail is not null)
+            {
+                await FinishAsync(task.Id, ok: false, result.FailDetail).ConfigureAwait(false);
+                return;
+            }
+
+            output = result.Stdout;
+        }
+
+        if (!CoordinatorPlanExtractor.TryExtract(output ?? string.Empty, out var tasksEl))
+        {
+            await FinishAsync(task.Id, ok: false, "planner did not emit a plan JSON")
                 .ConfigureAwait(false);
             return;
         }
 
-        if (result.ExitCode == 0)
+        var specs = DelegationPlanParser.ParseTasks(
+            tasksEl, DelegationPlanCreator.MaxTasks, out var parseError);
+        if (specs is null)
         {
-            var summary = string.IsNullOrWhiteSpace(result.Stdout) ? result.Stderr : result.Stdout;
-            await FinishAsync(task.Id, ok: true, Truncate(summary)).ConfigureAwait(false);
+            await FinishAsync(task.Id, ok: false, $"invalid plan: {parseError}")
+                .ConfigureAwait(false);
+            return;
         }
-        else
+
+        if (specs.Any(s => s.UseWorktree) && task.RepositoryPath is null)
         {
-            var detail = string.IsNullOrWhiteSpace(result.Stderr) ? result.Stdout : result.Stderr;
-            await FinishAsync(task.Id, ok: false, $"exit {result.ExitCode}: {Truncate(detail)}")
+            await FinishAsync(task.Id, ok: false,
+                "plan used worktrees but the coordinator has no repository")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var creator = scope.ServiceProvider.GetRequiredService<DelegationPlanCreator>();
+            var items = await creator.CreateAsync(
+                specs, task.RepositoryPath, "main", task.Scope, task.WorkspacePath,
+                task.CliName, ct).ConfigureAwait(false);
+            await FinishAsync(task.Id, ok: true,
+                $"plan materialized: {items.Count} task(s) [{string.Join(", ", items.Select(i => i.Id))}]")
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await FinishAsync(task.Id, ok: false, $"plan aborted: {ex.Message}")
                 .ConfigureAwait(false);
         }
     }
+
+    /// <summary>Wraps a coordinator goal in the strict-JSON planning preamble.</summary>
+    internal static string BuildPlannerPrompt(string goal) =>
+        "You are a task coordinator. Decompose the goal below into a small set of "
+        + "delegated tasks. Reply with ONLY a JSON object (no prose, no fences) of "
+        + "the form {\"tasks\":[{\"prompt\":\"...\",\"cli\":\"<cli-name or omit>\","
+        + "\"deps\":[<indices of earlier tasks>],\"use_worktree\":false}]}. "
+        + $"At most {DelegationPlanCreator.MaxTasks} tasks.\n\nGoal:\n{goal}";
 
     /// <summary>Worktree tasks run inside their session path; others on the workspace.</summary>
     private async Task<string> ResolveWorkdirAsync(DelegationTaskDto task, CancellationToken ct)

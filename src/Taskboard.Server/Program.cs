@@ -43,6 +43,7 @@ using Taskboard.Domain.Entities;
 using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Domain.Issues;
+using Taskboard.Delegation;
 using Taskboard.Issues;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore;
@@ -556,6 +557,10 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<IGitCommandRunner>()),
             // SPEC-20261007 RF-002: coordinator plan — multi-task DAG in one call.
             new DelegatePlanTool(
+                sp.GetRequiredService<DelegationPlanCreator>(),
+                sp.GetRequiredService<IGitCommandRunner>()),
+            // SPEC-20261009 RF-001: autonomous coordinator — plans + materializes.
+            new DelegateCoordinatorTool(
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<IGitCommandRunner>()),
             new DelegateStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
@@ -572,6 +577,9 @@ void RegisterWorkspaceAndChatServices()
         return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
     });
     builder.Services.AddScoped<IChatCapabilityRegistry, ChatCapabilityRegistry>();
+    // SPEC-20261009 RF-001: shared plan materializer (tool + coordinator dispatcher).
+    builder.Services.AddSingleton(sp => new DelegationPlanCreator(
+        sp.GetRequiredService<IServiceScopeFactory>()));
     // B-01: shared run registry — /stop must reach runs started by other
     // requests' scoped ChatService instances.
     builder.Services.AddSingleton<ChatRunCoordinator>();
@@ -2108,6 +2116,131 @@ void MapSettingsAndChatEndpoints()
         return legs.Count == 0
             ? Results.NotFound(new { error = "fanout-group-not-found" })
             : Results.Ok(new { groupId, legs });
+    });
+
+    // SPEC-20261009 RF-002: pick a fan-out/compare winner — commit the leg's
+    // worktree and push its branch (the PR step stays manual in the cockpit).
+    api.MapPost("local/delegation/tasks/{id}/promote", async (
+        string id, string? scope, IDelegationTaskRepository tasks,
+        IWorkspaceIsolationService isolation, CancellationToken ct) =>
+    {
+        var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
+        var task = await tasks.GetAsync(id, ct);
+        if (task is null || !string.Equals(task.Scope, effectiveScope, StringComparison.Ordinal))
+        {
+            return Results.NotFound(new { error = "delegation-task-not-found" });
+        }
+
+        if (task.WorktreeRunId is null)
+        {
+            return Results.BadRequest(new { error = "task has no worktree to promote" });
+        }
+
+        try
+        {
+            var diff = await isolation.GetDiffAsync(task.WorktreeRunId, ct);
+            if (diff.FilesChanged == 0)
+            {
+                return Results.BadRequest(new { error = "worktree has no changes to promote" });
+            }
+
+            var sha = await isolation.CommitAsync(
+                task.WorktreeRunId,
+                $"delegation: promote {task.CliName} leg ({task.Id})",
+                "Harness <harness@local>", ct);
+            var branch = await isolation.PushAsync(task.WorktreeRunId, ct);
+            return Results.Ok(new { taskId = task.Id, branch, commitSha = sha });
+        }
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    });
+
+    // SPEC-20261009 RF-003: board issue → delegated task in a fresh worktree.
+    api.MapPost("local/delegation/tasks/from-issue", async (
+        DelegateIssueRequest request, string? scope,
+        IDelegationService delegation,
+        IRepositoryProvisioningService provisioning,
+        IWorkspaceIsolationService isolation,
+        IGitCommandRunner git, CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(request.RepositoryFullName)
+            || string.IsNullOrWhiteSpace(request.Title))
+        {
+            return Results.BadRequest(new { error = "repository_full_name and title are required" });
+        }
+
+        RepositoryCloneResult clone;
+        try
+        {
+            clone = await provisioning.EnsureCloneAsync(request.RepositoryFullName, ct);
+        }
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+
+        var prompt =
+            $"GitHub issue {request.RepositoryFullName}#{request.IssueNumber}: {request.Title}\n\n"
+            + (string.IsNullOrWhiteSpace(request.Body) ? "(no body)" : request.Body);
+        var cli = string.IsNullOrWhiteSpace(request.Cli) ? "opencode" : request.Cli.Trim();
+        var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
+
+        var task = await delegation.CreateTaskAsync(
+            new CreateDelegationTaskRequest(
+                prompt, cli, effectiveScope, clone.Path,
+                DependsOn: null, RetryOf: null, FanoutGroupId: null,
+                UseWorktree: true, clone.Path, BaseCommitSha: null),
+            ct);
+
+        var session = await isolation.CreateWorktreeAsync(
+            task.Id, clone.Path, "main",
+            $"issue-{request.IssueNumber}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
+            retainOnFailure: false, ct);
+        task = (await delegation.AttachWorktreeAsync(task.Id, session.RunId, ct)) ?? task;
+        return Results.Ok(new { task });
+    });
+
+    // SPEC-20261009 RF-004: merged activity feed — task lifecycle + mailbox.
+    api.MapGet("local/delegation/events", async (
+        string? scope, int? take, IDelegationTaskRepository tasks,
+        IAgentMailboxRepository mailbox, CancellationToken ct) =>
+    {
+        var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
+        var limit = Math.Clamp(take ?? 50, 1, 100);
+        var events = new List<DelegationEventDto>();
+
+        foreach (var task in await tasks.ListByScopeAsync(effectiveScope, take: 100, ct))
+        {
+            events.Add(new DelegationEventDto(
+                task.CreatedAt, "task_created",
+                $"{task.CliName} task created: {task.Prompt[..Math.Min(120, task.Prompt.Length)]}",
+                task.Id));
+            if (task.FinishedAt is { } finished)
+            {
+                var detail = task.Status == DelegationTaskStatus.Done
+                    ? task.ResultSummary
+                    : task.Error;
+                events.Add(new DelegationEventDto(
+                    finished, $"task_{task.Status.ToString().ToLowerInvariant()}",
+                    $"{task.CliName} task {task.Status.ToString().ToLowerInvariant()}"
+                    + (string.IsNullOrWhiteSpace(detail) ? string.Empty : $": {detail[..Math.Min(160, detail.Length)]}"),
+                    task.Id));
+            }
+        }
+
+        foreach (var message in await mailbox.ListByScopeAsync(effectiveScope, take: 100, ct))
+        {
+            events.Add(new DelegationEventDto(
+                message.CreatedAt, message.Kind,
+                $"{message.FromAgent} → {message.ToAgent}: {message.Payload[..Math.Min(160, message.Payload.Length)]}"));
+        }
+
+        return Results.Ok(new
+        {
+            events = events.OrderByDescending(e => e.Timestamp).Take(limit),
+        });
     });
 
     // SPEC-20261007 RF-003: builtin model probe — spec-declared ModelListArgs

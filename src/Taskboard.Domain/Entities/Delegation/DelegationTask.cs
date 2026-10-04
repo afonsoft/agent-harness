@@ -28,6 +28,10 @@ public sealed class DelegationTask : AggregateRoot<string>
     public string DependsOnJson { get; private set; } = "[]";
     public string? RetryOf { get; private set; }
     public string? FanoutGroupId { get; private set; }
+
+    /// <summary>SPEC-20261009 RF-001: <c>task</c> or <c>coordinate</c>.</summary>
+    public string Kind { get; private set; } = DelegationTaskKinds.Task;
+
     public bool UseWorktree { get; private set; }
 
     /// <summary>Worktree session run-id when <see cref="UseWorktree"/> was honored.</summary>
@@ -61,6 +65,7 @@ public sealed class DelegationTask : AggregateRoot<string>
         bool useWorktree = false,
         string? repositoryPath = null,
         string? baseCommitSha = null,
+        string? kind = null,
         DateTime? now = null)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -88,6 +93,7 @@ public sealed class DelegationTask : AggregateRoot<string>
             DependsOnJson = JsonSerializer.Serialize(dependsOn ?? []),
             RetryOf = retryOf,
             FanoutGroupId = fanoutGroupId,
+            Kind = string.IsNullOrWhiteSpace(kind) ? DelegationTaskKinds.Task : kind.Trim(),
             UseWorktree = useWorktree,
             WorkspacePath = workspacePath,
             RepositoryPath = repositoryPath,

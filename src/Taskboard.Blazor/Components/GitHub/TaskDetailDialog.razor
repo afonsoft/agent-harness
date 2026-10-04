@@ -1,6 +1,7 @@
 @using System.Globalization
 @inject IGitHubService GitHubService
 @inject IAgentOrchestrationService OrchestrationService
+@inject TaskboardClient Client
 @inject ToastService ToastService
 @inject ILocaleService L
 
@@ -95,7 +96,24 @@
                     <a href="/api/vscode/open?repo=@Uri.EscapeDataString(RepositoryFullName)" target="_blank" class="d-block mt-2">
                         <Icon Name="IconName.CodeSlash" class="me-1" />Open in VS Code
                     </a>
-                    <div class="d-flex justify-content-end mt-4 pt-3 border-top">
+                    @* SPEC-20261009 RF-003: issue → delegated worktree leg. *@
+                    @if (_delegatedTask is not null)
+                    {
+                        <div class="alert alert-success small mt-3 mb-0">
+                            <Icon Name="IconName.Diagram3" class="me-1" />
+                            delegated task <code>@_delegatedTask.Id</code> · @_delegatedTask.CliName · @_delegatedTask.Status
+                            — track it on the Agents dashboard.
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(_delegateError))
+                    {
+                        <div class="alert alert-danger small mt-3 mb-0">@_delegateError</div>
+                    }
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-3 border-top">
+                        <Button Color="ButtonColor.Secondary" Outline="true" Disabled="_delegating"
+                                @onclick="DelegateToWorktreeAsync">
+                            <Icon Name="IconName.Diagram3" class="me-1" />@(_delegating ? "…" : L.T("taskdetail.delegate"))
+                        </Button>
                         <Button Color="ButtonColor.Primary" @onclick="() => _showMoveSheet = true">
                             <Icon Name="IconName.ArrowLeftRight" class="me-1" />@L.T("board.moveTo")
                         </Button>
@@ -165,6 +183,40 @@
     public EventCallback<(string RunId, int IssueNumber)> OnAgentRunStarted { get; set; }
 
     private AgentRunDto? _latestRun;
+
+    // SPEC-20261009 RF-003: issue → delegated worktree leg.
+    private bool _delegating;
+    private string? _delegateError;
+    private DelegationTaskDto? _delegatedTask;
+
+    private async Task DelegateToWorktreeAsync()
+    {
+        if (Issue is null || _delegating)
+        {
+            return;
+        }
+
+        _delegating = true;
+        _delegateError = null;
+        try
+        {
+            var (task, error) = await Client.DelegateIssueAsync(
+                new DelegateIssueRequest(
+                    RepositoryFullName, Issue.Number, Issue.Title, Issue.Body));
+            if (task is not null)
+            {
+                _delegatedTask = task;
+            }
+            else
+            {
+                _delegateError = error ?? "delegate failed";
+            }
+        }
+        finally
+        {
+            _delegating = false;
+        }
+    }
     private bool _editing;
     private bool _saving;
     private bool _showMoveSheet;
