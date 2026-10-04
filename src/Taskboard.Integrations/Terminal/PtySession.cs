@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
+using Taskboard.Integrations.Execution;
 
 namespace Taskboard.Integrations.Terminal;
 
@@ -114,6 +115,7 @@ public sealed class PtySession : IPtySession
         startInfo.ArgumentList.Add("/dev/null");
         startInfo.Environment["TERM"] = "xterm-256color";
         startInfo.Environment["HOME"] = _homeDirectory;
+        WithoutHarnessEnv.Apply(startInfo.Environment, _workingDirectory);
 
         _process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start terminal process.");

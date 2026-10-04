@@ -48,7 +48,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             startInfo.ArgumentList.Add(argument);
         }
 
-        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.Apply(startInfo.Environment, startInfo.WorkingDirectory);
 
         using var process = Process.Start(startInfo);
         if (process is null)

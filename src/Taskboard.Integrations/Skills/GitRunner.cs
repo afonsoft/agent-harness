@@ -33,6 +33,8 @@ internal static class GitRunner
             CreateNoWindow = true
         };
 
+        Taskboard.Integrations.Execution.WithoutHarnessEnv.Apply(startInfo.Environment, workingDirectory);
+
         if (!string.IsNullOrEmpty(authToken))
         {
             // GitHub's git-over-HTTP endpoint rejects the Bearer scheme; it
