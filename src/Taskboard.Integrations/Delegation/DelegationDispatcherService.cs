@@ -242,17 +242,18 @@ public sealed class DelegationDispatcherService : BackgroundService
     private async Task<(AgentRunDto? Run, bool Enqueued)> EnqueueAndPollAsync(
         DelegationTaskDto task, AgentType agentType, string issueId, CancellationToken ct)
     {
-        var repoPath = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
+        var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
         var request = new AgentExecutionRequest(
             IssueId: issueId,
             IssueNumber: 0,
             RepositoryFullName: string.Empty,
-            RepoPath: repoPath,
+            RepoPath: workdir.Path,
             Branch: null,
             Scope: null,
             Instructions: $"(delegated task {task.Id})\n\n{task.Prompt}",
             AgentType: agentType,
-            OmitModelFlag: true);
+            OmitModelFlag: true,
+            ExistingWorktreeRunId: workdir.SessionRunId);
 
         if (!await _orchestration.EnqueueAsync(request, ct).ConfigureAwait(false))
         {
@@ -318,7 +319,7 @@ public sealed class DelegationDispatcherService : BackgroundService
         var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
         var invocation = CustomCliRunner.BuildInvocation(found, task.Prompt, model: null);
         var result = await ChatProcessRunner.RunAsync(
-            resolved, invocation.Argv, workdir, CustomCliTimeout, ct, invocation.Stdin)
+            resolved, invocation.Argv, workdir.Path, CustomCliTimeout, ct, invocation.Stdin)
             .ConfigureAwait(false);
 
         if (result.TimedOut)
@@ -435,8 +436,15 @@ public sealed class DelegationDispatcherService : BackgroundService
         + "\"deps\":[<indices of earlier tasks>],\"use_worktree\":false}]}. "
         + $"At most {DelegationPlanCreator.MaxTasks} tasks.\n\nGoal:\n{goal}";
 
-    /// <summary>Worktree tasks run inside their session path; others on the workspace.</summary>
-    private async Task<string> ResolveWorkdirAsync(DelegationTaskDto task, CancellationToken ct)
+    private sealed record WorkdirResolution(string Path, string? SessionRunId);
+
+    /// <summary>
+    /// Worktree tasks run inside their session path; others on the workspace.
+    /// <c>SessionRunId</c> is set when the path came from a live isolation
+    /// session so the orchestrator reuses it instead of nesting a second
+    /// worktree inside the task worktree.
+    /// </summary>
+    private async Task<WorkdirResolution> ResolveWorkdirAsync(DelegationTaskDto task, CancellationToken ct)
     {
         if (task.WorktreeRunId is { } runId)
         {
@@ -447,12 +455,12 @@ public sealed class DelegationDispatcherService : BackgroundService
                 var session = await isolation.GetAsync(runId, ct).ConfigureAwait(false);
                 if (session is not null)
                 {
-                    return session.Path;
+                    return new WorkdirResolution(session.Path, runId);
                 }
             }
         }
 
-        return task.WorkspacePath;
+        return new WorkdirResolution(task.WorkspacePath, null);
     }
 
     private async Task FinishAsync(string taskId, bool ok, string detail)

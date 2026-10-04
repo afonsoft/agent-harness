@@ -23,4 +23,11 @@ public sealed record AgentExecutionRequest(
     /// <summary>Budget cap in USD — the run is interrupted with state BudgetExceeded when exceeded (SPEC-20260919-ade-observability-finops RF-003).</summary>
     decimal? MaxBudgetUsd = null,
     /// <summary>Running Docker container to exec the CLI into (SPEC-20260929-docker-cli-context); null = host.</summary>
-    string? ContainerContext = null);
+    string? ContainerContext = null,
+    /// <summary>
+    /// Existing workspace-isolation session id when <see cref="RepoPath"/> already
+    /// points at the session's worktree (delegated tasks). The orchestrator reuses
+    /// that session instead of worktree-ing it again — otherwise agent writes
+    /// strand in a second run worktree and compare/promote diff an empty tree.
+    /// </summary>
+    string? ExistingWorktreeRunId = null);

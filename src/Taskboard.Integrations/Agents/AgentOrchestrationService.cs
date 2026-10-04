@@ -175,7 +175,11 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
 
         // SPEC-20260919-harness-workspace-isolation T4: run the agent inside a
         // dedicated git worktree when RepoPath points at a git repository.
-        var worktreeRunId = job.RunId?.ToString("N") ?? Guid.NewGuid().ToString("N");
+        // When the caller already provisioned the session (delegated tasks:
+        // ExistingWorktreeRunId), reuse it — creating a second worktree here
+        // strands the agent's writes outside the tree compare/promote diff.
+        var worktreeRunId = request.ExistingWorktreeRunId
+            ?? job.RunId?.ToString("N") ?? Guid.NewGuid().ToString("N");
         var isolation = await TryIsolateAsync(request, worktreeRunId, stoppingToken);
         if (isolation is not null)
         {
@@ -469,6 +473,18 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
             if (isolation is null)
             {
                 return null;
+            }
+
+            if (request.ExistingWorktreeRunId is { } existingId)
+            {
+                var existing = await isolation.GetAsync(existingId, cancellationToken);
+                if (existing is not null)
+                {
+                    AppendLog(request.IssueId, new AgentLogMessage(
+                        DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                        $"Reusing task worktree at {existing.Path} (branch {existing.Branch})."));
+                }
+                return existing;
             }
 
             var taskSlug = request.Scope ?? $"issue-{request.IssueNumber}";

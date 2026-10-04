@@ -11,6 +11,7 @@ using Taskboard.Dtos;
 using Taskboard.Integrations.Delegation;
 using Taskboard.Integrations.Harness;
 using Taskboard.Integrations.Harness.Security;
+using Taskboard.Application.Contracts.Harness;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.Delegation;
@@ -26,6 +27,7 @@ public class DelegationDispatcherTests
     private readonly IAgentCliDefinitionRepository _defs = Substitute.For<IAgentCliDefinitionRepository>();
     private readonly IAgentOrchestrationService _orchestration = Substitute.For<IAgentOrchestrationService>();
     private readonly IGitCommandRunner _git = Substitute.For<IGitCommandRunner>();
+    private readonly IWorkspaceIsolationService _isolation = Substitute.For<IWorkspaceIsolationService>();
     private readonly DelegationDispatcherService _dispatcher;
 
     public DelegationDispatcherTests()
@@ -42,6 +44,7 @@ public class DelegationDispatcherTests
             .AddSingleton(_delegation)
             .AddSingleton(_tasks)
             .AddSingleton(_defs)
+            .AddSingleton(_isolation)
             .BuildServiceProvider()
             .GetRequiredService<IServiceScopeFactory>();
 
@@ -127,6 +130,62 @@ public class DelegationDispatcherTests
         await _dispatcher.TickAsync();
 
         _dispatcher.InflightCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Dado_TaskComWorktree_Quando_Despacha_Entao_ReusaSessaoNoRequest()
+    {
+        var session = new WorktreeSessionDto(
+            "wt-1", "wt-1", "/repos/task-abc", "feat/task-abc", "active",
+            "/repo", "main", null, true, DateTime.UtcNow, DateTime.UtcNow, 1);
+        var task = TaskDto() with { CliName = "Codex", WorktreeRunId = "wt-1" };
+        _delegation.ListOpenAsync(Arg.Any<CancellationToken>()).Returns([task]);
+        _delegation.BeginRunAsync("task-1", Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(task with { Status = DelegationTaskStatus.Running });
+        _tasks.GetAsync("task-1", Arg.Any<CancellationToken>())
+            .Returns(task with { Status = DelegationTaskStatus.Running });
+        _isolation.GetAsync("wt-1", Arg.Any<CancellationToken>()).Returns(session);
+        _orchestration.EnqueueAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _orchestration.GetRunsAsync("task:task-1", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([new AgentRunDto(
+                Guid.NewGuid(), "task:task-1", AgentType.Codex,
+                AgentRunState.Succeeded, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
+
+        await _dispatcher.TickAsync();
+        await WaitInflightAsync();
+
+        // The run must reuse the task worktree session — not nest a second
+        // worktree inside it (compare/promote diff task.WorktreeRunId).
+        await _orchestration.Received(1).EnqueueAsync(
+            Arg.Is<AgentExecutionRequest>(r =>
+                r.RepoPath == "/repos/task-abc" && r.ExistingWorktreeRunId == "wt-1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_TaskSemWorktree_Quando_Despacha_Entao_ExistingRunIdNull()
+    {
+        var task = TaskDto() with { CliName = "Codex" };
+        _delegation.ListOpenAsync(Arg.Any<CancellationToken>()).Returns([task]);
+        _delegation.BeginRunAsync("task-1", Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(task with { Status = DelegationTaskStatus.Running });
+        _tasks.GetAsync("task-1", Arg.Any<CancellationToken>())
+            .Returns(task with { Status = DelegationTaskStatus.Running });
+        _orchestration.EnqueueAsync(Arg.Any<AgentExecutionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _orchestration.GetRunsAsync("task:task-1", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([new AgentRunDto(
+                Guid.NewGuid(), "task:task-1", AgentType.Codex,
+                AgentRunState.Succeeded, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
+
+        await _dispatcher.TickAsync();
+        await WaitInflightAsync();
+
+        await _orchestration.Received(1).EnqueueAsync(
+            Arg.Is<AgentExecutionRequest>(r =>
+                r.RepoPath == "/ws" && r.ExistingWorktreeRunId == null),
+            Arg.Any<CancellationToken>());
     }
 
     private async Task WaitInflightAsync()
