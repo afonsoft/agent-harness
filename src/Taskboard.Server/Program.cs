@@ -59,6 +59,7 @@ using Taskboard.Integrations.Agents;
 using Taskboard.Integrations.Delegation;
 using Taskboard.Integrations.CliDb;
 using Taskboard.Integrations.CliDb.Extractors;
+using Taskboard.Integrations.Commands;
 using Taskboard.Integrations.Configuration;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.GitHub;
@@ -363,6 +364,10 @@ void RegisterCoreServices()
         new SkillDiscoverySource("opencode", Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".opencode", SkillsSegment)),
         new SkillDiscoverySource("taskboard", Path.Join(AppContext.BaseDirectory, SkillsSegment))
     }));
+    // SPEC-20261004-cli-slash-commands: per-CLI commands/skills for the
+    // composer palette (~/.claude/commands, ~/.codex/prompts, …).
+    builder.Services.AddSingleton<ICliCommandDiscoveryService>(
+        new CliCommandDiscoveryService(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
     builder.Services.AddScoped<SettingsService>();
     builder.Services.AddScoped<RuntimeConfigurationService>();
 }
@@ -2510,6 +2515,25 @@ void MapSkillsAndAuthEndpoints()
     {
         var result = await skills.GetDetailAsync(source, name, ct);
         return result is null ? Results.NotFound() : Results.Ok(new { skill = result });
+    });
+
+    // SPEC-20261004-cli-slash-commands RF-002: slash palette data — commands
+    // and skills discovered under the selected CLI's home dirs.
+    api.MapGet("cli-commands", async (string? cli, ICliCommandDiscoveryService commands, CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(cli))
+        {
+            return Results.BadRequest(new { error = new { code = "CLI_REQUIRED", message = "Query param 'cli' is required." } });
+        }
+
+        return Results.Ok(new { commands = await commands.ListAsync(cli, ct) });
+    });
+
+    // {**name}: commands nest by directory ("ops/deploy").
+    api.MapGet("cli-commands/{cli}/{**name}", async (string cli, string name, ICliCommandDiscoveryService commands, CancellationToken ct) =>
+    {
+        var result = await commands.GetAsync(cli, name, ct);
+        return result is null ? Results.NotFound() : Results.Ok(new { command = result });
     });
 
     api.MapGet("skills/{source}/{name}/files/{**path}", async (string source, string name, string path, ISkillDiscoveryService skills, CancellationToken ct) =>

@@ -273,6 +273,9 @@
 
     // SPEC-20261001-chat-skills-slash-commands: slash palette state.
     private IReadOnlyList<SlashCommandPalette.SlashItem> _slashItems = [];
+    private IReadOnlyList<SlashCommandPalette.SlashItem> _skillItems = [];
+    // SPEC-20261004-cli-slash-commands: commands/skills of the agent-bar CLI.
+    private IReadOnlyList<SlashCommandPalette.SlashItem> _cliItems = [];
     private int _slashIndex;
     private bool _slashPreventDefault;
     private string? _notice;
@@ -310,16 +313,17 @@
             try
             {
                 var capabilities = await Client.GetChatCapabilitiesAsync();
-                _slashItems = capabilities
+                _skillItems = capabilities
                     .Where(c => c.Kind == Taskboard.Application.Contracts.Chat.ChatCapabilityKind.Skill && c.Enabled)
                     .Select(c => new SlashCommandPalette.SlashItem(c.Name, c.Description, "skill"))
-                    .Concat(BuiltinCommands)
                     .ToList();
             }
             catch
             {
-                _slashItems = BuiltinCommands;
+                _skillItems = [];
             }
+
+            await RefreshCliSlashItemsAsync();
             if (_providers.Count > 0)
             {
                 _providerId = _providers[0].Id;
@@ -343,13 +347,26 @@
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (Equals(_appliedAgentContext, AgentContext) || _conversationId is null)
+        if (Equals(_appliedAgentContext, AgentContext))
         {
-            _appliedAgentContext = AgentContext;
             return;
         }
 
+        // Palette tracks the agent-bar CLI even before a conversation opens.
+        var cliChanged = !string.Equals(
+            _appliedAgentContext?.AgentCli, AgentContext?.AgentCli,
+            StringComparison.OrdinalIgnoreCase);
         _appliedAgentContext = AgentContext;
+        if (cliChanged)
+        {
+            await RefreshCliSlashItemsAsync();
+        }
+
+        if (_conversationId is null)
+        {
+            return;
+        }
+
         try
         {
             await Client.UpdateChatConversationAgentAsync(
@@ -560,6 +577,44 @@
 
     private IReadOnlyList<SlashCommandPalette.SlashItem> SlashItems => _slashItems;
 
+    /// <summary>Merges builtins → cli → skill keeping the first Command
+    /// occurrence (builtin shadows cli shadows skill).</summary>
+    private void RebuildSlashItems() =>
+        _slashItems = BuiltinCommands
+            .Concat(_cliItems)
+            .Concat(_skillItems)
+            .GroupBy(i => i.Command, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+
+    /// <summary>Reloads the cli slice of the palette for AgentContext.AgentCli
+    /// (best-effort — missing/custom CLIs get no extra items).</summary>
+    private async Task RefreshCliSlashItemsAsync()
+    {
+        var cliName = AgentContext?.AgentCli;
+        if (string.IsNullOrWhiteSpace(cliName))
+        {
+            _cliItems = [];
+            RebuildSlashItems();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        try
+        {
+            _cliItems = (await Client.GetCliCommandsAsync(cliName))
+                .Select(c => new SlashCommandPalette.SlashItem(c.Name, c.Description, "cli", cliName))
+                .ToList();
+        }
+        catch
+        {
+            _cliItems = [];
+        }
+
+        RebuildSlashItems();
+        await InvokeAsync(StateHasChanged);
+    }
+
     /// <summary>Palette opens while the composer is a single "/token".</summary>
     private bool SlashOpen =>
         _composer.Length > 0 && _composer[0] == '/' && !_composer.Contains(' ', StringComparison.Ordinal) && !_running;
@@ -571,7 +626,7 @@
 
     private void OnSlashSelect(SlashCommandPalette.SlashItem item)
     {
-        _composer = item.Kind == "skill" ? $"/{item.Command} " : $"/{item.Command}";
+        _composer = item.Kind is "skill" or "cli" ? $"/{item.Command} " : $"/{item.Command}";
     }
 
     private async Task OnComposerKey(KeyboardEventArgs e)
@@ -650,7 +705,7 @@
                 Navigation.NavigateTo("/settings");
                 return true;
             case "help":
-                _notice = "Comandos: /new, /agent, /tools, /clear, /help — /&lt;skill&gt; injeta uma skill global.";
+                _notice = "Comandos: /new, /agent, /tools, /clear, /help — /&lt;command&gt; injeta um comando da CLI selecionada, /&lt;skill&gt; injeta uma skill global.";
                 _composer = string.Empty;
                 return true;
             default:
@@ -706,16 +761,20 @@
         _ => _statusLabel ?? "Running…",
     };
 
-    /// <summary>Marker "[skill:name]" prefix → badge chip on user bubbles.</summary>
+    /// <summary>Marker "[skill:name]"/"[command:name]" prefix → badge chip
+    /// on user bubbles.</summary>
     private static string? SkillChipName(string content)
     {
-        if (!content.StartsWith("[skill:", StringComparison.Ordinal))
+        var offset = content.StartsWith("[skill:", StringComparison.Ordinal) ? 7
+            : content.StartsWith("[command:", StringComparison.Ordinal) ? 9
+            : -1;
+        if (offset < 0)
         {
             return null;
         }
 
         var end = content.IndexOf(']', StringComparison.Ordinal);
-        return end < 0 ? null : content[7..end];
+        return end < 0 ? null : content[offset..end];
     }
 
     private static string StripSkillMarker(string content)
@@ -789,6 +848,15 @@
             return (true, content);
         }
 
+        // SPEC-20261004-cli-slash-commands RF-003: cli commands resolve
+        // before global skills — the selected CLI wins on name collision.
+        var cliItem = _slashItems.FirstOrDefault(i =>
+            i.Kind == "cli" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
+        if (cliItem is not null)
+        {
+            return await ResolveCliCommandAsync(cliItem, rest, content);
+        }
+
         var skill = _slashItems.FirstOrDefault(i =>
             i.Kind == "skill" && string.Equals(i.Command, command, StringComparison.OrdinalIgnoreCase));
         if (skill is null)
@@ -798,6 +866,41 @@
 
         var composed = await ComposeSkillMessageAsync(skill, rest);
         return composed is null ? (true, content) : (false, composed);
+    }
+
+    /// <summary>
+    /// File-backed commands inject their body (chip + &lt;command&gt; block,
+    /// $ARGUMENTS → rest); body-less ones forward verbatim — the CLI resolves
+    /// its own native/ACP-advertised command.
+    /// </summary>
+    private async Task<(bool Consumed, string Content)> ResolveCliCommandAsync(
+        SlashCommandPalette.SlashItem item, string rest, string content)
+    {
+        var cliName = AgentContext?.AgentCli;
+        if (string.IsNullOrWhiteSpace(cliName))
+        {
+            return (false, content);
+        }
+
+        try
+        {
+            var detail = await Client.GetCliCommandDetailAsync(cliName, item.Command);
+            // Unknown to the discovery service (removed between list and
+            // send) → forward verbatim; the CLI resolves its own command.
+            if (detail is null || string.IsNullOrWhiteSpace(detail.Body))
+            {
+                return (false, content);
+            }
+
+            var composed = SlashCommandComposer.ComposeCliCommand(
+                detail.Name, detail.Source, detail.Body, rest, detail.Kind);
+            return (false, composed);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao carregar comando '{item.Command}': {ex.Message}";
+            return (true, content);
+        }
     }
 
     private async Task StreamAssistantReplyAsync(string conversationId, string content, CancellationTokenSource streamCts)

@@ -1140,6 +1140,30 @@ public sealed class TaskboardClient
         return body?.Capabilities ?? [];
     }
 
+    /// <summary>SPEC-20261004-cli-slash-commands: slash commands/skills of one
+    /// CLI (AgentCliKind or AgentType name) for the composer palette.</summary>
+    public async Task<IReadOnlyList<CliCommandDto>> GetCliCommandsAsync(string cli, CancellationToken cancellationToken = default)
+    {
+        var body = await _httpClient.GetFromJsonAsync<CliCommandsResponse>(
+            $"/api/cli-commands?cli={Uri.EscapeDataString(cli)}", cancellationToken);
+        return body?.Commands ?? [];
+    }
+
+    /// <summary>Command/skill body for injection (RF-003).</summary>
+    public async Task<CliCommandDetailDto?> GetCliCommandDetailAsync(string cli, string name, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/cli-commands/{Uri.EscapeDataString(cli)}/{Uri.EscapeDataString(name)}", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<CliCommandResponse>(cancellationToken);
+        return body?.Command;
+    }
+
     private sealed record ChatProviderListResponse(List<ChatProviderDto> Providers);
     private sealed record ChatProviderResponse(ChatProviderDto Provider);
     private sealed record ChatModelListResponse(List<string> Models);
@@ -1159,4 +1183,6 @@ public sealed class TaskboardClient
     private sealed record SkillDetailResponse(SkillDetailDto Skill);
     private sealed record ConfigurationEntriesResponse(List<ConfigurationEntryDto> Entries);
     private sealed record SkillFileContentResponse(string Path, string Content);
+    private sealed record CliCommandsResponse(List<CliCommandDto> Commands);
+    private sealed record CliCommandResponse(CliCommandDetailDto Command);
 }
