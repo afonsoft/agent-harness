@@ -42,13 +42,21 @@ public static class ProblemDetailReader
                 return code.GetString();
             }
 
-            if (root.TryGetProperty("error", out var error)
-                && error.ValueKind == JsonValueKind.Object
-                && error.TryGetProperty("message", out var message)
-                && message.ValueKind == JsonValueKind.String
-                && !string.IsNullOrWhiteSpace(message.GetString()))
+            if (root.TryGetProperty("error", out var error))
             {
-                return message.GetString();
+                if (error.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(error.GetString()))
+                {
+                    return error.GetString();
+                }
+
+                if (error.ValueKind == JsonValueKind.Object
+                    && error.TryGetProperty("message", out var message)
+                    && message.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(message.GetString()))
+                {
+                    return message.GetString();
+                }
             }
         }
         catch (JsonException)

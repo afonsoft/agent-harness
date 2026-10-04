@@ -308,13 +308,15 @@
                                 <td class="small text-body-secondary">
                                     @(leg.Note ?? (leg.WorktreeRunId is null ? "—" : $"run {leg.WorktreeRunId[..Math.Min(8, leg.WorktreeRunId.Length)]}"))
                                 </td>
-                                <td class="text-nowrap">
+                                <td>
                                     @* SPEC-20261009 RF-002: pick winner — commit + push the leg's branch. *@
                                     @if (leg.WorktreeRunId is not null)
                                     {
                                         if (_promoted.TryGetValue(leg.TaskId, out var promoted))
                                         {
-                                            <Badge Color="BadgeColor.Success" title="@promoted.CommitSha">@promoted.Branch</Badge>
+                                            <Badge Color="BadgeColor.Success" title="@promoted.CommitSha"
+                                                   style="max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle">
+                                                @promoted.Branch</Badge>
                                         }
                                         else
                                         {

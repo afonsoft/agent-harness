@@ -84,6 +84,14 @@ public class ProblemDetailReaderTests
         ProblemDetailReader.TryRead(body).ShouldBe("Thread 'abc' not found.");
     }
 
+    [Fact]
+    public void Dado_ErrorString_Quando_TryRead_Entao_RetornaError()
+    {
+        const string body = """{"error":"worktree has no changes to promote"}""";
+
+        ProblemDetailReader.TryRead(body).ShouldBe("worktree has no changes to promote");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
