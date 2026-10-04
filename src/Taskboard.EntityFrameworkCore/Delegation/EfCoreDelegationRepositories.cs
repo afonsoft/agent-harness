@@ -69,7 +69,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.FanoutGroupId,
             request.UseWorktree,
             request.RepositoryPath,
-            request.BaseCommitSha);
+            request.BaseCommitSha,
+            request.Kind);
         _context.DelegationTasks.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -135,7 +136,7 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         new(t.Id, t.Scope, t.Prompt, t.CliName, t.DependsOn, t.RetryOf, t.FanoutGroupId,
             t.UseWorktree, t.WorktreeRunId, t.WorkspacePath, t.RepositoryPath, t.BaseCommitSha,
             t.Status, t.ResultSummary, t.Error,
-            t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt);
+            t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>
@@ -191,6 +192,17 @@ public sealed class EfCoreAgentMailboxRepository : IAgentMailboxRepository
             .Select(ToDto)
             .ToList();
     }
+
+    public async Task<IReadOnlyList<MailboxMessageDto>> ListByScopeAsync(
+        string scope, int take = 50, CancellationToken ct = default) =>
+        (await _context.AgentMailboxMessages
+            .Where(m => m.Scope == scope)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(take)
+            .ToListAsync(ct)
+            .ConfigureAwait(false))
+        .Select(ToDto)
+        .ToList();
 
     public async Task MarkReadAsync(
         IReadOnlyCollection<string> ids, DateTime readAt, CancellationToken ct = default)

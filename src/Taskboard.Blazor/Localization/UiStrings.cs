@@ -171,6 +171,11 @@ public static class UiStrings
 
             ["common.edit"] = "Editar",
             ["common.run"] = "Executar",
+
+            // SPEC-20261009: delegation wave P5.
+            ["agents.compare.useLeg"] = "Usar esta perna",
+            ["agents.activity.title"] = "Atividade",
+            ["taskdetail.delegate"] = "Delegar para worktree",
         };
 
     private static readonly IReadOnlyDictionary<string, string> En =
@@ -325,6 +330,11 @@ public static class UiStrings
 
             ["common.edit"] = "Edit",
             ["common.run"] = "Run",
+
+            // SPEC-20261009: delegation wave P5.
+            ["agents.compare.useLeg"] = "Use this leg",
+            ["agents.activity.title"] = "Activity",
+            ["taskdetail.delegate"] = "Delegate to worktree",
         };
 
     private static readonly IReadOnlyDictionary<string, string> Es =
@@ -479,6 +489,11 @@ public static class UiStrings
 
             ["common.edit"] = "Editar",
             ["common.run"] = "Ejecutar",
+
+            // SPEC-20261009: delegation wave P5.
+            ["agents.compare.useLeg"] = "Usar esta rama",
+            ["agents.activity.title"] = "Actividad",
+            ["taskdetail.delegate"] = "Delegar a worktree",
         };
 
     /// <summary>Dictionary for a supported culture; unknown → pt-BR.</summary>

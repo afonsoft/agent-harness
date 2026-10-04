@@ -490,6 +490,44 @@ public sealed class TaskboardClient
         return response?.Legs ?? [];
     }
 
+    /// <summary>SPEC-20261009 RF-002: promote a worktree leg — commit + push its branch.</summary>
+    public async Task<(PromoteResultDto? Result, string? Error)> PromoteDelegationTaskAsync(
+        string taskId, string? scope = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"/api/local/delegation/tasks/{Uri.EscapeDataString(taskId)}/promote{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<PromoteResultDto>(cancellationToken), null)
+            : (null, await ReadErrorAsync(response, cancellationToken));
+    }
+
+    /// <summary>SPEC-20261009 RF-003: delegate a board issue into the DAG (worktree leg).</summary>
+    public async Task<(DelegationTaskDto? Task, string? Error)> DelegateIssueAsync(
+        DelegateIssueRequest request, string? scope = null, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/delegation/tasks/from-issue{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return (null, await ReadErrorAsync(response, cancellationToken));
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<DelegateIssueResponse>(cancellationToken);
+        return (payload?.Task, null);
+    }
+
+    /// <summary>SPEC-20261009 RF-004: merged activity feed (task lifecycle + mailbox).</summary>
+    public async Task<IReadOnlyList<DelegationEventDto>> GetDelegationEventsAsync(
+        string? scope = null, int take = 30, CancellationToken cancellationToken = default)
+    {
+        var url = $"/api/local/delegation/events?take={take}"
+            + (string.IsNullOrWhiteSpace(scope) ? "" : $"&scope={Uri.EscapeDataString(scope)}");
+        var response = await _httpClient.GetFromJsonAsync<DelegationEventsResponse>(url, cancellationToken);
+        return response?.Events ?? [];
+    }
+
     /// <summary>SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.</summary>
     public async Task<IReadOnlyList<AgentSessionInfoDto>> GetAgentSessionsAsync(
         string? cli = null, CancellationToken cancellationToken = default)
@@ -933,6 +971,13 @@ public sealed class TaskboardClient
     private sealed record AgentSessionsResponse(List<AgentSessionInfoDto> Sessions);
 
     private sealed record FanoutCompareResponse(string GroupId, List<FanoutCompareLegDto> Legs);
+
+    private sealed record DelegateIssueResponse(DelegationTaskDto Task);
+
+    private sealed record DelegationEventsResponse(List<DelegationEventDto> Events);
+
+    /// <summary>SPEC-20261009 RF-002: promote result — pushed branch + commit.</summary>
+    public sealed record PromoteResultDto(string TaskId, string Branch, string CommitSha);
 
     // SPEC-20260929-ai-code-provider-chat.
     public async Task<IReadOnlyList<ChatProviderDto>> GetChatProvidersAsync(CancellationToken cancellationToken = default)

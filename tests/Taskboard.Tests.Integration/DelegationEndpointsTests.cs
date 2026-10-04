@@ -172,6 +172,101 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
         (await response.Content.ReadAsStringAsync()).ShouldContain("fanout-group-not-found");
     }
 
+    // ---- SPEC-20261009: promote / from-issue / events ----
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_Promote_Entao_401()
+    {
+        var response = await _client.PostAsync(
+            "/api/local/delegation/tasks/task-x/promote", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_TaskInexistente_Quando_Promote_Entao_404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsync(
+            "/api/local/delegation/tasks/task-x/promote?scope=itest", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("delegation-task-not-found");
+    }
+
+    [Fact]
+    public async Task Dado_TaskSemWorktree_Quando_Promote_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var scope = $"itest-promote-{Guid.NewGuid():N}";
+        await using var diScope = _factory.Services.GetService<IServiceScopeFactory>()!
+            .CreateAsyncScope();
+        var delegation = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
+        var task = await delegation.CreateTaskAsync(
+            new CreateDelegationTaskRequest("p", "codex", scope, "/ws"));
+
+        var response = await client.PostAsync(
+            $"/api/local/delegation/tasks/{task.Id}/promote?scope={scope}", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("no worktree");
+    }
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_FromIssue_Entao_401()
+    {
+        using var content = new StringContent(
+            "{\"repository_full_name\":\"a/b\",\"issue_number\":1,\"title\":\"t\"}",
+            System.Text.Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync("/api/local/delegation/tasks/from-issue", content);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_IssueSemTitulo_Quando_FromIssue_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        using var content = new StringContent(
+            "{\"repository_full_name\":\"a/b\",\"issue_number\":1}",
+            System.Text.Encoding.UTF8, "application/json");
+
+        var response = await client.PostAsync("/api/local/delegation/tasks/from-issue", content);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_GetEvents_Entao_401()
+    {
+        var response = await _client.GetAsync("/api/local/delegation/events");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_TaskEMensagem_Quando_GetEvents_Entao_200Ordenado()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var scope = $"itest-events-{Guid.NewGuid():N}";
+        await using var diScope = _factory.Services.GetService<IServiceScopeFactory>()!
+            .CreateAsyncScope();
+        var delegation = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
+        var task = await delegation.CreateTaskAsync(
+            new CreateDelegationTaskRequest("do stuff", "codex", scope, "/ws"));
+        await delegation.PostAsync(
+            new PostMailboxMessageRequest(scope, "codex", "@all", "ping", "heartbeat"));
+
+        var response = await client.GetAsync($"/api/local/delegation/events?scope={scope}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("task_created");
+        body.ShouldContain("heartbeat");
+        body.ShouldContain(task.Id);
+    }
+
     // ---- SPEC-20261007 RF-003: builtin model probe ----
 
     [Fact]

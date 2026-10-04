@@ -9,6 +9,7 @@ using Taskboard.Application.Contracts.Harness;
 using Taskboard.Delegation;
 using Taskboard.Dtos;
 using Taskboard.Integrations.Chat.Tools.Delegation;
+using Taskboard.Integrations.Delegation;
 using Taskboard.Integrations.Harness;
 using Xunit;
 
@@ -263,7 +264,8 @@ public class DelegationDagToolsTests
         service.CreateTaskAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1"), TaskDto("task-2"));
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+            new DelegationPlanCreator(ScopeWith(c => c.AddSingleton(service))),
+            Substitute.For<IGitCommandRunner>());
 
         var result = await tool.ExecuteAsync(
             Args("""{"tasks":[{"prompt":"first"},{"prompt":"second","cli":"opencode","deps":[0]}]}"""),
@@ -288,7 +290,8 @@ public class DelegationDagToolsTests
         service.CreateTaskAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1"));
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+            new DelegationPlanCreator(ScopeWith(c => c.AddSingleton(service))),
+            Substitute.For<IGitCommandRunner>());
 
         await tool.ExecuteAsync(
             Args("""{"tasks":[{"prompt":"x"}]}"""), Ctx(defaultCli: "claude"), CancellationToken.None);
@@ -306,7 +309,8 @@ public class DelegationDagToolsTests
     {
         var service = Substitute.For<IDelegationService>();
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+            new DelegationPlanCreator(ScopeWith(c => c.AddSingleton(service))),
+            Substitute.For<IGitCommandRunner>());
 
         var result = await tool.ExecuteAsync(Args(json), Ctx(), CancellationToken.None);
 
@@ -326,7 +330,8 @@ public class DelegationDagToolsTests
                 ? TaskDto("task-1")
                 : throw new DomainException("invalid", "no such cli"));
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+            new DelegationPlanCreator(ScopeWith(c => c.AddSingleton(service))),
+            Substitute.For<IGitCommandRunner>());
 
         var result = await tool.ExecuteAsync(
             Args("""{"tasks":[{"prompt":"ok"},{"prompt":"boom"}]}"""), Ctx(), CancellationToken.None);
@@ -341,7 +346,8 @@ public class DelegationDagToolsTests
     public async Task Dado_SubAgent_Quando_DelegatePlan_Entao_RecursaoBloqueada()
     {
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(Substitute.For<IDelegationService>())),
+            new DelegationPlanCreator(ScopeWith(
+                c => c.AddSingleton(Substitute.For<IDelegationService>()))),
             Substitute.For<IGitCommandRunner>());
 
         var result = await tool.ExecuteAsync(
@@ -356,7 +362,8 @@ public class DelegationDagToolsTests
     {
         var service = Substitute.For<IDelegationService>();
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+            new DelegationPlanCreator(ScopeWith(c => c.AddSingleton(service))),
+            Substitute.For<IGitCommandRunner>());
 
         var result = await tool.ExecuteAsync(
             Args("""{"tasks":[{"prompt":"x","use_worktree":true}]}"""),
@@ -372,7 +379,8 @@ public class DelegationDagToolsTests
     public async Task Dado_PlanoVazio_Quando_DelegatePlan_Entao_Recusa()
     {
         var tool = new DelegatePlanTool(
-            ScopeWith(c => c.AddSingleton(Substitute.For<IDelegationService>())),
+            new DelegationPlanCreator(ScopeWith(
+                c => c.AddSingleton(Substitute.For<IDelegationService>()))),
             Substitute.For<IGitCommandRunner>());
 
         var result = await tool.ExecuteAsync(

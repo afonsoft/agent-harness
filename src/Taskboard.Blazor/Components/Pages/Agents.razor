@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject TaskboardClient Client
 @inject IAgentPromptTemplateService PromptTemplateService
+@inject ILocaleService L
 @inject ToastService ToastService
 
 <PageTitle>CLI Agents - Harness</PageTitle>
@@ -165,6 +166,20 @@
         }
         else
         {
+            @* SPEC-20261009 RF-004: merged activity feed above the columns. *@
+            @if (_events.Count > 0)
+            {
+                <ul class="list-unstyled small mb-3 pb-2 border-bottom" style="max-height: 180px; overflow-y: auto;">
+                    @foreach (var ev in _events)
+                    {
+                        <li class="d-flex align-items-baseline gap-2 mb-1">
+                            <Badge Color="@EventBadge(ev.Kind)" Class="flex-shrink-0">@ev.Kind</Badge>
+                            <span class="text-truncate" title="@ev.Text">@ev.Text</span>
+                            <span class="text-body-secondary flex-shrink-0 ms-auto">@ev.Timestamp.ToLocalTime().ToString("HH:mm")</span>
+                        </li>
+                    }
+                </ul>
+            }
             <div class="row g-3">
                 @foreach (var (title, color, items) in DashboardColumns())
                 {
@@ -269,6 +284,7 @@
                             <th class="text-end">Files</th>
                             <th class="text-end">+/−</th>
                             <th>Worktree</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -292,11 +308,33 @@
                                 <td class="small text-body-secondary">
                                     @(leg.Note ?? (leg.WorktreeRunId is null ? "—" : $"run {leg.WorktreeRunId[..Math.Min(8, leg.WorktreeRunId.Length)]}"))
                                 </td>
+                                <td class="text-nowrap">
+                                    @* SPEC-20261009 RF-002: pick winner — commit + push the leg's branch. *@
+                                    @if (leg.WorktreeRunId is not null)
+                                    {
+                                        if (_promoted.TryGetValue(leg.TaskId, out var promoted))
+                                        {
+                                            <Badge Color="BadgeColor.Success" title="@promoted.CommitSha">@promoted.Branch</Badge>
+                                        }
+                                        else
+                                        {
+                                            <Button Color="ButtonColor.Primary" Outline="true" Size="ButtonSize.Small"
+                                                    Disabled="@(_promotingId is not null)"
+                                                    @onclick="() => PromoteLegAsync(leg)">
+                                                @(_promotingId == leg.TaskId ? "…" : L.T("agents.compare.useLeg"))
+                                            </Button>
+                                        }
+                                        @if (_promoteError.TryGetValue(leg.TaskId, out var perr))
+                                        {
+                                            <div class="text-danger small">@perr</div>
+                                        }
+                                    }
+                                </td>
                             </tr>
                             @if (!string.IsNullOrEmpty(leg.Patch))
                             {
                                 <tr>
-                                    <td colspan="5" class="p-0">
+                                    <td colspan="6" class="p-0">
                                         <details>
                                             <summary class="small text-body-secondary px-2 py-1">Patch (@leg.Patch.Length chars)</summary>
                                             <pre class="small bg-body-tertiary p-2 mb-0 overflow-auto" style="max-height: 320px;">@leg.Patch</pre>
@@ -609,6 +647,12 @@
     private IReadOnlyList<FanoutCompareLegDto> _compareLegs = [];
     private bool _compareLoading;
 
+    // SPEC-20261009 RF-002/RF-004: promote winner + activity feed.
+    private string? _promotingId;
+    private readonly Dictionary<string, TaskboardClient.PromoteResultDto> _promoted = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _promoteError = new(StringComparer.Ordinal);
+    private IReadOnlyList<DelegationEventDto> _events = [];
+
     protected override async Task OnInitializedAsync()
     {
         await Task.WhenAll(
@@ -622,16 +666,49 @@
         try
         {
             _dashboard = await Client.GetDelegationDashboardAsync();
+            _events = await Client.GetDelegationEventsAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _dashboard = null;
+            _events = [];
         }
         finally
         {
             _dashboardLoading = false;
         }
     }
+
+    private async Task PromoteLegAsync(FanoutCompareLegDto leg)
+    {
+        _promotingId = leg.TaskId;
+        _promoteError.Remove(leg.TaskId);
+        try
+        {
+            var (result, error) = await Client.PromoteDelegationTaskAsync(leg.TaskId);
+            if (result is not null)
+            {
+                _promoted[leg.TaskId] = result;
+            }
+            else
+            {
+                _promoteError[leg.TaskId] = error ?? "promote failed";
+            }
+        }
+        finally
+        {
+            _promotingId = null;
+        }
+    }
+
+    private static BadgeColor EventBadge(string kind) => kind switch
+    {
+        "escalation" or "decision" => BadgeColor.Danger,
+        "worker_done" or "task_done" => BadgeColor.Success,
+        "task_failed" or "task_stale" or "task_cancelled" => BadgeColor.Warning,
+        "heartbeat" => BadgeColor.Secondary,
+        _ => BadgeColor.Primary,
+    };
 
     private async Task LoadSessionsAsync()
     {

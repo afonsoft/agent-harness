@@ -56,5 +56,9 @@ public interface IAgentMailboxRepository
         string scope, IReadOnlyCollection<string> recipients, int take = 50,
         bool unreadOnly = false, CancellationToken ct = default);
 
+    /// <summary>SPEC-20261009 RF-004: all messages of a scope, newest first — event feed.</summary>
+    Task<IReadOnlyList<MailboxMessageDto>> ListByScopeAsync(
+        string scope, int take = 50, CancellationToken ct = default);
+
     Task MarkReadAsync(IReadOnlyCollection<string> ids, DateTime readAt, CancellationToken ct = default);
 }
