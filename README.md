@@ -19,6 +19,12 @@ Key capabilities:
 - **Agent orchestration** — run any of 13 agent CLIs (Devin, Claude Code, Codex, OpenCode, Antigravity, Kimi, Grok, Aider, Cline, Continue, Copilot, Qwen, Kiro) against an issue, with per-issue prompts, a `Comments:` handoff section auto-appended to the prompt, SignalR log streaming, and persistent run history.
 - **ADE pipelines & Cockpit** — multi-stage, multi-agent DAG pipelines (`POST /api/harness/runs`, templates at `/api/harness/pipelines`) driven from a live HITL cockpit at `/cockpit` (`/cockpit/runs/{id}`): structured timeline events, steer messages mid-flight, approval gates, git diff viewer, and create-PR on success.
 - **Workspace isolation** — every agent run executes inside a dedicated Git worktree under `{worktreeRoot}/{runId}` — `Taskboard:WorktreeRoot`, default `~/repos` — (create/diff/commit/teardown via `POST|GET|DELETE /api/harness/worktrees`), never directly on your checkout.
+- **Agent delegation** — the AI Code chat can decompose work into a `DelegationTask` DAG (`delegate_task`/`delegate_fanout`/`delegate_status`/`delegate_compare` tools): dependency-driven `pending→ready` promotion, stale-base guard, retry-of, a hosted dispatcher capped at 4 concurrent runs, and fan-out of the same prompt to N CLIs in parallel worktrees with diff comparison.
+- **Agent mailbox** — typed inter-agent messages (`text`/`worker_done`/`heartbeat`/`escalation`/`decision`) routed by scope and recipient (`@all`, `@idle`, cli, task); `agent_send`/`agent_inbox` chat tools, escalation and decision messages surface in the dashboard's **Needs You** column.
+- **Agent Dashboard** — `/agents` shows a Needs You / Working / Done / Idle board (`GET /api/local/delegation/dashboard`) aggregating tasks, runs, mailbox alerts and idle CLIs.
+- **CLI session resume** — `/agents` scans on-disk transcripts (`~/.claude/projects`, `~/.codex/sessions`, opencode store) via `GET /api/agents/sessions` and offers one-click resume (`claude --resume`, `codex resume`, `opencode --session`) through the terminal.
+- **Worktree checkpoints** — `harness-checkpoint:` prefixed commits snapshot and restore worktree state mid-run (`worktree_checkpoint`/`worktree_checkpoints` tools).
+- **Workspace picker** — Agent chat runs tools against a chosen folder (default `~/repos`, any subfolder selectable); per-conversation, sandboxed to `$HOME`.
 - **Verification loop** — opt-in deterministic build/test/coverage gate after each agent run (`dotnet format → build → test` with TRX + coverage parsing); failures feed a retry loop with a structured `feedbackPrompt` and escalate to human after max attempts.
 - **Security gateway** — pre-dispatch command classification (Safe/WorkspaceWrite/Dangerous, fail-closed), path-jail + symlink-escape enforcement, and secret scrubbing on logged output.
 - **Context & memory** — hierarchical context compilation (`AGENTS.md`/`CLAUDE.md`/`.cursorrules`, env + git block, token-budgeted compaction) and project memory items scoped by remote origin.
@@ -43,6 +49,8 @@ Key capabilities:
 | ![Token and cost metrics per run, agent and model](docs/screenshots/finops.jpg) | ![Detected agent CLIs with versions, auth and metrics](docs/screenshots/cli-agents.jpg) |
 | **Terminal** | **Settings** |
 | ![Interactive bash PTY tabs over SignalR](docs/screenshots/terminal.jpg) | ![Feature switches and configuration overrides](docs/screenshots/settings.jpg) |
+| **Agent Dashboard** | **Workspace picker** |
+| ![Needs You / Working / Done / Idle columns plus resumable CLI sessions](docs/screenshots/agents-dashboard.jpg) | ![Workspace picker modal listing subfolders of ~/repos](docs/screenshots/workspace-picker.jpg) |
 
 ## Tech Stack
 
@@ -82,8 +90,8 @@ src/
   Taskboard.Client/                 # Blazor WebAssembly host (WASM boot, loading UI)
   Taskboard.Blazor/                 # Shared Blazor UI components (RCL)
 tests/
-  Taskboard.Tests.Unit/             # 1,470+ unit tests
-  Taskboard.Tests.Integration/      # 300+ integration tests
+  Taskboard.Tests.Unit/             # 1,550+ unit tests
+  Taskboard.Tests.Integration/      # 315+ integration tests
 ```
 
 ## Quick Start
@@ -130,6 +138,8 @@ Open the **Board** (`/`) to view GitHub issues as a Kanban board. Drag an issue 
 
 ## Recent Highlights
 
+- Agent-delegation wave (P1–P3): workspace picker in AI Code, enriched CLI registry with custom-CLI delegation and probe-based model discovery, `DelegationTask` DAG + agent mailbox + hosted dispatcher + parallel fan-out, Agent Dashboard, CLI session resume, worktree checkpoints and a decision gate.
+- AI Code modes consolidated: **Chat** and **Agent** (provider chat + CLI delegation via `run_agent`/`run_cli`); Assistant mode removed.
 - ADE platform wave E12–E16 shipped: multi-agent DAG pipelines with HITL cockpit (`/cockpit`), living specs (`/specs` + drift report), FinOps metrics (`/finops`), a global repository selector driving all repo-scoped pages, and repository renamed to `agent-harness`.
 - Agent Development Environment (ADE) harness epics E6–E11 shipped: isolated Git worktrees per run, context compilation + project memory, a security gateway for pre-dispatch command gating, a deterministic verification loop, a read-only CLI DB reader, and persisted CLI usage metrics with a `/agents` dashboard row.
 - Lite/Normal/Ultra model tiers mapped to real models per CLI.
