@@ -231,6 +231,14 @@ window.taskboardChat = {
         this._stick[container.id] = true;
         var self = this;
         container.addEventListener('scroll', function () {
+            // Scroll events are dispatched async — a programmatic scrollTop set
+            // inside highlight() can be observed *after* a streamed chunk grew
+            // scrollHeight, which would read as "not at bottom" and wrongly
+            // detach stick. Skip events at (≈) the position we last set.
+            var setTop = container._chatProgrammaticTop;
+            if (setTop !== undefined && Math.abs(container.scrollTop - setTop) <= 1) {
+                return;
+            }
             self._stick[container.id] =
                 container.scrollHeight - container.scrollTop - container.clientHeight < 24;
         });
@@ -254,6 +262,10 @@ window.taskboardChat = {
             });
         }
         if (this._stick[containerId]) {
+            // Record the clamped target so the async scroll event can tell this
+            // programmatic jump apart from a real user scroll.
+            container._chatProgrammaticTop =
+                Math.max(0, container.scrollHeight - container.clientHeight);
             container.scrollTop = container.scrollHeight;
         }
     },
