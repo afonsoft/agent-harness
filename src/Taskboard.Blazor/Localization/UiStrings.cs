@@ -129,6 +129,9 @@ public static class UiStrings
             ["tasklog.permissionExpired"] = "Permissão expirada ou já respondida.",
             ["tasklog.permissionError"] = "Erro ao responder permissão: {0}",
 
+            ["chat.permissionRequest"] = "solicitação de permissão",
+            ["chat.agentQuestion"] = "pergunta do agente",
+
             ["comments.loading"] = "Carregando comentários…",
             ["comments.none"] = "Nenhum comentário nesta issue.",
             ["comments.new"] = "Novo comentário",
@@ -288,6 +291,9 @@ public static class UiStrings
             ["tasklog.permissionExpired"] = "Permission expired or already answered.",
             ["tasklog.permissionError"] = "Failed to answer permission: {0}",
 
+            ["chat.permissionRequest"] = "permission request",
+            ["chat.agentQuestion"] = "agent question",
+
             ["comments.loading"] = "Loading comments…",
             ["comments.none"] = "No comments on this issue.",
             ["comments.new"] = "New comment",
@@ -446,6 +452,9 @@ public static class UiStrings
             ["tasklog.noActiveRun"] = "No hay ejecución activa para cancelar.",
             ["tasklog.permissionExpired"] = "Permiso expirado o ya respondido.",
             ["tasklog.permissionError"] = "Error al responder el permiso: {0}",
+
+            ["chat.permissionRequest"] = "solicitud de permiso",
+            ["chat.agentQuestion"] = "pregunta del agente",
 
             ["comments.loading"] = "Cargando comentarios…",
             ["comments.none"] = "No hay comentarios en esta incidencia.",

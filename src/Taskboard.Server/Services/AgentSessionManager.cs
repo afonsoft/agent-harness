@@ -529,7 +529,8 @@ public sealed class AgentSessionManager : IAsyncDisposable
             threadId,
             req.Tool,
             req.Detail,
-            req.Options, ct: _reaperCts.Token).ConfigureAwait(false);
+            req.Options,
+            req.OptionDetails, ct: _reaperCts.Token).ConfigureAwait(false);
 
         await _sessionClient.ReplyPermissionAsync(threadId, req.RequestId, outcome, _reaperCts.Token).ConfigureAwait(false);
         return true;

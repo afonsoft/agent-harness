@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Domain.Entities;
 using Taskboard.Integrations.Agents;
 using Taskboard.Integrations.Workspace;
@@ -24,6 +25,14 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
 {
     private const string TerminalCreateMethod = "terminal/create";
     private const string DecisionAllow = "allow";
+
+    // SPEC-20261004-permission-question-cards: client-tool approvals carry
+    // structured kinds too, so the prompt card colors allow/reject correctly.
+    private static readonly IReadOnlyList<PermissionOptionInfo> AllowDenyOptionDetails =
+    [
+        new(DecisionAllow, "Allow", "allow_once"),
+        new("deny", "Deny", "reject_once"),
+    ];
 
     private const int DefaultOutputByteLimit = 1024 * 1024;
 
@@ -170,7 +179,8 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
                 threadId,
                 "fs/write_text_file",
                 $"{path} ({content.Length} chars)",
-                [DecisionAllow, "deny"]).ConfigureAwait(false);
+                [DecisionAllow, "deny"],
+                AllowDenyOptionDetails).ConfigureAwait(false);
 
         if (!string.Equals(outcome, DecisionAllow, StringComparison.OrdinalIgnoreCase))
         {
@@ -201,7 +211,8 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
                 threadId,
                 TerminalCreateMethod,
                 $"{command} {string.Join(' ', args)} (cwd: {cwd})",
-                [DecisionAllow, "deny"]).ConfigureAwait(false);
+                [DecisionAllow, "deny"],
+                AllowDenyOptionDetails).ConfigureAwait(false);
 
         if (!string.Equals(outcome, DecisionAllow, StringComparison.OrdinalIgnoreCase))
         {

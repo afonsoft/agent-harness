@@ -9,8 +9,11 @@ public sealed class PermissionGateTests
 {
     private sealed class TestEventStreamService : IThreadEventStreamService
     {
+        public List<ServerSentEvent> Published { get; } = [];
+
         public Task PublishAsync(string threadId, ServerSentEvent serverSentEvent, CancellationToken ct = default)
         {
+            Published.Add(serverSentEvent);
             return Task.CompletedTask;
         }
 
@@ -51,5 +54,32 @@ public sealed class PermissionGateTests
             timeout: TimeSpan.FromMilliseconds(50));
 
         outcome.ShouldBe("deny");
+    }
+
+    [Fact]
+    public async Task Dado_RequestComOptionDetails_Quando_Publish_Entao_SseCarregaDetalhes()
+    {
+        // SPEC-20261004-permission-question-cards RF-001: o evento
+        // ai_chat.permission deve carregar os detalhes estruturados para a
+        // UI renderizar labels/kinds reais do agente.
+        var stream = new TestEventStreamService();
+        var gate = new PermissionGate(stream);
+        var details = new[]
+        {
+            new PermissionOptionInfo("opt-a", "Choice A", null),
+            new PermissionOptionInfo("opt-b", "Choice B", null),
+        };
+
+        var task = gate.RequestPermissionAsync(
+            "t1", "AskUserQuestion", "pick one", ["opt-a", "opt-b"], details,
+            TimeSpan.FromMilliseconds(50));
+
+        var published = stream.Published.ShouldHaveSingleItem();
+        published.Type.ShouldBe("ai_chat.permission");
+        var info = published.Payload.ShouldBeOfType<PermissionRequestInfo>();
+        info.Tool.ShouldBe("AskUserQuestion");
+        info.OptionDetails.ShouldBe(details);
+
+        (await task).ShouldBe("deny");
     }
 }

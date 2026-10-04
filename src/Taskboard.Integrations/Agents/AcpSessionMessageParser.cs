@@ -49,14 +49,28 @@ public static class AcpSessionMessageParser
         var detail = p.TryGetProperty("detail", out var d) ? d.GetString() ?? string.Empty : string.Empty;
 
         var options = new List<string>();
+        var details = new List<PermissionOptionInfo>();
         if (p.TryGetProperty("options", out var opts) && opts.ValueKind == JsonValueKind.Array)
         {
             foreach (var opt in opts.EnumerateArray())
             {
-                var val = opt.GetString();
-                if (!string.IsNullOrWhiteSpace(val))
+                if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { Length: > 0 } legacy)
                 {
-                    options.Add(val);
+                    options.Add(legacy);
+                    details.Add(new PermissionOptionInfo(legacy, legacy, null));
+                }
+                else if (opt.ValueKind == JsonValueKind.Object
+                         && opt.TryGetProperty("optionId", out var oid)
+                         && oid.GetString() is { Length: > 0 } optionId)
+                {
+                    // SPEC-20261004 RF-001: keep the agent's own label/kind so
+                    // the card can render real choices, not mapped outcomes.
+                    var label = opt.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } nm
+                        ? nm
+                        : optionId;
+                    var kind = opt.TryGetProperty("kind", out var k) ? k.GetString() : null;
+                    options.Add(optionId);
+                    details.Add(new PermissionOptionInfo(optionId, label, kind));
                 }
             }
         }
@@ -64,8 +78,9 @@ public static class AcpSessionMessageParser
         if (options.Count == 0)
         {
             options.AddRange(["allow", "deny"]);
+            details.AddRange([new PermissionOptionInfo("allow", "allow", null), new PermissionOptionInfo("deny", "deny", null)]);
         }
 
-        return new PermissionRequestInfo(requestId, tool, detail, options.AsReadOnly());
+        return new PermissionRequestInfo(requestId, tool, detail, options.AsReadOnly(), details.AsReadOnly());
     }
 }

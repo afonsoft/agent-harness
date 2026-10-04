@@ -15,6 +15,7 @@ public sealed class PermissionGate
         string Tool,
         string Detail,
         IReadOnlyList<string> Options,
+        IReadOnlyList<PermissionOptionInfo>? OptionDetails,
         DateTime CreatedAt,
         TaskCompletionSource<string> Tcs);
 
@@ -32,6 +33,7 @@ public sealed class PermissionGate
         string tool,
         string detail,
         IReadOnlyList<string> options,
+        IReadOnlyList<PermissionOptionInfo>? optionDetails = null,
         TimeSpan? timeout = null,
         CancellationToken ct = default)
     {
@@ -49,7 +51,7 @@ public sealed class PermissionGate
 
         var requestId = Guid.NewGuid().ToString("N");
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var entry = new PendingEntry(requestId, threadId, tool, detail, options, DateTime.UtcNow, tcs);
+        var entry = new PendingEntry(requestId, threadId, tool, detail, options, optionDetails, DateTime.UtcNow, tcs);
 
         _pending[requestId] = entry;
 
@@ -58,7 +60,7 @@ public sealed class PermissionGate
             threadId,
             new ServerSentEvent(
                 "ai_chat.permission",
-                new PermissionRequestInfo(requestId, tool, detail, options)),
+                new PermissionRequestInfo(requestId, tool, detail, options, optionDetails)),
             ct).ConfigureAwait(false);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

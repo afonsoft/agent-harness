@@ -224,7 +224,10 @@ public sealed class AcpV2DialectTests
         using var doc = JsonDocument.Parse(parsed.PayloadJson!);
         doc.RootElement.GetProperty("tool").GetString().ShouldBe("Run tests");
         doc.RootElement.GetProperty("detail").GetString().ShouldBe("dotnet test");
-        doc.RootElement.GetProperty("options")[0].GetString().ShouldBe("allow");
+        var opt = doc.RootElement.GetProperty("options")[0];
+        opt.GetProperty("optionId").GetString().ShouldBe("allow");
+        opt.GetProperty("name").GetString().ShouldBe("Allow");
+        opt.GetProperty("kind").GetString().ShouldBe("allow_once");
     }
 
     [Fact]
