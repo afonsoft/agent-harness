@@ -77,7 +77,7 @@ else
     }
     <div class="ai-chat-rail-wrap @(_railDrawerOpen ? "drawer-open" : "")">
         <ThreadRail Threads="OrderedThreads"
-                    ActiveThreadId="_activeThreadId"
+                    ActiveThreadId="@_activeThreadId"
                     Collapsed="false"
                     HasEligibleAgent="HasEligibleAgent"
                     OnNew="NewConversationAsync"
@@ -104,7 +104,7 @@ else
             <div class="card-body p-2">
                 <ProviderChat @key="_agentChatKey"
                               AgentContext="CurrentAgentContext"
-                              SeedConversationId="_seedConversationId"
+                              SeedConversationId="@_seedConversationId"
                               OnSwitchToAgent="SwitchToAgentMode" />
             </div>
             <div class="card-footer p-2">
@@ -1041,7 +1041,9 @@ else
     {
         _cfgContext = e.Value?.ToString() ?? string.Empty;
         BuildCliOptions();
-        if (!SelectedCliSupportsChat && _cfgView == "chat")
+        // ACP snap applies only inside a legacy thread pane; in the agent-chat
+        // footer "chat" is the provider-chat surface and needs no ACP CLI.
+        if (_activeThread is not null && !SelectedCliSupportsChat && _cfgView == "chat")
         {
             _cfgView = "terminal";
         }
@@ -1335,7 +1337,9 @@ else
         }
 
         _cfgCli = first.Value;
-        _cfgView = first.SupportsChat ? "chat" : "terminal";
+        // Agent-chat is the provider-chat surface (SPEC-20261003), not ACP —
+        // "chat" is the default view regardless of the CLI's ACP support.
+        _cfgView = "chat";
         // B-14/#387: persist the auto-selected CLI too — otherwise the
         // next load re-picks from scratch (and can land elsewhere when
         // eligibility changed between sessions).
@@ -1465,8 +1469,9 @@ else
     {
         _cfgCli = e.Value?.ToString() ?? string.Empty;
         _cfgModelId = string.Empty; // reset to CLI default when switching agents
-        // A CLI without chat support forces the terminal view.
-        if (!SelectedCliSupportsChat)
+        // A CLI without ACP forces the terminal view only inside a legacy
+        // thread pane — the agent-chat surface works with any CLI.
+        if (_activeThread is not null && !SelectedCliSupportsChat)
         {
             _cfgView = "terminal";
         }
@@ -1492,7 +1497,10 @@ else
         {
             // SPEC-20260929-ai-chat-view-first RF-002: View=chat exige CLI com
             // ACP — troca para a primeira compatível; sem nenhuma, terminal.
-            if (!SelectedCliSupportsChat)
+            // Gate applies only to the legacy thread pane: the agent-chat
+            // footer view picker targets the provider-chat surface, which is
+            // CLI-independent (SPEC-20261003-ai-code-agent-chat).
+            if (_activeThread is not null && !SelectedCliSupportsChat)
             {
                 var first = _cliOptions.FirstOrDefault(o => o.Selectable && o.SupportsChat);
                 if (first is null)
