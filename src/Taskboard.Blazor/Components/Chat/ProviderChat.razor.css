@@ -175,11 +175,11 @@
 
 .provider-chat-composer-box {
     display: flex;
-    align-items: flex-end;
-    gap: .5rem;
+    flex-direction: column;
+    gap: .35rem;
     border: 1px solid var(--bs-border-color);
     border-radius: 1.4rem;
-    padding: .6rem .8rem;
+    padding: .6rem .8rem .45rem;
     background: var(--bs-body-bg);
     box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
 }
@@ -198,6 +198,60 @@
     font: inherit;
     padding: .35rem .35rem .35rem .6rem;
     max-height: 10rem;
+}
+
+.provider-chat-composer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+}
+
+.provider-chat-composer-picks {
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.provider-pick {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    max-width: 14rem;
+    padding: .15rem .5rem .15rem .4rem;
+    margin: 0;
+    border-radius: 999px;
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.provider-pick:hover {
+    background: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+}
+
+.provider-pick svg {
+    flex: 0 0 auto;
+}
+
+.provider-pick-select {
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: .8rem;
+    max-width: 10rem;
+    padding: 0;
+    cursor: pointer;
+}
+
+.provider-pick-select:disabled {
+    opacity: .5;
+    cursor: default;
 }
 
 .provider-chat-composer-actions {
