@@ -542,6 +542,13 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
 
     private async Task MoveToReviewAsync(AgentExecutionRequest request)
     {
+        // Runs sem board (delegadas em worktree de task, scope-only) não têm
+        // issue para mover — chamar o GitHub com repo vazio só logava erro.
+        if (string.IsNullOrWhiteSpace(request.RepositoryFullName) || request.IssueNumber <= 0)
+        {
+            return;
+        }
+
         try
         {
             await _gitHubService.UpdateIssueColumnAsync(
