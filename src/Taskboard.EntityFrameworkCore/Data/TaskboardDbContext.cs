@@ -3,6 +3,7 @@ using Taskboard.Domain.Agents;
 using Taskboard.Domain.Entities;
 using Taskboard.Domain.Entities.Chat;
 using Taskboard.Domain.Entities.CliMetrics;
+using Taskboard.Domain.Entities.Delegation;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Domain.Issues;
 
@@ -40,6 +41,8 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ChatProvider> ChatProviders => Set<ChatProvider>();
     public DbSet<ChatConversation> ChatConversations => Set<ChatConversation>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<DelegationTask> DelegationTasks => Set<DelegationTask>();
+    public DbSet<AgentMailboxMessage> AgentMailboxMessages => Set<AgentMailboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

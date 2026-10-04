@@ -24,13 +24,16 @@ using Taskboard.Application.Agents;
 using Taskboard.Application.AiChat;
 using Taskboard.Application.Chat;
 using Taskboard.Application.CliMetrics;
+using Taskboard.Application.Delegation;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Harness;
 using Taskboard.Integrations.Chat.SearchBackends;
 using Taskboard.Integrations.Chat.Tools;
+using Taskboard.Integrations.Chat.Tools.Delegation;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.CliMetrics;
+using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Specs;
@@ -46,11 +49,13 @@ using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
 using Taskboard.EntityFrameworkCore.CliMetrics;
 using Taskboard.EntityFrameworkCore.Data;
+using Taskboard.EntityFrameworkCore.Delegation;
 using Taskboard.EntityFrameworkCore.Harness;
 using Taskboard.Harness;
 using Taskboard.Harness.FinOps;
 using Taskboard.Application.Configuration;
 using Taskboard.Integrations.Agents;
+using Taskboard.Integrations.Delegation;
 using Taskboard.Integrations.CliDb;
 using Taskboard.Integrations.CliDb.Extractors;
 using Taskboard.Integrations.Configuration;
@@ -442,6 +447,11 @@ void RegisterAcpAndAgentServices()
     }
     builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
     builder.Services.AddScoped<IAgentCliDefinitionRepository, EfCoreAgentCliDefinitionRepository>();
+    // SPEC-20261005-delegation-dag-mailbox: DAG tasks + agent mailbox + dispatcher.
+    builder.Services.AddScoped<IDelegationTaskRepository, EfCoreDelegationTaskRepository>();
+    builder.Services.AddScoped<IAgentMailboxRepository, EfCoreAgentMailboxRepository>();
+    builder.Services.AddScoped<IDelegationService, DelegationService>();
+    builder.Services.AddHostedService<DelegationDispatcherService>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -531,6 +541,17 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<ISecretRedactor>()),
             new SubAgentTool(sp.GetRequiredService<OpenAiCompatibleClient>()),
+            // SPEC-20261005-delegation-dag-mailbox: task DAG + mailbox tools.
+            new DelegateTaskTool(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<IGitCommandRunner>()),
+            new DelegateFanoutTool(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<IGitCommandRunner>()),
+            new DelegateStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateCompareTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new AgentSendTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new AgentInboxTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
         ];
@@ -1966,6 +1987,29 @@ void MapSettingsAndChatEndpoints()
         return listing is null
             ? Results.BadRequest(new { error = new { code = "workspace_path_outside_home", message = "Path is outside $HOME or not a directory." } })
             : Results.Ok(listing);
+    });
+
+    // SPEC-20261005 RF-010: delegation DAG + mailbox inspection.
+    api.MapGet("local/delegation/tasks", async (
+        string? scope, IDelegationTaskRepository tasks, CancellationToken ct) =>
+        Results.Ok(new
+        {
+            tasks = await tasks.ListByScopeAsync(
+                string.IsNullOrWhiteSpace(scope) ? "harness" : scope, take: 100, ct),
+        }));
+
+    api.MapGet("local/delegation/mailbox", async (
+        string? scope, string? to, IAgentMailboxRepository mailbox, CancellationToken ct) =>
+    {
+        var recipients = string.IsNullOrWhiteSpace(to)
+            ? (IReadOnlyCollection<string>)["@all", "@idle"]
+            : [to];
+        return Results.Ok(new
+        {
+            messages = await mailbox.ListForRecipientAsync(
+                string.IsNullOrWhiteSpace(scope) ? "harness" : scope,
+                recipients, take: 100, unreadOnly: false, ct),
+        });
     });
 
     // SPEC-20260929-ai-code-provider-chat: provider chat endpoints (RF-001..RF-009).
