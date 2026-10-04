@@ -4,12 +4,14 @@
     funciona como bottom-sheet no mobile). Apresentacional: o chamador executa
     as chamadas de serviço.
 *@
+@inject ILocaleService L
+
 
 <div class="move-issue-overlay" role="presentation" @onclick="DismissAsync">
     <div class="move-issue-sheet" role="dialog" aria-modal="true"
-         aria-label="Mover issue #@Issue?.Number"
+         aria-label="@L.T("move.aria", Issue?.Number)"
          @onclick:stopPropagation>
-        <div class="move-issue-title">Mover issue #@Issue?.Number para…</div>
+        <div class="move-issue-title">@L.T("move.title", Issue?.Number)</div>
         <div class="move-issue-columns">
             @foreach (var column in GitHubBoardColumnExtensions.LabelBackedColumns)
             {
@@ -19,24 +21,24 @@
                     <span>@column.ToDisplayName()</span>
                     @if (isCurrent)
                     {
-                        <span class="move-issue-current">atual</span>
+                        <span class="move-issue-current">@L.T("common.current")</span>
                     }
                 </button>
             }
         </div>
-        <div class="move-issue-divider">Fechar issue</div>
+        <div class="move-issue-divider">@L.T("move.closeIssue")</div>
         <div class="d-flex gap-2">
             <Button Color="ButtonColor.Secondary" Class="flex-fill" Disabled="_busy"
                     @onclick='() => CloseAsync("canceled")'>
-                <Icon Name="IconName.XCircle" class="me-1" />Cancelar
+                <Icon Name="IconName.XCircle" class="me-1" />@L.T("common.cancel")
             </Button>
             <Button Color="ButtonColor.Secondary" Class="flex-fill" Disabled="_busy"
                     @onclick='() => CloseAsync("archived")'>
-                <Icon Name="IconName.Archive" class="me-1" />Arquivar
+                <Icon Name="IconName.Archive" class="me-1" />@L.T("move.archive")
             </Button>
         </div>
         <Button Color="ButtonColor.Link" Class="w-100 mt-2" Disabled="_busy" @onclick="DismissAsync">
-            Voltar
+            @L.T("common.back")
         </Button>
     </div>
 </div>

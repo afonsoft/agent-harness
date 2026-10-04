@@ -2,10 +2,11 @@
 @implements IDisposable
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject ILocaleService L
 
 <Toasts class="p-3" AutoHide="true" Delay="4000" Placement="ToastsPlacement.TopRight" />
 
-<a href="#app-main" class="skip-link" @onclick="FocusMainAsync" @onclick:preventDefault="true">Skip to main content</a>
+<a href="#app-main" class="skip-link" @onclick="FocusMainAsync" @onclick:preventDefault="true">@L.T("layout.skipToMain")</a>
 <div class="app-shell">
     <div class="offcanvas-lg offcanvas-start app-sidebar" tabindex="-1" id="appSidebar" aria-label="Sidebar">
         <div class="app-sidebar-brand">
@@ -13,13 +14,13 @@
             <span>Harness</span>
             <button type="button"
                     class="sidebar-collapse-btn ms-auto d-none d-lg-inline-flex"
-                    title="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")"
-                    aria-label="@(_sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar")"
+                    title="@(_sidebarCollapsed ? L.T("layout.expandSidebar") : L.T("layout.collapseSidebar"))"
+                    aria-label="@(_sidebarCollapsed ? L.T("layout.expandSidebar") : L.T("layout.collapseSidebar"))"
                     aria-expanded="@(_sidebarCollapsed ? "false" : "true")"
                     @onclick="ToggleSidebarAsync">
                 <Icon Name="@(_sidebarCollapsed ? IconName.ChevronBarRight : IconName.ChevronBarLeft)" />
             </button>
-            <button type="button" class="btn-close ms-auto d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="Close"></button>
+            <button type="button" class="btn-close ms-auto d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#appSidebar" aria-label="@L.T("layout.close")"></button>
         </div>
         <CascadingValue Value="this">
             <NavMenu />
@@ -32,16 +33,17 @@
                     data-bs-toggle="offcanvas"
                     data-bs-target="#appSidebar"
                     aria-controls="appSidebar"
-                    aria-label="Open navigation">
+                    aria-label="@L.T("layout.openNav")">
                 <Icon Name="IconName.List" />
             </button>
             <span class="app-topbar-title me-auto">@_pageTitle</span>
-            <a href="/settings" class="btn btn-outline-secondary" aria-label="Settings">
+            <LocalePicker />
+            <a href="/settings" class="btn btn-outline-secondary" aria-label="@L.T("topbar.settings")">
                 <Icon Name="IconName.Gear" />
             </a>
             <AuthorizeView>
-                <form method="post" action="/api/logout" class="m-0" aria-label="Logout">
-                    <button type="submit" class="btn btn-outline-secondary">Log out</button>
+                <form method="post" action="/api/logout" class="m-0" aria-label="@L.T("topbar.logout")">
+                    <button type="submit" class="btn btn-outline-secondary">@L.T("topbar.logout")</button>
                 </form>
             </AuthorizeView>
         </header>
@@ -52,7 +54,7 @@
                 </ChildContent>
                 <ErrorContent>
                     <div class="alert alert-danger">
-                        An unexpected error occurred. Please refresh the page.
+                        @L.T("layout.error")
                     </div>
                 </ErrorContent>
             </ErrorBoundary>
@@ -65,27 +67,28 @@
     private string _pageTitle = "Board";
     private ElementReference _mainElement;
 
-    private static readonly (string Prefix, string Title)[] PageTitles =
+    private static readonly (string Prefix, string TitleKey)[] PageTitles =
     [
-        ("prompts", "Prompts"),
-        ("ai-chat", "AI Code"),
-        ("gantt", "Gantt"),
-        ("workflow", "Workflow"),
-        ("agents", "CLI Agents"),
-        ("editor", "VS Code"),
-        ("terminal", "Terminal"),
-        ("settings", "Settings"),
-        ("skills", "Skills"),
-        ("finops", "FinOps"),
-        ("cockpit", "Cockpit"),
-        ("jobs", "Jobs"),
-        ("specs", "Specs"),
+        ("prompts", "nav.prompts"),
+        ("ai-chat", "nav.aicode"),
+        ("gantt", "nav.gantt"),
+        ("workflow", "nav.workflow"),
+        ("agents", "nav.agents"),
+        ("editor", "nav.editor"),
+        ("terminal", "nav.terminal"),
+        ("settings", "nav.settings"),
+        ("skills", "nav.skills"),
+        ("finops", "nav.finops"),
+        ("cockpit", "nav.cockpit"),
+        ("jobs", "nav.jobs"),
+        ("specs", "nav.specs"),
     ];
 
     protected override void OnInitialized()
     {
         UpdateTitle(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
+        L.Changed += OnLocaleChanged;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -93,6 +96,7 @@
         if (!firstRender)
             return;
 
+        await L.InitializeAsync();
         try
         {
             _sidebarCollapsed = await JS.InvokeAsync<bool>("taskboard.getSidebarCollapsed");
@@ -154,13 +158,21 @@
     private void UpdateTitle(string uri)
     {
         var path = Nav.ToBaseRelativePath(uri).Split('?', '#')[0].TrimEnd('/');
-        _pageTitle = PageTitles
+        var key = PageTitles
             .FirstOrDefault(p => path.StartsWith(p.Prefix, StringComparison.OrdinalIgnoreCase))
-            .Title ?? "Board";
+            .TitleKey ?? "nav.board";
+        _pageTitle = L.T(key);
+    }
+
+    private void OnLocaleChanged()
+    {
+        UpdateTitle(Nav.Uri);
+        InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
+        L.Changed -= OnLocaleChanged;
     }
 }

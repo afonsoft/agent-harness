@@ -1,9 +1,11 @@
+@inject ILocaleService L
+
 <div class="d-flex flex-column align-items-center justify-content-center p-4">
     <Icon Name="IconName.Inbox" Size="IconSize.x3" Class="text-body-secondary" />
-    <p class="mt-2 text-center text-body-secondary mb-0">@Message</p>
+    <p class="mt-2 text-center text-body-secondary mb-0">@(Message ?? L.T("common.noItems"))</p>
 </div>
 
 @code {
     [Parameter]
-    public string Message { get; set; } = "No items";
+    public string? Message { get; set; }
 }

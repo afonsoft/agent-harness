@@ -54,6 +54,25 @@ window.taskboard = {
         }
     },
 
+    // SPEC-20261008-locale-picker RF-001: persisted UI locale + html lang.
+    getLocale: function () {
+        try {
+            return localStorage.getItem('harness.locale');
+        } catch (e) {
+            return null;
+        }
+    },
+
+    setLocale: function (culture) {
+        try {
+            localStorage.setItem('harness.locale', culture);
+        } catch (e) { /* storage unavailable — session-only state */ }
+    },
+
+    setHtmlLang: function (culture) {
+        document.documentElement.lang = culture;
+    },
+
     // SPEC-20260923-terminal-focus-mode RF-001/RF-002: CSS-only focus overlay —
     // the html[data-terminal-focus] attribute drives all focus-mode CSS (topbar
     // hidden, .terminal-page as a fixed viewport overlay). Session-only state:

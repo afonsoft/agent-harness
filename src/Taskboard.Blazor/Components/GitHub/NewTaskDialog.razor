@@ -1,30 +1,31 @@
 @inject IGitHubService GitHubService
 @inject ToastService ToastService
+@inject ILocaleService L
 
 <div class="mb-3">
-    <label for="new-task-title" class="form-label">Título <span class="text-danger">*</span></label>
+    <label for="new-task-title" class="form-label">@L.T("newtask.title") <span class="text-danger">*</span></label>
     <input id="new-task-title" type="text" class="form-control" maxlength="250" @bind="_title" @bind:event="oninput" />
     <div class="form-text">@(_title.Length)/250</div>
 </div>
 
 <div class="mb-3">
-    <label class="form-label">Descrição (markdown)</label>
+    <label class="form-label">@L.T("newtask.description")</label>
     <Tabs EnableFadeEffect="false">
-        <Tab Title="Escrever" IsActive="true">
+        <Tab Title="@L.T("common.write")" IsActive="true">
             <Content>
                 <div class="pt-2">
                     <textarea id="new-task-body" class="form-control" rows="6" @bind="_body"
-                              aria-label="Descrição da tarefa em markdown"
-                              placeholder="## Contexto&#10;&#10;- item&#10;&#10;```bash&#10;comando&#10;```"></textarea>
+                              aria-label="@L.T("newtask.descAria")"
+                              placeholder="@L.T("newtask.descPlaceholder")"></textarea>
                 </div>
             </Content>
         </Tab>
-        <Tab Title="Visualizar">
+        <Tab Title="@L.T("common.preview")">
             <Content>
                 <div class="pt-2 markdown-body new-task-preview">
                     @if (string.IsNullOrWhiteSpace(_body))
                     {
-                        <span class="text-body-secondary">Nada para visualizar.</span>
+                        <span class="text-body-secondary">@L.T("newtask.nothingToPreview")</span>
                     }
                     else
                     {
@@ -37,7 +38,7 @@
 </div>
 
 <div class="mb-3">
-    <label for="new-task-column" class="form-label">Coluna Inicial</label>
+    <label for="new-task-column" class="form-label">@L.T("newtask.column")</label>
     <select id="new-task-column" class="form-select" @bind="_initialColumn">
         @foreach (var column in GitHubBoardColumnExtensions.LabelBackedColumns)
         {
@@ -47,13 +48,13 @@
 </div>
 
 <div class="d-flex justify-content-end gap-2 pt-3 border-top">
-    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">Cancelar</Button>
+    <Button Color="ButtonColor.Secondary" @onclick="CancelAsync">@L.T("common.cancel")</Button>
     <Button Color="ButtonColor.Primary" @onclick="SubmitAsync" Disabled="_isSubmitting || string.IsNullOrWhiteSpace(_title)">
         @if (_isSubmitting)
         {
             <Spinner Size="SpinnerSize.Small" Class="me-2" />
         }
-        Salvar
+        @L.T("common.save")
     </Button>
 </div>
 
@@ -89,12 +90,12 @@
         try
         {
             await GitHubService.CreateIssueAsync(RepositoryFullName, _title, _body, _initialColumn);
-            await ToastService.NotifyAsync(new(ToastType.Success, "Issue criada com sucesso."));
+            await ToastService.NotifyAsync(new(ToastType.Success, L.T("newtask.created")));
             await OnSaved.InvokeAsync();
         }
         catch (Exception ex)
         {
-            await ToastService.NotifyAsync(new(ToastType.Danger, $"Erro ao criar issue: {ex.Message}"));
+            await ToastService.NotifyAsync(new(ToastType.Danger, L.T("newtask.createError", ex.Message)));
         }
         finally
         {

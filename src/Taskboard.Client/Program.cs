@@ -31,6 +31,7 @@ builder.Services.AddScoped(sp =>
 });
 
 builder.Services.AddScoped<TaskboardClient>();
+builder.Services.AddScoped<ILocaleService, LocaleService>();
 builder.Services.AddScoped<TaskboardAuthStateProvider>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
     sp.GetRequiredService<TaskboardAuthStateProvider>());

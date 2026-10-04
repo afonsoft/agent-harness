@@ -1,9 +1,11 @@
+@inject ILocaleService L
+
 <div class="my-4 d-flex align-items-center justify-content-center gap-2" role="status">
     <Spinner Size="SpinnerSize.Small" />
-    <span class="small text-body-secondary">@Message</span>
+    <span class="small text-body-secondary">@(Message ?? L.T("common.loading"))</span>
 </div>
 
 @code {
     [Parameter]
-    public string Message { get; set; } = "Loading…";
+    public string? Message { get; set; }
 }
