@@ -54,4 +54,17 @@ public interface IDelegationService
     Task<IReadOnlyList<MailboxMessageDto>> ReadInboxAsync(
         string scope, IReadOnlyCollection<string> recipients,
         int take = 50, bool unreadOnly = true, bool markRead = true, CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261007 RF-001: human reply — posts a <c>text</c> message back to
+    /// the original sender and marks the original read (resolves the
+    /// escalation/decision). Returns null when the message is unknown or
+    /// belongs to another scope.
+    /// </summary>
+    Task<MailboxMessageDto?> ReplyMailboxAsync(
+        string scope, string messageId, string fromAgent, string body, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261007 RF-001: marks mailbox messages read without replying.</summary>
+    Task<int> DismissMailboxAsync(
+        string scope, IReadOnlyCollection<string> ids, CancellationToken ct = default);
 }

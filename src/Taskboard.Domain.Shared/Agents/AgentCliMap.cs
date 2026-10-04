@@ -51,7 +51,10 @@ public sealed record AgentCliSpec(
     AgentCliPromptDelivery PromptDelivery = AgentCliPromptDelivery.Argv,
     /// <summary>Native resume argv template with <c>{id}</c> for the session id;
     /// null when the CLI cannot resume saved sessions.</summary>
-    IReadOnlyList<string>? ResumeArgs = null)
+    IReadOnlyList<string>? ResumeArgs = null,
+    /// <summary>SPEC-20261007 RF-003: argv that lists the CLI's available models
+    /// (one id per line); null keeps the static model table as the only source.</summary>
+    IReadOnlyList<string>? ModelListArgs = null)
 {
     /// <summary>Binary + aliases — every name probed on PATH.</summary>
     public IReadOnlyList<string> DetectionNames =>
@@ -127,7 +130,8 @@ public static class AgentCliMap
                 "opencode auth login",
                 "npm i -g opencode-ai",
                 NpmInstall("opencode-ai"),
-                ResumeArgs: ["--session", "{id}"]),
+                ResumeArgs: ["--session", "{id}"],
+                ModelListArgs: ["models"]),
             [AgentCliKind.Devin] = new(
                 "Devin CLI",
                 "devin",
@@ -160,7 +164,8 @@ public static class AgentCliMap
                 null,
                 "grok",
                 $"curl -fsSL {GrokInstallUrl} | bash",
-                ScriptInstall(GrokInstallUrl)),
+                ScriptInstall(GrokInstallUrl),
+                ModelListArgs: ["models"]),
             [AgentCliKind.Aider] = new(
                 "Aider",
                 "aider",

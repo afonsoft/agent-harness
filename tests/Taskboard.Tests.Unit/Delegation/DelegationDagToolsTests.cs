@@ -253,4 +253,131 @@ public class DelegationDagToolsTests
         result.Json.ShouldContain("msg-1");
         result.Json.ShouldContain("worker_done");
     }
+
+    // ---- delegate_plan (SPEC-20261007 RF-002) ----
+
+    [Fact]
+    public async Task Dado_PlanoComDeps_Quando_DelegatePlan_Entao_CriaEmOrdemComIds()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.CreateTaskAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
+            .Returns(TaskDto("task-1"), TaskDto("task-2"));
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"tasks":[{"prompt":"first"},{"prompt":"second","cli":"opencode","deps":[0]}]}"""),
+            Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("task-1");
+        result.Json.ShouldContain("task-2");
+        await service.Received(2).CreateTaskAsync(
+            Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
+        await service.Received(1).CreateTaskAsync(
+            Arg.Is<CreateDelegationTaskRequest>(r =>
+                r.Prompt == "second" && r.CliName == "opencode"
+                && r.DependsOn!.Single() == "task-1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_SemCli_Quando_DelegatePlan_Entao_UsaCliDefaultDoContexto()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.CreateTaskAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
+            .Returns(TaskDto("task-1"));
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+
+        await tool.ExecuteAsync(
+            Args("""{"tasks":[{"prompt":"x"}]}"""), Ctx(defaultCli: "claude"), CancellationToken.None);
+
+        await service.Received(1).CreateTaskAsync(
+            Arg.Is<CreateDelegationTaskRequest>(r => r.CliName == "claude"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("""{"tasks":[{"prompt":"a","deps":[0]}]}""")]
+    [InlineData("""{"tasks":[{"prompt":"a"},{"prompt":"b","deps":[1]}]}""")]
+    [InlineData("""{"tasks":[{"prompt":"a"},{"prompt":"b","deps":[5]}]}""")]
+    public async Task Dado_DepInvalida_Quando_DelegatePlan_Entao_RecusaSemCriar(string json)
+    {
+        var service = Substitute.For<IDelegationService>();
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(Args(json), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        result.Json.ShouldContain("deps");
+        await service.DidNotReceive().CreateTaskAsync(
+            Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_FalhaNoMeioDoPlano_Quando_DelegatePlan_Entao_CancelaCriadasComPlanAborted()
+    {
+        var service = Substitute.For<IDelegationService>();
+        var calls = 0;
+        service.CreateTaskAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => calls++ == 0
+                ? TaskDto("task-1")
+                : throw new DomainException("invalid", "no such cli"));
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"tasks":[{"prompt":"ok"},{"prompt":"boom"}]}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        result.RefusalReason.ShouldBe("plan-aborted");
+        await service.Received(1).CancelTaskAsync(
+            "task-1", "plan-aborted", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_SubAgent_Quando_DelegatePlan_Entao_RecursaoBloqueada()
+    {
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(Substitute.For<IDelegationService>())),
+            Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"tasks":[{"prompt":"x"}]}"""), Ctx(depth: 1), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        result.Json.ShouldContain("delegation not allowed");
+    }
+
+    [Fact]
+    public async Task Dado_WorktreeSemRepo_Quando_DelegatePlan_Entao_Recusa()
+    {
+        var service = Substitute.For<IDelegationService>();
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(service)), Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"tasks":[{"prompt":"x","use_worktree":true}]}"""),
+            Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        result.Json.ShouldContain("repository_path");
+        await service.DidNotReceive().CreateTaskAsync(
+            Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_PlanoVazio_Quando_DelegatePlan_Entao_Recusa()
+    {
+        var tool = new DelegatePlanTool(
+            ScopeWith(c => c.AddSingleton(Substitute.For<IDelegationService>())),
+            Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"tasks":[]}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+    }
 }

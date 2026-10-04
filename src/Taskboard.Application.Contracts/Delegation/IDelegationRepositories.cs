@@ -45,6 +45,9 @@ public interface IAgentMailboxRepository
 {
     Task<MailboxMessageDto> AddAsync(PostMailboxMessageRequest request, CancellationToken ct = default);
 
+    /// <summary>SPEC-20261007 RF-001: single-message lookup for the reply path.</summary>
+    Task<MailboxMessageDto?> GetAsync(string id, CancellationToken ct = default);
+
     /// <summary>
     /// Messages of <paramref name="scope"/> whose <c>ToAgent</c> is one of
     /// <paramref name="recipients"/>, oldest first.

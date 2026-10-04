@@ -191,6 +191,49 @@
                                             {
                                                 <div class="text-body-secondary text-truncate" title="@item.Detail">@item.Detail</div>
                                             }
+                                            @if (item.Kind == "mailbox")
+                                            {
+                                                @if (_openReplyId == item.Id)
+                                                {
+                                                    <textarea class="form-control form-control-sm mt-1" rows="2"
+                                                              placeholder="Reply to the agent…"
+                                                              @bind="_replyText"></textarea>
+                                                    <div class="d-flex gap-2 mt-1">
+                                                        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
+                                                                Disabled="@(_mailboxBusy || string.IsNullOrWhiteSpace(_replyText))"
+                                                                @onclick="() => SendReplyAsync(item.Id)">
+                                                            @(_mailboxBusy ? "Sending…" : "Reply")
+                                                        </Button>
+                                                        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                                                                @onclick="() => _openReplyId = null">Cancel</Button>
+                                                    </div>
+                                                    @if (!string.IsNullOrEmpty(_mailboxError))
+                                                    {
+                                                        <div class="text-danger small mt-1">@_mailboxError</div>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <div class="d-flex gap-2 mt-1">
+                                                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small"
+                                                                @onclick="() => { _openReplyId = item.Id; _replyText = string.Empty; _mailboxError = null; }">
+                                                            Reply
+                                                        </Button>
+                                                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small"
+                                                                Disabled="_mailboxBusy"
+                                                                @onclick="() => DismissMailboxAsync(item.Id)">
+                                                            Dismiss
+                                                        </Button>
+                                                    </div>
+                                                }
+                                            }
+                                            @if (item.Kind == "task" && !string.IsNullOrEmpty(item.Group))
+                                            {
+                                                <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
+                                                        @onclick="() => OpenCompareAsync(item.Group)">
+                                                    <Icon Name="IconName.ColumnsGap" class="me-1" />Compare legs
+                                                </Button>
+                                            }
                                         </li>
                                     }
                                 </ul>
@@ -202,6 +245,76 @@
         }
     </div>
 </div>
+
+@* SPEC-20261007 RF-004: fan-out compare — per-leg diffstat + bounded patch. *@
+<Modal @ref="_compareModal" Title="Fan-out compare" Size="ModalSize.Large"
+       Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
+    <BodyTemplate>
+        @if (_compareLoading)
+        {
+            <p class="small text-body-secondary mb-0">Loading diffs…</p>
+        }
+        else if (_compareLegs.Count == 0)
+        {
+            <p class="small text-body-secondary mb-0">No legs found for this fan-out group.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>CLI</th>
+                            <th>Status</th>
+                            <th class="text-end">Files</th>
+                            <th class="text-end">+/−</th>
+                            <th>Worktree</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var leg in _compareLegs)
+                        {
+                            <tr>
+                                <td>@leg.CliName</td>
+                                <td>@leg.Status</td>
+                                <td class="text-end">@(leg.Files?.FilesChanged.ToString() ?? "—")</td>
+                                <td class="text-end">
+                                    @if (leg.Files is not null)
+                                    {
+                                        <span class="text-success">+@leg.Files.Insertions</span>@(" ")
+                                        <span class="text-danger">−@leg.Files.Deletions</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-body-secondary">—</span>
+                                    }
+                                </td>
+                                <td class="small text-body-secondary">
+                                    @(leg.Note ?? (leg.WorktreeRunId is null ? "—" : $"run {leg.WorktreeRunId[..Math.Min(8, leg.WorktreeRunId.Length)]}"))
+                                </td>
+                            </tr>
+                            @if (!string.IsNullOrEmpty(leg.Patch))
+                            {
+                                <tr>
+                                    <td colspan="5" class="p-0">
+                                        <details>
+                                            <summary class="small text-body-secondary px-2 py-1">Patch (@leg.Patch.Length chars)</summary>
+                                            <pre class="small bg-body-tertiary p-2 mb-0 overflow-auto" style="max-height: 320px;">@leg.Patch</pre>
+                                        </details>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                @onclick="() => _compareModal.HideAsync()">Close</Button>
+    </FooterTemplate>
+</Modal>
 
 @* SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions. *@
 <div class="card mt-4">
@@ -487,6 +600,15 @@
     private IReadOnlyList<AgentSessionInfoDto> _sessions = [];
     private bool _sessionsLoading = true;
 
+    // SPEC-20261007 RF-001/RF-004: mailbox replies + fan-out compare modal.
+    private string? _openReplyId;
+    private string _replyText = string.Empty;
+    private bool _mailboxBusy;
+    private string? _mailboxError;
+    private Modal _compareModal = default!;
+    private IReadOnlyList<FanoutCompareLegDto> _compareLegs = [];
+    private bool _compareLoading;
+
     protected override async Task OnInitializedAsync()
     {
         await Task.WhenAll(
@@ -525,6 +647,61 @@
         finally
         {
             _sessionsLoading = false;
+        }
+    }
+
+    private async Task SendReplyAsync(string messageId)
+    {
+        _mailboxBusy = true;
+        _mailboxError = null;
+        try
+        {
+            _mailboxError = await Client.ReplyMailboxAsync(messageId, _replyText);
+            if (_mailboxError is null)
+            {
+                _openReplyId = null;
+                await LoadDashboardAsync();
+            }
+        }
+        finally
+        {
+            _mailboxBusy = false;
+        }
+    }
+
+    private async Task DismissMailboxAsync(string messageId)
+    {
+        _mailboxBusy = true;
+        try
+        {
+            _mailboxError = await Client.DismissMailboxAsync(messageId);
+            if (_mailboxError is null)
+            {
+                await LoadDashboardAsync();
+            }
+        }
+        finally
+        {
+            _mailboxBusy = false;
+        }
+    }
+
+    private async Task OpenCompareAsync(string groupId)
+    {
+        _compareLoading = true;
+        _compareLegs = [];
+        await _compareModal.ShowAsync();
+        try
+        {
+            _compareLegs = await Client.GetFanoutCompareAsync(groupId);
+        }
+        catch
+        {
+            _compareLegs = [];
+        }
+        finally
+        {
+            _compareLoading = false;
         }
     }
 

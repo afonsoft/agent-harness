@@ -158,6 +158,15 @@ public sealed class EfCoreAgentMailboxRepository : IAgentMailboxRepository
         return ToDto(entity);
     }
 
+    public async Task<MailboxMessageDto?> GetAsync(string id, CancellationToken ct = default)
+    {
+        var message = await _context.AgentMailboxMessages
+            .Where(m => m.Id == id)
+            .SingleOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+        return message is null ? null : ToDto(message);
+    }
+
     public async Task<IReadOnlyList<MailboxMessageDto>> ListForRecipientAsync(
         string scope, IReadOnlyCollection<string> recipients, int take = 50,
         bool unreadOnly = false, CancellationToken ct = default)

@@ -212,4 +212,95 @@ public class DelegationServiceTests
             Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
         read[0].ReadAt.ShouldNotBeNull();
     }
+
+    // ---- reply/dismiss (SPEC-20261007 RF-001) ----
+
+    private static MailboxMessageDto Message(
+        string id = "msg-1", string scope = "conv-1", string from = "codex") =>
+        new(id, scope, from, "@all", AgentMailboxKinds.Escalation,
+            "need input", DateTime.UtcNow, null);
+
+    [Fact]
+    public async Task Dado_Escalation_Quando_Responde_Entao_PostaTextoParaRemetenteEMarcaLida()
+    {
+        _mailbox.GetAsync("msg-1", Arg.Any<CancellationToken>()).Returns(Message());
+        _mailbox.AddAsync(Arg.Any<PostMailboxMessageRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new MailboxMessageDto(
+                "msg-2", "conv-1", "human", "codex", AgentMailboxKinds.Text,
+                ci.Arg<PostMailboxMessageRequest>().Payload, DateTime.UtcNow, null));
+
+        var reply = await _service.ReplyMailboxAsync("conv-1", "msg-1", "human", "do the thing");
+
+        reply.ShouldNotBeNull();
+        await _mailbox.Received(1).AddAsync(
+            Arg.Is<PostMailboxMessageRequest>(m =>
+                m.Kind == AgentMailboxKinds.Text
+                && m.FromAgent == "human"
+                && m.ToAgent == "codex"
+                && m.Payload.Contains("do the thing")),
+            Arg.Any<CancellationToken>());
+        await _mailbox.Received(1).MarkReadAsync(
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("msg-1")),
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_MsgInexistente_Quando_Responde_Entao_NullSemPostar()
+    {
+        _mailbox.GetAsync("msg-x", Arg.Any<CancellationToken>()).Returns((MailboxMessageDto?)null);
+
+        var reply = await _service.ReplyMailboxAsync("conv-1", "msg-x", "human", "oi");
+
+        reply.ShouldBeNull();
+        await _mailbox.DidNotReceive().AddAsync(
+            Arg.Any<PostMailboxMessageRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_MsgDeOutroEscopo_Quando_Responde_Entao_NullSemPostar()
+    {
+        _mailbox.GetAsync("msg-1", Arg.Any<CancellationToken>())
+            .Returns(Message(scope: "other-scope"));
+
+        var reply = await _service.ReplyMailboxAsync("conv-1", "msg-1", "human", "oi");
+
+        reply.ShouldBeNull();
+        await _mailbox.DidNotReceive().AddAsync(
+            Arg.Any<PostMailboxMessageRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_CorpoVazio_Quando_Responde_Entao_Recusa()
+    {
+        await Should.ThrowAsync<DomainException>(() =>
+            _service.ReplyMailboxAsync("conv-1", "msg-1", "human", "   "));
+    }
+
+    [Fact]
+    public async Task Dado_IdsNoEscopo_Quando_Dispensa_Entao_MarcaLidasERetornaContagem()
+    {
+        _mailbox.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Message(id: ci.Arg<string>()));
+
+        var dismissed = await _service.DismissMailboxAsync("conv-1", ["msg-1", "msg-2"]);
+
+        dismissed.ShouldBe(2);
+        await _mailbox.Received(1).MarkReadAsync(
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Count == 2),
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_IdsDeOutroEscopo_Quando_Dispensa_Entao_IgnoraERetornaZero()
+    {
+        _mailbox.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Message(id: ci.Arg<string>(), scope: "other"));
+
+        var dismissed = await _service.DismissMailboxAsync("conv-1", ["msg-1"]);
+
+        dismissed.ShouldBe(0);
+        await _mailbox.DidNotReceive().MarkReadAsync(
+            Arg.Any<IReadOnlyCollection<string>>(),
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
 }

@@ -224,6 +224,58 @@ public sealed class DelegationService : IDelegationService
         return messages;
     }
 
+    public async Task<MailboxMessageDto?> ReplyMailboxAsync(
+        string scope, string messageId, string fromAgent, string body, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue, "reply body is required");
+        }
+
+        var original = await _mailbox.GetAsync(messageId, ct).ConfigureAwait(false);
+        if (original is null || !string.Equals(original.Scope, scope, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var reply = await _mailbox.AddAsync(
+            new PostMailboxMessageRequest(
+                scope, fromAgent, original.FromAgent,
+                $"re:{original.Id} {body.Trim()}", AgentMailboxKinds.Text),
+            ct).ConfigureAwait(false);
+        await _mailbox.MarkReadAsync([original.Id], _time.GetUtcNow().UtcDateTime, ct)
+            .ConfigureAwait(false);
+        return reply;
+    }
+
+    public async Task<int> DismissMailboxAsync(
+        string scope, IReadOnlyCollection<string> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        var existing = new List<string>();
+        foreach (var id in ids)
+        {
+            var message = await _mailbox.GetAsync(id, ct).ConfigureAwait(false);
+            if (message is not null && string.Equals(message.Scope, scope, StringComparison.Ordinal))
+            {
+                existing.Add(id);
+            }
+        }
+
+        if (existing.Count == 0)
+        {
+            return 0;
+        }
+
+        await _mailbox.MarkReadAsync(existing, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+        return existing.Count;
+    }
+
     private enum Verdict
     {
         StillPending,

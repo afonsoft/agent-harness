@@ -21,7 +21,26 @@ public sealed record DashboardItemDto(
     string Title,
     string Detail,
     string CliName,
-    DateTime? Timestamp);
+    DateTime? Timestamp,
+    /// <summary>SPEC-20261007 RF-004: fan-out group of a task item (drives the compare action).</summary>
+    string? Group = null);
+
+/// <summary>SPEC-20261007 RF-004: one leg of a fan-out compare (diffstat + bounded patch).</summary>
+public sealed record FanoutCompareLegDto(
+    string TaskId,
+    string CliName,
+    string Status,
+    string? WorktreeRunId,
+    FanoutCompareFilesDto? Files,
+    string? Patch,
+    string? Note);
+
+/// <summary>Per-leg diffstat: counts plus the touched paths.</summary>
+public sealed record FanoutCompareFilesDto(
+    int FilesChanged,
+    int Insertions,
+    int Deletions,
+    IReadOnlyList<WorkspaceDiffFileDto> Paths);
 
 /// <summary>Aggregates the dashboard columns for one scope.</summary>
 public interface IDelegationDashboardService

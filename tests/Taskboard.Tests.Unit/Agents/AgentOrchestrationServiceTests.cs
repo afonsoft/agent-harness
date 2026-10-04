@@ -280,6 +280,51 @@ public class AgentOrchestrationServiceTests
     }
 
     [Fact]
+    public async Task Dado_JobRodando_Quando_ConsultarDisponibilidade_Entao_ExpoeIssueEElapsed()
+    {
+        // SPEC-20261007 RF-005: agentes ocupados carregam a issue ativa e o
+        // tempo decorrido do run — o dashboard mostra liveness real.
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acpClient = Substitute.For<IAgentAcpClient>();
+        acpClient.ExecuteAsync(
+                Arg.Any<AgentExecutionRequest>(), Arg.Any<IProgress<AgentLogMessage>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                await release.Task;
+                return new AgentExecutionResult(0, true);
+            });
+        var discoveryService = Substitute.For<IAgentDiscoveryService>();
+        discoveryService.DiscoverAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentInfo>>(
+            [
+                new AgentInfo("codex", "/usr/bin/codex", AgentType.Codex, AgentStatus.Available, "1.0", null)
+            ]));
+        var service = CriarService(acpClient: acpClient, discoveryService: discoveryService);
+        var request = CriarRequest();
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.EnqueueAsync(request);
+            await AguardarAsync(async () =>
+                (await service.GetAvailableAgentsAsync())
+                    .Any(a => a.Status == AgentStatus.Busy));
+
+            var agent = (await service.GetAvailableAgentsAsync()).Single();
+            agent.Status.ShouldBe(AgentStatus.Busy);
+            agent.ActiveIssueId.ShouldBe(request.IssueId);
+            agent.ActiveElapsedSeconds.ShouldNotBeNull();
+            agent.ActiveElapsedSeconds!.Value.ShouldBeGreaterThanOrEqualTo(0);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task Dado_RepoPath_Quando_ProcessarFila_Entao_ExecutaDentroDoWorktree()
     {
         var isolation = Substitute.For<IWorkspaceIsolationService>();
