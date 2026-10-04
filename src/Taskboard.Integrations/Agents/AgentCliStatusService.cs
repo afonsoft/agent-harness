@@ -65,8 +65,12 @@ public sealed class AgentCliStatusService : IAgentCliStatusService
     {
         // Cheap probes stay inline so installed/auth are never served stale:
         // PATH lookup and credential-file existence are filesystem reads (~ms).
-        var binary = _locator(spec.Binary);
-        var installed = binary is not null;
+        // SPEC-20261004 RF-005: binary or any alias counts; a missing declared
+        // required command means not installed.
+        var binary = spec.DetectionNames.Select(_locator).FirstOrDefault(p => p is not null);
+        var installed = binary is not null
+            && (spec.RequiredCommands is not { Count: > 0 } required
+                || required.All(r => _locator(r) is not null));
         var auth = ProbeAuth(spec);
         var version = installed ? _snapshot?.GetVersion(kind) : null;
 

@@ -265,6 +265,19 @@
                 <input class="form-control form-control-sm font-monospace" @bind="_defFormModelFlag" placeholder="--model" />
             </div>
         </div>
+        <div class="row g-2 mb-2">
+            <div class="col-6">
+                <label class="form-label small mb-1">Prompt delivery <span class="text-body-secondary">(delegated runs)</span></label>
+                <select class="form-select form-select-sm" @bind="_defFormPromptDelivery">
+                    <option value="argv">argv — {prompt} in args, or appended</option>
+                    <option value="stdin">stdin — piped when template has no {prompt}</option>
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small mb-1">Model list args <span class="text-body-secondary">(optional)</span></label>
+                <input class="form-control form-control-sm font-monospace" @bind="_defFormModelListArgs" placeholder="models list" />
+            </div>
+        </div>
         <div class="mb-2">
             <label class="form-label small mb-1">Version args</label>
             <input class="form-control form-control-sm font-monospace" @bind="_defFormVersionArgs" placeholder="--version" />
@@ -343,6 +356,8 @@
     private string _defFormArgs = string.Empty;
     private string _defFormTransport = "pty";
     private string _defFormModelFlag = string.Empty;
+    private string _defFormPromptDelivery = "argv";
+    private string _defFormModelListArgs = string.Empty;
     private string _defFormVersionArgs = "--version";
     private bool _defFormEnabled = true;
     private string? _defFormError;
@@ -379,6 +394,8 @@
         _defFormArgs = def?.ArgsTemplate ?? string.Empty;
         _defFormTransport = def?.Transport ?? "pty";
         _defFormModelFlag = def?.ModelFlag ?? string.Empty;
+        _defFormPromptDelivery = def?.PromptDelivery ?? "argv";
+        _defFormModelListArgs = def?.ModelListArgs ?? string.Empty;
         _defFormVersionArgs = def?.VersionArgs ?? "--version";
         _defFormEnabled = def?.Enabled ?? true;
         _defFormError = null;
@@ -398,7 +415,9 @@
                 _defFormTransport,
                 string.IsNullOrWhiteSpace(_defFormModelFlag) ? null : _defFormModelFlag.Trim(),
                 string.IsNullOrWhiteSpace(_defFormVersionArgs) ? null : _defFormVersionArgs.Trim(),
-                _defFormEnabled);
+                _defFormEnabled,
+                _defFormPromptDelivery,
+                string.IsNullOrWhiteSpace(_defFormModelListArgs) ? null : _defFormModelListArgs.Trim());
 
             var (saved, error) = _editingDef is null
                 ? await Client.CreateCustomAgentCliAsync(request)

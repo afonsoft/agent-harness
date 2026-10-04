@@ -44,7 +44,7 @@ public sealed class ChatServiceTests : IDisposable
         _service = NewService(new FakeProviderHandler(), new ChatRunCoordinator());
     }
 
-    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null)
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -68,7 +68,7 @@ public sealed class ChatServiceTests : IDisposable
             new OpenAiCompatibleClient(TrackHttp(handler)),
             new ChatCapabilityRegistry(tools, new FakeSkillDiscovery(), configuration),
             new FakeSkillDiscovery(),
-            new FakeWorkspaceResolver(),
+            workspace ?? new FakeWorkspaceResolver(),
             configuration,
             coordinator);
     }
@@ -146,6 +146,38 @@ public sealed class ChatServiceTests : IDisposable
         var list = await _service.ListConversationsAsync("termo-unico-xyz");
 
         list.ShouldContain(c => c.Id == conversation.Id);
+    }
+
+    [Fact]
+    public async Task Dado_WorkspacePathForaDeHome_Quando_CriarEPatchear_Entao_ClampaParaNullOuResolve()
+    {
+        // SPEC-20261004 RF-002: WorkspacePath é normalizado contra $HOME —
+        // caminho fora vira null (o run volta ao default ~/repos).
+        var home = Directory.CreateTempSubdirectory("tb-home-");
+        try
+        {
+            var service = NewService(
+                new FakeProviderHandler(), new ChatRunCoordinator(),
+                workspace: new Taskboard.Integrations.Workspace.WorkspaceService(
+                    null, home.FullName,
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Workspace.WorkspaceService>.Instance));
+
+            var conversation = await service.CreateConversationAsync(
+                new CreateChatConversationRequest(_provider.Id, "m1",
+                    Agent: new ChatAgentContext(AgentCli: "Devin", WorkspacePath: "/etc")));
+            conversation.Agent.ShouldNotBeNull();
+            conversation.Agent.AgentCli.ShouldBe("Devin");
+            conversation.Agent.WorkspacePath.ShouldBeNull();
+
+            var patched = await service.PatchConversationAsync(
+                conversation.Id,
+                new PatchChatConversationRequest(Agent: new ChatAgentContext(WorkspacePath: "proj")));
+            patched!.Agent!.WorkspacePath.ShouldBe(Path.Combine(home.FullName, "repos", "proj"));
+        }
+        finally
+        {
+            Directory.Delete(home.FullName, recursive: true);
+        }
     }
 
     [Fact]
@@ -410,6 +442,10 @@ public sealed class ChatServiceTests : IDisposable
             exists = false;
             return Path.GetTempPath();
         }
+
+        public string? NormalizeWorkspacePath(string? path) => path;
+
+        public WorkspaceDirsDto? ListSubdirs(string? path) => null;
     }
 
     private sealed class FakeSkillDiscovery : Taskboard.Application.Contracts.Skills.ISkillDiscoveryService

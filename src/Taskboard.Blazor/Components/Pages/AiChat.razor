@@ -3,6 +3,7 @@
 @implements IAsyncDisposable
 @using System.Text.Json
 @using Taskboard.Application.Contracts.Chat
+@using Taskboard.Application.Contracts.Workspace
 @inject TaskboardClient Client
 @inject IAgentOrchestrationService OrchestrationService
 @inject IGitHubService GitHubService
@@ -105,6 +106,7 @@ else
                 <ProviderChat @key="_agentChatKey"
                               AgentContext="CurrentAgentContext"
                               SeedConversationId="@_seedConversationId"
+                              OnConversationAgentLoaded="OnConversationAgentLoaded"
                               OnSwitchToAgent="SwitchToAgentMode" />
             </div>
             <div class="card-footer p-2">
@@ -146,6 +148,12 @@ else
                             </select>
                         </label>
                     }
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                            title="Workspace — base folder for chat tools and delegated runs (default ~/repos)"
+                            @onclick="ShowWorkspaceModalAsync">
+                        <Icon Name="IconName.Folder2Open" />
+                        <span class="ms-1">@WorkspaceLabel</span>
+                    </button>
                     <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
                             title="Repository (optional — resolves to ~/repos/<name>)"
                             @onclick="ShowRepoModalAsync">
@@ -603,6 +611,53 @@ else
     </FooterTemplate>
 </Modal>
 
+@* SPEC-20261004 RF-001: workspace picker — directory listing confined to
+   $HOME; 'Use this folder' binds the path on the conversation's agent context. *@
+<Modal @ref="_workspaceModal" Title="Workspace" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
+    <BodyTemplate>
+        <div class="d-flex align-items-center gap-2 mb-2">
+            @if (_workspaceDirs?.Parent is not null)
+            {
+                <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small"
+                        title="Parent folder" @onclick="() => LoadWorkspaceDirsAsync(_workspaceDirs.Parent)">
+                    <Icon Name="IconName.ArrowUp" />
+                </Button>
+            }
+            <code class="small flex-grow-1 text-truncate">@(_workspaceDirs?.Path ?? "~/repos")</code>
+        </div>
+        @if (_workspaceDirs is null)
+        {
+            <p class="form-text mb-0">Loading…</p>
+        }
+        else if (_workspaceDirs.Entries.Count == 0)
+        {
+            <p class="form-text mb-0">No subfolders — use this folder or go up.</p>
+        }
+        else
+        {
+            <ul class="list-unstyled mb-0" style="max-height: 300px; overflow-y: auto;">
+                @foreach (var entry in _workspaceDirs.Entries)
+                {
+                    <li>
+                        <button type="button" class="btn btn-sm btn-link text-start"
+                                @onclick="() => LoadWorkspaceDirsAsync(entry.Path)">
+                            <Icon Name="IconName.Folder2Open" /> @entry.Name
+                        </button>
+                    </li>
+                }
+            </ul>
+            @if (_workspaceDirs.Truncated)
+            {
+                <p class="form-text mb-0 mt-1">Showing the first 200 folders.</p>
+            }
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="ResetWorkspaceAsync">Reset to ~/repos</Button>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="UseWorkspaceAsync">Use this folder</Button>
+    </FooterTemplate>
+</Modal>
+
 @* RF-006: model popup — tier + explicit model in config mode; the live
    session's advertised options in session mode. *@
 <Modal @ref="_modelModal" Title="Model" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
@@ -632,20 +687,46 @@ else
             </div>
             <div>
                 <label class="form-label" for="cmdbar-model">Model</label>
-                <select id="cmdbar-model" class="form-select" @bind="_cfgModelId">
-                    <option value="">@(_cfgModelTier.Length == 0 ? "CLI default" : "Tier default")</option>
-                    @foreach (var model in ConfigAgentModels())
-                    {
-                        <option value="@model.Name">@ModelOptionLabel(model)</option>
-                    }
-                </select>
-                @if (ConfigAgentModels().Count == 0)
+                @if (SelectedCli?.AgentType is null)
                 {
-                    <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
+                    @* SPEC-20261004 RF-008: custom defs have no catalog — the
+                       def's declared ModelListArgs probes one; otherwise free
+                       text passes through {model}/ModelFlag; empty = default. *@
+                    if (_defModels.Count > 0)
+                    {
+                        <select id="cmdbar-model" class="form-select" @bind="_cfgModelId">
+                            <option value="">CLI default</option>
+                            @foreach (var m in _defModels)
+                            {
+                                <option value="@m">@m</option>
+                            }
+                        </select>
+                        <p class="form-text mb-0">Model list reported by the custom CLI's probe.</p>
+                    }
+                    else
+                    {
+                        <input id="cmdbar-model" class="form-control" @bind="_cfgModelId"
+                               placeholder="model name (optional — e.g. gpt-4o)" />
+                        <p class="form-text mb-0">Sent to the custom CLI via its model flag.</p>
+                    }
                 }
                 else
                 {
-                    <p class="form-text mb-0">An explicit model overrides the tier.</p>
+                    <select id="cmdbar-model" class="form-select" @bind="_cfgModelId">
+                        <option value="">@(_cfgModelTier.Length == 0 ? "CLI default" : "Tier default")</option>
+                        @foreach (var model in ConfigAgentModels())
+                        {
+                            <option value="@model.Name">@ModelOptionLabel(model)</option>
+                        }
+                    </select>
+                    @if (ConfigAgentModels().Count == 0)
+                    {
+                        <p class="form-text mb-0">No model list reported by this CLI — it runs with its own default.</p>
+                    }
+                    else
+                    {
+                        <p class="form-text mb-0">An explicit model overrides the tier.</p>
+                    }
                 }
             </div>
         }
@@ -709,6 +790,9 @@ else
     private ElementReference _messagesRef;
     private ElementReference _composerRef;
     private Modal _repoModal = default!;
+    private Modal _workspaceModal = default!;
+    private WorkspaceDirsDto? _workspaceDirs;
+    private IReadOnlyList<string> _defModels = [];
     private Modal _modelModal = default!;
     private Modal _sandboxModal = default!;
     private Modal _runAgentModal = default!;
@@ -730,6 +814,7 @@ else
     private string _cfgRepo = string.Empty;
     private string _cfgModelTier = string.Empty;
     private string _cfgModelId = string.Empty;
+    private string _cfgWorkspace = string.Empty;
     private string _cfgSandbox = "read-only";
 
     // SPEC-20260928-ai-code-generic-cli: the CLI picker unifies eligible
@@ -771,8 +856,45 @@ else
     private ChatAgentContext CurrentAgentContext => new(
         AgentCli: SelectedCli?.AgentType?.ToString() ?? SelectedCli?.AgentCliId,
         RepositoryFullName: string.IsNullOrWhiteSpace(_cfgRepo) ? null : _cfgRepo.Trim(),
-        WorkspacePath: null,
+        WorkspacePath: string.IsNullOrWhiteSpace(_cfgWorkspace) ? null : _cfgWorkspace.Trim(),
         AgentModel: string.IsNullOrWhiteSpace(_cfgModelId) ? null : _cfgModelId);
+
+    /// <summary>Toolbar label for the workspace picker (~/repos default).</summary>
+    private string WorkspaceLabel => string.IsNullOrWhiteSpace(_cfgWorkspace)
+        ? "~/repos"
+        : _cfgWorkspace.Trim();
+
+    /// <summary>
+    /// SPEC-20261004 RF-003: hydrates the agent-bar config from a conversation
+    /// just opened (seeded via /agent or the history rail).
+    /// </summary>
+    private void OnConversationAgentLoaded(ChatAgentContext? agent)
+    {
+        if (agent is null)
+        {
+            return;
+        }
+
+        _cfgWorkspace = agent.WorkspacePath ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(agent.RepositoryFullName))
+        {
+            _cfgRepo = agent.RepositoryFullName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(agent.AgentModel))
+        {
+            _cfgModelId = agent.AgentModel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(agent.AgentCli)
+            && _cliOptions.FirstOrDefault(o =>
+                string.Equals(o.AgentType?.ToString(), agent.AgentCli, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(o.AgentCliId, agent.AgentCli, StringComparison.OrdinalIgnoreCase))
+                is { } match)
+        {
+            _cfgCli = match.Value;
+        }
+    }
 
     /// <summary>Chat estruturado (ACP) exige CLI elegível/autenticada ou def acp resolvida.</summary>
     private bool SelectedCliSupportsChat => SelectedCli?.SupportsChat == true;
@@ -1461,7 +1583,62 @@ else
 
     private async Task ShowRepoModalAsync() => await _repoModal.ShowAsync();
 
-    private async Task ShowModelModalAsync() => await _modelModal.ShowAsync();
+    private async Task ShowModelModalAsync()
+    {
+        // SPEC-20261004 RF-008: custom defs with a declared model-list probe
+        // fetch it lazily — the select falls back to free text when empty.
+        _defModels = [];
+        var defId = SelectedCli?.AgentCliId;
+        if (defId is not null
+            && _customDefs.FirstOrDefault(d => d.Id == defId)?.ModelListArgs is { Length: > 0 })
+        {
+            try
+            {
+                _defModels = await Client.GetCustomCliModelsAsync(defId);
+            }
+            catch
+            {
+                _defModels = [];
+            }
+        }
+
+        await _modelModal.ShowAsync();
+    }
+
+    private async Task ShowWorkspaceModalAsync()
+    {
+        await LoadWorkspaceDirsAsync(string.IsNullOrWhiteSpace(_cfgWorkspace) ? null : _cfgWorkspace);
+        await _workspaceModal.ShowAsync();
+    }
+
+    private async Task LoadWorkspaceDirsAsync(string? path)
+    {
+        var dirs = await Client.GetWorkspaceDirsAsync(path);
+        if (dirs is not null)
+        {
+            _workspaceDirs = dirs;
+        }
+        else if (!string.IsNullOrWhiteSpace(path))
+        {
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Folder is not accessible."));
+        }
+    }
+
+    private async Task UseWorkspaceAsync()
+    {
+        if (_workspaceDirs is not null)
+        {
+            _cfgWorkspace = _workspaceDirs.Path;
+        }
+
+        await HideModalAsync(_workspaceModal);
+    }
+
+    private async Task ResetWorkspaceAsync()
+    {
+        _cfgWorkspace = string.Empty;
+        await LoadWorkspaceDirsAsync(null);
+    }
 
     private async Task ShowSandboxModalAsync() => await _sandboxModal.ShowAsync();
 

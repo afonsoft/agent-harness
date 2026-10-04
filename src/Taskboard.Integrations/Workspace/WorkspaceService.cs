@@ -64,4 +64,96 @@ public sealed class WorkspaceService : IWorkspacePathResolver
 
         return Path.GetFullPath(path);
     }
+
+    /// <inheritdoc/>
+    public string? NormalizeWorkspacePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var expanded = WorkspacePaths.ExpandHome(path.Trim(), _homeDirectory);
+        var full = Path.IsPathRooted(expanded)
+            ? Path.GetFullPath(expanded)
+            : Path.GetFullPath(Path.Combine(EnsureRoot(), expanded));
+        // Symlinks resolve to their real target before the $HOME check — a
+        // link under ~/repos pointing outside stays rejected (SPEC edge case).
+        var real = ResolveRealPath(full);
+        return WorkspacePaths.IsUnder(_homeDirectory, real) ? real : null;
+    }
+
+    /// <summary>
+    /// Resolves every existing path segment through its link target —
+    /// <c>Path.GetFullPath</c> is lexical and misses symlinked components.
+    /// Nonexistent tails stay lexical.
+    /// </summary>
+    private static string ResolveRealPath(string full)
+    {
+        var root = Path.GetPathRoot(full);
+        if (root is null)
+        {
+            return full;
+        }
+
+        var resolved = root;
+        foreach (var segment in full[root.Length..]
+                     .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(resolved, segment);
+            try
+            {
+                resolved = Directory.Exists(candidate)
+                    ? new DirectoryInfo(candidate).ResolveLinkTarget(returnFinalTarget: true)?.FullName
+                      ?? candidate
+                    : candidate;
+            }
+            catch (Exception)
+            {
+                resolved = candidate;
+            }
+        }
+
+        return Path.GetFullPath(resolved);
+    }
+
+    private const int MaxListedSubdirs = 200;
+
+    /// <inheritdoc/>
+    public WorkspaceDirsDto? ListSubdirs(string? path)
+    {
+        var full = string.IsNullOrWhiteSpace(path)
+            ? EnsureRoot()
+            : NormalizeWorkspacePath(path);
+        if (full is null || !WorkspacePaths.IsUnder(_homeDirectory, full) || !Directory.Exists(full))
+        {
+            return null;
+        }
+
+        var parent = Path.GetDirectoryName(full.TrimEnd(Path.DirectorySeparatorChar));
+        var parentListed = parent is not null && WorkspacePaths.IsUnder(_homeDirectory, parent)
+            ? parent
+            : null;
+
+        var entries = new List<WorkspaceDirEntry>();
+        var truncated = false;
+        foreach (var dir in Directory.EnumerateDirectories(full).OrderBy(d => d, StringComparer.Ordinal))
+        {
+            var info = new DirectoryInfo(dir);
+            if (info.Name.StartsWith(".", StringComparison.Ordinal) || info.LinkTarget is not null)
+            {
+                continue;
+            }
+
+            if (entries.Count >= MaxListedSubdirs)
+            {
+                truncated = true;
+                break;
+            }
+
+            entries.Add(new WorkspaceDirEntry(info.Name, info.FullName));
+        }
+
+        return new WorkspaceDirsDto(full, parentListed, entries, truncated);
+    }
 }

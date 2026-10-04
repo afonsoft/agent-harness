@@ -18,8 +18,19 @@ public enum AgentCliKind
     Kiro
 }
 
+/// <summary>How a CLI receives the prompt in non-interactive runs (SPEC-20261004 RF-004).</summary>
+public enum AgentCliPromptDelivery
+{
+    /// <summary>Prompt is an argv element (default).</summary>
+    Argv,
+    /// <summary>Prompt is written to the process's stdin.</summary>
+    Stdin,
+}
+
 /// <summary>
-/// Static description of an agent CLI: binary, credential probe and login/install commands.
+/// Static description of an agent CLI: binary, credential probe, login/install
+/// commands and — SPEC-20261004 RF-004 — detection/exec metadata (aliases,
+/// required commands, expected process, prompt separator and delivery).
 /// </summary>
 public sealed record AgentCliSpec(
     string DisplayName,
@@ -28,7 +39,21 @@ public sealed record AgentCliSpec(
     string? CredentialRelativePath,
     string LoginCommand,
     string InstallHint,
-    AgentCliInstallSpec Install);
+    AgentCliInstallSpec Install,
+    /// <summary>Alternative executable names that identify the same CLI on PATH.</summary>
+    IReadOnlyList<string>? Aliases = null,
+    /// <summary>Other commands that must resolve on PATH before this CLI counts as installed.</summary>
+    IReadOnlyList<string>? RequiredCommands = null,
+    /// <summary>Expected process name; defaults to <see cref="Binary"/>.</summary>
+    string? ExpectedProcess = null,
+    /// <summary>Insert <c>--</c> before a positional prompt (argv terminator).</summary>
+    bool ArgvPromptSeparator = false,
+    AgentCliPromptDelivery PromptDelivery = AgentCliPromptDelivery.Argv)
+{
+    /// <summary>Binary + aliases — every name probed on PATH.</summary>
+    public IReadOnlyList<string> DetectionNames =>
+        Aliases is { Count: > 0 } ? [Binary, .. Aliases] : [Binary];
+}
 
 /// <summary>
 /// Executable installation command for a CLI. The command is a fixed,
@@ -108,7 +133,8 @@ public static class AgentCliMap
                 ".gemini/antigravity-cli/antigravity-oauth-token",
                 "agy",
                 $"curl -fsSL {AntigravityInstallUrl} | bash",
-                ScriptInstall(AntigravityInstallUrl)),
+                ScriptInstall(AntigravityInstallUrl),
+                Aliases: ["antigravity"]),
             [AgentCliKind.Kimi] = new(
                 "Kimi Code",
                 "kimi",
@@ -148,7 +174,8 @@ public static class AgentCliMap
                 null,
                 "cn",
                 "npm i -g @continuedev/cli",
-                NpmInstall("@continuedev/cli")),
+                NpmInstall("@continuedev/cli"),
+                Aliases: ["continue"]),
             [AgentCliKind.Copilot] = new(
                 "GitHub Copilot CLI",
                 "copilot",
@@ -172,7 +199,8 @@ public static class AgentCliMap
                 null,
                 "kiro-cli login",
                 $"curl -fsSL {KiroInstallUrl} | bash",
-                ScriptInstall(KiroInstallUrl)),
+                ScriptInstall(KiroInstallUrl),
+                Aliases: ["kiro"]),
         };
 
     /// <summary>

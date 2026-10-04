@@ -118,6 +118,40 @@ public class AgentCliDefinitionEndpointsTests : IClassFixture<TaskboardWebApplic
     }
 
     [Fact]
+    public async Task Dado_DeliveryEModelList_Quando_Post_Entao_PersisteCampos()
+    {
+        // SPEC-20261004 RF-006/RF-008: PromptDelivery e ModelListArgs persistem;
+        // endpoint de modelos devolve lista vazia quando o binário não existe.
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var created = await client.PostAsJsonAsync("/api/agents/custom",
+            new UpsertAgentCliDefinitionRequest("m" + Guid.NewGuid().ToString("N")[..8],
+                "cli-m-inexistente", "", "pty",
+                PromptDelivery: "stdin", ModelListArgs: "models ls"));
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var def = await created.Content.ReadFromJsonAsync<AgentCliDefinitionDto>();
+        def.ShouldNotBeNull();
+        def!.PromptDelivery.ShouldBe("stdin");
+        def.ModelListArgs.ShouldBe("models ls");
+
+        var models = await client.GetAsync($"/api/agents/custom/{def.Id}/models");
+        models.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await models.Content.ReadFromJsonAsync<JsonObject>();
+        body!["models"]!.AsArray().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_PromptDeliveryInvalido_Quando_PostCustom_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/agents/custom",
+            new UpsertAgentCliDefinitionRequest("d" + Guid.NewGuid().ToString("N")[..8],
+                "cli-d", "", "pty", PromptDelivery: "pipe"));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Dado_DefInexistente_Quando_Put_Entao_404()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

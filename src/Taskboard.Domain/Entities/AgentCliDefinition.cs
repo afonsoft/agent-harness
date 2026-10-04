@@ -33,6 +33,20 @@ public sealed class AgentCliDefinition : Entity<string>
     /// <summary>Optional flag used to pass the resolved model (e.g. <c>--model</c>).</summary>
     public string? ModelFlag { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261004 RF-006: <c>"argv"</c> (default) | <c>"stdin"</c> — how a
+    /// delegated prompt reaches the CLI when <see cref="ArgsTemplate"/> carries
+    /// no <c>{prompt}</c> token: argv template vs stdin write.
+    /// </summary>
+    public string PromptDelivery { get; private set; } = "argv";
+
+    /// <summary>
+    /// SPEC-20261004 RF-006/RF-008: optional argv that makes the CLI list its
+    /// models (one per line) — powers the model picker for this def. Empty
+    /// means no probe (the picker falls back to free text).
+    /// </summary>
+    public string? ModelListArgs { get; private set; }
+
     /// <summary>Arguments for the version probe (default <c>--version</c>).</summary>
     public string VersionArgs { get; private set; } = "--version";
 
@@ -62,7 +76,9 @@ public sealed class AgentCliDefinition : Entity<string>
         string? modelFlag = null,
         string? versionArgs = null,
         bool enabled = true,
-        DateTime? now = null)
+        DateTime? now = null,
+        string? promptDelivery = null,
+        string? modelListArgs = null)
     {
         var timestamp = now ?? DateTime.UtcNow;
         return new AgentCliDefinition($"custom-{SlugFor(displayName)}")
@@ -74,6 +90,8 @@ public sealed class AgentCliDefinition : Entity<string>
             ModelFlag = string.IsNullOrWhiteSpace(modelFlag) ? null : modelFlag.Trim(),
             VersionArgs = string.IsNullOrWhiteSpace(versionArgs) ? "--version" : versionArgs.Trim(),
             Enabled = enabled,
+            PromptDelivery = ValidatePromptDelivery(promptDelivery),
+            ModelListArgs = string.IsNullOrWhiteSpace(modelListArgs) ? null : modelListArgs.Trim(),
             CreatedAt = timestamp,
             UpdatedAt = timestamp,
         };
@@ -87,7 +105,9 @@ public sealed class AgentCliDefinition : Entity<string>
         string? modelFlag,
         string? versionArgs,
         bool enabled,
-        DateTime? now = null)
+        DateTime? now = null,
+        string? promptDelivery = null,
+        string? modelListArgs = null)
     {
         DisplayName = RequireNonEmpty(displayName, nameof(displayName));
         Executable = RequireNonEmpty(executable, nameof(executable));
@@ -96,8 +116,16 @@ public sealed class AgentCliDefinition : Entity<string>
         ModelFlag = string.IsNullOrWhiteSpace(modelFlag) ? null : modelFlag.Trim();
         VersionArgs = string.IsNullOrWhiteSpace(versionArgs) ? "--version" : versionArgs.Trim();
         Enabled = enabled;
+        PromptDelivery = ValidatePromptDelivery(promptDelivery ?? PromptDelivery);
+        ModelListArgs = modelListArgs is null && promptDelivery is null
+            ? ModelListArgs
+            : string.IsNullOrWhiteSpace(modelListArgs) ? null : modelListArgs.Trim();
         UpdatedAt = now ?? DateTime.UtcNow;
     }
+
+    /// <summary>True when delegated prompts go to stdin instead of argv.</summary>
+    public bool DeliversPromptViaStdin =>
+        string.Equals(PromptDelivery, "stdin", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Slug used to derive the stable id: lowercase, alnum+dash, ≤48 chars.</summary>
     public static string SlugFor(string displayName)
@@ -141,6 +169,24 @@ public sealed class AgentCliDefinition : Entity<string>
         throw new DomainException(
             TaskboardDomainErrorCodes.InvalidValue,
             $"Invalid transport '{transport}' — expected 'acp' or 'pty'.");
+    }
+
+    private static string ValidatePromptDelivery(string? promptDelivery)
+    {
+        if (string.IsNullOrWhiteSpace(promptDelivery)
+            || string.Equals(promptDelivery, "argv", StringComparison.OrdinalIgnoreCase))
+        {
+            return "argv";
+        }
+
+        if (string.Equals(promptDelivery, "stdin", StringComparison.OrdinalIgnoreCase))
+        {
+            return "stdin";
+        }
+
+        throw new DomainException(
+            TaskboardDomainErrorCodes.InvalidValue,
+            $"Invalid promptDelivery '{promptDelivery}' — expected 'argv' or 'stdin'.");
     }
 
     private static string RequireNonEmpty(string value, string field) =>

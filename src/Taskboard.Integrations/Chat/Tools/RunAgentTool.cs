@@ -13,7 +13,9 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// </summary>
 public sealed class RunAgentTool(
     IAgentOrchestrationService orchestration,
-    Microsoft.Extensions.Configuration.IConfiguration configuration) : IChatTool
+    Microsoft.Extensions.Configuration.IConfiguration configuration,
+    Microsoft.Extensions.DependencyInjection.IServiceScopeFactory scopeFactory,
+    ISecretRedactor redactor) : IChatTool
 {
     public string Name => "run_agent";
     public string Description =>
@@ -65,6 +67,29 @@ public sealed class RunAgentTool(
                     || string.Equals(x.Type.ToString(), requested, StringComparison.OrdinalIgnoreCase)));
         if (agent is null)
         {
+            // SPEC-20261004 RF-007: a custom CLI definition is also a valid
+            // agent — run it inline via its args template (defs aren't
+            // AgentTypes, so they can't take the orchestration queue).
+            var def = await CustomCliRunner.FindAsync(scopeFactory, requested, cancellationToken)
+                .ConfigureAwait(false);
+            if (def is not null)
+            {
+                var resolved = CustomCliRunner.ResolveExecutable(def.Executable);
+                if (resolved is null)
+                {
+                    return new ChatToolResult(
+                        ErrorJson($"custom cli '{def.DisplayName}' is not installed on the host"),
+                        Refused: true, "custom cli not installed");
+                }
+
+                var (argv, stdin) = CustomCliRunner.BuildInvocation(
+                    def, prompt, context.DefaultAgentModel);
+                context.Activity?.Report("running_agent", def.DisplayName);
+                return await CustomCliRunner.ExecAsync(
+                    resolved, argv, stdin, context.WorkspacePath, redactor,
+                    cancellationToken, def.DisplayName).ConfigureAwait(false);
+            }
+
             var eligible = string.Join(", ", agents.Where(x => x.Status == AgentStatus.Available).Select(x => x.Name));
             return new ChatToolResult(
                 ErrorJson($"no eligible agent CLI{(eligible.Length > 0 ? $" (available: {eligible})" : null)}"),

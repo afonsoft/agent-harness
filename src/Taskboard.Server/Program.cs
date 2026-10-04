@@ -506,7 +506,9 @@ void RegisterWorkspaceAndChatServices()
             new GitTool(sp.GetRequiredService<ISecretRedactor>()),
             new RunTestsTool(sp.GetRequiredService<ISecretRedactor>()),
             new TodoTool(new ChatTodoStore(environment.GetDataDir())),
-            new RunCliTool(sp.GetRequiredService<ISecretRedactor>()),
+            new RunCliTool(
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<IServiceScopeFactory>()),
             new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
             // B-18: backend resolved per execution from the live config values
             // carried by the tool context — Settings changes need no restart.
@@ -521,9 +523,13 @@ void RegisterWorkspaceAndChatServices()
             new CalculatorTool(),
             sp.GetRequiredService<GenerateImageTool>(),
             // SPEC-20261001-chat-agent-delegation: chat → agent/sub-agent tools.
+            // SPEC-20261004 RF-007: scopeFactory+redactor let run_agent/run_cli
+            // reach user-declared custom CLI defs (EF repo is scoped).
             new RunAgentTool(
                 sp.GetRequiredService<IAgentOrchestrationService>(),
-                configuration),
+                configuration,
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<ISecretRedactor>()),
             new SubAgentTool(sp.GetRequiredService<OpenAiCompatibleClient>()),
             // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
@@ -1952,6 +1958,16 @@ void MapSettingsAndChatEndpoints()
         return Results.NoContent();
     }).RequireAuthorization();
 
+    // SPEC-20261004 RF-001: workspace picker — subdirectory listing confined
+    // to $HOME; default is the workspace root.
+    api.MapGet("local/workspace/dirs", (string? path, WorkspaceService workspace) =>
+    {
+        var listing = workspace.ListSubdirs(path);
+        return listing is null
+            ? Results.BadRequest(new { error = new { code = "workspace_path_outside_home", message = "Path is outside $HOME or not a directory." } })
+            : Results.Ok(listing);
+    });
+
     // SPEC-20260929-ai-code-provider-chat: provider chat endpoints (RF-001..RF-009).
     var chat = api.MapGroup("local/chat").RequireAuthorization();
 
@@ -2870,6 +2886,29 @@ void MapOperationsEndpoints()
         {
             Resolved = PathSearch.FindExecutable(d.Executable) is not null,
         }));
+    })
+        .RequireAuthorization();
+
+    // SPEC-20261004 RF-008: per-def model list — bounded probe of the def's
+    // declared ModelListArgs, TTL-cached in the probe snapshot service.
+    api.MapGet("agents/custom/{id}/models", async (
+        string id, IAgentCliDefinitionRepository defs, CliProbeSnapshotService probes,
+        CancellationToken ct) =>
+    {
+        var def = await defs.GetAsync(id, ct);
+        if (def is null)
+        {
+            return Results.NotFound(new { error = "custom-cli-not-found" });
+        }
+
+        var models = string.IsNullOrWhiteSpace(def.ModelListArgs)
+            ? (IReadOnlyList<string>)[]
+            : await probes.GetDefModelsAsync(
+                def.Id, def.Executable, def.ModelListArgs,
+                TimeSpan.FromSeconds(
+                    app.Configuration.GetValue("Taskboard:AgentCliProbe:TtlSeconds", 120)),
+                ct);
+        return Results.Ok(new { models });
     })
         .RequireAuthorization();
 

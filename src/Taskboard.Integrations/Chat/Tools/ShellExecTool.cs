@@ -74,7 +74,8 @@ internal static class ChatProcessRunner
         IReadOnlyList<string> arguments,
         string workingDirectory,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? stdin = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -82,6 +83,9 @@ internal static class ChatProcessRunner
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // SPEC-20261004 RF-006: stdin delivery for CLIs that read the
+            // prompt from the pipe instead of argv.
+            RedirectStandardInput = stdin is not null,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
@@ -94,6 +98,19 @@ internal static class ChatProcessRunner
         if (process is null)
         {
             return (-1, string.Empty, $"failed to start {fileName}", false);
+        }
+
+        if (stdin is not null)
+        {
+            try
+            {
+                await process.StandardInput.WriteAsync(stdin.AsMemory(), cancellationToken).ConfigureAwait(false);
+            }
+            catch (IOException)
+            {
+                // The CLI exited before reading — the exit code reports it.
+            }
+            process.StandardInput.Close();
         }
 
         var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);

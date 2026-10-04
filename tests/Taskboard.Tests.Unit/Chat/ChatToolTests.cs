@@ -164,7 +164,7 @@ public sealed class ChatToolTests : IDisposable
     [Fact]
     public async Task Dado_CliNaoAllowlist_Quando_RunCli_Entao_Recusado()
     {
-        var tool = new RunCliTool(new SecretScrubber());
+        var tool = new RunCliTool(new SecretScrubber(), TestScopeFactory.Empty());
 
         var result = await tool.ExecuteAsync(
             JsonDocument.Parse("""{"cli":"curl","args":["http://evil.test"]}""").RootElement,
@@ -181,7 +181,7 @@ public sealed class ChatToolTests : IDisposable
         // SPEC-20261003-ai-code-agent-chat: sem "cli" nos args, a tool usa o
         // AgentCli da conversa ("Devin" → binário "devin"). O binário não
         // existe neste host de teste — o erro prova a resolução do default.
-        var tool = new RunCliTool(new SecretScrubber());
+        var tool = new RunCliTool(new SecretScrubber(), TestScopeFactory.Empty());
 
         var result = await tool.ExecuteAsync(
             JsonDocument.Parse("""{"args":["--version"]}""").RootElement,
