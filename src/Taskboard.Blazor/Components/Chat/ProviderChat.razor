@@ -250,6 +250,14 @@
     /// <summary>Conversation to open on mount (mode switch carries context).</summary>
     [Parameter] public string? SeedConversationId { get; set; }
 
+    /// <summary>
+    /// SPEC-20261004 RF-003: fired when a conversation opens so the parent
+    /// can hydrate its agent-bar config (workspace/CLI/repo/model) from the
+    /// stored binding — keeps a subsequent parameters-set PATCH from wiping
+    /// values the picker state does not know yet.
+    /// </summary>
+    [Parameter] public EventCallback<ChatAgentContext?> OnConversationAgentLoaded { get; set; }
+
     private ChatAgentContext? _appliedAgentContext;
 
     private string _composer = string.Empty;
@@ -486,6 +494,10 @@
     {
         _conversationId = detail.Conversation.Id;
         _conversationTitle = detail.Conversation.Title;
+        // SPEC-20261004 RF-003: the open conversation's stored binding becomes
+        // "applied" — the parameters-set PATCH must not treat it as a change.
+        _appliedAgentContext = detail.Conversation.Agent;
+        await OnConversationAgentLoaded.InvokeAsync(detail.Conversation.Agent);
         _messages.Clear();
         _messages.AddRange(detail.Messages);
         _streaming = null;

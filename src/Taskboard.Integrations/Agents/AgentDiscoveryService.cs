@@ -52,7 +52,19 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
 
         foreach (var (type, name) in KnownAgents)
         {
-            var executablePath = _locator(name);
+            // SPEC-20261004 RF-005: probe the binary plus any declared aliases;
+            // a declared required command missing on PATH means not installed.
+            var spec = AgentCliMap.CliKindFor(type) is { } cliKind ? AgentCliMap.GetSpec(cliKind) : null;
+            var executablePath = spec is null
+                ? _locator(name)
+                : spec.DetectionNames.Select(_locator).FirstOrDefault(p => p is not null);
+            var requiredMet = spec?.RequiredCommands is not { Count: > 0 } required
+                || required.All(r => _locator(r) is not null);
+            if (!requiredMet)
+            {
+                executablePath = null;
+            }
+
             KnownDescriptions.TryGetValue(type, out var description);
             // ACP-capable CLIs keep the structured session flag; every
             // resolvable CLI can still open a PTY terminal thread (RF-003).
@@ -87,7 +99,10 @@ public sealed class AgentDiscoveryService : IAgentDiscoveryService
             return null;
         }
 
-        return _locator(name);
+        var spec = AgentCliMap.CliKindFor(agentType) is { } kind ? AgentCliMap.GetSpec(kind) : null;
+        return spec is null
+            ? _locator(name)
+            : spec.DetectionNames.Select(_locator).FirstOrDefault(p => p is not null);
     }
 
     /// <summary>

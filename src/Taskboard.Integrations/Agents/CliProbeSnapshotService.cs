@@ -23,6 +23,7 @@ public sealed class CliProbeSnapshotService
     private static readonly TimeSpan ModelsProbeTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RefreshTimeout = TimeSpan.FromSeconds(30);
     private static readonly Regex VersionPattern = new(@"\d+\.\d+(\.\d+)?", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex AnsiPattern = new(@"\u001b\[[0-9;?]*[ -/]*[@-~]", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private readonly string _snapshotFile;
@@ -35,6 +36,7 @@ public sealed class CliProbeSnapshotService
     private readonly ConcurrentDictionary<AgentCliKind, string> _versions = new();
     private readonly ConcurrentDictionary<AgentType, IReadOnlyList<string>> _models = new();
     private readonly ConcurrentDictionary<AgentType, DateTimeOffset> _modelsFreshAt = new();
+    private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Models, DateTimeOffset ProbedAt)> _defModels = new();
     private readonly object _refreshGate = new();
     private readonly object _saveGate = new();
     private Task? _refreshTask;
@@ -79,6 +81,53 @@ public sealed class CliProbeSnapshotService
     /// <summary>Last-known model list; null when never probed (vs. probed-empty = <c>[]</c>).</summary>
     public IReadOnlyList<string>? GetModels(AgentType type) =>
         _models.TryGetValue(type, out var models) ? models : null;
+
+    /// <summary>
+    /// SPEC-20261004 RF-008: model list of a custom CLI def — runs
+    /// <c>&lt;executable&gt; &lt;ModelListArgs&gt;</c> bounded (10s), ANSI-strips
+    /// and parses one id per line (≤500), cached per def id for
+    /// <paramref name="ttl"/>. Probe failures cache an empty list so a broken
+    /// CLI isn't re-spawned on every open.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetDefModelsAsync(
+        string defId, string executable, string modelListArgs,
+        TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        if (_defModels.TryGetValue(defId, out var hit)
+            && _time.GetUtcNow() - hit.ProbedAt < ttl)
+        {
+            return hit.Models;
+        }
+
+        IReadOnlyList<string> models = [];
+        var path = Path.IsPathRooted(executable)
+            ? File.Exists(executable) ? executable : null
+            : _locator(executable);
+        if (path is not null)
+        {
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(ModelsProbeTimeout);
+                var result = await _runner
+                    .RunAsync(path, _homeDirectory,
+                        AgentCliArgsTemplate.Split(modelListArgs).ToList(), timeout.Token)
+                    .ConfigureAwait(false);
+                var output = string.IsNullOrWhiteSpace(result.StdOut) ? result.StdErr : result.StdOut;
+                models = AgentModelListParser
+                    .Parse(AgentModelListFormat.Lines, AnsiPattern.Replace(output, string.Empty))
+                    .Take(500)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Custom-def model-list probe failed for {Def} ({Binary}).", defId, path);
+            }
+        }
+
+        _defModels[defId] = (models, _time.GetUtcNow());
+        return models;
+    }
 
     /// <summary>
     /// Records a model list produced by a synchronous forced probe and
@@ -174,7 +223,8 @@ public sealed class CliProbeSnapshotService
 
             foreach (var (kind, spec) in AgentCliMap.AllSpecs())
             {
-                var path = _locator(spec.Binary);
+                // SPEC-20261004 RF-005: probe the binary or any alias found.
+                var path = spec.DetectionNames.Select(_locator).FirstOrDefault(p => p is not null);
                 if (path is not null)
                 {
                     tasks.Add(ProbeVersionAsync(kind, path, timeout.Token));
@@ -185,8 +235,10 @@ public sealed class CliProbeSnapshotService
             {
                 var probe = AgentCliModels.ModelListProbe(type);
                 var kind = AgentCliMap.CliKindFor(type);
-                var binary = kind is null ? null : AgentCliMap.GetSpec(kind.Value)?.Binary;
-                var path = binary is null ? null : _locator(binary);
+                var binary = kind is null ? null : AgentCliMap.GetSpec(kind.Value);
+                var path = binary is null
+                    ? null
+                    : binary.DetectionNames.Select(_locator).FirstOrDefault(p => p is not null);
                 if (probe is not null && path is not null)
                 {
                     tasks.Add(ProbeModelsAsync(type, path, probe, timeout.Token));

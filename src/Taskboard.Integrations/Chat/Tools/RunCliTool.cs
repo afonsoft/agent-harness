@@ -9,7 +9,9 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// (RF-006) — the binary comes from the server-side AgentCliMap allowlist,
 /// never from model input; arguments are passed as an argv list (no shell).
 /// </summary>
-public sealed class RunCliTool(ISecretRedactor redactor) : IChatTool
+public sealed class RunCliTool(
+    ISecretRedactor redactor,
+    Microsoft.Extensions.DependencyInjection.IServiceScopeFactory scopeFactory) : IChatTool
 {
     public string Name => "run_cli";
     public string Description =>
@@ -54,15 +56,35 @@ public sealed class RunCliTool(ISecretRedactor redactor) : IChatTool
         {
             "devin", "claude", "codex", "opencode", "agy", "antigravity", "cline", "taskctl",
         };
+        string resolved;
         if (!known.Contains(cli))
         {
-            return new ChatToolResult(
-                JsonSerializer.Serialize(new { error = $"cli '{cli}' is not an allowlisted Harness CLI" }),
-                Refused: true, "cli not allowlisted");
+            // SPEC-20261004 RF-007: a custom CLI definition (id, display name or
+            // executable) is also allowlisted — user-declared, still not
+            // arbitrary model input.
+            var def = await CustomCliRunner.FindAsync(scopeFactory, cli, cancellationToken)
+                .ConfigureAwait(false);
+            if (def is null)
+            {
+                return new ChatToolResult(
+                    JsonSerializer.Serialize(new { error = $"cli '{cli}' is not an allowlisted Harness CLI" }),
+                    Refused: true, "cli not allowlisted");
+            }
+
+            resolved = CustomCliRunner.ResolveExecutable(def.Executable) ?? string.Empty;
+            if (resolved.Length == 0)
+            {
+                return new ChatToolResult(
+                    JsonSerializer.Serialize(new { error = $"custom cli '{def.DisplayName}' is not installed on the host" }));
+            }
+
+            return await CustomCliRunner.ExecAsync(
+                resolved, args, stdin: null, context.WorkspacePath, redactor,
+                cancellationToken, def.DisplayName).ConfigureAwait(false);
         }
 
-        var resolved = ResolveOnPath(cli);
-        if (resolved is null)
+        resolved = ResolveOnPath(cli) ?? string.Empty;
+        if (resolved.Length == 0)
         {
             return new ChatToolResult(
                 JsonSerializer.Serialize(new { error = $"cli '{cli}' is not installed on the host" }));

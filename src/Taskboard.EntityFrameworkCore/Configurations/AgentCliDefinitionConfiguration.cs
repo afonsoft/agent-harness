@@ -37,6 +37,14 @@ public sealed class AgentCliDefinitionConfiguration : IEntityTypeConfiguration<A
         builder.Property(d => d.ModelFlag)
             .HasMaxLength(64);
 
+        builder.Property(d => d.PromptDelivery)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasDefaultValue("argv");
+
+        builder.Property(d => d.ModelListArgs)
+            .HasMaxLength(256);
+
         builder.Property(d => d.VersionArgs)
             .IsRequired()
             .HasMaxLength(128);

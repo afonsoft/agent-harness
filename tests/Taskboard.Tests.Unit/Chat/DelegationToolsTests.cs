@@ -2,11 +2,14 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using NSubstitute;
 using Shouldly;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Chat;
+using Taskboard.Dtos;
 using Taskboard.Integrations.Chat.Tools;
+using Taskboard.Integrations.Harness.Security;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.Chat;
@@ -48,7 +51,7 @@ public class DelegationToolsTests
     public async Task Dado_RunAgent_Quando_WaitFalse_Entao_EnfileiraERetornaRunId()
     {
         var orchestration = new FakeOrchestration(eligible: true);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         var result = await tool.ExecuteAsync(Args("""{"prompt":"faça X","wait":false}"""), Ctx(), CancellationToken.None);
 
@@ -64,7 +67,7 @@ public class DelegationToolsTests
         // B-07: cada delegação gera um id único — wait=true não pode observar
         // o run de uma delegação anterior da mesma conversa.
         var orchestration = new FakeOrchestration(eligible: true);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
         var ctx = Ctx();
 
         await tool.ExecuteAsync(Args("""{"prompt":"primeira","wait":false}"""), ctx, CancellationToken.None);
@@ -79,7 +82,7 @@ public class DelegationToolsTests
     public async Task Dado_RunAgent_Quando_SemCliElegivel_Entao_Refused()
     {
         var orchestration = new FakeOrchestration(eligible: false);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         var result = await tool.ExecuteAsync(Args("""{"prompt":"faça X"}"""), Ctx(), CancellationToken.None);
 
@@ -91,7 +94,7 @@ public class DelegationToolsTests
     public async Task Dado_RunAgent_Quando_EmSubAgent_Entao_RecursaoBloqueada()
     {
         var orchestration = new FakeOrchestration(eligible: true);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         var result = await tool.ExecuteAsync(Args("""{"prompt":"x"}"""), Ctx(depth: 1), CancellationToken.None);
 
@@ -104,7 +107,7 @@ public class DelegationToolsTests
     {
         var orchestration = new FakeOrchestration(eligible: true);
         var activity = new RecordingActivity();
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         await tool.ExecuteAsync(Args("""{"prompt":"x","wait":false}"""), Ctx(activity: activity), CancellationToken.None);
 
@@ -121,7 +124,7 @@ public class DelegationToolsTests
             new AgentInfo("codex", "/bin/codex", AgentType.Codex, AgentStatus.Available, "1.0", null),
             new AgentInfo("devin", "/bin/devin", AgentType.Devin, AgentStatus.Available, "1.0", null),
         ]);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         var result = await tool.ExecuteAsync(
             Args("""{"prompt":"faça X","wait":false}"""),
@@ -135,7 +138,7 @@ public class DelegationToolsTests
     public async Task Dado_RunAgent_Quando_ModeloVinculado_Entao_PropagaResolvedModelName()
     {
         var orchestration = new FakeOrchestration(eligible: true);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         await tool.ExecuteAsync(
             Args("""{"prompt":"x","wait":false}"""),
@@ -149,7 +152,7 @@ public class DelegationToolsTests
     public async Task Dado_RunAgent_Quando_SemModeloVinculado_Entao_OmiteFlagDeModelo()
     {
         var orchestration = new FakeOrchestration(eligible: true);
-        var tool = new RunAgentTool(orchestration, Config());
+        var tool = new RunAgentTool(orchestration, Config(), TestScopeFactory.Empty(), new SecretScrubber());
 
         await tool.ExecuteAsync(
             Args("""{"prompt":"x","wait":false}"""), Ctx(), CancellationToken.None);
@@ -213,6 +216,106 @@ public class DelegationToolsTests
 
     private static IConfiguration Config(Dictionary<string, string?>? values = null) =>
         new ConfigurationBuilder().AddInMemoryCollection(values ?? new()).Build();
+
+
+    // ---- custom CLI defs (SPEC-20261004 RF-007) ----
+
+    private static IAgentCliDefinitionRepository DefsRepo(params AgentCliDefinitionDto[] defs)
+    {
+        var repo = Substitute.For<IAgentCliDefinitionRepository>();
+        repo.ListAsync(Arg.Any<CancellationToken>()).Returns(defs);
+        return repo;
+    }
+
+    [Fact]
+    public async Task Dado_DefComPromptEmArgv_Quando_RunAgent_Entao_ExecutaInlineViaTemplate()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var defs = DefsRepo(new AgentCliDefinitionDto(
+            "custom-echo", "echo-cli", "/bin/echo", "{prompt}", "pty", null, "--version", true, true));
+        var tool = new RunAgentTool(
+            new FakeOrchestration(eligible: false), Config(),
+            TestScopeFactory.WithDefs(defs), new SecretScrubber());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"ola-custom","agent":"echo-cli"}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        using var doc = JsonDocument.Parse(result.Json);
+        doc.RootElement.GetProperty("cli").GetString().ShouldBe("echo-cli");
+        doc.RootElement.GetProperty("exitCode").GetInt32().ShouldBe(0);
+        doc.RootElement.GetProperty("output").GetString()!.ShouldContain("ola-custom");
+    }
+
+    [Fact]
+    public async Task Dado_DefComPromptViaStdin_Quando_RunAgent_Entao_PromptNoStdin()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var defs = DefsRepo(new AgentCliDefinitionDto(
+            "custom-cat", "cat-cli", "/bin/cat", "", "pty", null, "--version", true, true,
+            PromptDelivery: "stdin"));
+        var tool = new RunAgentTool(
+            new FakeOrchestration(eligible: false), Config(),
+            TestScopeFactory.WithDefs(defs), new SecretScrubber());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"via-stdin-xyz","agent":"cat-cli"}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("via-stdin-xyz");
+    }
+
+    [Fact]
+    public async Task Dado_DefSemTokenComArgv_Quando_RunAgent_Entao_PromptComoArgFinal()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var defs = DefsRepo(new AgentCliDefinitionDto(
+            "custom-echo", "echo-cli", "/bin/echo", "", "pty", null, "--version", true, true));
+        var tool = new RunAgentTool(
+            new FakeOrchestration(eligible: false), Config(),
+            TestScopeFactory.WithDefs(defs), new SecretScrubber());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"arg-final-xyz","agent":"custom-echo"}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("arg-final-xyz");
+    }
+
+    [Fact]
+    public async Task Dado_DefNaoInstalada_Quando_RunAgent_Entao_Refused()
+    {
+        var defs = DefsRepo(new AgentCliDefinitionDto(
+            "custom-missing", "missing-cli", "/no/such/binary-xyz", "", "pty", null, "--version", true, false));
+        var tool = new RunAgentTool(
+            new FakeOrchestration(eligible: false), Config(),
+            TestScopeFactory.WithDefs(defs), new SecretScrubber());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"x","agent":"missing-cli"}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        result.Json.ShouldContain("not installed");
+    }
+
+    [Fact]
+    public async Task Dado_RunCliComDef_Quando_CliNaoBuiltin_Entao_ExecutaDef()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var defs = DefsRepo(new AgentCliDefinitionDto(
+            "custom-echo", "echo-cli", "/bin/echo", "", "pty", null, "--version", true, true));
+        var tool = new RunCliTool(new SecretScrubber(), TestScopeFactory.WithDefs(defs));
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"cli":"echo-cli","args":["-n","raw-args-xyz"]}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("raw-args-xyz");
+    }
 
     private sealed class RecordingActivity : IChatActivityReporter
     {

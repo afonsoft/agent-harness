@@ -8,6 +8,7 @@ using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
 using Taskboard.Application.Contracts.Settings;
+using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Dtos;
@@ -995,6 +996,42 @@ public sealed class TaskboardClient
         response.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// SPEC-20261004 RF-001: subdirectory listing for the workspace picker —
+    /// <paramref name="path"/> null means the workspace root (~/<repos>).
+    /// Returns null on invalid/out-of-jail paths.
+    /// </summary>
+    public async Task<WorkspaceDirsDto?> GetWorkspaceDirsAsync(string? path = null, CancellationToken cancellationToken = default)
+    {
+        var url = string.IsNullOrWhiteSpace(path)
+            ? "api/local/workspace/dirs"
+            : $"api/local/workspace/dirs?path={Uri.EscapeDataString(path)}";
+        var response = await _httpClient.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<WorkspaceDirsDto>(cancellationToken);
+    }
+
+    /// <summary>
+    /// SPEC-20261004 RF-008: probed model list of a custom CLI def — []
+    /// when the def declares no ModelListArgs or the probe came up empty.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetCustomCliModelsAsync(string defId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"api/local/agents/custom/{Uri.EscapeDataString(defId)}/models", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<CustomCliModelsResponse>(cancellationToken);
+        return body?.Models ?? [];
+    }
+
     /// <summary>SPEC-20261001-chat-capability-registry: invocable capabilities catalog.</summary>
     public async Task<IReadOnlyList<ChatCapability>> GetChatCapabilitiesAsync(CancellationToken cancellationToken = default)
     {
@@ -1008,6 +1045,7 @@ public sealed class TaskboardClient
     private sealed record ChatConversationListResponse(List<ChatConversationDto> Conversations);
     private sealed record ChatConversationResponse(ChatConversationDto Conversation);
     private sealed record ChatCapabilitiesResponse(List<ChatCapability> Capabilities);
+    private sealed record CustomCliModelsResponse(List<string> Models);
 
     private sealed record AiChatThreadListResponse(List<AiChatThreadDto> Threads);
     private sealed record AiChatThreadResponse(AiChatThreadDto Thread);

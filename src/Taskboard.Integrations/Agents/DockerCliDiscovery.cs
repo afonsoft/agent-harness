@@ -117,8 +117,9 @@ public sealed class DockerCliDiscovery : IContainerCliDiscovery
                 .Where(line => line.Contains('|'))
                 .ToList();
 
+            // SPEC-20261004 RF-005: `which` every declared name (binary + aliases).
             var binaries = AgentCliMap.AllSpecs()
-                .Select(kv => kv.Value.Binary)
+                .SelectMany(kv => kv.Value.DetectionNames)
                 .Append("openhands")
                 .Distinct(StringComparer.Ordinal)
                 .ToList();

@@ -105,4 +105,55 @@ public class AgentCliDefinitionTests
         def.Enabled.ShouldBeFalse();
         def.UpdatedAt.ShouldBeGreaterThanOrEqualTo(def.CreatedAt);
     }
+
+    [Fact]
+    public void Dado_PromptDeliveryStdin_Quando_Create_Entao_DeliversViaStdin()
+    {
+        var def = AgentCliDefinition.Create("x", "cli", "", "pty", promptDelivery: "stdin");
+
+        def.PromptDelivery.ShouldBe("stdin");
+        def.DeliversPromptViaStdin.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("acp")]
+    [InlineData("pty")]
+    [InlineData("pipe")]
+    public void Dado_PromptDeliveryInvalido_Quando_Create_Entao_InvalidValue(string delivery)
+    {
+        var ex = Should.Throw<DomainException>(
+            () => AgentCliDefinition.Create("x", "cli", "", "pty", promptDelivery: delivery));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidValue);
+    }
+
+    [Fact]
+    public void Dado_ModelListArgs_Quando_Create_Entao_PersistidoTrimado()
+    {
+        var def = AgentCliDefinition.Create("x", "cli", "", "pty", modelListArgs: " models list ");
+
+        def.ModelListArgs.ShouldBe("models list");
+    }
+
+    [Fact]
+    public void Dado_UpdateSemNovosCampos_Quando_Update_Entao_ModelListArgsPreservado()
+    {
+        var def = AgentCliDefinition.Create("x", "cli", "", "pty", modelListArgs: "models");
+
+        def.Update("x", "cli", "", "pty", null, null, enabled: true);
+
+        def.PromptDelivery.ShouldBe("argv");
+        def.ModelListArgs.ShouldBe("models");
+    }
+
+    [Fact]
+    public void Dado_UpdateComDelivery_Quando_Update_Entao_SubstituiCampos()
+    {
+        var def = AgentCliDefinition.Create("x", "cli", "", "pty", modelListArgs: "models");
+
+        def.Update("x", "cli", "", "pty", null, null, enabled: true, promptDelivery: "stdin");
+
+        def.PromptDelivery.ShouldBe("stdin");
+        def.ModelListArgs.ShouldBeNull("o Update trata os dois campos como um bloco — só delivery zera a lista");
+    }
 }

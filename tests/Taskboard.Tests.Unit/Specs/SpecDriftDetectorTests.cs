@@ -39,6 +39,10 @@ public class SpecDriftDetectorTests : IDisposable
             exists = !string.IsNullOrEmpty(name) && Directory.Exists(dir);
             return exists ? dir : root;
         }
+
+        public string? NormalizeWorkspacePath(string? path) => path;
+
+        public WorkspaceDirsDto? ListSubdirs(string? path) => null;
     }
 
     private SpecDriftDetector Criar() =>

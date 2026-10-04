@@ -21,6 +21,43 @@ public class CliProbeSnapshotServiceTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
+
+    [Fact]
+    public async Task Dado_DefComModelListArgs_Quando_ProbeModelos_Entao_ParseSemAnsiECacheia()
+    {
+        // SPEC-20261004 RF-008: saída com ANSI, linhas vazias e texto de ajuda
+        // — só ids válidos por linha sobem ao picker.
+        var runner = new FakeRunner
+        {
+            Handler = (_, _) => Task.FromResult(new CommandResult(
+                0, "\u001b[32mmodelo-a\u001b[0m\nmodelo-b\n\nhelp text\n", string.Empty)),
+        };
+        var service = Create(runner: runner);
+
+        var models = await service.GetDefModelsAsync(
+            "custom-x", "/bin/echo", "models", TimeSpan.FromMinutes(1));
+
+        models.ShouldBe(["modelo-a", "modelo-b"]);
+
+        var again = await service.GetDefModelsAsync(
+            "custom-x", "/bin/echo", "models", TimeSpan.FromMinutes(1));
+        again.ShouldBe(models);
+        runner.Calls.ShouldBe(1, "o segundo probe dentro do ttl vem do cache");
+    }
+
+    [Fact]
+    public async Task Dado_ExecutavelInexistente_Quando_ProbeModelos_Entao_VazioCacheado()
+    {
+        var runner = new FakeRunner();
+        var service = Create(runner: runner);
+
+        var models = await service.GetDefModelsAsync(
+            "custom-y", "/no/such/binary-zzz", "models", TimeSpan.FromMinutes(1));
+
+        models.ShouldBeEmpty();
+        runner.Calls.ShouldBe(0, "binário inexistente não roda probe");
+    }
+
     private sealed class FakeRunner : ISkillsInstallRunner
     {
         public int Calls;

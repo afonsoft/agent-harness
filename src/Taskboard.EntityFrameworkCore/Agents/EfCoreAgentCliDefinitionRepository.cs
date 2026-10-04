@@ -49,7 +49,9 @@ public sealed class EfCoreAgentCliDefinitionRepository : IAgentCliDefinitionRepo
             request.Transport ?? "pty",
             request.ModelFlag,
             request.VersionArgs,
-            request.Enabled);
+            request.Enabled,
+            promptDelivery: request.PromptDelivery,
+            modelListArgs: request.ModelListArgs);
 
         _context.AgentCliDefinitions.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -72,7 +74,9 @@ public sealed class EfCoreAgentCliDefinitionRepository : IAgentCliDefinitionRepo
             request.Transport ?? entity.Transport,
             request.ModelFlag,
             request.VersionArgs,
-            request.Enabled);
+            request.Enabled,
+            promptDelivery: request.PromptDelivery,
+            modelListArgs: request.ModelListArgs);
 
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -93,5 +97,6 @@ public sealed class EfCoreAgentCliDefinitionRepository : IAgentCliDefinitionRepo
 
     private static AgentCliDefinitionDto ToDto(AgentCliDefinition d) =>
         new(d.Id, d.DisplayName, d.Executable, d.ArgsTemplate, d.Transport,
-            d.ModelFlag, d.VersionArgs, d.Enabled, Resolved: false);
+            d.ModelFlag, d.VersionArgs, d.Enabled, Resolved: false,
+            d.PromptDelivery, d.ModelListArgs);
 }

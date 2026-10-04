@@ -150,9 +150,11 @@ public sealed class ChatService(
             ChatConversationId.NewGuid(), provider.Id, provider.Name, request.Model, request.Title, UtcNow);
         if (request.Agent is not null)
         {
+            // SPEC-20261004 RF-002: the workspace path is confined to $HOME —
+            // anything else normalizes to null (default ~/repos resolution).
             conversation.SetAgentContext(
                 request.Agent.AgentCli, request.Agent.RepositoryFullName,
-                request.Agent.WorkspacePath, request.Agent.AgentModel);
+                workspace.NormalizeWorkspacePath(request.Agent.WorkspacePath), request.Agent.AgentModel);
         }
 
         await conversations.AddAsync(conversation, ct).ConfigureAwait(false);
@@ -233,9 +235,10 @@ public sealed class ChatService(
 
         if (request.Agent is not null)
         {
+            // SPEC-20261004 RF-002: clamp — same rule as create.
             conversation.SetAgentContext(
                 request.Agent.AgentCli, request.Agent.RepositoryFullName,
-                request.Agent.WorkspacePath, request.Agent.AgentModel);
+                workspace.NormalizeWorkspacePath(request.Agent.WorkspacePath), request.Agent.AgentModel);
         }
 
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);

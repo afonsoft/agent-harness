@@ -86,4 +86,39 @@ public class AgentDiscoveryServiceTests
             UnixFileMode.UserWrite |
             UnixFileMode.UserExecute);
     }
+    [Fact]
+    public async Task Dado_BinaryNoPathPorAlias_Quando_Descobrir_Entao_ResolveSpecPeloAlias()
+    {
+        // SPEC-20261004 RF-005: DetectionNames probam binary + aliases —
+        // o pacote do Antigravity instala "antigravity" (não "agy").
+        var directory = Directory.CreateTempSubdirectory("taskboard-agent-tests-");
+        var executablePath = Path.Combine(directory.FullName, "antigravity");
+        File.WriteAllText(executablePath, "#!/bin/sh\necho agy 1.0.0\n");
+        SetExecutable(executablePath);
+
+        var previousPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", directory.FullName);
+
+            var agents = await new AgentDiscoveryService().DiscoverAsync();
+
+            var agy = agents.Single(agent => agent.Type == AgentType.Antigravity);
+            agy.Status.ShouldBe(AgentStatus.Available);
+            agy.ExecutablePath.ShouldBe(executablePath);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", previousPath);
+            Directory.Delete(directory.FullName, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Dado_SpecComAliases_Quando_DetectionNames_Entao_BinaryMaisAliases()
+    {
+        AgentCliMap.GetSpec(AgentCliKind.Antigravity)!.DetectionNames.ShouldBe(["agy", "antigravity"]);
+        AgentCliMap.GetSpec(AgentCliKind.Continue)!.DetectionNames.ShouldBe(["cn", "continue"]);
+        AgentCliMap.GetSpec(AgentCliKind.Claude)!.DetectionNames.ShouldBe(["claude"]);
+    }
 }
