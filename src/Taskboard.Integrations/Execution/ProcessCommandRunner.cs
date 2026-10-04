@@ -29,7 +29,7 @@ public sealed class ProcessCommandRunner : IProcessRunner
             startInfo.ArgumentList.Add(argument);
         }
 
-        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.Apply(startInfo.Environment, startInfo.WorkingDirectory);
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to start {executable}.");

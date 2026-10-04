@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Taskboard.Integrations.Execution;
 
 namespace Taskboard.Integrations.Agents;
 
@@ -41,6 +42,8 @@ public sealed class StreamingProcessRunner : IStreamingProcessRunner
         {
             startInfo.ArgumentList.Add(arg);
         }
+
+        WithoutHarnessEnv.Apply(startInfo.Environment, workingDirectory);
 
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) =>

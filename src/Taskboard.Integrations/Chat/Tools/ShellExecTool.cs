@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Taskboard.Agents;
+using Taskboard.Integrations.Execution;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Harness;
@@ -93,6 +94,8 @@ internal static class ChatProcessRunner
         {
             startInfo.ArgumentList.Add(argument);
         }
+
+        WithoutHarnessEnv.Apply(startInfo.Environment, workingDirectory);
 
         using var process = Process.Start(startInfo);
         if (process is null)

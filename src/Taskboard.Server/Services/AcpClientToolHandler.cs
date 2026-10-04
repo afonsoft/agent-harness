@@ -277,6 +277,10 @@ public sealed class AcpClientToolHandler : IAcpClientToolHandler
             startInfo.ArgumentList.Add(arg);
         }
 
+        // Scrub before the agent-provided env merge so an explicit PWD from
+        // the agent still wins.
+        Taskboard.Integrations.Execution.WithoutHarnessEnv.Apply(startInfo.Environment, cwd);
+
         if (p.TryGetProperty("env", out var env) && env.ValueKind == JsonValueKind.Array)
         {
             foreach (var e in env.EnumerateArray())

@@ -454,6 +454,8 @@ public sealed class McpProvisioningService : IMcpProvisioningService
             process.StartInfo.ArgumentList.Add(arg);
         }
 
+        Taskboard.Integrations.Execution.WithoutHarnessEnv.Apply(process.StartInfo.Environment, null);
+
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
         process.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };

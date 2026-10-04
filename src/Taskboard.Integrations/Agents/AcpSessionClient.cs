@@ -1554,7 +1554,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
             startInfo.ArgumentList.Add(arg);
         }
 
-        WithoutHarnessEnv.RemoveFrom(startInfo.Environment);
+        WithoutHarnessEnv.Apply(startInfo.Environment, startInfo.WorkingDirectory);
 
         Process? process;
         try

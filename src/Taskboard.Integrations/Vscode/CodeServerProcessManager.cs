@@ -241,6 +241,7 @@ public sealed class CodeServerProcessManager : ICodeServerManager, IAsyncDisposa
         // code-server is mounted at a subpath — without this its ports
         // panel and /proxy/<port> links point at the domain root and 404.
         startInfo.Environment["VSCODE_PROXY_URI"] = _publicPathPrefix + "/proxy/{{port}}";
+        Execution.WithoutHarnessEnv.Apply(startInfo.Environment, startInfo.WorkingDirectory);
 
         try
         {
