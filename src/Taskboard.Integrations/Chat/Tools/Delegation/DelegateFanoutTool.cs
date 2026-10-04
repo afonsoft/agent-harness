@@ -48,121 +48,158 @@ public sealed class DelegateFanoutTool(
             return DelegationToolSupport.Error("delegation not allowed inside a sub-agent", "recursion blocked");
         }
 
-        var prompt = ReadString(arguments, "prompt");
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (ValidateArgs(arguments, out var prompt, out var clis, out var useWorktree) is { } argError)
         {
-            return DelegationToolSupport.Error("prompt is required", "empty prompt");
+            return argError;
         }
 
-        var clis = ReadStringList(arguments, "clis");
-        if (clis.Count < 2)
+        var repoResult = await ResolveRepoAsync(
+            useWorktree, arguments, context, cancellationToken).ConfigureAwait(false);
+        if (repoResult.Error is not null)
         {
-            return DelegationToolSupport.Error("fan-out needs at least 2 clis", "too few clis");
-        }
-
-        if (clis.Count > MaxLegs)
-        {
-            return DelegationToolSupport.Error($"fan-out supports at most {MaxLegs} clis", "too many clis");
-        }
-
-        var useWorktree = !arguments.TryGetProperty("use_worktree", out var uw)
-            || uw.ValueKind is not JsonValueKind.False;
-        var rawRepo = ReadString(arguments, "repository_path");
-
-        if (useWorktree && string.IsNullOrWhiteSpace(rawRepo))
-        {
-            return DelegationToolSupport.Error(
-                "fan-out with worktrees needs repository_path", "missing repository");
-        }
-
-        string? repoPath = null;
-        if (useWorktree || rawRepo is not null)
-        {
-            repoPath = await DelegationToolSupport.ResolveGitRootAsync(
-                git, rawRepo, context.WorkspacePath, cancellationToken).ConfigureAwait(false);
-            if (repoPath is null)
-            {
-                return DelegationToolSupport.Error(
-                    "repository_path is not inside a git checkout", "not a git repo");
-            }
+            return repoResult.Error;
         }
 
         var scope = DelegationToolSupport.ScopeOf(context);
         var groupId = $"fan-{Guid.NewGuid():N}";
-        var legs = new List<object>();
 
         try
         {
-            await using var diScope = scopeFactory.CreateAsyncScope();
-            var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
-            var isolation = diScope.ServiceProvider.GetService<IWorkspaceIsolationService>();
-            var baseBranch = ReadString(arguments, "base_branch") ?? "main";
-
-            foreach (var cli in clis)
-            {
-                var task = await service.CreateTaskAsync(
-                    new CreateDelegationTaskRequest(
-                        prompt, cli, scope, context.WorkspacePath,
-                        DependsOn: null, RetryOf: null, groupId,
-                        useWorktree, repoPath, BaseCommitSha: null),
-                    cancellationToken).ConfigureAwait(false);
-
-                string? worktreePath = null;
-                string? legError = null;
-                if (useWorktree)
-                {
-                    if (isolation is null)
-                    {
-                        legError = "worktree service unavailable";
-                    }
-                    else
-                    {
-                        try
-                        {
-                            var session = await isolation.CreateWorktreeAsync(
-                                task.Id, repoPath!, baseBranch,
-                                $"fanout-{task.Id[^Math.Min(8, task.Id.Length)..]}",
-                                retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-                            task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
-                                .ConfigureAwait(false)) ?? task;
-                            worktreePath = session.Path;
-                        }
-                        catch (Exception ex) when (ex is not OperationCanceledException)
-                        {
-                            legError = $"worktree create failed: {ex.Message}";
-                        }
-                    }
-
-                    if (legError is not null)
-                    {
-                        await service.CancelTaskAsync(task.Id, legError, cancellationToken)
-                            .ConfigureAwait(false);
-                    }
-                }
-
-                legs.Add(new
-                {
-                    taskId = task.Id,
-                    cli = task.CliName,
-                    status = legError is null ? "pending" : "cancelled",
-                    worktreePath,
-                    error = legError,
-                });
-            }
+            var legs = await CreateLegsAsync(
+                prompt!, clis, useWorktree, repoResult.RepoPath, arguments, scope, groupId,
+                context, cancellationToken).ConfigureAwait(false);
+            context.Activity?.Report("delegated_fanout", groupId);
+            return DelegationToolSupport.Ok(new { groupId, scope, legs });
         }
         catch (DomainException ex)
         {
             return DelegationToolSupport.Error(ex.Message, "invalid task");
         }
-
-        context.Activity?.Report("delegated_fanout", groupId);
-        return DelegationToolSupport.Ok(new
-        {
-            groupId,
-            scope,
-            legs,
-        });
     }
+
+    private static ChatToolResult? ValidateArgs(
+        JsonElement arguments, out string? prompt, out IReadOnlyList<string> clis,
+        out bool useWorktree)
+    {
+        prompt = ReadString(arguments, "prompt");
+        clis = ReadStringList(arguments, "clis");
+        useWorktree = !arguments.TryGetProperty("use_worktree", out var uw)
+            || uw.ValueKind is not JsonValueKind.False;
+
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return DelegationToolSupport.Error("prompt is required", "empty prompt");
+        }
+
+        if (clis.Count < 2)
+        {
+            return DelegationToolSupport.Error("fan-out needs at least 2 clis", "too few clis");
+        }
+
+        return clis.Count > MaxLegs
+            ? DelegationToolSupport.Error($"fan-out supports at most {MaxLegs} clis", "too many clis")
+            : null;
+    }
+
+    private async Task<RepoResult> ResolveRepoAsync(
+        bool useWorktree, JsonElement arguments, ChatToolContext context,
+        CancellationToken cancellationToken)
+    {
+        var rawRepo = ReadString(arguments, "repository_path");
+        if (useWorktree && string.IsNullOrWhiteSpace(rawRepo))
+        {
+            return new(null, DelegationToolSupport.Error(
+                "fan-out with worktrees needs repository_path", "missing repository"));
+        }
+
+        if (!useWorktree && rawRepo is null)
+        {
+            return new(null, null);
+        }
+
+        var repoPath = await DelegationToolSupport.ResolveGitRootAsync(
+            git, rawRepo, context.WorkspacePath, cancellationToken).ConfigureAwait(false);
+        return repoPath is null
+            ? new(null, DelegationToolSupport.Error(
+                "repository_path is not inside a git checkout", "not a git repo"))
+            : new(repoPath, null);
+    }
+
+    private async Task<List<object>> CreateLegsAsync(
+        string prompt, IReadOnlyList<string> clis, bool useWorktree, string? repoPath,
+        JsonElement arguments, string scope, string groupId, ChatToolContext context,
+        CancellationToken cancellationToken)
+    {
+        var legs = new List<object>();
+        await using var diScope = scopeFactory.CreateAsyncScope();
+        var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
+        var isolation = diScope.ServiceProvider.GetService<IWorkspaceIsolationService>();
+        var baseBranch = ReadString(arguments, "base_branch") ?? "main";
+
+        foreach (var cli in clis)
+        {
+            var task = await service.CreateTaskAsync(
+                new CreateDelegationTaskRequest(
+                    prompt, cli, scope, context.WorkspacePath,
+                    DependsOn: null, RetryOf: null, groupId,
+                    useWorktree, repoPath, BaseCommitSha: null),
+                cancellationToken).ConfigureAwait(false);
+
+            var leg = await AttachWorktreeAsync(
+                task, useWorktree, isolation, service, repoPath, baseBranch, cancellationToken)
+                .ConfigureAwait(false);
+            legs.Add(leg);
+        }
+
+        return legs;
+    }
+
+    private static async Task<object> AttachWorktreeAsync(
+        DelegationTaskDto task, bool useWorktree, IWorkspaceIsolationService? isolation,
+        IDelegationService service, string? repoPath, string baseBranch,
+        CancellationToken cancellationToken)
+    {
+        if (!useWorktree)
+        {
+            return LegOf(task, null, null);
+        }
+
+        if (isolation is null)
+        {
+            await service.CancelTaskAsync(task.Id, "worktree service unavailable", cancellationToken)
+                .ConfigureAwait(false);
+            return LegOf(task, null, "worktree service unavailable");
+        }
+
+        try
+        {
+            var session = await isolation.CreateWorktreeAsync(
+                task.Id, repoPath!, baseBranch,
+                $"fanout-{task.Id[^Math.Min(8, task.Id.Length)..]}",
+                retainOnFailure: false, cancellationToken).ConfigureAwait(false);
+            task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
+                .ConfigureAwait(false)) ?? task;
+            return LegOf(task, session.Path, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var error = $"worktree create failed: {ex.Message}";
+            await service.CancelTaskAsync(task.Id, error, cancellationToken).ConfigureAwait(false);
+            return LegOf(task, null, error);
+        }
+    }
+
+    private static object LegOf(DelegationTaskDto task, string? worktreePath, string? error) =>
+        new
+        {
+            taskId = task.Id,
+            cli = task.CliName,
+            status = error is null ? "pending" : "cancelled",
+            worktreePath,
+            error,
+        };
+
+    private sealed record RepoResult(string? RepoPath, ChatToolResult? Error);
 
     private static string? ReadString(JsonElement args, string name) =>
         args.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String

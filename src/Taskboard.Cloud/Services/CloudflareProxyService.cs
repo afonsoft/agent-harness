@@ -26,17 +26,15 @@ public sealed class CloudflareProxyService : ICloudflareProxyService
     private readonly HttpClient _httpClient;
     private readonly string _accountId;
     private readonly string _databaseId;
-    private readonly string _apiToken;
 
     public CloudflareProxyService(HttpClient httpClient, string accountId, string databaseId, string apiToken)
     {
         _httpClient = httpClient;
         _accountId = accountId;
         _databaseId = databaseId;
-        _apiToken = apiToken;
 
         _httpClient.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiToken);
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiToken);
     }
 
     public async Task<CloudflareD1Result> ExecuteD1QueryAsync(string sql, CancellationToken ct = default)

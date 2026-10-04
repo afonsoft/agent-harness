@@ -1,3 +1,4 @@
+using System.Globalization;
 using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Integrations.Harness;
@@ -60,25 +61,16 @@ public sealed class WorkspaceCheckpointService : IWorkspaceCheckpointService
             path, ["log", "--format=%H%x09%cI%x09%s", "-n", "200"], GitTimeout, ct).ConfigureAwait(false);
         EnsureSuccess(log, "git log");
 
-        var checkpoints = new List<WorktreeCheckpointDto>();
-        foreach (var line in log.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var parts = line.Split('\t', 3);
-            if (parts.Length != 3 || !parts[2].StartsWith(Prefix, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var label = parts[2][Prefix.Length..].Trim();
-            var when = DateTimeOffset.TryParse(parts[1], out var parsed)
-                ? parsed
-                : DateTimeOffset.MinValue;
-            checkpoints.Add(new WorktreeCheckpointDto(parts[0], label, when));
-            if (checkpoints.Count >= take)
-            {
-                break;
-            }
-        }
+        var checkpoints = log.StandardOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t', 3))
+            .Where(parts => parts.Length == 3 && parts[2].StartsWith(Prefix, StringComparison.Ordinal))
+            .Select(parts => new WorktreeCheckpointDto(
+                parts[0],
+                parts[2][Prefix.Length..].Trim(),
+                ParseTimestamp(parts[1])))
+            .Take(take)
+            .ToList();
 
         return checkpoints;
     }
@@ -118,6 +110,12 @@ public sealed class WorkspaceCheckpointService : IWorkspaceCheckpointService
                 TaskboardDomainErrorCodes.InvalidValue, $"no worktree for run '{runId}'");
         return session.Path;
     }
+
+    private static DateTimeOffset ParseTimestamp(string value) =>
+        DateTimeOffset.TryParse(
+            value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : DateTimeOffset.MinValue;
 
     private static void EnsureSuccess(GitCommandResult result, string operation)
     {

@@ -1492,8 +1492,7 @@
                 _capabilities = [];
             }
 
-            foreach (var (capability, state) in ChatCapabilities
-                .Select(c => (Capability: c, State: _chatCapability[c])))
+            foreach (var state in ChatCapabilities.Select(c => _chatCapability[c]))
             {
                 var raw = _configEntries.FirstOrDefault(e => e.Key == state.ConfigKey)?.EffectiveValue;
                 (state.ProviderId, state.Model) = ParseCapabilityValue(raw);

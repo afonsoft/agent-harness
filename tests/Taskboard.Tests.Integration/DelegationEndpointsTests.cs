@@ -65,9 +65,9 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
     [Fact]
     public async Task Dado_SemCredenciais_Quando_ReplyMailbox_Entao_401()
     {
+        using var content = new StringContent("{\"body\":\"oi\"}", System.Text.Encoding.UTF8, "application/json");
         var response = await _client.PostAsync(
-            "/api/local/delegation/mailbox/msg-x/reply",
-            new StringContent("{\"body\":\"oi\"}", System.Text.Encoding.UTF8, "application/json"));
+            "/api/local/delegation/mailbox/msg-x/reply", content);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -77,9 +77,9 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
+        using var content = new StringContent("{\"body\":\"oi\"}", System.Text.Encoding.UTF8, "application/json");
         var response = await client.PostAsync(
-            "/api/local/delegation/mailbox/msg-x/reply?scope=itest",
-            new StringContent("{\"body\":\"oi\"}", System.Text.Encoding.UTF8, "application/json"));
+            "/api/local/delegation/mailbox/msg-x/reply?scope=itest", content);
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await response.Content.ReadAsStringAsync()).ShouldContain("mailbox-message-not-found");
@@ -107,9 +107,9 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
         var original = await delegation.PostAsync(
             new PostMailboxMessageRequest(scope, "codex", "@all", "need input", "escalation"));
 
+        using var content = new StringContent("{\"body\":\"do X first\"}", System.Text.Encoding.UTF8, "application/json");
         var response = await client.PostAsync(
-            $"/api/local/delegation/mailbox/{original.Id}/reply?scope={scope}",
-            new StringContent("{\"body\":\"do X first\"}", System.Text.Encoding.UTF8, "application/json"));
+            $"/api/local/delegation/mailbox/{original.Id}/reply?scope={scope}", content);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await response.Content.ReadAsStringAsync()).ShouldContain("reply");

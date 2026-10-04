@@ -304,7 +304,7 @@ else
         if (hasLive && _refreshTimer is null)
         {
             _refreshTimer = new System.Threading.Timer(
-                _ => _ = InvokeAsync(async () =>
+                _ => InvokeAsync(async () =>
                 {
                     await LoadWorkflowsAsync();
                     StateHasChanged();

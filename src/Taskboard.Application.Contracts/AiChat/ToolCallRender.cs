@@ -35,9 +35,11 @@ public sealed record ToolCallRenderModel(
     /// </summary>
     public static ToolCallRenderModel Generic(string name, string? arguments, string? status, string? output)
     {
-        var combined = arguments is { Length: > 0 }
-            ? output is { Length: > 0 } ? $"{arguments}\n{output}" : arguments
-            : output;
+        var combined = output;
+        if (arguments is { Length: > 0 })
+        {
+            combined = output is { Length: > 0 } ? $"{arguments}\n{output}" : arguments;
+        }
 
         return new ToolCallRenderModel(null, name, "other", status ?? "running", null, null, null, combined, null, 0, 0);
     }

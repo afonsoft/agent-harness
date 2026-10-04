@@ -196,19 +196,23 @@ public sealed class PipelineEngine
         }
         catch
         {
-            // C-05: publish/spawn failure after ClaimStages leaves claimed
-            // CTSs registered but never started — release them here; the
-            // stages were marked Running only in memory of this exec and
-            // are re-claimed on the next tick (MarkStageRunning only ran
-            // for toDispatch; approval/pending stays consistent).
-            foreach (var orphanCts in toDispatch
-                .Select(stage => _runningStages.TryRemove($"{exec.Id.Value}|{stage.StageKey}", out var cts) ? cts : null)
-                .OfType<CancellationTokenSource>())
-            {
-                orphanCts.Dispose();
-            }
-
+            ReleaseOrphanedClaims(exec, toDispatch);
             throw;
+        }
+    }
+
+    // C-05: publish/spawn failure after ClaimStages leaves claimed CTSs
+    // registered but never started — release them here; the stages were
+    // marked Running only in memory of this exec and are re-claimed on the
+    // next tick (MarkStageRunning only ran for toDispatch; approval/pending
+    // stays consistent).
+    private void ReleaseOrphanedClaims(PipelineExecution exec, IReadOnlyList<PipelineStageExecution> toDispatch)
+    {
+        foreach (var orphanCts in toDispatch
+            .Select(stage => _runningStages.TryRemove($"{exec.Id.Value}|{stage.StageKey}", out var cts) ? cts : null)
+            .OfType<CancellationTokenSource>())
+        {
+            orphanCts.Dispose();
         }
     }
 

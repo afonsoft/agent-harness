@@ -22,7 +22,7 @@ public class DelegationDashboardServiceTests
     public DelegationDashboardServiceTests()
     {
         _service = new DelegationDashboardService(
-            _tasks, _mailbox, _orchestration, _discovery, TimeProvider.System);
+            _tasks, _mailbox, _orchestration, _discovery);
         _orchestration.GetLatestRunsAsync(Arg.Any<CancellationToken>()).Returns([]);
         _discovery.DiscoverAsync(Arg.Any<CancellationToken>()).Returns([]);
     }

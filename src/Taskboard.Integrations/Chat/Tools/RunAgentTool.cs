@@ -67,27 +67,11 @@ public sealed class RunAgentTool(
                     || string.Equals(x.Type.ToString(), requested, StringComparison.OrdinalIgnoreCase)));
         if (agent is null)
         {
-            // SPEC-20261004 RF-007: a custom CLI definition is also a valid
-            // agent — run it inline via its args template (defs aren't
-            // AgentTypes, so they can't take the orchestration queue).
-            var def = await CustomCliRunner.FindAsync(scopeFactory, requested, cancellationToken)
-                .ConfigureAwait(false);
-            if (def is not null)
+            var customResult = await TryRunCustomDefAsync(
+                requested, prompt, context, cancellationToken).ConfigureAwait(false);
+            if (customResult is not null)
             {
-                var resolved = CustomCliRunner.ResolveExecutable(def.Executable);
-                if (resolved is null)
-                {
-                    return new ChatToolResult(
-                        ErrorJson($"custom cli '{def.DisplayName}' is not installed on the host"),
-                        Refused: true, "custom cli not installed");
-                }
-
-                var (argv, stdin) = CustomCliRunner.BuildInvocation(
-                    def, prompt, context.DefaultAgentModel);
-                context.Activity?.Report("running_agent", def.DisplayName);
-                return await CustomCliRunner.ExecAsync(
-                    resolved, argv, stdin, context.WorkspacePath, redactor,
-                    cancellationToken, def.DisplayName).ConfigureAwait(false);
+                return customResult;
             }
 
             var eligible = string.Join(", ", agents.Where(x => x.Status == AgentStatus.Available).Select(x => x.Name));
@@ -136,6 +120,34 @@ public sealed class RunAgentTool(
         // FR-001 wait path — poll the run state until terminal or timeout.
         return await AwaitRunCompletionAsync(orchestration, context, issueId, agent.Name, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    // SPEC-20261004 RF-007: a custom CLI definition is also a valid agent —
+    // run it inline via its args template (defs aren't AgentTypes, so they
+    // can't take the orchestration queue). Null when no matching def exists.
+    private async Task<ChatToolResult?> TryRunCustomDefAsync(
+        string? requested, string prompt, ChatToolContext context, CancellationToken cancellationToken)
+    {
+        var def = await CustomCliRunner.FindAsync(scopeFactory, requested, cancellationToken)
+            .ConfigureAwait(false);
+        if (def is null)
+        {
+            return null;
+        }
+
+        var resolved = CustomCliRunner.ResolveExecutable(def.Executable);
+        if (resolved is null)
+        {
+            return new ChatToolResult(
+                ErrorJson($"custom cli '{def.DisplayName}' is not installed on the host"),
+                Refused: true, "custom cli not installed");
+        }
+
+        var (argv, stdin) = CustomCliRunner.BuildInvocation(def, prompt, context.DefaultAgentModel);
+        context.Activity?.Report("running_agent", def.DisplayName);
+        return await CustomCliRunner.ExecAsync(
+            resolved, argv, stdin, context.WorkspacePath, redactor,
+            cancellationToken, def.DisplayName).ConfigureAwait(false);
     }
 
     private async Task<ChatToolResult> AwaitRunCompletionAsync(

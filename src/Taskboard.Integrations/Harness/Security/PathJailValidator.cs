@@ -84,9 +84,15 @@ public static class PathJailValidator
     {
         try
         {
-            FileSystemInfo? info = Directory.Exists(path)
-                ? new DirectoryInfo(path)
-                : File.Exists(path) ? new FileInfo(path) : null;
+            FileSystemInfo? info;
+            if (Directory.Exists(path))
+            {
+                info = new DirectoryInfo(path);
+            }
+            else
+            {
+                info = File.Exists(path) ? new FileInfo(path) : null;
+            }
 
             if (info?.LinkTarget is { } target)
             {

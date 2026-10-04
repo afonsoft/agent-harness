@@ -45,10 +45,15 @@ internal static class CustomCliRunner
     /// Resolves a def's executable: the absolute path when rooted, otherwise
     /// a PATH lookup; null when it can't be located.
     /// </summary>
-    public static string? ResolveExecutable(string executable) =>
-        Path.IsPathRooted(executable)
-            ? File.Exists(executable) ? Path.GetFullPath(executable) : null
-            : PathSearch.FindExecutable(executable);
+    public static string? ResolveExecutable(string executable)
+    {
+        if (Path.IsPathRooted(executable))
+        {
+            return File.Exists(executable) ? Path.GetFullPath(executable) : null;
+        }
+
+        return PathSearch.FindExecutable(executable);
+    }
 
     /// <summary>
     /// Renders the def's argv template for a delegated prompt: the

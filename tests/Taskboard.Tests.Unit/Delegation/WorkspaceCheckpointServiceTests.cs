@@ -95,7 +95,7 @@ public class WorkspaceCheckpointServiceTests : IDisposable
     public async Task Dado_RunSemWorktree_Quando_CriaCheckpoint_Entao_Recusa()
     {
         _worktrees.GetAsync("ghost", Arg.Any<CancellationToken>())
-            .Returns((WorktreeSessionDto?)null);
+            .Returns(default(WorktreeSessionDto));
 
         await Should.ThrowAsync<DomainException>(() =>
             _service.CreateCheckpointAsync("ghost"));

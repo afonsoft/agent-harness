@@ -100,9 +100,15 @@ public sealed class CliProbeSnapshotService
         }
 
         IReadOnlyList<string> models = [];
-        var path = Path.IsPathRooted(executable)
-            ? File.Exists(executable) ? executable : null
-            : _locator(executable);
+        string? path;
+        if (Path.IsPathRooted(executable))
+        {
+            path = File.Exists(executable) ? executable : null;
+        }
+        else
+        {
+            path = _locator(executable);
+        }
         if (path is not null)
         {
             try
