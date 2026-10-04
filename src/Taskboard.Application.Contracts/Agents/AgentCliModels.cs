@@ -56,13 +56,14 @@ public static class AgentCliModels
         // documented headless model flag → managed by the CLI itself.
     };
 
-    // CLIs that can report their own model list headless (host-verified
-    // 2026-09-18). Used to feed the Models dialog dropdown; CLIs without a
-    // probe keep the curated catalog only.
+    // CLIs that can report their own model list headless in a format other
+    // than one-id-per-line (host-verified 2026-09-18). Lines-format probes
+    // live on AgentCliSpec.ModelListArgs (SPEC-20261004-builtin-model-probe) —
+    // a single declaration feeds the chat catalog, Models dialog, snapshot
+    // and the builtin models endpoint. CLIs without a probe keep the curated
+    // catalog only.
     private static readonly Dictionary<AgentType, AgentModelListProbe> Probes = new()
     {
-        // `opencode models` — one provider/model id per line.
-        [AgentType.OpenCode] = new(["models"], AgentModelListFormat.Lines),
         // `agy models` — "id<TAB>Display Name" rows after a "Fetching…" banner.
         [AgentType.Antigravity] = new(["models"], AgentModelListFormat.TabSeparated),
         // `devin models list` — family headers + indented variant rows + aliases.
@@ -81,9 +82,22 @@ public static class AgentCliModels
     public static IReadOnlyList<string> Catalog(AgentType agentType) =>
         Entries.TryGetValue(agentType, out var entry) ? entry.Models : [];
 
-    /// <summary>Headless model-list probe for the CLI, or null when none is documented.</summary>
-    public static AgentModelListProbe? ModelListProbe(AgentType agentType) =>
-        Probes.TryGetValue(agentType, out var probe) ? probe : null;
+    /// <summary>
+    /// Headless model-list probe for the CLI: the typed format table wins,
+    /// otherwise <see cref="AgentCliSpec.ModelListArgs"/> yields a Lines probe;
+    /// null when neither is documented.
+    /// </summary>
+    public static AgentModelListProbe? ModelListProbe(AgentType agentType)
+    {
+        if (Probes.TryGetValue(agentType, out var probe))
+        {
+            return probe;
+        }
+
+        var kind = AgentCliMap.CliKindFor(agentType);
+        var args = kind is null ? null : AgentCliMap.GetSpec(kind.Value)?.ModelListArgs;
+        return args is { Count: > 0 } ? new AgentModelListProbe(args, AgentModelListFormat.Lines) : null;
+    }
 
     /// <summary>Resolved model name for the tier, or null when CLI-managed.</summary>
     public static string? ModelFor(AgentType agentType, AgentModelTier tier) =>
