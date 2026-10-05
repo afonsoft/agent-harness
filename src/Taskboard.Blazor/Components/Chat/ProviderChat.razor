@@ -1275,6 +1275,7 @@
             }
             catch (OperationCanceledException)
             {
+                // Poll cancelado no dispose/troca de conversa.
             }
             catch (Exception)
             {
@@ -1403,15 +1404,13 @@
     private static string? BlankToNull(string s) =>
         string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
-    private static string DescribeSchedule(ChatScheduleDto s) =>
-        s.Kind switch
-        {
-            "cron" => $"cron {s.CronExpression}",
-            "at" => "uma vez",
-            _ => "uma vez",
-        } + (s.NextFireAtUtc is { } fire
-            ? $" · próx: {fire.ToLocalTime():g}"
-            : s.Active ? " · sem próxima data" : " · pausado");
+    private static string DescribeSchedule(ChatScheduleDto s)
+    {
+        var kind = s.Kind == "cron" ? $"cron {s.CronExpression}" : "uma vez";
+        return s.Active
+            ? $"{kind} · próx: {s.NextFireAtUtc.ToLocalTime():g}"
+            : $"{kind} · pausado";
+    }
 
     public void Dispose()
     {

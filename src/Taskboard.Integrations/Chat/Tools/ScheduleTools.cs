@@ -162,7 +162,7 @@ public sealed class ScheduleUpdateTool(IServiceScopeFactory scopeFactory, IConfi
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var schedules = scope.ServiceProvider.GetRequiredService<IChatScheduleService>();
-            var dto = await schedules.UpdateAsync(conversationId, sid.GetString()!,
+            var dto = await schedules.UpdateAsync(conversationId, sid.GetString() ?? string.Empty,
                 new PatchChatScheduleRequest(
                     Active: active,
                     Title: StringArg(arguments, "title"),
@@ -223,7 +223,7 @@ public sealed class ScheduleDeleteTool(IServiceScopeFactory scopeFactory, IConfi
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var schedules = scope.ServiceProvider.GetRequiredService<IChatScheduleService>();
-        var deleted = await schedules.DeleteAsync(conversationId, sid.GetString()!, cancellationToken)
+        var deleted = await schedules.DeleteAsync(conversationId, sid.GetString() ?? string.Empty, cancellationToken)
             .ConfigureAwait(false);
         return deleted
             ? new ChatToolResult(JsonSerializer.Serialize(new { deleted = true }))

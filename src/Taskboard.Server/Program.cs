@@ -3014,7 +3014,7 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, JobsEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat jobs are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgJobsDisabled } });
         }
 
         var jobs = await jobService.ListAsync(id, active is true, ct);
@@ -3032,12 +3032,12 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, JobsEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat jobs are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgJobsDisabled } });
         }
 
         var output = await jobService.GetOutputAsync(id, jobId, tailBytes ?? 16 * 1024, ct);
         return output is null
-            ? Results.NotFound(new { error = new { code = "JOB_NOT_FOUND", message = $"Job '{jobId}' not found." } })
+            ? Results.NotFound(new { error = new { code = ErrJobNotFound, message = $"Job '{jobId}' not found." } })
             : Results.Ok(new { output });
     });
 
@@ -3051,14 +3051,14 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, JobsEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat jobs are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgJobsDisabled } });
         }
 
         try
         {
             var job = await jobService.KillAsync(id, jobId, ct);
             return job is null
-                ? Results.NotFound(new { error = new { code = "JOB_NOT_FOUND", message = $"Job '{jobId}' not found." } })
+                ? Results.NotFound(new { error = new { code = ErrJobNotFound, message = $"Job '{jobId}' not found." } })
                 : Results.Ok(new { job });
         }
         catch (ChatJobConflictException ex)
@@ -3078,7 +3078,7 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgSchedulesDisabled } });
         }
 
         var schedules = await scheduleService.ListAsync(id, ct);
@@ -3095,7 +3095,7 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgSchedulesDisabled } });
         }
 
         try
@@ -3126,7 +3126,7 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgSchedulesDisabled } });
         }
 
         try
@@ -3151,7 +3151,7 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgSchedulesDisabled } });
         }
 
         var deleted = await scheduleService.DeleteAsync(id, scheduleId, ct);
@@ -3173,7 +3173,7 @@ void MapSettingsAndChatEndpoints()
     {
         if (!ChatFeatureEnabled(configuration, SearchEnabledKey))
         {
-            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat search is disabled." } });
+            return Results.NotFound(new { error = new { code = ErrFeatureDisabled, message = MsgSearchDisabled } });
         }
 
         if (string.IsNullOrWhiteSpace(q))
@@ -3328,7 +3328,7 @@ void MapConfigAndJobsEndpoints()
             JobUpdateError.None => Results.Ok(result.Status),
             JobUpdateError.UnknownJob => Results.NotFound(new
             {
-                error = new { code = "JOB_NOT_FOUND", message = result.Message }
+                error = new { code = ErrJobNotFound, message = result.Message }
             }),
             _ => Results.BadRequest(new
             {
@@ -3348,7 +3348,7 @@ void MapConfigAndJobsEndpoints()
             }),
             _ => Results.NotFound(new
             {
-                error = new { code = "JOB_NOT_FOUND", message = $"Unknown job '{key}'." }
+                error = new { code = ErrJobNotFound, message = $"Unknown job '{key}'." }
             })
         }).RequireAuthorization();
 }
@@ -4713,6 +4713,10 @@ public partial class Program
         ChatFeatureFlags.IsEnabled(configuration, key);
     private const string ErrConversationNotFound = "CONVERSATION_NOT_FOUND";
     private const string ErrFeatureDisabled = "FEATURE_DISABLED";
+    private const string ErrJobNotFound = "JOB_NOT_FOUND";
+    private const string MsgJobsDisabled = "Chat jobs are disabled.";
+    private const string MsgSchedulesDisabled = "Chat schedules are disabled.";
+    private const string MsgSearchDisabled = "Chat search is disabled.";
     private const string ErrRepoNotFound = "repo-not-found";
     private const string ErrIssueNotFound = "issue-not-found";
     private const string WebCliAgentEnabledKey = "Taskboard:WebCliAgent:Enabled";

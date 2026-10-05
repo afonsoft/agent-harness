@@ -51,7 +51,7 @@ public sealed class SessionSearchTool(IServiceScopeFactory scopeFactory, IConfig
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var index = scope.ServiceProvider.GetRequiredService<IChatMessageSearchIndex>();
-        var hits = await index.SearchAsync(q.GetString()!, conversationId, limit, cancellationToken)
+        var hits = await index.SearchAsync(q.GetString() ?? string.Empty, conversationId, limit, cancellationToken)
             .ConfigureAwait(false);
         return new ChatToolResult(JsonSerializer.Serialize(new
         {

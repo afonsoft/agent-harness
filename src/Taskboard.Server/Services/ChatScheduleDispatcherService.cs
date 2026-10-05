@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Chat;
 
@@ -31,10 +32,9 @@ public sealed class ChatScheduleDispatcherService(
 
         await DeliverDueSafeAsync(stoppingToken).ConfigureAwait(false);
 
-        var random = new Random();
         while (!stoppingToken.IsCancellationRequested)
         {
-            var delay = TickMs + random.Next(0, JitterMs);
+            var delay = TickMs + RandomNumberGenerator.GetInt32(0, JitterMs);
             try
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(delay), _clock, stoppingToken).ConfigureAwait(false);
