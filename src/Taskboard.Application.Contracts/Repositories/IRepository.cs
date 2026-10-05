@@ -16,5 +16,13 @@ public interface IRepository<T>
 
     Task DeleteAsync(T entity, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Detaches <paramref name="entity"/> from change tracking without touching
+    /// the store. Used after an optimistic-concurrency loss: the stale tracked
+    /// row would make every later <see cref="SaveChangesAsync"/> on the same
+    /// scope fail again.
+    /// </summary>
+    void Untrack(T entity);
+
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

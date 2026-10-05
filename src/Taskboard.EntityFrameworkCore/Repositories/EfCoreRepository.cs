@@ -38,6 +38,9 @@ public class EfCoreRepository<T> : IRepository<T>
         return Task.CompletedTask;
     }
 
+    public void Untrack(T entity)
+        => _context.Entry(entity).State = EntityState.Detached;
+
     public Task SaveChangesAsync(CancellationToken cancellationToken = default)
         => _context.SaveChangesAsync(cancellationToken);
 }
