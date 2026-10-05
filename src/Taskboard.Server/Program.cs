@@ -30,6 +30,7 @@ using Taskboard.Application.GitHub;
 using Taskboard.Application.Harness;
 using Taskboard.Integrations.Chat.SearchBackends;
 using Taskboard.Integrations.Chat.Tools;
+using Taskboard.Integrations.Chat.Tools.Board;
 using Taskboard.Integrations.Chat.Tools.Delegation;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Chat;
@@ -580,6 +581,20 @@ void RegisterWorkspaceAndChatServices()
             new WorktreeCheckpointsTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
+            // SPEC-20261004-chat-board-tools: board card lifecycle — a card IS a
+            // GitHub issue, columns are labels.
+            new BoardListIssuesTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardGetIssueTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardCreateIssueTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardMoveCardTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardUpdateIssueTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardSetLabelsTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardSetPriorityTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardCloseIssueTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardCommentTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardDelegateIssueTool(
+                sp.GetRequiredService<IGitHubService>(),
+                sp.GetRequiredService<IServiceScopeFactory>()),
         ];
         return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
     });
@@ -2668,6 +2683,19 @@ void MapGitHubEndpoints()
         CancellationToken ct) =>
     {
         await gitHub.AddLabelsToIssueAsync($"{owner}/{repo}", number, request.Labels, ct);
+        return Results.NoContent();
+    });
+
+    // SPEC-20261004-chat-board-tools RF-006: label removal (board_set_labels remove).
+    github.MapDelete("repos/{owner}/{repo}/issues/{number:int}/labels/{label}", async (
+        string owner,
+        string repo,
+        int number,
+        string label,
+        IGitHubService gitHub,
+        CancellationToken ct) =>
+    {
+        await gitHub.RemoveLabelsFromIssueAsync($"{owner}/{repo}", number, [label], ct);
         return Results.NoContent();
     });
 

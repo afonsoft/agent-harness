@@ -180,6 +180,29 @@ public sealed class GitHubService : IGitHubService
     }
 
     /// <inheritdoc />
+    public async Task RemoveLabelsFromIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        IReadOnlyCollection<string> labels,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+
+        foreach (var label in labels)
+        {
+            try
+            {
+                await _client.Issue.Labels.RemoveFromIssue(owner, name, issueNumber, label);
+            }
+            catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                // Label já removida; prossegue.
+            }
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<IssueDto> UpdateIssueAsync(
         string repositoryFullName,
         int issueNumber,

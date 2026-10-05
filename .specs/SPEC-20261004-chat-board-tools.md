@@ -1,6 +1,6 @@
 # SPEC-20261004-chat-board-tools — Chat tools for Board / GitHub issue management
 
-**Status**: Draft — awaiting review (spec-first; no implementation in this PR).
+**Status**: In implementation
 **Depends on**: SPEC-20261001-chat-capability-registry, SPEC-20261001-chat-agent-delegation (tool registry + reporter), SPEC-20261004-promote-leg-pr (`GitRemoteSlug`).
 
 ## Context
@@ -34,7 +34,7 @@ update fields, comment, close, and delegate an issue to an agent — the full
   without `owner/name` repos are out of scope.
 - Projects v2 columns — columns here mean the label-backed
   `GitHubBoardColumn` model only.
-- PR review/issue-search across multiple repos — single `repositoryFullName`
+- PR review/issue-search across multiple repos — single `repository`
   per call.
 - Auto-delegation policies or schedules — `board_delegate_issue` is invoked
   by the model, confirmed by the human via the tool-call flow.
@@ -43,18 +43,18 @@ update fields, comment, close, and delegate an issue to an agent — the full
 
 ### RF-001 — `board_list_issues` (read)
 
-`{ repositoryFullName, column?, state? = "open" }` → compact array of
+`{ repository, column?, state? = "open" }` → compact array of
 `{ number, title, column, labels, url, updatedAt }`. Keeps context small:
 truncate to 50 issues, titles at 120 chars. Uses `GetIssuesAsync` +
 `GitHubBoardGrouper` for column resolution.
 
 ### RF-002 — `board_get_issue` (read)
 
-`{ repositoryFullName, number }` → full issue body + last 5 comments.
+`{ repository, number }` → full issue body + last 5 comments.
 
 ### RF-003 — `board_create_issue` (write, `RequiresConfirmation = true`)
 
-`{ repositoryFullName, title, body?, column? = "todo", labels?[] }` →
+`{ repository, title, body?, column? = "todo", labels?[] }` →
 `CreateIssueAsync` (already applies the column label, so the card lands on the
 board). Returns `{ number, url, column }`. Because the Board *is* GitHub,
 "create on the board" and "create on GitHub" are the same call — the tool
@@ -62,41 +62,41 @@ description says this explicitly so the model doesn't try to double-create.
 
 ### RF-004 — `board_move_card` (write, `RequiresConfirmation = true`)
 
-`{ repositoryFullName, number, column }` → resolves the issue's current
+`{ repository, number, column }` → resolves the issue's current
 `GitHubBoardColumn` from its labels, then `UpdateIssueColumnAsync(old, new)`.
-Rejects derived columns (`HasLabel() == false`) with a clear error naming the
-allowed set: `backlog|todo|in-progress|review|blocked|done|canceled|archived`
-(`in-pull-request` is derived, not settable — same rule the UI follows).
+Rejects non-settable columns (`HasLabel() == false` — only `archived` is
+derived) with a clear error naming the allowed set:
+`backlog|todo|in-progress|in-review|in-pullrequest|blocked|done|canceled`.
 
 ### RF-005 — `board_update_issue` (write, `RequiresConfirmation = true`)
 
-`{ repositoryFullName, number, title?, body? }` → `UpdateIssueAsync`. At least
+`{ repository, number, title?, body? }` → `UpdateIssueAsync`. At least
 one field required.
 
 ### RF-006 — `board_set_labels` (write, `RequiresConfirmation = true`)
 
-`{ repositoryFullName, number, add?[], remove?[] }` → `AddLabelsToIssueAsync`
+`{ repository, number, add?[], remove?[] }` → `AddLabelsToIssueAsync`
 for `add`; per-label `RemoveFromIssue` for `remove` (needs a small
 `RemoveLabelsFromIssueAsync` on `IGitHubService` — additive). Column labels in
 `add` are rejected — use `board_move_card` (prevents two column labels).
 
 ### RF-007 — `board_close_issue` / `board_comment` (write)
 
-`board_close_issue { repositoryFullName, number, reason? }` → close + optional
-reason comment; moves card to `done`. `board_comment { repositoryFullName,
+`board_close_issue { repository, number, reason? }` → close + optional
+reason comment; moves card to `done`. `board_comment { repository,
 number, body }` → posts a comment. Both `RequiresConfirmation = true` for close;
 comment is write but low-risk → `RequiresConfirmation = true` too, consistent
 with other GitHub writes.
 
 ### RF-008 — `board_set_priority` (write)
 
-`{ repositoryFullName, number, priority }` → existing
+`{ repository, number, priority }` → existing
 `PUT /github/repos/{o}/{r}/issues/{n}/priority` semantics (`priority:
 critical|high|medium|low` label convention).
 
 ### RF-009 — `board_delegate_issue` (write, `RequiresConfirmation = true`)
 
-`{ repositoryFullName, number, cli?, prompt?, repositoryPath? }` — the chained
+`{ repository, number, cli?, prompt?, repositoryPath? }` — the chained
 "card → agent" tool:
 
 1. Seeds a delegation task from the issue (`POST local/delegation/tasks/from-issue`
@@ -114,7 +114,7 @@ recover.
 - Tool `Description`s spell out the board model ("cards are GitHub issues;
   columns are labels") so the model routes board intents here instead of
   `shell_exec`-ing `gh`.
-- `repositoryFullName` validated as `owner/name` (`GitRemoteSlug.TryParse`
+- `repository` validated as `owner/name` (`GitRemoteSlug.TryParse`
   shape); invalid input returns a `ChatToolResult` error, not an exception.
 - Every tool reports progress through `IChatActivityReporter`
   (`running_tool` phase, label = `board_<verb>`).

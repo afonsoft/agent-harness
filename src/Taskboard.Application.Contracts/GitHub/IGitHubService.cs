@@ -44,6 +44,12 @@ public interface IGitHubService
     Task AddLabelsToIssueAsync(string repositoryFullName, int issueNumber, IReadOnlyCollection<string> labels, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Remove labels de uma issue existente; labels ausentes são ignoradas
+    /// (SPEC-20261004-chat-board-tools RF-006).
+    /// </summary>
+    Task RemoveLabelsFromIssueAsync(string repositoryFullName, int issueNumber, IReadOnlyCollection<string> labels, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Atualiza título e/ou corpo (markdown) de uma issue existente.
     /// </summary>
     Task<IssueDto> UpdateIssueAsync(string repositoryFullName, int issueNumber, string? title, string? body, CancellationToken cancellationToken = default);
