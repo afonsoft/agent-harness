@@ -131,6 +131,21 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Capabilities:Disabled", "[]", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateJsonStringArray),
+        // SPEC-20261004-redis-hybrid-cache RF-002: HybridCache L1+L2 — DI wiring
+        // only happens at boot, so all four keys require restart. The generic
+        // HARNESS__* env mapper already covers them (no dedicated EnvAlias).
+        new("Taskboard:Cache:DefaultExpiration", "00:05:00", Editable: true, RequiresRestart: true,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateTimeSpan),
+        new("Taskboard:Cache:LocalCacheExpiration", "00:01:00", Editable: true, RequiresRestart: true,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateTimeSpan),
+        new("Taskboard:Cache:Redis:ConnectionString", null, Editable: true, RequiresRestart: true,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateRedisConnectionString),
+        new("Taskboard:Cache:Redis:InstanceName", "harness:", Editable: true, RequiresRestart: true,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateRedisInstanceName),
     ];
 
     private readonly IConfiguration _configuration;
@@ -415,6 +430,23 @@ public sealed class RuntimeConfigurationService
             || (Uri.TryCreate(value, UriKind.Absolute, out var u) && u.Scheme is "http" or HttpsScheme)
             ? null
             : "Search URL must be an absolute http(s) URL.";
+
+    // SPEC-20261004-redis-hybrid-cache RF-002.
+    private static string? ValidateTimeSpan(string value) =>
+        TimeSpan.TryParse(value, out var parsed) && parsed > TimeSpan.Zero
+            ? null
+            : "Value must be a positive TimeSpan (e.g. 00:05:00).";
+
+    // Empty disables L2; whitespace-only is neither — reject.
+    private static string? ValidateRedisConnectionString(string value) =>
+        value.Length == 0 || !string.IsNullOrWhiteSpace(value)
+            ? null
+            : "Connection string must be empty (L1-only) or non-blank.";
+
+    private static string? ValidateRedisInstanceName(string value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= 64 && !value.Any(char.IsWhiteSpace)
+            ? null
+            : "Instance name must be non-empty, at most 64 chars, no whitespace.";
 
     private static string? ValidateLogLevel(string value) =>
         LogLevels.Contains(value, StringComparer.OrdinalIgnoreCase)

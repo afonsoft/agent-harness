@@ -146,6 +146,9 @@ var homeDir = builder.Configuration["Taskboard:HomeDir"]
 RegisterWorkspaceAndChatServices();
 RegisterCliDb();
 
+// SPEC-20261004-redis-hybrid-cache: HybridCache L1+L2(Redis) centralizado.
+var cacheBoot = RegisterCaching();
+
 // SPEC-20260919-cli-metrics: ingestão incremental das fontes do cli-db-reader.
 // Options resolvem antes dos extratores — SPEC-20260922 RF-002 injeta o
 // CliTokenEstimator nos que estimam tokens.
@@ -167,6 +170,24 @@ RegisterReverseProxy();
 RegisterPlatformServices();
 
 var app = builder.Build();
+
+// SPEC-20261004-redis-hybrid-cache RF-003/RF-001: boot visibility for the
+// cache mode + config clamp — connection string never reaches the log.
+if (cacheBoot.RedisInstance is { Length: > 0 } redisInstance)
+{
+    app.Logger.LogInformation("HybridCache: Redis L2 enabled (instance '{Instance}')", redisInstance);
+}
+else
+{
+    app.Logger.LogInformation("HybridCache: L1-only (no Redis configured)");
+}
+
+if (cacheBoot.LocalClamped)
+{
+    app.Logger.LogWarning(
+        "HybridCache: LocalCacheExpiration > DefaultExpiration — clamped to {Default}",
+        cacheBoot.DefaultExpiration);
+}
 
 // Behind nginx/Cloudflare: honor X-Forwarded-Proto/For (loopback proxy is
 // trusted by default) so redirects and cookie policies see the real scheme.
@@ -605,14 +626,6 @@ void RegisterWorkspaceAndChatServices()
     // B-01: shared run registry — /stop must reach runs started by other
     // requests' scoped ChatService instances.
     builder.Services.AddSingleton<ChatRunCoordinator>();
-    // SPEC-20261004-provider-pick-hybridcache RF-002: shared L1 cache for the
-    // chat/agent catalogs; Redis becomes L2 when Taskboard:Cache:Redis is set
-    // (IDistributedCache is picked up automatically by HybridCache).
-    builder.Services.AddHybridCache();
-    if (builder.Configuration["Taskboard:Cache:Redis"] is { Length: > 0 } redis)
-    {
-        builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redis);
-    }
     builder.Services.AddScoped<ChatService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
     builder.Services.AddSingleton<IMcpClientManager>(sp =>
@@ -637,6 +650,65 @@ void RegisterCliDb()
         homeDir,
         sp.GetRequiredService<ILogger<SqliteCliDatabaseReader>>()));
 }
+
+// SPEC-20261004-redis-hybrid-cache RF-001/RF-003: HybridCache sempre registrado
+// (L1 + stampede protection); Redis vira L2 via IDistributedCache quando
+// Taskboard:Cache:Redis:ConnectionString está configurada. Retorna a info de
+// boot para o log pós-Build — a connection string nunca sai daqui.
+CacheBootInfo RegisterCaching()
+{
+    var defaultExpiration = ParseCacheDuration(
+        builder.Configuration["Taskboard:Cache:DefaultExpiration"], TimeSpan.FromMinutes(5));
+    var localExpiration = ParseCacheDuration(
+        builder.Configuration["Taskboard:Cache:LocalCacheExpiration"], TimeSpan.FromMinutes(1));
+    var localClamped = localExpiration > defaultExpiration;
+    if (localClamped)
+    {
+        localExpiration = defaultExpiration;
+    }
+
+    builder.Services.AddHybridCache(o => o.DefaultEntryOptions = new HybridCacheEntryOptions
+    {
+        Expiration = defaultExpiration,
+        LocalCacheExpiration = localExpiration,
+    });
+
+    // Schema aninhado (RF-001); a connstring flat "Taskboard:Cache:Redis" do
+    // SPEC-20261004-provider-pick-hybridcache segue como fallback.
+    var conn = builder.Configuration["Taskboard:Cache:Redis:ConnectionString"];
+    if (string.IsNullOrWhiteSpace(conn))
+    {
+        conn = builder.Configuration["Taskboard:Cache:Redis"];
+    }
+
+    string? instanceName = null;
+    if (!string.IsNullOrWhiteSpace(conn))
+    {
+        // Sem abortConnect=false a primeira operação de cache segura no timeout
+        // de connect (~5s) quando o Redis está fora, em vez de degradar na hora.
+        if (!conn.Contains("abortConnect", StringComparison.OrdinalIgnoreCase))
+        {
+            conn = $"{conn.TrimEnd(';')},abortConnect=false";
+        }
+
+        instanceName = builder.Configuration["Taskboard:Cache:Redis:InstanceName"];
+        if (string.IsNullOrWhiteSpace(instanceName))
+        {
+            instanceName = "harness:";
+        }
+
+        builder.Services.AddStackExchangeRedisCache(o =>
+        {
+            o.Configuration = conn;
+            o.InstanceName = instanceName;
+        });
+    }
+
+    return new CacheBootInfo(instanceName, defaultExpiration, localClamped);
+}
+
+static TimeSpan ParseCacheDuration(string? value, TimeSpan fallback) =>
+    TimeSpan.TryParse(value, out var parsed) && parsed > TimeSpan.Zero ? parsed : fallback;
 
 void RegisterCliMetrics()
 {
@@ -1507,7 +1579,10 @@ void MapHarnessEndpoints()
             return Results.Ok(await detector.BuildReportAsync(repo, ct));
         }
 
-        return Results.Ok(driftCache.Last ?? await detector.BuildReportAsync(null, ct));
+        // SPEC-20261004-redis-hybrid-cache RF-005: single-flight GetOrCreate —
+        // hit = cached report (survives restart via L2), miss = one live scan.
+        return Results.Ok(await driftCache.GetOrCreateAsync(
+            c => new ValueTask<SpecDriftReportDto>(detector.BuildReportAsync(null, c)), ct));
     });
     specs.MapGet("{id}", async Task<IResult> (
             string id,
@@ -3753,5 +3828,9 @@ public partial class Program
     private const string VscodePath = "/vscode";
     private const string SkillsSegment = "skills";
     private const string AgentDefsCacheTag = "agent-defs";
+
+    /// <summary>SPEC-20261004-redis-hybrid-cache: cache-mode facts surfaced to
+    /// the post-Build boot log (connstring never included).</summary>
+    private sealed record CacheBootInfo(string? RedisInstance, TimeSpan DefaultExpiration, bool LocalClamped);
 
 }

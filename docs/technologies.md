@@ -8,7 +8,7 @@
 | DDD Framework | ABP N-Layer | 9.x |
 | ORM | Entity Framework Core | 10.0 |
 | Database | SQLite | bundled |
-| CLI Parser | Spectre.Console.Cli | 0.55.0 |
+| CLI Parser | Spectre.Console.Cli | 0.57.2 |
 | MCP SDK | ModelContextProtocol | latest stable for .NET |
 | Tests | xUnit + Shouldly + NSubstitute | latest stable |
 | Frontend | Blazor WebAssembly | .NET 10 |
@@ -16,6 +16,7 @@
 | Real-time | ASP.NET Core SignalR | 10.0 |
 | GitHub API Client | Octokit | 14.0.0 |
 | AI Providers | OpenAI / Claude / Azure OpenAI (abstracted) | — |
+| Cache | HybridCache (L1 in-memory + optional L2 Redis via `Taskboard:Cache:Redis:ConnectionString`) | 10.10.0 |
 
 ## Tooling
 
