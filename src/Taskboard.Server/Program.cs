@@ -28,6 +28,7 @@ using Taskboard.Application.CliMetrics;
 using Taskboard.Application.Delegation;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Harness;
+using Taskboard.Integrations.Chat;
 using Taskboard.Integrations.Chat.SearchBackends;
 using Taskboard.Integrations.Chat.Tools;
 using Taskboard.Integrations.Chat.Tools.Board;
@@ -532,6 +533,10 @@ void RegisterWorkspaceAndChatServices()
     builder.Services.AddSingleton<OpenAiCompatibleClient>(sp =>
         new(sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-provider")));
     builder.Services.AddSingleton<ChatImageStore>(new ChatImageStore(environment.GetDataDir()));
+    // SPEC-20261005-chat-context-management RF-006: oversized tool outputs
+    // spill under ~/.agent-harness/spill/{runId}/ — shared by the wire
+    // compaction path and read_file's spill:// handler.
+    builder.Services.AddSingleton<ISpillStore>(new ChatSpillStore(environment.GetDataDir()));
     builder.Services.AddSingleton<GenerateImageTool>(sp => new GenerateImageTool(
         sp.GetRequiredService<OpenAiCompatibleClient>(),
         sp.GetRequiredService<ChatImageStore>()));
@@ -546,7 +551,9 @@ void RegisterWorkspaceAndChatServices()
             new ShellExecTool(
                 sp.GetRequiredService<ICommandRiskClassifier>(),
                 sp.GetRequiredService<ISecretRedactor>()),
-            new ReadFileTool(sp.GetRequiredService<ISecretRedactor>()),
+            new ReadFileTool(
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<ISpillStore>()),
             new WriteFileTool(),
             new EditFileTool(),
             new ListDirTool(),
@@ -2613,6 +2620,14 @@ void MapSettingsAndChatEndpoints()
                     ChatToolCallEvent e => ("chat.tool_call", new { name = e.Name, arguments = e.ArgumentsJson }),
                     ChatToolResultEvent e => ("chat.tool_result", new { name = e.Name, result = e.ResultJson, refused = e.Refused, refusalReason = e.RefusalReason }),
                     ChatStatusEvent e => ("chat.status", new { phase = e.Phase, label = e.Label }),
+                    // SPEC-20261005-chat-context-management RF-007: wire-token
+                    // estimate + budget — the header meter live-updates.
+                    ChatPressureEvent e => ("chat.pressure", new
+                    {
+                        estimatedTokens = e.EstimatedTokens,
+                        limit = e.Limit,
+                        compacted = e.Compacted,
+                    }),
                     // SPEC-20261005-chat-tool-approval RF-002/RF-003: pending
                     // card + resolve on every attached stream.
                     ChatApprovalAskedEvent e => ("approval.asked", new
@@ -2726,6 +2741,31 @@ void MapSettingsAndChatEndpoints()
                 : Results.Ok(new { conversation });
         }
         catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    // SPEC-20261005-chat-context-management P2: manual compaction — writes a
+    // persisted summary row the next run reuses (wire-projection only).
+    chat.MapPost("conversations/{id}/compact", async (
+        string id,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var conversation = await chatService.CompactConversationAsync(id, ct);
+            return conversation is null
+                ? Results.NotFound(new { error = new { code = "NOT_FOUND", message = $"Conversation '{id}' not found." } })
+                : Results.Ok(new { conversation });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } }
+            );
+        }
+        catch (ChatValidationException ex)
         {
             return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
         }

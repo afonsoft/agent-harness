@@ -64,7 +64,10 @@ public sealed record ChatMessageDto(
     int? TokensIn,
     int? TokensOut,
     string? Model,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    // SPEC-20261005-chat-context-management RF-004: "normal" | "summary" —
+    // the UI labels summaries distinctly (never as user text).
+    string Kind = "normal");
 
 public sealed record ChatConversationDetailDto(
     ChatConversationDto Conversation,
@@ -92,7 +95,10 @@ public sealed record ChatRunDto(
     int? TokensOut,
     DateTime CreatedAt,
     DateTime? StartedAt,
-    DateTime? FinishedAt);
+    DateTime? FinishedAt,
+    // SPEC-20261005-chat-context-management RF-007: compaction stats.
+    int? ContextTokensLimit = null,
+    int CompactionCount = 0);
 
 /// <summary>
 /// The <c>chat.sync</c> payload of the attach stream (RF-003): durable state

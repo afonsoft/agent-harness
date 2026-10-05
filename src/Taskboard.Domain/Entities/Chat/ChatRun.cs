@@ -29,6 +29,15 @@ public sealed class ChatRun : AggregateRoot<ChatRunId>
 
     public int? TokensOut { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261005-chat-context-management RF-007: the effective wire-token
+    /// budget the run compacted against (null = compaction disabled).
+    /// </summary>
+    public int? ContextTokensLimit { get; private set; }
+
+    /// <summary>How many prune/summarize passes the run performed.</summary>
+    public int CompactionCount { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     public DateTime? StartedAt { get; private set; }
@@ -71,6 +80,13 @@ public sealed class ChatRun : AggregateRoot<ChatRunId>
     {
         PartialContent = content;
         PartialReasoning = reasoning;
+    }
+
+    /// <summary>RF-007: recorded after each compaction pass.</summary>
+    public void RecordContextStats(int limit, int compactionCount)
+    {
+        ContextTokensLimit = limit;
+        CompactionCount = compactionCount;
     }
 
     public void Complete(int? tokensIn, int? tokensOut, DateTime? now = null)

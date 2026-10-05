@@ -24,6 +24,7 @@ public sealed class ChatNotificationsService : IAsyncDisposable
 {
     internal const string HubPath = "/chat-run-hub";
     internal const string EventName = "run.completed";
+    internal const string PressureEventName = "run.pressure";
     internal const string InAppKey = "Taskboard:Chat:Notify:Done:InApp";
     internal const string BrowserKey = "Taskboard:Chat:Notify:Done:Browser";
     internal const string PushKey = "Taskboard:Chat:Notify:Done:Push";
@@ -70,6 +71,9 @@ public sealed class ChatNotificationsService : IAsyncDisposable
                     TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
                 .Build();
             _hub.On<JsonObject>(EventName, payload => _ = OnRunCompletedAsync(payload));
+            // SPEC-20261005-chat-context-management RF-007: wire-pressure
+            // samples — subscribers (chat sidebar) badge the conversation.
+            _hub.On<JsonObject>(PressureEventName, payload => OnRunPressure(payload));
 
             try
             {
@@ -145,6 +149,33 @@ public sealed class ChatNotificationsService : IAsyncDisposable
         if (value == true)
         {
             await EnsureBrowserPermissionAsync();
+        }
+    }
+
+    /// <summary>
+    /// RF-007: run.pressure fan-out — args: conversationId, estimatedTokens,
+    /// limit, compacted. Fires on the hub thread; subscribers must marshal.
+    /// </summary>
+    public event Action<string, int, int, bool>? RunPressure;
+
+    private void OnRunPressure(JsonObject payload)
+    {
+        try
+        {
+            var conversationId = payload["conversationId"]?.GetValue<string>();
+            if (conversationId is null)
+            {
+                return;
+            }
+
+            var estimated = payload["estimatedTokens"]?.GetValue<int>() ?? 0;
+            var limit = payload["limit"]?.GetValue<int>() ?? 0;
+            var compacted = payload["compacted"]?.GetValue<bool>() ?? false;
+            RunPressure?.Invoke(conversationId, estimated, limit, compacted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "run.pressure fan-out failed");
         }
     }
 

@@ -187,6 +187,39 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:PlanMode:Section", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        // SPEC-20261005-chat-context-management RF-009: pressure/compaction
+        // knobs — 0 disables the value (CompactAtTokens/MaxTokens fall back to
+        // provider MaxContextTokens × CompactRatio).
+        new("Taskboard:Chat:Context:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:CompactAtTokens", "0", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:MaxTokens", "0", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:CompactRatio", "0.8", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateCompactRatio, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:MaxContextTokens", "128000", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:KeepRecentTurns", "6", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:SpillBytes", "32768", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:SpillHeadBytes", "8192", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:SummaryMaxTokens", "1200", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Context:SummaryPrompt", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         // SPEC-20261005 RF-009: VAPID identity for Web Push. Empty keys are
         // auto-generated once by VapidKeyService on first subscribe and
         // persisted here (private key stays masked like every secret).
@@ -516,6 +549,11 @@ public sealed class RuntimeConfigurationService
         int.TryParse(value, out var n) && n is >= 0 and <= 1_000_000
             ? null
             : "Value must be an integer between 0 and 1000000.";
+
+    private static string? ValidateCompactRatio(string value) =>
+        double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var n) && n is > 0 and <= 1
+            ? null
+            : "Value must be a decimal between 0 (exclusive) and 1 — e.g. 0.8.";
 
     private static string? ValidateSearchBackend(string value) =>
         value is "none" or "searxng" or "tavily" or "brave"

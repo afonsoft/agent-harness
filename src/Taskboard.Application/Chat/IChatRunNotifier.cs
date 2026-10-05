@@ -20,4 +20,13 @@ public interface IChatRunNotifier
     Task ApprovalAskedAsync(
         ChatRun run, string approvalId, string toolName, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    /// <summary>
+    /// SPEC-20261005-chat-context-management RF-007: per-estimation pressure
+    /// sample — the sidebar badge tracks this while a run is live.
+    /// </summary>
+    Task RunPressureAsync(
+        string runId, string conversationId, int estimatedTokens, int limit,
+        bool compacted, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }

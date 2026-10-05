@@ -1246,6 +1246,21 @@ public sealed class TaskboardClient
         return body?.Conversation;
     }
 
+    /// <summary>
+    /// SPEC-20261005-chat-context-management P2: manual compaction — writes a
+    /// persisted summary row the next run reuses.
+    /// </summary>
+    public async Task<ChatConversationDto?> CompactChatConversationAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/compact",
+            content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body?.Conversation;
+    }
+
     /// <summary>RF-007: approvals of a conversation — "pending" replays the unresolved card.</summary>
     public async Task<IReadOnlyList<ChatApprovalDto>> GetChatApprovalsAsync(
         string conversationId, string? status = null, CancellationToken cancellationToken = default)

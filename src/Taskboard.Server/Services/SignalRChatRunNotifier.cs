@@ -21,6 +21,19 @@ public sealed class SignalRChatRunNotifier(
     /// <summary>SPEC-20261005-chat-tool-approval RF-002: run parked on an approval.</summary>
     public const string RunApprovalEvent = "run.approval";
 
+    /// <summary>SPEC-20261005-chat-context-management RF-007: wire-pressure sample.</summary>
+    public const string RunPressureEvent = "run.pressure";
+
+    public async Task RunPressureAsync(
+        string runId, string conversationId, int estimatedTokens, int limit,
+        bool compacted, CancellationToken cancellationToken = default)
+    {
+        await hubContext.Clients.All.SendAsync(
+            RunPressureEvent,
+            new { runId, conversationId, estimatedTokens, limit, compacted },
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task ApprovalAskedAsync(
         ChatRun run, string approvalId, string toolName, CancellationToken ct = default)
     {

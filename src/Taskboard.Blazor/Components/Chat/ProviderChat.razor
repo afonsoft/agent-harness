@@ -5,6 +5,7 @@
 @inject ToastService ToastService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject ChatNotificationsService Notifications
 @implements IDisposable
 
 @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode inside AI
@@ -55,6 +56,15 @@
                                 else if (conversation.ActiveRunStatus is "running" or "queued")
                                 {
                                     <span class="provider-chat-run-dot" title="Run em andamento"></span>
+                                }
+                                @* SPEC-20261005-chat-context-management RF-007:
+                                   run.pressure hub badge — % of the wire budget. *@
+                                @if (_pressureByConversation.TryGetValue(conversation.Id, out var p) && p.Limit > 0)
+                                {
+                                    <span class="provider-chat-pressure-badge @(PressureClass(p.Estimated, p.Limit))"
+                                          title="Contexto: @p.Estimated/@p.Limit tokens@(p.Compacted ? " — compacted" : string.Empty)">
+                                        ctx @(Math.Min(999, (int)Math.Round(100.0 * p.Estimated / p.Limit)))%
+                                    </span>
                                 }
                             </span>
                         </button>
@@ -156,6 +166,17 @@
                         <span class="provider-plan-dot" aria-label="Plano aguardando revisão"></span>
                     }
                 </button>
+                @* RF-007: live wire-token meter for the open conversation —
+                   chat.pressure SSE updates it each provider call. *@
+                @if (_pressure is { Limit: > 0 } meter)
+                {
+                    <span class="provider-pressure-meter @(PressureClass(meter.Estimated, meter.Limit))"
+                          title="Contexto: @meter.Estimated/@meter.Limit tokens@(meter.Compacted ? " — compacted" : string.Empty)"
+                          aria-label="Context token usage">
+                        <span class="provider-pressure-fill" style="width: @Math.Min(100, 100.0 * meter.Estimated / meter.Limit)%"></span>
+                        <span class="provider-pressure-text">@FormatTokens(meter.Estimated)/@FormatTokens(meter.Limit)</span>
+                    </span>
+                }
             }
             @if (_conversationTitle is { Length: > 0 })
             {
@@ -196,7 +217,14 @@
                     }
                     else
                     {
-                        @if (SkillChipName(message.Content) is { } chip)
+                        @if (message.Kind == "summary")
+                        {
+                            @* RF-004: persisted compaction summary — distinct
+                               note, never styled as user text. *@
+                            <span class="badge text-bg-info mb-1">context summary</span>
+                            <div class="ai-chat-md provider-summary-note">@((MarkupString)MarkdownRenderer.ToSafeHtml(message.Content))</div>
+                        }
+                        else if (SkillChipName(message.Content) is { } chip)
                         {
                             <span class="badge text-bg-secondary mb-1">skill: @chip</span>
                             <div class="ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(StripSkillMarker(message.Content)))</div>
@@ -582,6 +610,11 @@
     private string? _denyReasonFor;
     private string? _denyReason;
 
+    // SPEC-20261005-chat-context-management RF-007: wire-pressure state —
+    // header meter (open conversation) + sidebar badges (run.pressure hub).
+    private (int Estimated, int Limit, bool Compacted)? _pressure;
+    private readonly Dictionary<string, (int Estimated, int Limit, bool Compacted)> _pressureByConversation = new();
+
     /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
     public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
 
@@ -590,6 +623,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Notifications.RunPressure += OnRunPressure;
         try
         {
             _providers = await Client.GetChatProvidersAsync();
@@ -945,6 +979,7 @@
         new("agent", "Delegar/ir para Agent mode", "builtin"),
         new("tools", "Abrir tools/capabilities em Settings", "builtin"),
         new("plan", "Plan mode on (ou '/plan off' para sair)", "builtin"),
+        new("compact", "Compactar o contexto agora (summary + prune)", "builtin"),
         new("clear", "Limpar o composer", "builtin"),
         new("help", "Listar comandos", "builtin"),
     ];
@@ -1079,7 +1114,7 @@
                 Navigation.NavigateTo("/settings");
                 return true;
             case "help":
-                _notice = "Comandos: /new, /agent, /tools, /clear, /plan [off], /help — /&lt;command&gt; injeta um comando da CLI selecionada, /&lt;skill&gt; injeta uma skill global.";
+                _notice = "Comandos: /new, /agent, /tools, /clear, /plan [off], /compact, /help — /&lt;command&gt; injeta um comando da CLI selecionada, /&lt;skill&gt; injeta uma skill global.";
                 _composer = string.Empty;
                 return true;
             case "plan":
@@ -1087,6 +1122,12 @@
                 // exits. Mid-run safe — the gate applies it next tool call.
                 _composer = string.Empty;
                 await TogglePlanModeAsync(!string.Equals(rest.Trim(), "off", StringComparison.OrdinalIgnoreCase));
+                return true;
+            case "compact":
+                // SPEC-20261005-chat-context-management P2: manual compaction —
+                // summarizes history into a reusable summary row.
+                _composer = string.Empty;
+                await CompactConversationAsync();
                 return true;
             default:
                 return false;
@@ -1468,6 +1509,17 @@
                 await ScrollToEndAsync();
                 break;
             }
+            case "chat.pressure":
+                var pressure = JsonSerializer.Deserialize<JsonElement>(data);
+                _pressure = (
+                    pressure.TryGetProperty("estimatedTokens", out var pet) ? pet.GetInt32() : 0,
+                    pressure.TryGetProperty("limit", out var plt) ? plt.GetInt32() : 0,
+                    pressure.TryGetProperty("compacted", out var pcp) && pcp.GetBoolean());
+                if (_conversationId is not null)
+                {
+                    _pressureByConversation[_conversationId] = _pressure.Value;
+                }
+                break;
             case "chat.tool_result":
                 await ReloadConversationAsync();
                 await ScrollToEndAsync();
@@ -1733,8 +1785,51 @@
         }
     }
 
+    /// <summary>RF-007: sidebar badge updates arrive on the hub thread.</summary>
+    private void OnRunPressure(string conversationId, int estimated, int limit, bool compacted)
+    {
+        _pressureByConversation[conversationId] = (estimated, limit, compacted);
+        if (conversationId == _conversationId)
+        {
+            _pressure = (estimated, limit, compacted);
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>RF-007: manual compaction via /compact.</summary>
+    private async Task CompactConversationAsync()
+    {
+        if (_conversationId is null)
+        {
+            _notice = "Abra uma conversa para compactar.";
+            return;
+        }
+
+        try
+        {
+            await Client.CompactChatConversationAsync(_conversationId);
+            _notice = "Contexto compactado — o histórico ganhou um resumo persistente.";
+            await ReloadConversationAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+        {
+            _notice = $"Compactação falhou: {ex.Message}";
+        }
+    }
+
+    private static string PressureClass(int estimated, int limit) =>
+        limit <= 0 ? string.Empty
+        : estimated >= limit ? "danger"
+        : estimated >= limit * 0.8 ? "warn"
+        : "ok";
+
+    private static string FormatTokens(int tokens) =>
+        tokens >= 1000 ? $"{tokens / 1000.0:0.#}k" : tokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
     public void Dispose()
     {
+        Notifications.RunPressure -= OnRunPressure;
         _streamCts?.Cancel();
         _streamCts?.Dispose();
     }
