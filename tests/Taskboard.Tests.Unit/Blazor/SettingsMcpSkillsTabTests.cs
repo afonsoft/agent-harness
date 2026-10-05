@@ -105,4 +105,21 @@ public class SettingsMcpSkillsTabTests
         src.ShouldContain("server.Name + \"@\" + server.Origin");
         src.ShouldContain("server.Name + \"@\" + server.Transport + \"@\" + server.Detail");
     }
+
+    [Fact]
+    public void Dado_Settings_Quando_LeFonte_Entao_SecaoCacheNaAbaConfiguration()
+    {
+        // A aba Configuration mostra o provider (memory|redis) e a lista de
+        // keys salvas — bloco 'cache' do /api/configuration populando
+        // _cacheStats. A key inclui Source porque a mesma key pode vir do
+        // registry e do SCAN do redis ao mesmo tempo.
+        var src = SettingsSource();
+
+        src.ShouldContain("_cacheStats");
+        src.ShouldContain("_cacheStats.RedisConfigured");
+        src.ShouldContain("_cacheStats.RedisConnected");
+        src.ShouldContain("@key=\"CacheKeyRowKey(key)\"");
+        src.ShouldContain("item.Source + \"@\" + item.Key");
+        src.ShouldContain("_cacheStats = snapshot?.Cache;");
+    }
 }
