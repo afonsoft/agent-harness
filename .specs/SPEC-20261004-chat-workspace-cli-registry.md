@@ -10,7 +10,7 @@
 | Change type | Feature |
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
-| Status | In progress |
+| Status | `Done` — entregue via [PR #462](https://github.com/afonsoft/agent-harness/pull/462) (merged 2026-10-04) |
 | Date | 2026-10-04 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20261003-ai-code-agent-chat, SPEC-20260928-ai-code-generic-cli, SPEC-20260917-cli-agents-terminal, SPEC-20260918-cli-agents-expansion, SPEC-20260918-agent-execution-ux |

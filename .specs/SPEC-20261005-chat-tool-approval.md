@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261006-chat-tool-approval` |
+| Status | `Approved` — aprovado por afonsoft (2026-10-05) |
 | Depends on | SPEC-20261005-chat-background-resume (detached `ChatRun`s, `ChatRunBroadcaster`, dispatcher) |
 | Reference | COMPARISON-20261005-deepseek-harness §1/#1, §3.3 (fail-closed approval, presets) |
 

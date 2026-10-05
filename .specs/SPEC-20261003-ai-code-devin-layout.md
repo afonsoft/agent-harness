@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `devin/1790993711-aicode-devin-layout` |
 | Technical owner | afonsoft |
-| Status | In Progress |
+| Status | `Done` — entregue via [PR #432](https://github.com/afonsoft/agent-harness/pull/432) (merged 2026-10-03) |
 | Date | 2026-10-03 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20260922-ai-chat-command-bar, SPEC-20260929-ai-chat-rail-overlay, SPEC-20260929-ai-code-provider-chat, SPEC-20261001-chat-skills-slash-commands, SPEC-20261001-chat-ux-compact |

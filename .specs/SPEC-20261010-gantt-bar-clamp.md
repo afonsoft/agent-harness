@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `devin/1791202654-gantt-bar-clamp-fix` |
+| Status | `Done` — entregue via [PR #492](https://github.com/afonsoft/agent-harness/pull/492) (merged 2026-10-05) |
 | Depends on | — |
 
 ## 1. Executive Summary

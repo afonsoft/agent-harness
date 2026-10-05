@@ -10,7 +10,7 @@
 | Change type | Feature |
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
-| Status | In progress |
+| Status | `Done` — entregue via [PR #477](https://github.com/afonsoft/agent-harness/pull/477) (merged 2026-10-04) |
 | Date | 2026-10-04 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20260921-ai-code-chat-ux (permission card original), SPEC-20261001-chat-agent-delegation |

@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261005-chat-background-resume` |
+| Status | `Done` — entregue via [PR #494](https://github.com/afonsoft/agent-harness/pull/494) e [PR #497](https://github.com/afonsoft/agent-harness/pull/497) e [PR #498](https://github.com/afonsoft/agent-harness/pull/498) (merged 2026-10-05) |
 | Depends on | SPEC-20260929-ai-code-provider-chat (conversations/messages), SPEC-20261001-pr-review-backlog-fixes B-01 (`ChatRunCoordinator`), SPEC-20261003-ai-code-agent-chat (`ChatAgentContext`) |
 
 ## 1. Executive Summary

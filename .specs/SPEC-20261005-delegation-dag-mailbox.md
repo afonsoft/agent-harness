@@ -10,7 +10,7 @@
 | Change type | Feature |
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
-| Status | In progress |
+| Status | `Done` — entregue via [PR #463](https://github.com/afonsoft/agent-harness/pull/463) (merged 2026-10-04) |
 | Date | 2026-10-05 |
 | Target agent | Devin |
 | Related SPECs | SPEC-20261004-chat-workspace-cli-registry, SPEC-20261003-ai-code-agent-chat, SPEC-20261001-chat-agent-delegation, SPEC-20260919-worktree-sessions |

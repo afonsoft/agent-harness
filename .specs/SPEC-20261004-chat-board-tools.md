@@ -1,6 +1,6 @@
 # SPEC-20261004-chat-board-tools — Chat tools for Board / GitHub issue management
 
-**Status**: In implementation
+**Status**: `Done` — entregue via [PR #486](https://github.com/afonsoft/agent-harness/pull/486) (merged 2026-10-05)
 **Depends on**: SPEC-20261001-chat-capability-registry, SPEC-20261001-chat-agent-delegation (tool registry + reporter), SPEC-20261004-promote-leg-pr (`GitRemoteSlug`).
 
 ## Context

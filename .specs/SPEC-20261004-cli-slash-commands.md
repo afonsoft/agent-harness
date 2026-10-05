@@ -1,5 +1,7 @@
 # SPEC-20261004 — Slash commands/skills por CLI no composer
 
+- **Status**: `Done` — entregue via [PR #478](https://github.com/afonsoft/agent-harness/pull/478) (merged 2026-10-04)
+
 ## Contexto
 
 A paleta de slash do composer (SPEC-20261001-chat-skills-slash-commands) já

@@ -1,5 +1,7 @@
 # SPEC-20261004-promote-leg-pr — GitHub PR from the promoted leg
 
+- **Status**: `Done` — entregue via [PR #483](https://github.com/afonsoft/agent-harness/pull/483) (merged 2026-10-05)
+
 ## Context
 
 `POST /api/local/delegation/tasks/{id}/promote` (SPEC-20261009 RF-002) commits

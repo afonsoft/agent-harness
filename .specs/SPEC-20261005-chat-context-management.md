@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261007-chat-context-mgmt` |
+| Status | `Approved` — aprovado por afonsoft (2026-10-05) |
 | Depends on | SPEC-20261005-chat-background-resume (detached runs; wire transcript builder) |
 | Reference | COMPARISON-20261005-deepseek-harness §1/#5–#6; `dsh-compaction-basic`, `dsh-spill`, `dsh-token-meter` |
 

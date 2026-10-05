@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261007-chat-fork-steering` |
+| Status | `Approved` — aprovado por afonsoft (2026-10-05) |
 | Depends on | SPEC-20261005-chat-background-resume (`ChatRun` queue + attach) |
 | Reference | COMPARISON-20261005-deepseek-harness §1/#3–#4; `ctx.sessions.create(seed)` fork, `agent.steer()` |
 

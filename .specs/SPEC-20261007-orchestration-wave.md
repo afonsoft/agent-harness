@@ -1,6 +1,6 @@
 # SPEC-20261007 — Orchestration wave: mailbox reply, coordinator plan, builtin model probes, fan-out compare, busy liveness
 
-- Status: In progress
+- Status: `Done` — entregue via [PR #469](https://github.com/afonsoft/agent-harness/pull/469) (merged 2026-10-04)
 - Author: devin (requested by afonsoft, orca-parity follow-ups approved in chat)
 - Base: `main` @ 291199b (P1–P3 + #460/#461/#467/#468 merged)
 

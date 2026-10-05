@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261010-settings-configuration-tab` |
+| Status | `Done` — entregue via [PR #496](https://github.com/afonsoft/agent-harness/pull/496) (merged 2026-10-05) |
 | Depends on | SPEC-20260930-settings-tabs; complements SPEC-20261010-agents-page-tabs (Prompt tab) and SPEC-20261010-mcp-skills-hub (MCP/Skill tab) |
 
 ## 1. Executive Summary
