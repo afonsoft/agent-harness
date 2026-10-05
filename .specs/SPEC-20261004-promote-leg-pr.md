@@ -30,9 +30,11 @@ promote time, reusing the same URL grammar `RemoteMatches` already accepts
   reject a missing JSON Content-Type before `EmptyBodyBehavior` applies).
   `createPr` absent/false → exact current behavior.
 - **RF-003 — PR creation.** With `createPr=true`, after commit+push
-  `IPromotedLegPrService.TryCreateAsync` resolves `owner/name` from
-  `git remote get-url origin` in the worktree's `RepositoryPath` (github.com
-  only — the Octokit call targets api.github.com), picks the base as
+  `IPromotedLegPrService.TryCreateAsync` resolves `owner/name` from the
+  clone's stored `git config remote.origin.url` — NOT `remote get-url`, which
+  resolves `url.insteadOf` rewrites (Devin VMs rewrite github.com into the
+  proxy host and would never parse). github.com only — the Octokit call
+  targets api.github.com. Picks the base as
   `baseBranch` (request) → `session.BaseBranch` normalized (`origin/x` → `x`)
   → the clone's `origin/HEAD` short name → `main`, and calls
   `IGitHubService.CreatePullRequestAsync(repo, title ?? $"delegation: {cli} leg — {prompt}",
