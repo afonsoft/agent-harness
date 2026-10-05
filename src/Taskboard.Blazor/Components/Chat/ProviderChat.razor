@@ -403,6 +403,12 @@
                             {
                                 <span class="badge text-bg-warning mb-1" title="Steer — injetado durante a run">steer</span>
                             }
+                            else if (message.Kind == "schedule")
+                            {
+                                @* SPEC-20261005-chat-jobs-schedule-search RF-005: mensagem
+                                   entregue pelo dispatcher de agendamento. *@
+                                <span class="badge text-bg-info mb-1" title="Agendamento — entregue pelo scheduler">schedule</span>
+                            }
                             <div class="ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(message.Content))</div>
                         }
                         @if (message.ImageUrl is not null)
