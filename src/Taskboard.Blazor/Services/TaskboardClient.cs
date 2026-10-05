@@ -1478,6 +1478,116 @@ public sealed class TaskboardClient
         return body?.Command;
     }
 
+    // ---- SPEC-20261005-chat-jobs-schedule-search ----
+
+    /// <summary>RF-003: active jobs of a conversation — the strip polls this.</summary>
+    public async Task<IReadOnlyList<ChatJobDto>> GetChatJobsAsync(
+        string conversationId, bool activeOnly, CancellationToken cancellationToken = default)
+    {
+        var url = $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/jobs"
+            + (activeOnly ? "?active=true" : string.Empty);
+        var response = await _httpClient.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<ChatJobListResponse>(cancellationToken);
+        return body?.Jobs ?? [];
+    }
+
+    /// <summary>RF-002: kill a running job — false on 404/409.</summary>
+    public async Task<bool> KillChatJobAsync(
+        string conversationId, string jobId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/jobs/{Uri.EscapeDataString(jobId)}/kill",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-005: conversation schedules.</summary>
+    public async Task<IReadOnlyList<ChatScheduleDto>> GetChatSchedulesAsync(
+        string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/schedules", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<ChatScheduleListResponse>(cancellationToken);
+        return body?.Schedules ?? [];
+    }
+
+    /// <summary>RF-004/RF-005: create a schedule — null body on 400/409.</summary>
+    public async Task<ChatScheduleDto?> CreateChatScheduleAsync(
+        string conversationId, CreateChatScheduleRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/schedules",
+            request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<ChatScheduleResponse>(cancellationToken);
+        return body?.Schedule;
+    }
+
+    /// <summary>RF-005: cancel/re-enable — false on 404.</summary>
+    public async Task<bool> UpdateChatScheduleAsync(
+        string conversationId, string scheduleId, PatchChatScheduleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PatchAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/schedules/{Uri.EscapeDataString(scheduleId)}",
+            request, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-005: delete a schedule row.</summary>
+    public async Task<bool> DeleteChatScheduleAsync(
+        string conversationId, string scheduleId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/schedules/{Uri.EscapeDataString(scheduleId)}",
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-008: FTS5 content search — grouped hits with &lt;mark&gt; snippets.</summary>
+    public async Task<IReadOnlyList<ChatSearchHitDto>> SearchChatContentAsync(
+        string query, string? conversationId, int limit, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return [];
+        }
+
+        var url = $"api/local/chat/search?q={Uri.EscapeDataString(query)}&limit={limit}";
+        if (!string.IsNullOrWhiteSpace(conversationId))
+        {
+            url += $"&conversationId={Uri.EscapeDataString(conversationId)}";
+        }
+
+        var response = await _httpClient.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<ChatSearchHitsResponse>(cancellationToken);
+        return body?.Hits ?? [];
+    }
+
+    private sealed record ChatJobListResponse(List<ChatJobDto> Jobs);
+    private sealed record ChatScheduleListResponse(List<ChatScheduleDto> Schedules);
+    private sealed record ChatScheduleResponse(ChatScheduleDto Schedule);
+    private sealed record ChatSearchHitsResponse(List<ChatSearchHitDto> Hits);
+
     private sealed record ChatProviderListResponse(List<ChatProviderDto> Providers);
     private sealed record ChatProviderResponse(ChatProviderDto Provider);
     private sealed record ChatModelListResponse(List<string> Models);

@@ -140,6 +140,23 @@ public sealed class ChatMessage : Entity<ChatMessageId>
     }
 
     /// <summary>
+    /// SPEC-20261005-chat-jobs-schedule-search RF-006: the user message a
+    /// <see cref="ChatSchedule"/> delivery enqueues — same wire shape as a
+    /// normal user turn, <c>Kind="schedule"</c> so the transcript badges it.
+    /// </summary>
+    public static ChatMessage CreateScheduled(
+        ChatConversationId conversationId, string content, DateTime? now = null)
+    {
+        var message = new ChatMessage(
+            ChatMessageId.NewGuid(), conversationId, ChatMessageRole.User,
+            content, now ?? DateTime.UtcNow)
+        {
+            Kind = ChatMessageKinds.Schedule,
+        };
+        return message;
+    }
+
+    /// <summary>
     /// SPEC-20261005-chat-fork-steering RF-001: clones <paramref name="source"/>
     /// into a forked conversation — caller mints <paramref name="newId"/>,
     /// back-pointer set, role, content, tool fields, kind and timestamps

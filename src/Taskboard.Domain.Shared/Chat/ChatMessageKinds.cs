@@ -16,4 +16,10 @@ public static class ChatMessageKinds
     /// mid-turn via steering — rendered with a steer marker in the transcript.
     /// </summary>
     public const string Steer = "steer";
+
+    /// <summary>
+    /// SPEC-20261005-chat-jobs-schedule-search RF-006: a user message a
+    /// ChatSchedule fired — badge in the transcript, plain user role on the wire.
+    /// </summary>
+    public const string Schedule = "schedule";
 }

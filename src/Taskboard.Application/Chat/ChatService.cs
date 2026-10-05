@@ -80,28 +80,6 @@ public sealed record ChatSteerClaimedEvent(string SteerId, string Content) : Cha
 /// </summary>
 public sealed record ChatDeliverablesEvent(IReadOnlyList<ChatDeliverableDto> Deliverables) : ChatStreamEvent;
 
-/// <summary>Request-level validation failure surfaced as 400.</summary>
-public sealed class ChatValidationException(string message) : Exception(message);
-
-/// <summary>Send attempted on an archived conversation — surfaced as 409.</summary>
-public sealed class ChatArchivedException(string message) : Exception(message);
-
-/// <summary>Decide attempted on an approval that already left pending — surfaced as 409 (RF-003).</summary>
-public sealed class ChatApprovalConflictException(string message) : Exception(message);
-
-/// <summary>
-/// SPEC-20261005-chat-fork-steering: steer cap exceeded or cancel attempted on
-/// an already-claimed steer — surfaced as 409.
-/// </summary>
-public sealed class ChatSteerConflictException(string message) : Exception(message);
-
-/// <summary>
-/// SPEC-20261005-chat-attachments-feedback: attachment/feedback conflict —
-/// bound-attachment delete, CAS version mismatch on feedback upsert —
-/// surfaced as 409.
-/// </summary>
-public sealed class ChatConflictException(string message) : Exception(message);
-
 /// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
 /// CRUD, conversation persistence with search, and the send/stream tool loop
@@ -133,7 +111,8 @@ public sealed class ChatService(
     IRepository<ChatRunDeliverable>? deliverableRepository = null,
     ChatAttachmentStore? attachmentStore = null,
     IChatFileEditTracker? editTracker = null,
-    IChatWorkspaceDiffService? workspaceDiff = null) : IChatRunExecutor
+    IChatWorkspaceDiffService? workspaceDiff = null,
+    IChatMessageSearchIndex? searchIndex = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -467,12 +446,12 @@ public sealed class ChatService(
             conversation.SetPermissionPreset(request.PermissionPreset, UtcNow);
             if (conversation.PermissionPreset != previous)
             {
-                await messages.AddAsync(
-                    ChatMessage.CreateSystemNote(
-                        conversation.Id,
-                        $"Permission preset changed: {previous} → {conversation.PermissionPreset}.",
-                        UtcNow),
-                    ct).ConfigureAwait(false);
+                var presetNote = ChatMessage.CreateSystemNote(
+                    conversation.Id,
+                    $"Permission preset changed: {previous} → {conversation.PermissionPreset}.",
+                    UtcNow);
+                await messages.AddAsync(presetNote, ct).ConfigureAwait(false);
+                await IndexMessageSafeAsync(presetNote, ct).ConfigureAwait(false);
             }
         }
 
@@ -601,6 +580,7 @@ public sealed class ChatService(
 
         var userMessage = ChatMessage.CreateUser(conversation.Id, content, UtcNow);
         await messages.AddAsync(userMessage, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(userMessage, ct).ConfigureAwait(false);
         conversation.EnsureTitle(content, UtcNow);
         conversation.Touch(UtcNow);
 
@@ -614,6 +594,81 @@ public sealed class ChatService(
 
         runQueue.Enqueue(new ChatRunWorkItem(run.Id.Value, conversation.Id.Value));
         return ToDto(run);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-jobs-schedule-search RF-006: a ChatSchedule fired —
+    /// same enqueue path as <see cref="EnqueueMessageAsync"/> but the user
+    /// message carries <c>Kind="schedule"</c> for the transcript badge. The
+    /// wire transcript sees a plain user turn.
+    /// </summary>
+    public async Task<ChatRunDto> EnqueueScheduledMessageAsync(
+        string conversationId, string content, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
+        if (conversation.ArchivedAt is not null)
+        {
+            throw new ChatArchivedException($"Conversation '{conversationId}' is archived.");
+        }
+
+        if (await providers.GetAsync(conversation.ProviderId, ct).ConfigureAwait(false) is null)
+        {
+            throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
+        }
+
+        var userMessage = ChatMessage.CreateScheduled(conversation.Id, content, UtcNow);
+        await messages.AddAsync(userMessage, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(userMessage, ct).ConfigureAwait(false);
+        conversation.EnsureTitle(content, UtcNow);
+        conversation.Touch(UtcNow);
+
+        var run = ChatRun.Create(ChatRunId.NewGuid(), conversation.Id, userMessage.Id, UtcNow);
+        await runRepository.AddAsync(run, ct).ConfigureAwait(false);
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        runQueue.Enqueue(new ChatRunWorkItem(run.Id.Value, conversation.Id.Value));
+        return ToDto(run);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-jobs-schedule-search: a durable system note —
+    /// background-job completion and schedule-delivery markers. Also the
+    /// single chokepoint for FTS sync of notes.
+    /// </summary>
+    public async Task PostSystemNoteAsync(
+        string conversationId, string content, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
+        var note = ChatMessage.CreateSystemNote(conversation.Id, content, UtcNow);
+        await messages.AddAsync(note, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(note, ct).ConfigureAwait(false);
+        conversation.Touch(UtcNow);
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-jobs-schedule-search RF-007: FTS sync on insert —
+    /// failures degrade search coverage, never the message write itself.
+    /// </summary>
+    private async Task IndexMessageSafeAsync(ChatMessage message, CancellationToken ct)
+    {
+        if (searchIndex is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await searchIndex.IndexAsync(
+                message.Id.Value, message.ConversationId.Value, message.Content, ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "FTS index update failed for message {MessageId}", message.Id.Value);
+        }
     }
 
     /// <summary>
@@ -978,9 +1033,9 @@ public sealed class ChatService(
             var remappedBound = message.SupersedesUntilMessageId is not null
                 ? idMap.GetValueOrDefault(message.SupersedesUntilMessageId)
                 : null;
-            await messages.AddAsync(
-                ChatMessage.CreateForked(newId, fork.Id, message, remappedBound), ct)
-                .ConfigureAwait(false);
+            var cloned = ChatMessage.CreateForked(newId, fork.Id, message, remappedBound);
+            await messages.AddAsync(cloned, ct).ConfigureAwait(false);
+            await IndexMessageSafeAsync(cloned, ct).ConfigureAwait(false);
         }
 
         // SPEC-20261005-chat-attachments-feedback open question #2: attachment
@@ -1052,6 +1107,7 @@ public sealed class ChatService(
 
             var message = ChatMessage.CreateSteer(conversation.Id, steer.Content, now);
             await messages.AddAsync(message, ct).ConfigureAwait(false);
+            await IndexMessageSafeAsync(message, ct).ConfigureAwait(false);
 
             // SPEC-20261005-chat-attachments-feedback: steered attachments bind
             // to the steer message and ride the wire as descriptor lines.
@@ -1459,6 +1515,7 @@ public sealed class ChatService(
                 : null,
             tokensIn, tokensOut, conversation.Model, UtcNow);
         await messages.AddAsync(assistantMessage, persistCt).ConfigureAwait(false);
+        await IndexMessageSafeAsync(assistantMessage, persistCt).ConfigureAwait(false);
         await messages.SaveChangesAsync(persistCt).ConfigureAwait(false);
 
         wire.Add(new OpenAiChatMessage(ChatMessageRole.Assistant.Value, content, toolCalls));
@@ -1684,6 +1741,7 @@ public sealed class ChatService(
                 var deniedMessage = ChatMessage.CreateTool(
                     conversation.Id, toolCall.Id, toolCall.Name, deniedJson, refused: deniedRefused, UtcNow);
                 await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
+                await IndexMessageSafeAsync(deniedMessage, ct).ConfigureAwait(false);
                 await messages.SaveChangesAsync(ct).ConfigureAwait(false);
                 wire.Add(new OpenAiChatMessage("tool", deniedJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
                 continue;
@@ -1724,6 +1782,7 @@ public sealed class ChatService(
             }
 
             await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
+            await IndexMessageSafeAsync(toolMessage, ct).ConfigureAwait(false);
             await messages.SaveChangesAsync(ct).ConfigureAwait(false);
             // RF-006: oversized results spill to disk — the wire keeps a capped
             // head + spill:// pointer (persisted history stays whole, RNF-001).
@@ -2003,6 +2062,7 @@ public sealed class ChatService(
             $"{ChatContextBudget.CompactedNote}\n\n{summaryText.Trim()}",
             rows[boundIndex].Id.Value, UtcNow);
         await messages.AddAsync(summary, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(summary, ct).ConfigureAwait(false);
         await messages.SaveChangesAsync(ct).ConfigureAwait(false);
 
         // RNF-001: rebuild the wire under the new bound — history stays whole.
@@ -2413,6 +2473,7 @@ public sealed class ChatService(
         decide(approval);
         var note = BuildApprovalNote(approval);
         await messages.AddAsync(note, CancellationToken.None).ConfigureAwait(false);
+        await IndexMessageSafeAsync(note, CancellationToken.None).ConfigureAwait(false);
         try
         {
             await approvalRepository.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
@@ -2496,15 +2557,17 @@ public sealed class ChatService(
             conversation ??= await conversations.GetAsync(approval.ConversationId, ct).ConfigureAwait(false);
             if (conversation?.SetPlanMode(false, UtcNow) == true)
             {
-                await messages.AddAsync(
-                    ChatMessage.CreateSystemNote(conversation.Id, "plan mode off", UtcNow),
-                    ct).ConfigureAwait(false);
+                var offNote = ChatMessage.CreateSystemNote(conversation.Id, "plan mode off", UtcNow);
+                await messages.AddAsync(offNote, ct).ConfigureAwait(false);
+                await IndexMessageSafeAsync(offNote, ct).ConfigureAwait(false);
             }
         }
 
         // The audit note joins the same flush — it can never persist without
         // the decision (RNF-003).
-        await messages.AddAsync(BuildApprovalNote(approval), ct).ConfigureAwait(false);
+        var auditNote = BuildApprovalNote(approval);
+        await messages.AddAsync(auditNote, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(auditNote, ct).ConfigureAwait(false);
         try
         {
             await approvalRepository.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -2545,10 +2608,10 @@ public sealed class ChatService(
             return ToDto(conversation, null);
         }
 
-        await messages.AddAsync(
-            ChatMessage.CreateSystemNote(
-                conversation.Id, $"plan mode {(active ? "on" : "off")}", UtcNow),
-            ct).ConfigureAwait(false);
+        var planNote = ChatMessage.CreateSystemNote(
+            conversation.Id, $"plan mode {(active ? "on" : "off")}", UtcNow);
+        await messages.AddAsync(planNote, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(planNote, ct).ConfigureAwait(false);
 
         // on→off: a dangling review must not park the run — cancel it and
         // resolve the waiter Denied (the tool sees approved:false).
