@@ -77,16 +77,43 @@ public sealed class ChatJobService : IChatJobService, IDisposable
         job.MarkRunning(process.Id, outputPath);
 
         var killSwitch = new CancellationTokenSource();
-        var runner = Task.Run(() => RunJobAsync(job.Id, process, outputPath), CancellationToken.None);
+        // Gate: a fast-exit process must not settle before the handle is
+        // registered AND the row exists — otherwise SettleAsync finds no
+        // row, returns early, and the job stays 'running' forever (seen
+        // on CI with an instant `echo` under load).
+        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = Task.Run(async () =>
+        {
+            await startGate.Task.ConfigureAwait(false);
+            await RunJobAsync(job.Id, process, outputPath).ConfigureAwait(false);
+        }, CancellationToken.None);
         _live[job.Id.Value] = new JobHandle(process, runner, killSwitch);
 
-        await using (var scope = _scopeFactory.CreateAsyncScope())
+        try
         {
-            var jobs = scope.ServiceProvider.GetRequiredService<IRepository<ChatJob>>();
-            await jobs.AddAsync(job, cancellationToken).ConfigureAwait(false);
-            await jobs.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await using (var scope = _scopeFactory.CreateAsyncScope())
+            {
+                var jobs = scope.ServiceProvider.GetRequiredService<IRepository<ChatJob>>();
+                await jobs.AddAsync(job, cancellationToken).ConfigureAwait(false);
+                await jobs.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            startGate.TrySetCanceled();
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
+            {
+                // Already exited — nothing to clean up.
+            }
+
+            throw;
         }
 
+        startGate.TrySetResult();
         return ToDto(job);
     }
 
@@ -230,6 +257,11 @@ public sealed class ChatJobService : IChatJobService, IDisposable
         catch (TimeoutException ex)
         {
             _logger.LogWarning(ex, "job shutdown wait timed out — {Count} runner(s) abandoned", _live.Count);
+        }
+        catch (OperationCanceledException)
+        {
+            // A runner gated off by a failed StartAsync persist cancels —
+            // nothing left to wait for.
         }
     }
 

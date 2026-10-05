@@ -157,6 +157,53 @@ public sealed class ChatJobsScheduleSearchTests : IDisposable
         return service;
     }
 
+    /// <summary>Scope factory whose IRepository&lt;ChatJob&gt; delays every
+    /// SaveChanges — widens the StartAsync insert window so a settle racing
+    /// ahead of the row insert is deterministic, not load-dependent.</summary>
+    private IServiceScopeFactory NewScopeFactoryComPersistenciaLenta()
+    {
+        var services = new ServiceCollection();
+        services.AddScoped(_ => NewContext());
+        services.AddScoped<IRepository<ChatJob>>(sp =>
+            new DelayedSaveChatJobRepository(
+                new EfCoreRepository<ChatJob>(sp.GetRequiredService<TaskboardDbContext>()),
+                TimeSpan.FromMilliseconds(400)));
+        services.AddScoped(sp => NewChatService(sp.GetRequiredService<TaskboardDbContext>()));
+        var provider = services.BuildServiceProvider();
+        _providers.Add(provider);
+        return provider.GetRequiredService<IServiceScopeFactory>();
+    }
+
+    private sealed class DelayedSaveChatJobRepository(
+        IRepository<ChatJob> inner, TimeSpan delay) : IRepository<ChatJob>
+    {
+        public IQueryable<ChatJob> Query => inner.Query;
+
+        public Task<ChatJob?> GetAsync<TKey>(TKey id, CancellationToken cancellationToken = default)
+            where TKey : notnull
+            => inner.GetAsync(id, cancellationToken);
+
+        public Task<IReadOnlyList<ChatJob>> ListAsync(CancellationToken cancellationToken = default)
+            => inner.ListAsync(cancellationToken);
+
+        public Task AddAsync(ChatJob entity, CancellationToken cancellationToken = default)
+            => inner.AddAsync(entity, cancellationToken);
+
+        public Task UpdateAsync(ChatJob entity, CancellationToken cancellationToken = default)
+            => inner.UpdateAsync(entity, cancellationToken);
+
+        public Task DeleteAsync(ChatJob entity, CancellationToken cancellationToken = default)
+            => inner.DeleteAsync(entity, cancellationToken);
+
+        public void Untrack(ChatJob entity) => inner.Untrack(entity);
+
+        public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(delay, cancellationToken);
+            await inner.SaveChangesAsync(cancellationToken);
+        }
+    }
+
     private async Task<ChatConversation> NewConversationAsync()
     {
         var conversation = ChatConversation.Create(
@@ -417,6 +464,24 @@ public sealed class ChatJobsScheduleSearchTests : IDisposable
         (await _context.ChatMessages.AnyAsync(m =>
             m.ConversationId == conversation.Id && m.Content.Contains("hello-job")))
             .ShouldBeTrue("a conclusão do job posta uma system note");
+    }
+
+    [Fact]
+    public async Task Dado_JobInstantaneo_Quando_PersistenciaLenta_Entao_SettleNaoSePerde()
+    {
+        // Race real vista no CI de main: o runner de um processo instantâneo
+        // podia fazer settle antes do AddAsync+SaveChanges do StartAsync —
+        // SettleAsync não achava a linha, retornava cedo e o job ficava
+        // 'running' para sempre. O gate do StartAsync só libera o runner
+        // depois da linha persistida.
+        var conversation = await NewConversationAsync();
+        var jobs = NewJobService(NewScopeFactoryComPersistenciaLenta());
+
+        var job = await jobs.StartAsync(conversation.Id.Value, null, "echo race-gate", _dataDir);
+
+        var finished = await WaitForStatusAsync(
+            jobs, conversation.Id.Value, job.Id, "finished", TimeSpan.FromSeconds(15));
+        finished.ExitCode.ShouldBe(0);
     }
 
     [Fact]
