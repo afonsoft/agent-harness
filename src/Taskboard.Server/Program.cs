@@ -3158,9 +3158,20 @@ void MapAgentsEndpoints()
     });
 
     // SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.
+    // SPEC-20261010-agents-page-tabs RF-004: `take` (default 30, clamp 1..200)
+    // + `cli` validated against [a-z0-9-] (scanner keys are lowercase slugs).
     agents.MapGet("sessions", async (
-        string? cli, IAgentSessionScanner scanner, CancellationToken ct) =>
-        Results.Ok(new { sessions = await scanner.ScanAsync(cli, takePerCli: 50, ct) }));
+        string? cli, int? take, IAgentSessionScanner scanner, CancellationToken ct) =>
+    {
+        if (cli is { Length: > 0 } &&
+            (cli.Length > 32 || !cli.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')))
+        {
+            return Results.BadRequest(new { error = "invalid-cli" });
+        }
+
+        var takePerCli = Math.Clamp(take ?? 30, 1, 200);
+        return Results.Ok(new { sessions = await scanner.ScanAsync(cli, takePerCli, ct) });
+    });
 
     agents.MapPost("executions", async (
         AgentExecutionRequest request,

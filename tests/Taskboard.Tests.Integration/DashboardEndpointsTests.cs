@@ -60,4 +60,37 @@ public class DashboardEndpointsTests : IClassFixture<TaskboardWebApplicationFact
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         (await response.Content.ReadAsStringAsync()).ShouldContain("sessions");
     }
+
+    // SPEC-20261010-agents-page-tabs RF-003/RF-004: cli + take filters.
+    [Fact]
+    public async Task Dado_CliValidoETake_Quando_GetSessions_Entao_200()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agents/sessions?cli=claude&take=30");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Dado_CliInvalido_Quando_GetSessions_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agents/sessions?cli=../etc");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(9999)]
+    public async Task Dado_TakeForaDaFaixa_Quando_GetSessions_Entao_200Clampado(int take)
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync($"/api/agents/sessions?take={take}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
 }
