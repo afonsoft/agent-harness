@@ -144,10 +144,7 @@ public class RuntimeConfigurationServiceTests
     }
 
     [Theory]
-    [InlineData("Taskboard:Port", "abc")]
-    [InlineData("Taskboard:Port", "99999")]
     [InlineData("Logging:LogLevel:Default", "Verbose")]
-    [InlineData("Taskboard:BaseUrl", "not-a-url")]
     [InlineData("AllowedHosts", "")]
     [InlineData("Taskboard:Skills:Repository", "not a repo")]
     [InlineData("Taskboard:Skills:Repository", "ftp://example.com/repo")]
@@ -179,6 +176,10 @@ public class RuntimeConfigurationServiceTests
     [InlineData("Taskboard:DataDir")]
     [InlineData("ConnectionStrings:Taskboard")]
     [InlineData("Admin:Username")]
+    // SPEC-20261010-settings-configuration-tab RF-002: binding do servidor virou
+    // read-only — via HARNESS_PORT/HARNESS_URL ou appsettings.json.
+    [InlineData("Taskboard:Port")]
+    [InlineData("Taskboard:BaseUrl")]
     public async Task Dado_ChaveReadOnly_Quando_SetOverride_Entao_RetornaReadOnly(string key)
     {
         // Covers RF-004 / invariants: chicken-egg and admin keys never persist overrides
@@ -281,13 +282,13 @@ public class RuntimeConfigurationServiceTests
         var (service, context, _) = CreateSut(new ConfigurationBuilder().Build());
         context.ConfigurationOverrides.Add(new ConfigurationOverride(Guid.NewGuid())
         {
-            Key = "Taskboard:Port",
-            Value = "5000",
+            Key = "AllowedHosts",
+            Value = "example.com",
             UpdatedAt = DateTime.UtcNow,
         });
         context.SaveChanges();
 
-        var result = await service.DeleteOverrideAsync("Taskboard:Port");
+        var result = await service.DeleteOverrideAsync("AllowedHosts");
 
         result.Error.ShouldBe(ConfigurationWriteError.None);
         context.ConfigurationOverrides.ShouldBeEmpty();
@@ -299,7 +300,7 @@ public class RuntimeConfigurationServiceTests
         // Covers RF-005: deleting a missing override returns NotFound
         var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
 
-        var result = await service.DeleteOverrideAsync("Taskboard:Port");
+        var result = await service.DeleteOverrideAsync("AllowedHosts");
 
         result.Error.ShouldBe(ConfigurationWriteError.NotFound);
     }
@@ -403,6 +404,90 @@ public class RuntimeConfigurationServiceTests
 
         result.Error.ShouldBe(ConfigurationWriteError.Validation);
         context.ConfigurationOverrides.ShouldBeEmpty();
+    }
+
+    // SPEC-20261010-settings-configuration-tab RF-001.
+    [Fact]
+    public void Dado_Catalogo_Quando_Listar_Entao_GroupEManagedInProjetados()
+    {
+        var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        var entries = service.GetEntries();
+
+        var port = entries.Single(e => e.Key == "Taskboard:Port");
+        port.Group.ShouldBe("Server");
+        port.ManagedIn.ShouldBeNull();
+        port.Editable.ShouldBeFalse();
+        port.ReadOnlyReason.ShouldNotBeNullOrEmpty();
+
+        var cache = entries.Single(e => e.Key == "Taskboard:Cache:Redis:ConnectionString");
+        cache.Group.ShouldBe("Connections");
+        cache.ManagedIn.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Taskboard:Agents:DefaultPrompt", "/agents?tab=prompt")]
+    [InlineData("Taskboard:Terminal:Enabled", "/settings?tab=general")]
+    [InlineData("Taskboard:WebCliAgent:Enabled", "/settings?tab=general")]
+    [InlineData("Taskboard:Skills:Repository", "/settings?tab=integrations")]
+    [InlineData("Taskboard:Rag:ServerName", "/settings?tab=integrations")]
+    [InlineData("Taskboard:Rag:Url", "/settings?tab=integrations")]
+    [InlineData("Taskboard:Rag:ApiKey", "/settings?tab=integrations")]
+    [InlineData("Taskboard:Chat:SearchBackend", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:SearchUrl", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:SearchApiKey", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:DefaultChatModel", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:DefaultCodeModel", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:DefaultImageModel", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:Capabilities:Disabled", "/settings?tab=chat")]
+    [InlineData("Taskboard:Chat:Mcp:Enabled", "/settings?tab=mcp-skills")]
+    [InlineData("Taskboard:Chat:Mcp:Servers", "/settings?tab=mcp-skills")]
+    [InlineData("Taskboard:Chat:Mcp:CallTimeoutSeconds", "/settings?tab=mcp-skills")]
+    public void Dado_ChaveComTelaDedicada_Quando_Listar_Entao_ManagedInRota(string key, string expectedRoute)
+    {
+        // SPEC-20261010-settings-configuration-tab RF-001 dedupe map: chaves com
+        // UI dedicada carregam a rota — a aba Configuration as esconde da tabela.
+        var (service, _, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        var entry = service.GetEntries().Single(e => e.Key == key);
+
+        entry.ManagedIn.ShouldBe(expectedRoute);
+    }
+
+    [Fact]
+    public void Dado_SqliteSemRedis_Quando_GetConnectionInfo_Entao_SqliteEMemory()
+    {
+        // SPEC-20261010 RF-003: defaults de hoje — SQLite + cache L1-only.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>(
+                "ConnectionStrings:Taskboard", "Data Source=/var/harness.sqlite")])
+            .Build();
+        var (service, _, _) = CreateSut(configuration);
+
+        var info = service.GetConnectionInfo();
+
+        info.DbProvider.ShouldBe("sqlite");
+        info.CacheMode.ShouldBe("memory");
+        info.DbConnectionName.ShouldBe("Taskboard");
+        // connstring chega mascarada, nunca em claro
+        info.DbConnectionString.ShouldBe("••••lite");
+    }
+
+    [Fact]
+    public void Dado_RedisConfigurado_Quando_GetConnectionInfo_Entao_Redis()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([
+                new KeyValuePair<string, string?>("Taskboard:Cache:Redis:ConnectionString", "localhost:6379"),
+                new KeyValuePair<string, string?>("Taskboard:Cache:Redis:InstanceName", "harness:"),
+            ])
+            .Build();
+        var (service, _, _) = CreateSut(configuration);
+
+        var info = service.GetConnectionInfo();
+
+        info.CacheMode.ShouldBe("redis");
+        info.CacheInstanceName.ShouldBe("harness:");
     }
 
     private static (RuntimeConfigurationService Service, TaskboardDbContext Context, string DbPath) CreateSut(

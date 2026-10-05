@@ -1,6 +1,7 @@
 @page "/agents"
 @attribute [Authorize]
 @inject TaskboardClient Client
+@inject NavigationManager Navigation
 @inject IAgentPromptTemplateService PromptTemplateService
 @inject ILocaleService L
 @inject ToastService ToastService
@@ -13,144 +14,24 @@
 <h1 class="h4 fw-bold mb-1">CLI Agents</h1>
 <p class="small text-body-secondary mb-4">Agent CLIs detected on this machine. Open a terminal to authenticate or manage each CLI.</p>
 
-<div class="card">
-    <div class="card-body">
-        <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
-            @if (_refreshingProbes)
-            {
-                <span class="small text-body-secondary d-inline-flex align-items-center me-auto">
-                    <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" class="me-1" /> Updating CLI info…
-                </span>
-            }
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="SyncMetricsAsync" Disabled="_syncing">
-                @if (_syncing)
-                {
-                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
-                }
-                else
-                {
-                    <Icon Name="IconName.CloudArrowDown" class="me-1" />
-                }
-                Sync now
-            </Button>
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAllAsync" Disabled="_loading">
-                <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
-            </Button>
-        </div>
+@* SPEC-20261010-agents-page-tabs RF-001: abas Dashboard/Sessions/CLI Agents/Prompt
+   — mesmo modelo ARIA/keyboard/deep-link (?tab=) do Settings. *@
+<nav class="settings-tabs nav nav-tabs mb-4 pb-0 border-bottom flex-nowrap overflow-auto" role="tablist" aria-label="Agent sections" @onkeydown="OnTabsKeyDown">
+    @foreach (var tab in AgentsTabs)
+    {
+        var id = tab.Id;
+        <button type="button" role="tab" class="nav-link text-nowrap @(id == _activeTab ? "active" : "")"
+                aria-selected="@(id == _activeTab ? "true" : "false")" tabindex="@(id == _activeTab ? 0 : -1)"
+                data-tab="@id" @onclick="() => SelectTab(id)">
+            @tab.Label
+        </button>
+    }
+</nav>
 
-        @if (_loading && _agents is null)
-        {
-            <Loading Message="Detecting agent CLIs…" />
-        }
-        else if (!string.IsNullOrEmpty(_error))
-        {
-            <Alert Color="AlertColor.Danger" Dismissable="false">
-                <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
-            </Alert>
-        }
-        else if (_agents is { Count: > 0 })
-        {
-            <div class="table-responsive">
-                <table class="table align-middle mb-0">
-                    <thead>
-                        <tr>
-                            <th>CLI</th>
-                            <th>Binary</th>
-                            <th>Installed</th>
-                            <th>Version</th>
-                            <th>Auth</th>
-                            <th>Config dir</th>
-                            <th title="Sessions ingested from the local CLI database (last 7 days)">Sessions 7d</th>
-                            <th>Tokens</th>
-                            <th>Last activity</th>
-                            <th>Metrics DB</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var agent in _agents)
-                        {
-                            <tr>
-                                <td class="fw-semibold">@agent.DisplayName</td>
-                                <td><code>@agent.Binary</code></td>
-                                <td>
-                                    @if (agent.Installed)
-                                    {
-                                        <Badge Color="BadgeColor.Success">Installed</Badge>
-                                    }
-                                    else
-                                    {
-                                        <Badge Color="BadgeColor.Secondary">Not found</Badge>
-                                    }
-                                </td>
-                                <td class="small">@(agent.Version ?? "—")</td>
-                                <td>
-                                    @switch (agent.AuthStatus)
-                                    {
-                                        case AgentCliAuthStatus.Authenticated:
-                                            <Badge Color="BadgeColor.Success">Authenticated</Badge>
-                                            break;
-                                        case AgentCliAuthStatus.NotAuthenticated:
-                                            <Badge Color="BadgeColor.Warning">Not authenticated</Badge>
-                                            break;
-                                        default:
-                                            <Badge Color="BadgeColor.Secondary">Unknown</Badge>
-                                            break;
-                                    }
-                                </td>
-                                <td class="small"><code>@agent.ConfigDir</code></td>
-                                <td class="small">@SessionsFor(agent)</td>
-                                <td class="small">@TokensFor(agent)</td>
-                                <td class="small">@LastActivityFor(agent)</td>
-                                <td>
-                                    @{
-                                        var (badgeColor, badgeLabel) = SourceBadgeFor(agent);
-                                    }
-                                    <Badge Color="badgeColor">@badgeLabel</Badge>
-                                </td>
-                                <td class="text-end">
-                                    @if (agent.Installed)
-                                    {
-                                        <div class="d-inline-flex gap-2">
-                                            <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(agent.LoginCommand)">
-                                                <Icon Name="IconName.Terminal" class="me-1" /> Login
-                                            </a>
-                                            @if (SupportsModelSelection(agent))
-                                            {
-                                                <button class="btn btn-sm btn-outline-secondary"
-                                                        title="Configurar modelos Lite/Normal/Ultra"
-                                                        @onclick="() => StartModelConfigAsync(agent)">
-                                                    <Icon Name="IconName.Gear" class="me-1" /> Models
-                                                </button>
-                                            }
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-primary"
-                                                disabled="@(!agent.PrerequisiteMet)"
-                                                title="@InstallButtonTitle(agent)"
-                                                @onclick="() => StartInstallAsync(agent)">
-                                            <Icon Name="IconName.Download" class="me-1" /> Install
-                                        </button>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-            <p class="small text-body-secondary mt-3 mb-0">
-                <Icon Name="IconName.InfoCircle" class="me-1" />
-                Auth status is detected by the presence of credential files — contents are never read. Commands are typed into the terminal, not executed automatically.
-            </p>
-        }
-    </div>
-</div>
-
+<div class="tab-pane" role="tabpanel" aria-label="Dashboard" hidden="@(_activeTab != "dashboard")">
 @* SPEC-20261006 RF-001: agent dashboard — attention columns built from
    delegation tasks, live runs and the mailbox. *@
-<div class="card mt-4">
+<div class="card">
     <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
             <h2 class="h6 fw-semibold mb-0">Agent Dashboard</h2>
@@ -372,18 +253,43 @@
 </Modal>
 
 @* SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions. *@
-<div class="card mt-4">
+</div>
+
+<div class="tab-pane" role="tabpanel" aria-label="Sessions" hidden="@(_activeTab != "sessions")">
+<div class="card">
     <div class="card-body">
+        @* RF-003: picker primeiro — só depois de escolher o CLI a tabela aparece
+           (últimas 30 via ?take=30). Custom defs não têm store scaneado → chips
+           desabilitados com tooltip. *@
+        <div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="Session source CLI">
+            @foreach (var src in SessionSources)
+            {
+                var id = src;
+                <button type="button" class="btn btn-sm @(id == _selectedCli ? "btn-primary" : "btn-outline-secondary")"
+                        aria-pressed="@(id == _selectedCli ? "true" : "false")" data-cli="@id"
+                        @onclick="() => SelectSessionCliAsync(id)">@id</button>
+            }
+            @foreach (var def in _customDefs)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                        title="Session store not scanned for this CLI">@def.DisplayName</button>
+            }
+        </div>
+
         <div class="d-flex align-items-center justify-content-between mb-2">
             <h2 class="h6 fw-semibold mb-0">CLI Sessions</h2>
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadSessionsAsync" Disabled="_sessionsLoading">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadSessionsAsync" Disabled="_sessionsLoading || _selectedCli is null">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
         </div>
-        @if (_sessions.Count == 0)
+        @if (_selectedCli is null)
+        {
+            <p class="small text-body-secondary mb-0">Select a CLI above to list its on-disk sessions (last 30).</p>
+        }
+        else if (_sessions.Count == 0)
         {
             <p class="small text-body-secondary mb-0">
-                @(_sessionsLoading ? "Scanning transcripts…" : "No on-disk sessions found for claude/codex/opencode/gemini/agy/devin under $HOME.")
+                @(_sessionsLoading ? "Scanning transcripts…" : $"No on-disk sessions found for '{_selectedCli}' under $HOME.")
             </p>
         }
         else
@@ -423,6 +329,143 @@
                     </tbody>
                 </table>
             </div>
+        }
+    </div>
+</div>
+</div>
+
+<div class="tab-pane" role="tabpanel" aria-label="CLI Agents" hidden="@(_activeTab != "cli-agents")">
+<div class="card">
+    <div class="card-body">
+        <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
+            @if (_refreshingProbes)
+            {
+                <span class="small text-body-secondary d-inline-flex align-items-center me-auto">
+                    <Spinner Type="SpinnerType.Border" Size="SpinnerSize.Small" class="me-1" /> Updating CLI info…
+                </span>
+            }
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="SyncMetricsAsync" Disabled="_syncing">
+                @if (_syncing)
+                {
+                    <Spinner Size="SpinnerSize.Small" Class="me-1" />
+                }
+                else
+                {
+                    <Icon Name="IconName.CloudArrowDown" class="me-1" />
+                }
+                Sync now
+            </Button>
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="RefreshAllAsync" Disabled="_loading">
+                <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
+            </Button>
+        </div>
+
+        @if (_loading && _agents is null)
+        {
+            <Loading Message="Detecting agent CLIs…" />
+        }
+        else if (!string.IsNullOrEmpty(_error))
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false">
+                <Icon Name="IconName.ExclamationTriangleFill" class="me-2" />@_error
+            </Alert>
+        }
+        else if (_agents is { Count: > 0 })
+        {
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>CLI</th>
+                            <th>Binary</th>
+                            <th>Installed</th>
+                            <th>Version</th>
+                            <th>Auth</th>
+                            <th>Config dir</th>
+                            <th title="Sessions ingested from the local CLI database (last 7 days)">Sessions 7d</th>
+                            <th>Tokens</th>
+                            <th>Last activity</th>
+                            <th>Metrics DB</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var agent in _agents)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@agent.DisplayName</td>
+                                <td><code>@agent.Binary</code></td>
+                                <td>
+                                    @if (agent.Installed)
+                                    {
+                                        <Badge Color="BadgeColor.Success">Installed</Badge>
+                                    }
+                                    else
+                                    {
+                                        <Badge Color="BadgeColor.Secondary">Not found</Badge>
+                                    }
+                                </td>
+                                <td class="small">@(agent.Version ?? "—")</td>
+                                <td>
+                                    @switch (agent.AuthStatus)
+                                    {
+                                        case AgentCliAuthStatus.Authenticated:
+                                            <Badge Color="BadgeColor.Success">Authenticated</Badge>
+                                            break;
+                                        case AgentCliAuthStatus.NotAuthenticated:
+                                            <Badge Color="BadgeColor.Warning">Not authenticated</Badge>
+                                            break;
+                                        default:
+                                            <Badge Color="BadgeColor.Secondary">Unknown</Badge>
+                                            break;
+                                    }
+                                </td>
+                                <td class="small"><code>@agent.ConfigDir</code></td>
+                                <td class="small">@SessionsFor(agent)</td>
+                                <td class="small">@TokensFor(agent)</td>
+                                <td class="small">@LastActivityFor(agent)</td>
+                                <td>
+                                    @{
+                                        var (badgeColor, badgeLabel) = SourceBadgeFor(agent);
+                                    }
+                                    <Badge Color="badgeColor">@badgeLabel</Badge>
+                                </td>
+                                <td class="text-end">
+                                    @if (agent.Installed)
+                                    {
+                                        <div class="d-inline-flex gap-2">
+                                            <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(agent.LoginCommand)">
+                                                <Icon Name="IconName.Terminal" class="me-1" /> Login
+                                            </a>
+                                            @if (SupportsModelSelection(agent))
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary"
+                                                        title="Configurar modelos Lite/Normal/Ultra"
+                                                        @onclick="() => StartModelConfigAsync(agent)">
+                                                    <Icon Name="IconName.Gear" class="me-1" /> Models
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-primary"
+                                                disabled="@(!agent.PrerequisiteMet)"
+                                                title="@InstallButtonTitle(agent)"
+                                                @onclick="() => StartInstallAsync(agent)">
+                                            <Icon Name="IconName.Download" class="me-1" /> Install
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="small text-body-secondary mt-3 mb-0">
+                <Icon Name="IconName.InfoCircle" class="me-1" />
+                Auth status is detected by the presence of credential files — contents are never read. Commands are typed into the terminal, not executed automatically.
+            </p>
         }
     </div>
 </div>
@@ -582,8 +625,10 @@
         </Button>
     </FooterTemplate>
 </Modal>
+</div>
 
-<div class="card mt-4">
+<div class="tab-pane" role="tabpanel" aria-label="Prompt" hidden="@(_activeTab != "prompt")">
+<div class="card">
     <div class="card-body">
         <h2 class="h6 fw-semibold mb-1">Default agent prompt</h2>
         <p class="small text-body-secondary">
@@ -613,6 +658,7 @@
             }
         </div>
     </div>
+</div>
 </div>
 
 @code {
@@ -653,7 +699,23 @@
     private AgentDashboardDto? _dashboard;
     private bool _dashboardLoading = true;
     private IReadOnlyList<AgentSessionInfoDto> _sessions = [];
-    private bool _sessionsLoading = true;
+    private bool _sessionsLoading;
+
+    // SPEC-20261010-agents-page-tabs RF-001/RF-003: tabs + picker-first sessions.
+    private static readonly (string Id, string Label)[] AgentsTabs =
+    [
+        ("dashboard", "Dashboard"),
+        ("sessions", "Sessions"),
+        ("cli-agents", "CLI Agents"),
+        ("prompt", "Prompt"),
+    ];
+    private string _activeTab = "dashboard";
+
+    // Sources scanned by AgentSessionScanner.Include (same slugs `?cli=` uses).
+    private static readonly string[] SessionSources =
+        ["claude", "codex", "opencode", "gemini", "agy", "devin"];
+    private const int SessionsTake = 30;
+    private string? _selectedCli;
 
     // SPEC-20261007 RF-001/RF-004: mailbox replies + fan-out compare modal.
     private string? _openReplyId;
@@ -674,7 +736,87 @@
     {
         await Task.WhenAll(
             RefreshAsync(), LoadTemplateAsync(), LoadCustomDefsAsync(),
-            LoadDashboardAsync(), LoadSessionsAsync());
+            LoadDashboardAsync());
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // ?tab= / ?cli= deep link — refresh/URL preserva aba e CLI escolhido.
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var tab = ResolveQueryValue("tab");
+        if (tab is not null && AgentsTabs.Any(t => t.Id == tab))
+        {
+            _activeTab = tab;
+        }
+
+        var cli = ResolveQueryValue("cli");
+        if (cli is not null && SessionSources.Contains(cli, StringComparer.OrdinalIgnoreCase))
+        {
+            _selectedCli = SessionSources.First(s =>
+                string.Equals(s, cli, StringComparison.OrdinalIgnoreCase));
+            await LoadSessionsAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private string? ResolveQueryValue(string name)
+    {
+        var query = new Uri(Navigation.Uri).Query;
+        if (query.Length <= 1)
+        {
+            return null;
+        }
+
+        return query[1..].Split('&')
+            .Select(pair => pair.Split('=', 2))
+            .Where(pair => pair.Length == 2 && pair[0] == name)
+            .Select(pair => Uri.UnescapeDataString(pair[1]))
+            .FirstOrDefault();
+    }
+
+    private void SelectTab(string id)
+    {
+        _activeTab = id;
+        var query = id == "sessions" && _selectedCli is not null
+            ? $"?tab={id}&cli={_selectedCli}"
+            : $"?tab={id}";
+        Navigation.NavigateTo($"/agents{query}", replace: true);
+    }
+
+    /// <summary>WAI-ARIA tabs keyboard model: ←/→ cycle, Home/End jump.</summary>
+    private void OnTabsKeyDown(KeyboardEventArgs e)
+    {
+        var index = Array.FindIndex(AgentsTabs, t => t.Id == _activeTab);
+        if (index < 0)
+        {
+            return;
+        }
+
+        var next = e.Key switch
+        {
+            "ArrowRight" => (index + 1) % AgentsTabs.Length,
+            "ArrowLeft" => (index - 1 + AgentsTabs.Length) % AgentsTabs.Length,
+            "Home" => 0,
+            "End" => AgentsTabs.Length - 1,
+            _ => index,
+        };
+
+        if (next != index)
+        {
+            SelectTab(AgentsTabs[next].Id);
+        }
+    }
+
+    private async Task SelectSessionCliAsync(string cli)
+    {
+        _selectedCli = cli;
+        Navigation.NavigateTo($"/agents?tab=sessions&cli={cli}", replace: true);
+        await LoadSessionsAsync();
     }
 
     private async Task LoadDashboardAsync()
@@ -730,10 +872,16 @@
 
     private async Task LoadSessionsAsync()
     {
+        if (_selectedCli is null)
+        {
+            _sessions = [];
+            return;
+        }
+
         _sessionsLoading = true;
         try
         {
-            _sessions = await Client.GetAgentSessionsAsync();
+            _sessions = await Client.GetAgentSessionsAsync(_selectedCli, take: SessionsTake);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
