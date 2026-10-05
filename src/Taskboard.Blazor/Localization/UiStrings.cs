@@ -177,6 +177,8 @@ public static class UiStrings
 
             // SPEC-20261009: delegation wave P5.
             ["agents.compare.useLeg"] = "Usar esta perna",
+            ["agents.compare.useLegPr"] = "Usar e abrir PR",
+            ["agents.compare.openPr"] = "Abrir PR",
             ["agents.activity.title"] = "Atividade",
             ["taskdetail.delegate"] = "Delegar para worktree",
         };
@@ -339,6 +341,8 @@ public static class UiStrings
 
             // SPEC-20261009: delegation wave P5.
             ["agents.compare.useLeg"] = "Use this leg",
+            ["agents.compare.useLegPr"] = "Use and open PR",
+            ["agents.compare.openPr"] = "Open PR",
             ["agents.activity.title"] = "Activity",
             ["taskdetail.delegate"] = "Delegate to worktree",
         };
@@ -501,6 +505,8 @@ public static class UiStrings
 
             // SPEC-20261009: delegation wave P5.
             ["agents.compare.useLeg"] = "Usar esta rama",
+            ["agents.compare.useLegPr"] = "Usar y abrir PR",
+            ["agents.compare.openPr"] = "Abrir PR",
             ["agents.activity.title"] = "Actividad",
             ["taskdetail.delegate"] = "Delegar a worktree",
         };
