@@ -73,6 +73,13 @@ public sealed record ChatPressureEvent(
 /// </summary>
 public sealed record ChatSteerClaimedEvent(string SteerId, string Content) : ChatStreamEvent;
 
+/// <summary>
+/// SPEC-20261005-chat-attachments-feedback RF-007: the run's changed/declared
+/// files — SSE <c>chat.deliverables</c>; the same rows persist as
+/// <c>ChatRunDeliverable</c> for the post-reload card.
+/// </summary>
+public sealed record ChatDeliverablesEvent(IReadOnlyList<ChatDeliverableDto> Deliverables) : ChatStreamEvent;
+
 /// <summary>Request-level validation failure surfaced as 400.</summary>
 public sealed class ChatValidationException(string message) : Exception(message);
 
@@ -87,6 +94,13 @@ public sealed class ChatApprovalConflictException(string message) : Exception(me
 /// an already-claimed steer — surfaced as 409.
 /// </summary>
 public sealed class ChatSteerConflictException(string message) : Exception(message);
+
+/// <summary>
+/// SPEC-20261005-chat-attachments-feedback: attachment/feedback conflict —
+/// bound-attachment delete, CAS version mismatch on feedback upsert —
+/// surfaced as 409.
+/// </summary>
+public sealed class ChatConflictException(string message) : Exception(message);
 
 /// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
@@ -113,7 +127,13 @@ public sealed class ChatService(
     IEnumerable<IChatRunNotifier> notifiers,
     ILogger<ChatService> logger,
     TimeProvider? clock = null,
-    ISpillStore? spillStore = null) : IChatRunExecutor
+    ISpillStore? spillStore = null,
+    IRepository<ChatAttachment>? attachmentRepository = null,
+    IRepository<ChatMessageFeedback>? feedbackRepository = null,
+    IRepository<ChatRunDeliverable>? deliverableRepository = null,
+    ChatAttachmentStore? attachmentStore = null,
+    IChatFileEditTracker? editTracker = null,
+    IChatWorkspaceDiffService? workspaceDiff = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -263,7 +283,8 @@ public sealed class ChatService(
     }
 
     public async Task<IReadOnlyList<ChatConversationDto>> ListConversationsAsync(
-        string? query, bool archived = false, CancellationToken ct = default)
+        string? query, bool archived = false, CancellationToken ct = default,
+        bool hasNegativeFeedback = false)
     {
         // RF-006: archive is a view flag — active/archived lists are disjoint.
         var rows = await conversations.Query
@@ -271,6 +292,21 @@ public sealed class ChatService(
             .OrderByDescending(c => c.UpdatedAt)
             .Take(200)
             .ToListAsync(ct).ConfigureAwait(false);
+
+        // SPEC-20261005-chat-attachments-feedback RF-005: the "needs review"
+        // sidebar filter — conversations carrying at least one 👎.
+        if (hasNegativeFeedback && feedbackRepository is not null)
+        {
+            var negativeIds = (await feedbackRepository.Query
+                    .AsNoTracking()
+                    .Where(f => f.Rating == ChatFeedbackRatings.Negative)
+                    .Select(f => f.ConversationId)
+                    .Distinct()
+                    .ToListAsync(ct).ConfigureAwait(false))
+                .Select(i => i.Value)
+                .ToHashSet(StringComparer.Ordinal);
+            rows = rows.Where(c => negativeIds.Contains(c.Id.Value)).ToList();
+        }
         if (!string.IsNullOrWhiteSpace(query))
         {
             var term = query.Trim();
@@ -376,11 +412,23 @@ public sealed class ChatService(
             .OrderBy(a => a.RequestedAt)
             .ToListAsync(ct).ConfigureAwait(false);
 
+        // RF-007: the completed run's deliverables card replays on load.
+        IReadOnlyList<ChatDeliverableDto>? lastRunDeliverables = null;
+        if (last is not null && deliverableRepository is not null)
+        {
+            var deliverableRows = await deliverableRepository.Query
+                .AsNoTracking()
+                .Where(d => d.RunId == last.Id)
+                .ToListAsync(ct).ConfigureAwait(false);
+            lastRunDeliverables = deliverableRows.Select(ToDto).ToList();
+        }
+
         return new ChatConversationDetailDto(
-            ToDto(conversation, null), rows.Select(ToDto).ToList(),
+            ToDto(conversation, null), await EnrichMessagesAsync(rows, ct).ConfigureAwait(false),
             active is null ? null : ToDto(active),
             last is null ? null : ToDto(last),
-            pendingApprovals.Select(ToDto).ToList());
+            pendingApprovals.Select(ToDto).ToList(),
+            lastRunDeliverables);
     }
 
     public async Task<ChatConversationDto?> PatchConversationAsync(
@@ -489,7 +537,8 @@ public sealed class ChatService(
     /// 409 when the inbox is full (<see cref="ChatSteer.MaxPendingPerRun"/>).
     /// </summary>
     public async Task<(ChatRunDto Run, string SteerId)?> EnqueueSteerAsync(
-        string conversationId, string content, CancellationToken ct = default)
+        string conversationId, string content, CancellationToken ct = default,
+        IReadOnlyList<string>? attachmentIds = null)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -521,8 +570,11 @@ public sealed class ChatService(
                 $"Steer inbox is full ({ChatSteer.MaxPendingPerRun} pending).");
         }
 
+        // Attachments ride the steer — the drain binds them to the steer
+        // message it persists and appends descriptors to the wire text.
         var item = ChatSteer.Create(
-            ChatSteerId.NewGuid(), active.Id, conversation.Id, content.Trim(), UtcNow);
+            ChatSteerId.NewGuid(), active.Id, conversation.Id, content.Trim(), UtcNow,
+            attachmentIds is { Count: > 0 } ? JsonSerializer.Serialize(attachmentIds) : null);
         await steerRepository.AddAsync(item, ct).ConfigureAwait(false);
         conversation.Touch(UtcNow);
         await steerRepository.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -532,7 +584,8 @@ public sealed class ChatService(
     }
 
     public async Task<ChatRunDto> EnqueueMessageAsync(
-        string conversationId, string content, CancellationToken ct = default)
+        string conversationId, string content, CancellationToken ct = default,
+        IReadOnlyList<string>? attachmentIds = null)
     {
         var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
@@ -550,6 +603,10 @@ public sealed class ChatService(
         await messages.AddAsync(userMessage, ct).ConfigureAwait(false);
         conversation.EnsureTitle(content, UtcNow);
         conversation.Touch(UtcNow);
+
+        // SPEC-20261005-chat-attachments-feedback RF-002: bind the staged
+        // uploads to this message (cap + ownership enforced).
+        await BindAttachmentsAsync(conversation.Id, userMessage.Id, attachmentIds, ct).ConfigureAwait(false);
 
         var run = ChatRun.Create(ChatRunId.NewGuid(), conversation.Id, userMessage.Id, UtcNow);
         await runRepository.AddAsync(run, ct).ConfigureAwait(false);
@@ -579,6 +636,294 @@ public sealed class ChatService(
         await steerRepository.DeleteAsync(steer, ct).ConfigureAwait(false);
         await steerRepository.SaveChangesAsync(ct).ConfigureAwait(false);
         await NotifySteerResolvedAsync(conversationId, steerId, "cancelled", ct).ConfigureAwait(false);
+    }
+
+    // ---- SPEC-20261005-chat-attachments-feedback: attachments ----
+
+    private const string AttachmentsEnabledKey = "Taskboard:Chat:Attachments:Enabled";
+    private const string AttachmentsMaxBytesKey = "Taskboard:Chat:Attachments:MaxBytes";
+    private const string AttachmentsMaxPerMessageKey = "Taskboard:Chat:Attachments:MaxPerMessage";
+    private const string AttachmentsAllowedMimeKey = "Taskboard:Chat:Attachments:AllowedMime";
+    private const long DefaultAttachmentsMaxBytes = 8L * 1024 * 1024;
+    private const int DefaultAttachmentsMaxPerMessage = 5;
+
+    private bool AttachmentsEnabled =>
+        !string.Equals(configuration[AttachmentsEnabledKey], "false", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Allowlist entries — comma list, supports <c>prefix/*</c>.</summary>
+    private IReadOnlyList<string> AllowedAttachmentMime()
+    {
+        var raw = configuration[AttachmentsAllowedMimeKey];
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return ChatAttachmentSniffer.DefaultAllowedMime;
+        }
+
+        return raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    /// <summary>
+    /// RF-001/RF-008: stages an upload — MIME comes from sniffed bytes, never
+    /// the declared header (RNF-002); over-cap/ allowlist reject as 400.
+    /// </summary>
+    public async Task<ChatAttachmentDto> UploadAttachmentAsync(
+        string conversationId, string fileName, byte[] bytes, CancellationToken ct = default)
+    {
+        if (attachmentRepository is null || attachmentStore is null)
+        {
+            throw new ChatValidationException("Attachments are not available.");
+        }
+
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
+        if (conversation.ArchivedAt is not null)
+        {
+            throw new ChatArchivedException($"Conversation '{conversationId}' is archived.");
+        }
+
+        if (!AttachmentsEnabled)
+        {
+            throw new ChatValidationException("Attachments are disabled (Taskboard:Chat:Attachments:Enabled).");
+        }
+
+        var maxBytes = ParseLong(AttachmentsMaxBytesKey, DefaultAttachmentsMaxBytes);
+        if (bytes.LongLength > maxBytes)
+        {
+            throw new ChatValidationException($"Attachment exceeds the {maxBytes} byte limit.");
+        }
+
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            fileName = "attachment";
+        }
+
+        var sniffed = ChatAttachmentSniffer.Sniff(
+            bytes.AsSpan(0, Math.Min(bytes.Length, 8192)), fileName, AllowedAttachmentMime());
+        if (sniffed is null)
+        {
+            throw new ChatValidationException($"Attachment type is not allowed for '{fileName}'.");
+        }
+
+        var id = ChatAttachmentId.NewGuid();
+        var (storagePath, sha256) = attachmentStore.Save(id.Value, sniffed, bytes);
+        var row = ChatAttachment.Create(
+            id, conversation.Id, fileName.Trim(), sniffed, bytes.LongLength, storagePath, sha256, UtcNow);
+        await attachmentRepository.AddAsync(row, ct).ConfigureAwait(false);
+        await attachmentRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(row);
+    }
+
+    /// <summary>RF-001: resolves a bound/staged attachment for download (row + file).</summary>
+    public async Task<(ChatAttachment Attachment, string FullPath)?> GetAttachmentAsync(
+        string conversationId, string attachmentId, CancellationToken ct = default)
+    {
+        if (attachmentRepository is null || attachmentStore is null)
+        {
+            return null;
+        }
+
+        var row = await attachmentRepository.GetAsync(ChatAttachmentId.From(attachmentId), ct).ConfigureAwait(false);
+        if (row is null || !string.Equals(row.ConversationId.Value, conversationId, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var full = attachmentStore.ResolvePath(row.StoragePath);
+        return full is null ? null : (row, full);
+    }
+
+    /// <summary>RF-001: delete allowed only while staged — bound rows are transcript history.</summary>
+    public async Task DeleteAttachmentAsync(
+        string conversationId, string attachmentId, CancellationToken ct = default)
+    {
+        if (attachmentRepository is null)
+        {
+            throw new ChatValidationException("Attachments are not available.");
+        }
+
+        var row = await attachmentRepository.GetAsync(ChatAttachmentId.From(attachmentId), ct).ConfigureAwait(false);
+        if (row is null || !string.Equals(row.ConversationId.Value, conversationId, StringComparison.Ordinal))
+        {
+            throw new ChatValidationException($"Attachment '{attachmentId}' not found.");
+        }
+
+        if (row.MessageId is not null)
+        {
+            throw new ChatConflictException($"Attachment '{attachmentId}' is already bound to a message.");
+        }
+
+        attachmentStore?.Delete(row.StoragePath);
+        await attachmentRepository.DeleteAsync(row, ct).ConfigureAwait(false);
+        await attachmentRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>RF-001: orphan sweep — staged rows older than <paramref name="maxAge"/>.</summary>
+    public async Task<int> SweepOrphanedAttachmentsAsync(TimeSpan maxAge, CancellationToken ct = default)
+    {
+        if (attachmentRepository is null)
+        {
+            return 0;
+        }
+
+        var cutoff = UtcNow - maxAge;
+        var orphans = await attachmentRepository.Query
+            .Where(a => a.MessageId == null && a.CreatedAt < cutoff)
+            .Take(500)
+            .ToListAsync(ct).ConfigureAwait(false);
+        foreach (var orphan in orphans)
+        {
+            attachmentStore?.Delete(orphan.StoragePath);
+            await attachmentRepository.DeleteAsync(orphan, ct).ConfigureAwait(false);
+        }
+
+        if (orphans.Count > 0)
+        {
+            await attachmentRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        return orphans.Count;
+    }
+
+    /// <summary>
+    /// RF-002: validates + binds the staged attachments to a just-created
+    /// message — same conversation, staged, under the cap.
+    /// </summary>
+    private async Task BindAttachmentsAsync(
+        ChatConversationId conversationId, ChatMessageId messageId,
+        IReadOnlyList<string>? attachmentIds, CancellationToken ct)
+    {
+        if (attachmentIds is null or { Count: 0 })
+        {
+            return;
+        }
+
+        if (attachmentRepository is null)
+        {
+            throw new ChatValidationException("Attachments are not available.");
+        }
+
+        var maxPer = ParseInt(AttachmentsMaxPerMessageKey, DefaultAttachmentsMaxPerMessage);
+        if (attachmentIds.Count > maxPer)
+        {
+            throw new ChatValidationException($"At most {maxPer} attachments per message.");
+        }
+
+        var rawIds = attachmentIds.Distinct(StringComparer.Ordinal).ToList();
+        var ids = rawIds.Select(ChatAttachmentId.From).ToList();
+        var rows = await attachmentRepository.Query
+            .Where(a => a.ConversationId == conversationId && ids.Contains(a.Id))
+            .ToListAsync(ct).ConfigureAwait(false);
+        if (rows.Count != rawIds.Count)
+        {
+            throw new ChatValidationException("Unknown attachment id in attachmentIds.");
+        }
+
+        if (rows.Any(a => a.MessageId is not null))
+        {
+            throw new ChatConflictException("An attachment is already bound to a message.");
+        }
+
+        foreach (var row in rows)
+        {
+            row.Bind(messageId, UtcNow);
+        }
+
+        await attachmentRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Descriptor line appended to a message's wire text (RF-002).</summary>
+    private static string DescribeAttachments(IReadOnlyList<ChatAttachment> attachments) =>
+        string.Concat(attachments.Select(a =>
+            $"\n[attachment id={a.Id.Value} name={a.FileName} type={a.ContentType} bytes={a.ByteSize} — read via attach://{a.Id.Value}]"));
+
+    /// <summary>RF-004: image/* attachments become data-URL wire parts.</summary>
+    private IReadOnlyList<string>? AttachmentImageDataUrls(IReadOnlyList<ChatAttachment> attachments)
+    {
+        if (attachmentStore is null)
+        {
+            return null;
+        }
+
+        List<string>? urls = null;
+        foreach (var attachment in attachments.Where(
+            a => a.ContentType.StartsWith("image/", StringComparison.Ordinal)))
+        {
+            var bytes = attachmentStore.ReadBytes(attachment.StoragePath);
+            if (bytes is { Length: > 0 })
+            {
+                (urls ??= []).Add($"data:{attachment.ContentType};base64,{Convert.ToBase64String(bytes)}");
+            }
+        }
+
+        return urls;
+    }
+
+    // ---- SPEC-20261005-chat-attachments-feedback: feedback (RNF-003 log-only) ----
+
+    /// <summary>
+    /// RF-005: upserts the 👍/👎 + category/note of an assistant message.
+    /// <paramref name="expectedVersion"/> is CAS — 0 creates/forces; a stale
+    /// value on an existing row → 409.
+    /// </summary>
+    public async Task<ChatFeedbackDto> PutMessageFeedbackAsync(
+        string messageId, string rating, string? category, string? note,
+        long expectedVersion, CancellationToken ct = default)
+    {
+        if (feedbackRepository is null)
+        {
+            throw new ChatValidationException("Feedback is not available.");
+        }
+
+        var message = await messages.GetAsync(ChatMessageId.From(messageId), ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Message '{messageId}' not found.");
+
+        // Open question #3: assistant messages only.
+        if (message.Role != ChatMessageRole.Assistant)
+        {
+            throw new ChatValidationException("Feedback applies to assistant messages only.");
+        }
+
+        var row = await feedbackRepository.Query
+            .FirstOrDefaultAsync(f => f.MessageId == message.Id, ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            row = ChatMessageFeedback.Create(
+                ChatMessageFeedbackId.NewGuid(), message.Id, message.ConversationId,
+                rating, category, note, UtcNow);
+            await feedbackRepository.AddAsync(row, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            if (row.Version != expectedVersion)
+            {
+                throw new ChatConflictException(
+                    $"Feedback for message '{messageId}' changed concurrently (expected version {expectedVersion}, got {row.Version}).");
+            }
+
+            row.Rate(rating, category, note, UtcNow);
+        }
+
+        await feedbackRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        return new ChatFeedbackDto(row.Rating, row.Category, row.Note, row.Version, row.UpdatedAt);
+    }
+
+    /// <summary>RF-005: clears the feedback of a message — idempotent.</summary>
+    public async Task DeleteMessageFeedbackAsync(string messageId, CancellationToken ct = default)
+    {
+        if (feedbackRepository is null)
+        {
+            return;
+        }
+
+        var row = await feedbackRepository.Query
+            .FirstOrDefaultAsync(f => f.MessageId == ChatMessageId.From(messageId), ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            return;
+        }
+
+        await feedbackRepository.DeleteAsync(row, ct).ConfigureAwait(false);
+        await feedbackRepository.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -638,6 +983,33 @@ public sealed class ChatService(
                 .ConfigureAwait(false);
         }
 
+        // SPEC-20261005-chat-attachments-feedback open question #2: attachment
+        // rows copy over (new ids, file bytes copied — append-only store keeps
+        // attach:// resolvable without a DB lookup).
+        if (attachmentRepository is not null && attachmentStore is not null)
+        {
+            var sourceMessageIds = prefix.Select(m => (ChatMessageId?)m.Id).ToList();
+            var sourceAttachments = await attachmentRepository.Query
+                .Where(a => a.MessageId != null && sourceMessageIds.Contains(a.MessageId))
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var attachment in sourceAttachments)
+            {
+                var bytes = attachmentStore.ReadBytes(attachment.StoragePath);
+                if (bytes is null)
+                {
+                    continue; // file swept/lost — drop the reference
+                }
+
+                var newId = ChatAttachmentId.NewGuid();
+                var (storagePath, sha256) = attachmentStore.Save(newId.Value, attachment.ContentType, bytes);
+                var copy = ChatAttachment.Create(
+                    newId, fork.Id, attachment.FileName, attachment.ContentType,
+                    bytes.LongLength, storagePath, sha256, now);
+                copy.RebindTo(ChatMessageId.From(idMap[attachment.MessageId!.Value]));
+                await attachmentRepository.AddAsync(copy, ct).ConfigureAwait(false);
+            }
+        }
+
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(fork, null);
     }
@@ -680,7 +1052,29 @@ public sealed class ChatService(
 
             var message = ChatMessage.CreateSteer(conversation.Id, steer.Content, now);
             await messages.AddAsync(message, ct).ConfigureAwait(false);
-            wire.Add(new OpenAiChatMessage("user", steer.Content));
+
+            // SPEC-20261005-chat-attachments-feedback: steered attachments bind
+            // to the steer message and ride the wire as descriptor lines.
+            var wireText = steer.Content;
+            if (steer.AttachmentIdsJson is not null && attachmentRepository is not null)
+            {
+                var rawIds = JsonSerializer.Deserialize<List<string>>(steer.AttachmentIdsJson) ?? [];
+                var ids = rawIds.Select(ChatAttachmentId.From).ToList();
+                var bound = await attachmentRepository.Query
+                    .Where(a => a.ConversationId == conversation.Id && a.MessageId == null && ids.Contains(a.Id))
+                    .ToListAsync(ct).ConfigureAwait(false);
+                foreach (var attachment in bound)
+                {
+                    attachment.Bind(message.Id, now);
+                }
+
+                if (bound.Count > 0)
+                {
+                    wireText += DescribeAttachments(bound);
+                }
+            }
+
+            wire.Add(new OpenAiChatMessage("user", wireText));
             yield return new ChatSteerClaimedEvent(steer.Id.Value, steer.Content);
         }
 
@@ -785,7 +1179,7 @@ public sealed class ChatService(
         var live = broadcaster.GetLive(runId);
         var active = run.Status.IsActive;
         return new ChatRunSyncDto(
-            rows.Select(ToDto).ToList(),
+            await EnrichMessagesAsync(rows, ct).ConfigureAwait(false),
             ToDto(run),
             live?.Partial ?? (active ? run.PartialContent : null),
             live?.PartialReasoning ?? (active ? run.PartialReasoning : null),
@@ -818,6 +1212,17 @@ public sealed class ChatService(
         var wire = await BuildTranscriptAsync(conversation, toolSet, run.TriggerMessageId, ct).ConfigureAwait(false);
         var toolDefs = BuildToolDefinitions(toolSet);
         var state = new TurnState();
+
+        // SPEC-20261005-chat-attachments-feedback RF-007: run-start workspace
+        // snapshot — git-aware when inside a worktree; the run-end diff plus
+        // the file-edit tracker become the deliverables card.
+        var workspacePath = !string.IsNullOrWhiteSpace(conversation.WorkspacePath)
+            ? conversation.WorkspacePath
+            : workspace.ResolveCardWorkdir(conversation.RepositoryFullName, out _);
+        var wsSnapshot = workspaceDiff is null || workspacePath is null
+            ? null
+            : await workspaceDiff.SnapshotAsync(workspacePath, ct).ConfigureAwait(false);
+
         var maxIterations = ParseInt("Taskboard:Chat:MaxToolIterations", 8);
         // Reasoning models burn output tokens on reasoning_content before the
         // answer — without an explicit budget gateways cap too low and the
@@ -922,10 +1327,75 @@ public sealed class ChatService(
             await conversations.SaveChangesAsync(persistCt).ConfigureAwait(false);
         }
 
+        // RF-007: deliverables — tracked file-tool edits + present
+        // declarations + the git diff over the start snapshot. Persists rows
+        // and streams chat.deliverables so the card renders live AND after
+        // reload.
+        var deliverables = await CollectDeliverablesAsync(
+            run, conversation, workspacePath, wsSnapshot,
+            stoppingToken.IsCancellationRequested ? CancellationToken.None : stoppingToken)
+            .ConfigureAwait(false);
+        if (deliverables.Count > 0)
+        {
+            yield return new ChatDeliverablesEvent(deliverables);
+        }
+
         await conversations.SaveChangesAsync(stoppingToken.IsCancellationRequested ? CancellationToken.None : stoppingToken)
             .ConfigureAwait(false);
         yield return new ChatDoneEvent(state.TokensIn, state.TokensOut, state.Error is null ? "stop" : "error", state.Error);
     }
+
+    /// <summary>
+    /// RF-007: merges the file-edit tracker drain with the workspace git diff
+    /// (dedupe by path — a tracked tool-edit row wins over the coarser git
+    /// line counts) and persists <c>ChatRunDeliverable</c> rows.
+    /// </summary>
+    private async Task<IReadOnlyList<ChatDeliverableDto>> CollectDeliverablesAsync(
+        ChatRun run, ChatConversation conversation, string? workspacePath,
+        ChatWorkspaceSnapshot? snapshot, CancellationToken ct)
+    {
+        var merged = new List<ChatDeliverableDto>();
+        var tracked = editTracker?.Drain(run.Id.Value) ?? [];
+        foreach (var edit in tracked)
+        {
+            var (added, removed) = CountDiff(edit.BeforeContent, edit.AfterContent);
+            merged.Add(new ChatDeliverableDto(edit.Path, added, removed, edit.Source, edit.Summary));
+        }
+
+        if (snapshot is not null && workspaceDiff is not null && workspacePath is not null)
+        {
+            var trackedPaths = tracked.Select(e => e.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var diff = await workspaceDiff.DiffAsync(workspacePath, snapshot, ct).ConfigureAwait(false);
+            merged.AddRange(diff.Where(d => !trackedPaths.Contains(d.Path)));
+        }
+
+        if (merged.Count > 0 && deliverableRepository is not null)
+        {
+            foreach (var dto in merged)
+            {
+                await deliverableRepository.AddAsync(
+                    ChatRunDeliverable.Create(
+                        ChatRunDeliverableId.NewGuid(), run.Id, conversation.Id,
+                        dto.Path, dto.AddedLines, dto.RemovedLines, dto.Source, dto.Summary, UtcNow),
+                    ct).ConfigureAwait(false);
+            }
+
+            await deliverableRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
+        return merged;
+    }
+
+    /// <summary>
+    /// Whole-file snapshot accounting — without a git diff we can only claim
+    /// line counts for created/deleted files; in-place edits show no counts.
+    /// </summary>
+    private static (int? Added, int? Removed) CountDiff(string? before, string? after) => (before, after) switch
+    {
+        (null, { } a) => (a.Split('\n').Length, null),
+        ({ } b, null) => (null, b.Split('\n').Length),
+        _ => (null, null),
+    };
 
     /// <summary>Mutable per-turn accumulators carried across tool-call iterations.</summary>
     private sealed class TurnState
@@ -1224,7 +1694,7 @@ public sealed class ChatService(
             // activity is drained from a channel while it executes.
             var activity = Channel.CreateUnbounded<ChatStreamEvent>();
             yield return new ChatStatusEvent("running_tool", toolCall.Name);
-            var toolTask = ExecuteToolAsync(toolCall, provider, toolSet, conversation, activity.Writer, ct);
+            var toolTask = ExecuteToolAsync(toolCall, provider, toolSet, conversation, run, activity.Writer, ct);
             while (!toolTask.IsCompleted)
             {
                 while (activity.Reader.TryRead(out var progress))
@@ -1240,7 +1710,7 @@ public sealed class ChatService(
                 yield return progress;
             }
 
-            var (resultJson, refused, refusalReason) = await toolTask.ConfigureAwait(false);
+            var (resultJson, refused, refusalReason, imageUrls) = await toolTask.ConfigureAwait(false);
             yield return new ChatStatusEvent("idle", null);
             yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
             yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
@@ -1258,7 +1728,12 @@ public sealed class ChatService(
             // RF-006: oversized results spill to disk — the wire keeps a capped
             // head + spill:// pointer (persisted history stays whole, RNF-001).
             var wireResult = SpillToolResult(run, resultJson, state);
-            wire.Add(new OpenAiChatMessage("tool", wireResult, ToolCallId: toolCall.Id, Name: toolCall.Name));
+            // SPEC-20261005-chat-attachments-feedback RF-004: read_image /
+            // attach:// results land as image_url parts on the wire tool
+            // message; the persisted row keeps JSON only.
+            wire.Add(new OpenAiChatMessage(
+                "tool", wireResult, ToolCallId: toolCall.Id, Name: toolCall.Name,
+                ImageUrls: imageUrls));
         }
     }
 
@@ -2110,16 +2585,17 @@ public sealed class ChatService(
         return rows.Select(ToDto).ToList();
     }
 
-    private async Task<(string Json, bool Refused, string? Reason)> ExecuteToolAsync(
+    private async Task<(string Json, bool Refused, string? Reason, IReadOnlyList<string>? ImageUrls)> ExecuteToolAsync(
         OpenAiToolCall toolCall, ChatProvider provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
+        ChatRun run,
         ChannelWriter<ChatStreamEvent> activity,
         CancellationToken ct)
     {
         if (!toolSet.TryGetValue(toolCall.Name, out var tool))
         {
-            return (JsonSerializer.Serialize(new { error = $"unknown tool '{toolCall.Name}'" }), true, "unknown tool");
+            return (JsonSerializer.Serialize(new { error = $"unknown tool '{toolCall.Name}'" }), true, "unknown tool", null);
         }
 
         JsonElement arguments;
@@ -2129,7 +2605,7 @@ public sealed class ChatService(
         }
         catch (JsonException)
         {
-            return (JsonSerializer.Serialize(new { error = "invalid tool arguments" }), true, "bad arguments");
+            return (JsonSerializer.Serialize(new { error = "invalid tool arguments" }), true, "bad arguments", null);
         }
 
         var context = new ChatToolContext(
@@ -2151,12 +2627,13 @@ public sealed class ChatService(
             Activity: new ChannelActivityReporter(activity),
             ToolSet: toolSet,
             DefaultAgentCli: conversation.AgentCli,
-            DefaultAgentModel: conversation.AgentModel);
+            DefaultAgentModel: conversation.AgentModel,
+            RunId: run.Id.Value);
 
         try
         {
             var result = await tool.ExecuteAsync(arguments, context, ct).ConfigureAwait(false);
-            return (result.Json, result.Refused, result.RefusalReason);
+            return (result.Json, result.Refused, result.RefusalReason, result.ImageDataUrls);
         }
         catch (OperationCanceledException)
         {
@@ -2164,7 +2641,7 @@ public sealed class ChatService(
         }
         catch (Exception ex)
         {
-            return (JsonSerializer.Serialize(new { error = ex.Message }), false, null);
+            return (JsonSerializer.Serialize(new { error = ex.Message }), false, null, null);
         }
     }
 
@@ -2200,6 +2677,27 @@ public sealed class ChatService(
             new("system", SystemPrompt(
                 toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false), planMode)),
         };
+
+        // SPEC-20261005-chat-attachments-feedback RF-002/RF-004: bound
+        // attachments append descriptor lines to the wire text of their
+        // message; image/* rows additionally emit image_url parts.
+        var attachmentsByMessage = new Dictionary<string, List<ChatAttachment>>(StringComparer.Ordinal);
+        if (attachmentRepository is not null)
+        {
+            var bound = await attachmentRepository.Query
+                .AsNoTracking()
+                .Where(a => a.ConversationId == conversation.Id && a.MessageId != null)
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var attachment in bound)
+            {
+                if (!attachmentsByMessage.TryGetValue(attachment.MessageId!.Value, out var list))
+                {
+                    attachmentsByMessage[attachment.MessageId.Value] = list = [];
+                }
+
+                list.Add(attachment);
+            }
+        }
 
         // SPEC-20261005-chat-context-management RF-004/RNF-001: the latest
         // persisted summary supersedes the rows up to its bound on the wire;
@@ -2241,7 +2739,17 @@ public sealed class ChatService(
 
             if (role == "user")
             {
-                wire.Add(new OpenAiChatMessage("user", message.Content));
+                if (attachmentsByMessage.TryGetValue(message.Id.Value, out var attachments) && attachments.Count > 0)
+                {
+                    wire.Add(new OpenAiChatMessage(
+                        "user",
+                        message.Content + DescribeAttachments(attachments),
+                        ImageUrls: AttachmentImageDataUrls(attachments)));
+                }
+                else
+                {
+                    wire.Add(new OpenAiChatMessage("user", message.Content));
+                }
             }
             else if (role == ChatMessageRole.Assistant.Value)
             {
@@ -2325,6 +2833,12 @@ public sealed class ChatService(
     {
         var raw = configuration[key];
         return int.TryParse(raw, out var value) && value > 0 ? value : defaultValue;
+    }
+
+    private long ParseLong(string key, long defaultValue)
+    {
+        var raw = configuration[key];
+        return long.TryParse(raw, out var value) && value > 0 ? value : defaultValue;
     }
 
     /// <summary>Fire-and-forget activity reporter over the turn's event channel.</summary>
@@ -2426,7 +2940,10 @@ public sealed class ChatService(
         conversation.ForkedAtMessageId,
         forkCount);
 
-    private static ChatMessageDto ToDto(ChatMessage message) => new(
+    private static ChatMessageDto ToDto(
+        ChatMessage message,
+        IReadOnlyList<ChatAttachment>? attachments = null,
+        ChatMessageFeedback? feedback = null) => new(
         message.Id.Value,
         message.Role.Value,
         // Inline markup persisted before the stream filter existed still
@@ -2442,6 +2959,66 @@ public sealed class ChatService(
         message.TokensOut,
         message.Model,
         message.CreatedAt,
-        message.Kind);
+        message.Kind,
+        attachments?.Select(ToDto).ToList(),
+        feedback is null ? null : new ChatFeedbackDto(
+            feedback.Rating, feedback.Category, feedback.Note, feedback.Version, feedback.UpdatedAt));
 
+    private static ChatAttachmentDto ToDto(ChatAttachment attachment) => new(
+        attachment.Id.Value,
+        attachment.FileName,
+        attachment.ContentType,
+        attachment.ByteSize,
+        $"/api/local/chat/conversations/{attachment.ConversationId.Value}/attachments/{attachment.Id.Value}/download");
+
+    private static ChatDeliverableDto ToDto(ChatRunDeliverable deliverable) => new(
+        deliverable.Path, deliverable.AddedLines, deliverable.RemovedLines,
+        deliverable.Source, deliverable.Summary);
+
+    /// <summary>
+    /// RF-004/RF-005: one shot for the transcript DTOs — bound attachments +
+    /// feedback rows joined by message id (attachments only for the visible
+    /// window; feedback only on assistant rows).
+    /// </summary>
+    private async Task<List<ChatMessageDto>> EnrichMessagesAsync(
+        IReadOnlyList<ChatMessage> rows, CancellationToken ct)
+    {
+        var messageIds = rows.Select(m => m.Id).ToList();
+        var messageIdsNullable = rows.Select(m => (ChatMessageId?)m.Id).ToList();
+        var attachmentsByMessage = new Dictionary<string, List<ChatAttachment>>(StringComparer.Ordinal);
+        if (attachmentRepository is not null && messageIds.Count > 0)
+        {
+            var bound = await attachmentRepository.Query
+                .AsNoTracking()
+                .Where(a => a.MessageId != null && messageIdsNullable.Contains(a.MessageId))
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var attachment in bound)
+            {
+                if (!attachmentsByMessage.TryGetValue(attachment.MessageId!.Value, out var list))
+                {
+                    attachmentsByMessage[attachment.MessageId.Value] = list = [];
+                }
+
+                list.Add(attachment);
+            }
+        }
+
+        var feedbackByMessage = new Dictionary<string, ChatMessageFeedback>(StringComparer.Ordinal);
+        if (feedbackRepository is not null && messageIds.Count > 0)
+        {
+            var feedbackRows = await feedbackRepository.Query
+                .AsNoTracking()
+                .Where(f => messageIds.Contains(f.MessageId))
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var feedback in feedbackRows)
+            {
+                feedbackByMessage[feedback.MessageId.Value] = feedback;
+            }
+        }
+
+        return rows.Select(m => ToDto(
+            m,
+            attachmentsByMessage.GetValueOrDefault(m.Id.Value),
+            feedbackByMessage.GetValueOrDefault(m.Id.Value))).ToList();
+    }
 }

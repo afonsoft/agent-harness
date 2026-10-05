@@ -35,7 +35,16 @@ public interface IChatTool
     Task<ChatToolResult> ExecuteAsync(JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken);
 }
 
-public sealed record ChatToolResult(string Json, bool Refused = false, string? RefusalReason = null);
+/// <summary>
+/// Tool execution result. <paramref name="ImageDataUrls"/> carries images
+/// the model should see as content parts on the wire tool message
+/// (SPEC-20261005-chat-attachments-feedback — <c>read_image</c> attach://
+/// and workspace images); the persisted row keeps only
+/// <paramref name="Json"/>.
+/// </summary>
+public sealed record ChatToolResult(
+    string Json, bool Refused = false, string? RefusalReason = null,
+    IReadOnlyList<string>? ImageDataUrls = null);
 
 /// <summary>
 /// Live progress reporter handed to tools (SPEC-20261001-chat-agent-delegation
@@ -80,7 +89,12 @@ public sealed record ChatToolContext(
     /// </summary>
     string? DefaultAgentCli = null,
     /// <summary>Agent-chat: model picked for delegated runs (<c>run_agent</c>).</summary>
-    string? DefaultAgentModel = null);
+    string? DefaultAgentModel = null,
+    /// <summary>
+    /// Running <see cref="ChatRun"/> id — lets file-mutating tools register
+    /// deliverable edits (SPEC-20261005-chat-attachments-feedback RF-007).
+    /// </summary>
+    string? RunId = null);
 
 /// <summary>Web search backend behind the <c>web_search</c> tool (RF-007).</summary>
 public interface ISearchBackend

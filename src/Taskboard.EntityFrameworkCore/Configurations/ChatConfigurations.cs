@@ -359,6 +359,7 @@ public sealed class ChatSteerConfiguration : IEntityTypeConfiguration<ChatSteer>
 
         builder.Property(s => s.CreatedAt);
         builder.Property(s => s.ClaimedAt);
+        builder.Property(s => s.AttachmentIdsJson);
 
         // Drain scan (unclaimed per run) + cancel lookup.
         builder.HasIndex(s => new { s.RunId, s.ClaimedAt });
@@ -367,6 +368,156 @@ public sealed class ChatSteerConfiguration : IEntityTypeConfiguration<ChatSteer>
         builder.HasOne<ChatConversation>()
             .WithMany()
             .HasForeignKey(s => s.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>SPEC-20261005-chat-attachments-feedback RF-001.</summary>
+public sealed class ChatAttachmentConfiguration : IEntityTypeConfiguration<ChatAttachment>
+{
+    public void Configure(EntityTypeBuilder<ChatAttachment> builder)
+    {
+        builder.ToTable("ChatAttachments");
+
+        builder.Property(a => a.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatAttachmentId>());
+
+        builder.HasKey(a => a.Id);
+
+        builder.Property(a => a.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(a => a.MessageId)
+            .HasMaxLength(128)
+            .HasConversion(new NullableStringIdValueConverter<ChatMessageId>());
+
+        builder.Property(a => a.FileName)
+            .HasMaxLength(512)
+            .IsRequired();
+
+        builder.Property(a => a.ContentType)
+            .HasMaxLength(128)
+            .IsRequired();
+
+        builder.Property(a => a.ByteSize);
+
+        builder.Property(a => a.StoragePath)
+            .HasMaxLength(512)
+            .IsRequired();
+
+        builder.Property(a => a.Sha256)
+            .HasMaxLength(64)
+            .IsRequired();
+
+        builder.Property(a => a.CreatedAt);
+        builder.Property(a => a.BoundAt);
+
+        // Orphan sweep (staged + old) and per-message load for wire/UI.
+        builder.HasIndex(a => new { a.ConversationId, a.MessageId });
+        builder.HasIndex(a => a.CreatedAt);
+        builder.HasIndex(a => a.MessageId);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(a => a.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>SPEC-20261005-chat-attachments-feedback RF-005 — one row per message.</summary>
+public sealed class ChatMessageFeedbackConfiguration : IEntityTypeConfiguration<ChatMessageFeedback>
+{
+    public void Configure(EntityTypeBuilder<ChatMessageFeedback> builder)
+    {
+        builder.ToTable("ChatMessageFeedbacks");
+
+        builder.Property(f => f.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatMessageFeedbackId>());
+
+        builder.HasKey(f => f.Id);
+
+        builder.Property(f => f.MessageId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatMessageId>());
+
+        builder.Property(f => f.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(f => f.Rating)
+            .HasMaxLength(16)
+            .IsRequired();
+
+        builder.Property(f => f.Category)
+            .HasMaxLength(32);
+
+        builder.Property(f => f.Note)
+            .HasMaxLength(ChatMessageFeedback.MaxNoteLength);
+
+        builder.Property(f => f.Version)
+            .IsConcurrencyToken();
+
+        builder.Property(f => f.CreatedAt);
+        builder.Property(f => f.UpdatedAt);
+
+        // Upsert target + sidebar "com feedback negativo" filter (RF-006).
+        builder.HasIndex(f => f.MessageId)
+            .IsUnique();
+        builder.HasIndex(f => new { f.ConversationId, f.Rating });
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(f => f.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>SPEC-20261005-chat-attachments-feedback RF-007.</summary>
+public sealed class ChatRunDeliverableConfiguration : IEntityTypeConfiguration<ChatRunDeliverable>
+{
+    public void Configure(EntityTypeBuilder<ChatRunDeliverable> builder)
+    {
+        builder.ToTable("ChatRunDeliverables");
+
+        builder.Property(d => d.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatRunDeliverableId>());
+
+        builder.HasKey(d => d.Id);
+
+        builder.Property(d => d.RunId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatRunId>());
+
+        builder.Property(d => d.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(d => d.Path)
+            .HasMaxLength(1024)
+            .IsRequired();
+
+        builder.Property(d => d.AddedLines);
+        builder.Property(d => d.RemovedLines);
+
+        builder.Property(d => d.Source)
+            .HasMaxLength(24)
+            .IsRequired();
+
+        builder.Property(d => d.Summary)
+            .HasMaxLength(512);
+
+        builder.Property(d => d.CreatedAt);
+
+        builder.HasIndex(d => d.RunId);
+        builder.HasIndex(d => d.ConversationId);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(d => d.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

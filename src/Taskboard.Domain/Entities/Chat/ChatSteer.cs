@@ -20,13 +20,19 @@ public sealed class ChatSteer : Entity<ChatSteerId>
     public DateTime CreatedAt { get; private set; }
     public DateTime? ClaimedAt { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261005-chat-attachments-feedback: JSON list of staged attachment
+    /// ids sent with the steer — bound to the steer message the drain persists.
+    /// </summary>
+    public string? AttachmentIdsJson { get; private set; }
+
     private ChatSteer()
     {
     }
 
     private ChatSteer(
         ChatSteerId id, ChatRunId runId, ChatConversationId conversationId,
-        string content, DateTime createdAt)
+        string content, DateTime createdAt, string? attachmentIdsJson)
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -38,12 +44,13 @@ public sealed class ChatSteer : Entity<ChatSteerId>
         ConversationId = conversationId;
         Content = content;
         CreatedAt = createdAt;
+        AttachmentIdsJson = attachmentIdsJson;
     }
 
     public static ChatSteer Create(
         ChatSteerId id, ChatRunId runId, ChatConversationId conversationId,
-        string content, DateTime? now = null) =>
-        new(id, runId, conversationId, content, now ?? DateTime.UtcNow);
+        string content, DateTime? now = null, string? attachmentIdsJson = null) =>
+        new(id, runId, conversationId, content, now ?? DateTime.UtcNow, attachmentIdsJson);
 
     /// <summary>
     /// Marks the steer as claimed by the executor — it lands on the wire at

@@ -776,3 +776,64 @@
     margin-top: .35rem;
     font-size: .85rem;
 }
+
+/* SPEC-20261005-chat-attachments-feedback: staged/bound attachments. */
+.provider-attach-input { display: none; }
+
+.provider-attach-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+}
+
+.provider-attach-file {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .25rem .55rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    font-size: .78rem;
+    color: var(--bs-body-color);
+    text-decoration: none;
+    background: var(--bs-tertiary-bg, transparent);
+}
+
+.provider-attach-file:hover { border-color: var(--bs-primary); color: var(--bs-primary); }
+.provider-attach-file-name { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-attach-file-size { color: var(--bs-secondary); font-size: .72rem; }
+
+/* SPEC-20261005-chat-attachments-feedback RF-005: thumbs + note popover. */
+.provider-chat-action.active { color: var(--bs-primary); font-weight: 600; }
+
+.provider-feedback-pop {
+    margin-top: .35rem;
+    padding: .4rem .5rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-tertiary-bg, transparent);
+}
+
+/* SPEC-20261005-chat-attachments-feedback RF-007: deliverables card. */
+.provider-deliverables-card { border-left: 3px solid var(--bs-success); }
+
+.provider-deliverables-list {
+    list-style: none;
+    margin: .35rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    font-size: .8rem;
+}
+
+.provider-deliverables-list li {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+.provider-deliverable-path { color: var(--bs-body-color); }
+.provider-deliverable-diff { font-variant-numeric: tabular-nums; color: var(--bs-success); font-size: .75rem; }
+.provider-deliverable-summary { color: var(--bs-secondary); font-size: .75rem; }

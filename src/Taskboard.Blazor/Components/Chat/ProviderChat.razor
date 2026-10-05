@@ -35,6 +35,11 @@
                             @onclick="() => SetArchivedFilterAsync(false)">Ativas</button>
                     <button type="button" class="btn @(_showArchived ? "btn-primary" : "btn-outline-secondary")"
                             @onclick="() => SetArchivedFilterAsync(true)">Arquivadas</button>
+                    @* SPEC-20261005-chat-attachments-feedback RF-006: 👎 só
+                       conversas com feedback negativo (encontra pra revisão). *@
+                    <button type="button" class="btn @(_negativeOnly ? "btn-danger" : "btn-outline-secondary")"
+                            title="Só com feedback negativo" aria-label="Negative feedback only"
+                            @onclick="ToggleNegativeOnlyAsync">👎</button>
                 </div>
             </div>
             <div class="provider-chat-list flex-grow-1 overflow-auto px-2">
@@ -271,6 +276,59 @@
                         {
                             <img src="@message.ImageUrl" alt="generated" class="provider-chat-image img-fluid rounded mt-2" />
                         }
+                        @* SPEC-20261005-chat-attachments-feedback RF-004:
+                           bound attachments — images inline, the rest as
+                           download chips. *@
+                        @if (message.Attachments is { Count: > 0 } attachments)
+                        {
+                            <div class="provider-attach-list mt-2">
+                                @foreach (var attachment in attachments)
+                                {
+                                    if (attachment.ContentType.StartsWith("image/", StringComparison.Ordinal))
+                                    {
+                                        <a href="@attachment.DownloadUrl" target="_blank" rel="noopener" @key="attachment.Id">
+                                            <img src="@attachment.DownloadUrl" alt="@attachment.FileName"
+                                                 class="provider-chat-image img-fluid rounded" />
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <a class="provider-attach-file" href="@attachment.DownloadUrl"
+                                           download="@attachment.FileName" @key="attachment.Id">
+                                            <Icon Name="IconName.FileEarmark" />
+                                            <span class="provider-attach-file-name">@attachment.FileName</span>
+                                            <span class="provider-attach-file-size">@FormatBytes(attachment.ByteSize)</span>
+                                        </a>
+                                    }
+                                }
+                            </div>
+                        }
+                        @* RF-005: persisted thumbs — assistant messages only;
+                           👎 opens the note popover (log-only, never on wire). *@
+                        @if (message.Role == "assistant")
+                        {
+                            @if (_feedbackFor == message.Id)
+                            {
+                                <div class="provider-feedback-pop" @key="@($"fb-{message.Id}")">
+                                    <div class="d-flex gap-1 align-items-center mb-1">
+                                        <select class="form-select form-select-sm w-auto" @bind="_feedbackCategory" aria-label="Categoria">
+                                            <option value="">categoria…</option>
+                                            <option value="wrong">errado</option>
+                                            <option value="unhelpful">não ajudou</option>
+                                            <option value="slow">lento</option>
+                                            <option value="style">estilo</option>
+                                            <option value="other">outro</option>
+                                        </select>
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                                @onclick="() => SaveFeedbackAsync(message.Id)">Salvar</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="() => _feedbackFor = null">✕</button>
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm" maxlength="2000"
+                                           placeholder="Nota (opcional)…" @bind="_feedbackNote" />
+                                </div>
+                            }
+                        }
                         <div class="provider-chat-actions">
                             @if (message.Role == "assistant")
                             {
@@ -278,6 +336,16 @@
                                 <button type="button" class="provider-chat-action" title="Copiar resposta"
                                         @onclick="() => CopyMessageAsync(message.Id, message.Content)">
                                     <Icon Name="@(_copiedId == message.Id ? IconName.CheckLg : IconName.Clipboard)" />
+                                </button>
+                                <button type="button" class="provider-chat-action @(message.Feedback?.Rating == "positive" ? "active" : "")"
+                                        title="Resposta boa" aria-label="Rate up"
+                                        @onclick='() => RateMessageAsync(message, "positive")'>
+                                    <Icon Name="IconName.HandThumbsUp" />
+                                </button>
+                                <button type="button" class="provider-chat-action @(message.Feedback?.Rating == "negative" ? "active" : "")"
+                                        title="Resposta ruim — adiciona nota" aria-label="Rate down"
+                                        @onclick='() => RateMessageAsync(message, "negative")'>
+                                    <Icon Name="IconName.HandThumbsDown" />
                                 </button>
                             }
                             @* SPEC-20261005-chat-fork-steering RF-004: ⎇ fork
@@ -291,6 +359,38 @@
                             </button>
                         </div>
                     }
+                </div>
+            }
+            @* SPEC-20261005-chat-attachments-feedback RF-007: deliverables of
+               the last finished run — replayed on open (LastRunDeliverables)
+               and live-updated by the chat.deliverables SSE event. *@
+            @if (_lastRunDeliverables is { Count: > 0 } deliverables)
+            {
+                <div class="provider-chat-bubble assistant provider-deliverables-card">
+                    <div class="provider-approval-head">
+                        <Icon Name="IconName.Files" />
+                        <span class="fw-semibold">Deliverables (@deliverables.Count)</span>
+                    </div>
+                    <ul class="provider-deliverables-list">
+                        @foreach (var file in deliverables)
+                        {
+                            <li @key="file.Path">
+                                <code class="provider-deliverable-path">@file.Path</code>
+                                @if (file.AddedLines is not null || file.RemovedLines is not null)
+                                {
+                                    <span class="provider-deliverable-diff">
+                                        @(file.AddedLines is not null ? $"+{file.AddedLines}" : "")
+                                        @(file.RemovedLines is not null ? $"−{file.RemovedLines}" : "")
+                                    </span>
+                                }
+                                <span class="badge text-bg-secondary">@file.Source</span>
+                                @if (file.Summary is not null)
+                                {
+                                    <span class="provider-deliverable-summary">@file.Summary</span>
+                                }
+                            </li>
+                        }
+                    </ul>
                 </div>
             }
             @if (!string.IsNullOrEmpty(_streaming))
@@ -451,6 +551,25 @@
                             @onclick="() => _notice = null"></button>
                 </div>
             }
+            @* SPEC-20261005-chat-attachments-feedback RF-001/RF-003: staged
+               uploads — ✕ removes while unbound; the send binds them to the
+               new message in the same request. *@
+            @if (_stagedAttachments.Count > 0)
+            {
+                <div class="provider-steer-list" aria-label="Anexos prontos para envio">
+                    @foreach (var attachment in _stagedAttachments)
+                    {
+                        <span class="provider-steer-chip" @key="attachment.Id"
+                              title="@attachment.FileName — @FormatBytes(attachment.ByteSize)">
+                            <Icon Name="IconName.Paperclip" />
+                            <span class="provider-steer-chip-text">@attachment.FileName</span>
+                            <button type="button" class="provider-steer-cancel" title="Remover anexo"
+                                    aria-label="Remove attachment"
+                                    @onclick="() => RemoveStagedAsync(attachment)">✕</button>
+                        </span>
+                    }
+                </div>
+            }
             @* SPEC-20261005-chat-fork-steering RF-005/RF-007: pending steer
                chips — each enters at the next tool-result boundary; ✕
                withdraws while unclaimed. *@
@@ -476,11 +595,24 @@
                                  OnSelect="OnSlashSelect" />
             <div class="provider-chat-composer-thread">
                 <div class="provider-chat-composer-box">
-                    <textarea class="provider-chat-input" rows="2" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" data-shortcut-command placeholder="Send a message… (/ comandos e skills, Enter envia)"
+                    <textarea id="provider-chat-input" class="provider-chat-input" rows="2" enterkeyhint="send" autocomplete="off" autocapitalize="sentences" data-shortcut-command placeholder="Send a message… (/ comandos e skills, Enter envia)"
                               @bind="_composer" @bind:event="oninput" @onkeydown="OnComposerKey"
                               @onkeydown:preventDefault="_slashPreventDefault"></textarea>
                     <div class="provider-chat-composer-footer">
                         <div class="provider-chat-composer-picks">
+                            @* SPEC-20261005-chat-attachments-feedback RF-001:
+                               paperclip opens the file picker; clipboard files
+                               land here too via taskboardChat.hookPaste. *@
+                            <div class="provider-pick-root">
+                                <button type="button" class="provider-pick provider-pick-btn"
+                                        title="Anexar arquivo (colar também funciona)" aria-label="Attach file"
+                                        disabled="@(_archived || _uploadingAttachment)"
+                                        @onclick="TriggerAttachPickAsync">
+                                    <Icon Name="IconName.Paperclip" />
+                                </button>
+                                <InputFile id="provider-chat-attach-input" class="provider-attach-input"
+                                           OnChange="OnAttachPickedAsync" multiple hidden />
+                            </div>
                             @AgentTools
                             <div class="provider-pick-root">
                                 <button type="button" class="provider-pick provider-pick-btn"
@@ -549,7 +681,7 @@
                                 </button>
                             }
                             <button type="button" class="provider-chat-send" @onclick="() => SendAsync()" title="Enviar" aria-label="Send"
-                                    disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model) || _archived)">
+                                    disabled="@((string.IsNullOrWhiteSpace(_composer) && _stagedAttachments.Count == 0) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model) || _archived)">
                                 <Icon Name="IconName.Send" />
                             </button>
                         </div>
@@ -688,6 +820,17 @@
     private sealed record PendingSteer(string Id, string Content);
 
     private readonly List<PendingSteer> _pendingSteers = [];
+
+    // SPEC-20261005-chat-attachments-feedback: staged uploads bound on send,
+    // feedback popover state, the finished run's deliverables card, and the
+    // sidebar's negative-feedback filter.
+    private readonly List<ChatAttachmentDto> _stagedAttachments = [];
+    private bool _uploadingAttachment;
+    private string? _feedbackFor;
+    private string _feedbackNote = string.Empty;
+    private string? _feedbackCategory;
+    private IReadOnlyList<ChatDeliverableDto>? _lastRunDeliverables;
+    private bool _negativeOnly;
 
     /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
     public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
@@ -907,7 +1050,7 @@
     {
         try
         {
-            _conversations = await Client.GetChatConversationsAsync(_search, _showArchived);
+            _conversations = await Client.GetChatConversationsAsync(_search, _showArchived, _negativeOnly);
         }
         catch (Exception)
         {
@@ -941,6 +1084,11 @@
             _permissionPreset = conversation.PermissionPreset ?? "ask";
             _planMode = conversation.PlanMode ?? "off";
             _denyReasonFor = null;
+            // RF-001/RF-005/RF-007: per-conversation UI state resets — staged
+            // uploads, feedback popover and the old run's card never leak.
+            _stagedAttachments.Clear();
+            _feedbackFor = null;
+            _lastRunDeliverables = null;
             await OnSearchChangedAsync();
         }
         catch (Exception ex)
@@ -998,6 +1146,12 @@
         {
             _pendingApprovals.AddRange(pending);
         }
+
+        // RF-007: the finished run's card replays on (re-)open; a live run
+        // overwrites it via the chat.deliverables event at completion.
+        _lastRunDeliverables = detail.LastRunDeliverables;
+        _stagedAttachments.Clear();
+        _feedbackFor = null;
 
         _permissionPreset = detail.Conversation.PermissionPreset ?? "ask";
         _planMode = detail.Conversation.PlanMode ?? "off";
@@ -1298,7 +1452,9 @@
     private async Task SendAsync(bool steer = false)
     {
         var content = _composer.Trim();
-        if (await EnsureConversationAsync(content) is not { } conversationId)
+        // RF-002: attachments count as payload — a bare file send is legal
+        // (the wire message carries the descriptors).
+        if (await EnsureConversationAsync(content, _stagedAttachments.Count > 0) is not { } conversationId)
         {
             return;
         }
@@ -1318,7 +1474,12 @@
         _composer = string.Empty;
         try
         {
-            var (run, steered, steerId) = await Client.EnqueueChatMessageAsync(conversationId, content, steer);
+            var attachmentIds = _stagedAttachments.Count > 0
+                ? _stagedAttachments.Select(a => a.Id).ToList()
+                : null;
+            var (run, steered, steerId) = await Client.EnqueueChatMessageAsync(
+                conversationId, content, steer, attachmentIds);
+            _stagedAttachments.Clear();
             if (steered && steerId is not null)
             {
                 // SPEC-20261005-chat-fork-steering RF-005: the message entered
@@ -1404,6 +1565,177 @@
         {
             _busy = false;
         }
+    }
+
+    // ---- SPEC-20261005-chat-attachments-feedback: attachments ----
+
+    /// <summary>RF-001: opens the hidden file picker (paperclip).</summary>
+    private async Task TriggerAttachPickAsync() =>
+        await JS.InvokeVoidAsync("taskboardChat.pickFile", "provider-chat-attach-input");
+
+    /// <summary>
+    /// RF-001: stages each picked/pasted file — the upload is deferred to a
+    /// staged row; the send binds ids. Files above the server cap are
+    /// rejected by the endpoint (400) and surfaced per file.
+    /// </summary>
+    private async Task OnAttachPickedAsync(InputFileChangeEventArgs args)
+    {
+        if (await EnsureConversationAsync(string.Empty, hasAttachments: true) is not { } conversationId)
+        {
+            return;
+        }
+
+        _uploadingAttachment = true;
+        _error = null;
+        try
+        {
+            foreach (var file in args.GetMultipleFiles(10))
+            {
+                await using var stream = file.OpenReadStream(maxAllowedSize: 32L * 1024 * 1024);
+                try
+                {
+                    var dto = await Client.UploadChatAttachmentAsync(
+                        conversationId, file.Name, file.ContentType, stream);
+                    if (dto is not null)
+                    {
+                        _stagedAttachments.Add(dto);
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    _error = $"Anexo '{file.Name}' recusado: {ex.Message}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha no upload: {ex.Message}";
+        }
+        finally
+        {
+            _uploadingAttachment = false;
+        }
+    }
+
+    /// <summary>RF-001: removes a staged upload (server deletes row + file).</summary>
+    private async Task RemoveStagedAsync(ChatAttachmentDto attachment)
+    {
+        _stagedAttachments.Remove(attachment);
+        if (_conversationId is not null)
+        {
+            try
+            {
+                await Client.DeleteChatAttachmentAsync(_conversationId, attachment.Id);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+            {
+                _error = $"Falha ao remover anexo: {ex.Message}";
+            }
+        }
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / (1024.0 * 1024.0):0.#} MB",
+    };
+
+    // ---- SPEC-20261005-chat-attachments-feedback: feedback ----
+
+    /// <summary>
+    /// RF-005: 👍 saves immediately (no note needed); 👎 opens the popover
+    /// so the reason lands in the log. Rating again on the same thumb clears.
+    /// </summary>
+    private async Task RateMessageAsync(ChatMessageDto message, string rating)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        if (message.Feedback?.Rating == rating)
+        {
+            // Toggle off — DELETE the row.
+            try
+            {
+                await Client.DeleteChatFeedbackAsync(_conversationId, message.Id);
+                ReplaceFeedback(message.Id, null);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+            {
+                _error = $"Falha ao limpar feedback: {ex.Message}";
+            }
+
+            return;
+        }
+
+        if (rating == "negative")
+        {
+            _feedbackFor = _feedbackFor == message.Id ? null : message.Id;
+            _feedbackNote = message.Feedback?.Note ?? string.Empty;
+            _feedbackCategory = message.Feedback?.Category;
+            if (_feedbackFor is null)
+            {
+                return;
+            }
+        }
+        else
+        {
+            await SaveFeedbackAsync(message.Id, rating, note: null, category: null);
+        }
+    }
+
+    /// <summary>RF-005: persists the popover state (👎 + category/note).</summary>
+    private async Task SaveFeedbackAsync(string messageId) =>
+        await SaveFeedbackAsync(messageId, "negative", _feedbackNote, _feedbackCategory);
+
+    private async Task SaveFeedbackAsync(string messageId, string rating, string? note, string? category)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        var message = _messages.FirstOrDefault(m => m.Id == messageId);
+        try
+        {
+            var (feedback, conflict) = await Client.PutChatFeedbackAsync(
+                _conversationId, messageId,
+                new PutChatMessageFeedbackRequest(rating, category, note, message?.Feedback?.Version ?? 0));
+            if (conflict)
+            {
+                // CAS lost — server returned the current row; adopt it.
+                ReplaceFeedback(messageId, feedback);
+                _notice = "Feedback já atualizado em outra aba — estado atual mostrado.";
+            }
+            else
+            {
+                ReplaceFeedback(messageId, feedback);
+            }
+
+            _feedbackFor = null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+        {
+            _error = $"Falha no feedback: {ex.Message}";
+        }
+    }
+
+    private void ReplaceFeedback(string messageId, ChatFeedbackDto? feedback)
+    {
+        var index = _messages.FindIndex(m => m.Id == messageId);
+        if (index >= 0)
+        {
+            _messages[index] = _messages[index] with { Feedback = feedback };
+        }
+    }
+
+    /// <summary>RF-006: sidebar filter — só conversas com 👎.</summary>
+    private async Task ToggleNegativeOnlyAsync()
+    {
+        _negativeOnly = !_negativeOnly;
+        await OnSearchChangedAsync();
     }
 
     /// <summary>RF-004: source title for the "↯ fork of …" sidebar line.</summary>
@@ -1520,9 +1852,9 @@
     }
 
     /// <summary>Creates the conversation when missing; null → nothing to send.</summary>
-    private async Task<string?> EnsureConversationAsync(string content)
+    private async Task<string?> EnsureConversationAsync(string content, bool hasAttachments = false)
     {
-        if (content.Length != 0 && _conversationId is not null)
+        if ((content.Length != 0 || hasAttachments) && _conversationId is not null)
         {
             return _conversationId;
         }
@@ -1730,6 +2062,20 @@
                 await ReloadConversationAsync();
                 await ScrollToEndAsync();
                 break;
+            case "chat.deliverables":
+            {
+                // RF-007: the run's deliverables card — emitted just before
+                // chat.done; persisted rows replay via LastRunDeliverables.
+                var deliv = JsonSerializer.Deserialize<JsonElement>(data);
+                if (deliv.TryGetProperty("deliverables", out var list))
+                {
+                    _lastRunDeliverables = JsonSerializer.Deserialize<List<ChatDeliverableDto>>(
+                        list.GetRawText(), SseJson);
+                }
+
+                await ScrollToEndAsync();
+                break;
+            }
             case "chat.done":
                 var done = JsonSerializer.Deserialize<JsonElement>(data);
                 if (done.TryGetProperty("run", out var runEl)
@@ -1809,6 +2155,27 @@
         catch (Exception)
         {
             // The stream ends on its own when the server cancels.
+        }
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-attachments-feedback RF-003: clipboard files land
+    /// on the hidden InputFile — hook the paste bridge once the textarea
+    /// exists.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("taskboardChat.hookPaste",
+                    "provider-chat-input", "provider-chat-attach-input");
+            }
+            catch (JSException)
+            {
+                // JS helpers are progressive — paste attach just stays off.
+            }
         }
     }
 

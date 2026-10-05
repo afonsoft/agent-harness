@@ -220,6 +220,22 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Context:SummaryPrompt", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        // SPEC-20261005-chat-attachments-feedback RF-008: upload gates —
+        // AllowedMime is a comma list; "prefix/*" wildcards apply (e.g.
+        // "image/*,text/*,application/pdf").
+        new("Taskboard:Chat:Attachments:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Attachments:MaxBytes", "8388608", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Attachments:MaxPerMessage", "5", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Attachments:AllowedMime", "image/*,text/*,application/pdf,application/json",
+            Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         // SPEC-20261005 RF-009: VAPID identity for Web Push. Empty keys are
         // auto-generated once by VapidKeyService on first subscribe and
         // persisted here (private key stays masked like every secret).
