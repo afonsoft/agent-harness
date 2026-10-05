@@ -18,7 +18,7 @@ public sealed class ChatCapabilityRegistry(
     IMcpClientManager? mcp = null) : IChatCapabilityRegistry
 {
     /// <summary>Tools that mutate or execute — flagged for the Settings hint.</summary>
-    private static ISet<string> MutatingTools => ChatCapabilityRules.MutatingTools;
+    private static IReadOnlySet<string> MutatingTools => ChatCapabilityRules.MutatingTools;
 
     public async Task<IReadOnlyList<ChatCapability>> ListAsync(CancellationToken cancellationToken = default)
     {

@@ -290,12 +290,9 @@ public sealed class ChatService(
                 .Where(a => a.Status == ChatApprovalStatus.Pending)
                 .Select(a => new { a.RunId, a.ConversationId })
                 .ToListAsync(ct).ConfigureAwait(false);
-            foreach (var approval in pendingApprovals)
+            foreach (var approval in pendingApprovals.Where(a => activeRunIds.Contains(a.RunId.Value)))
             {
-                if (activeRunIds.Contains(approval.RunId.Value))
-                {
-                    activeByConversation[approval.ConversationId.Value] = "waiting-approval";
-                }
+                activeByConversation[approval.ConversationId.Value] = "waiting-approval";
             }
         }
 
@@ -1173,13 +1170,19 @@ public sealed class ChatService(
         ChatApproval approval, Action<ChatApproval> decide, ChatApprovalVerdict? verdict)
     {
         decide(approval);
-        await messages.AddAsync(BuildApprovalNote(approval), CancellationToken.None).ConfigureAwait(false);
+        var note = BuildApprovalNote(approval);
+        await messages.AddAsync(note, CancellationToken.None).ConfigureAwait(false);
         try
         {
             await approvalRepository.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (DbUpdateConcurrencyException)
         {
+            // Another decider committed first — drop the stale row and the
+            // staged audit note so later saves in this scope stay usable
+            // (the winner already wrote row + note + broadcast).
+            approvalRepository.Untrack(approval);
+            messages.Untrack(note);
             return;
         }
 

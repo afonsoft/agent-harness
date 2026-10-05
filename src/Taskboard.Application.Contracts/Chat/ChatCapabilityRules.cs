@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Taskboard.Application.Contracts.Chat;
@@ -18,10 +19,10 @@ public static class ChatCapabilityRules
     /// hint. Was <c>ChatCapabilityRegistry.MutatingTools</c>; shared here so
     /// the gate and the registry resolve against the same set.
     /// </summary>
-    public static readonly ISet<string> MutatingTools = new HashSet<string>(StringComparer.Ordinal)
+    public static readonly FrozenSet<string> MutatingTools = new HashSet<string>(StringComparer.Ordinal)
     {
         "shell_exec", "write_file", "edit_file", "run_tests", "run_cli", "code_interpreter", "run_agent", "memory", "todo",
-    };
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     public static bool IsEnabled(IConfiguration configuration, string capabilityId)
     {
