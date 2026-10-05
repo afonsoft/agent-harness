@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Taskboard.Agents;
 using Taskboard.Integrations.Execution;
 using Taskboard.Application.Contracts.Chat;
@@ -16,16 +17,20 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// </summary>
 public sealed class ShellExecTool(
     ICommandRiskClassifier classifier,
-    ISecretRedactor redactor) : IChatTool
+    ISecretRedactor redactor,
+    IChatJobService? jobs = null,
+    IConfiguration? configuration = null) : IChatTool
 {
     internal const int MaxOutputChars = 16_000;
 
     public string Name => "shell_exec";
     public string Description =>
         "Run a shell command inside the workspace directory. Read-only commands are preferred; "
-        + "dangerous commands (recursive deletes, sudo, network egress) are refused.";
+        + "dangerous commands (recursive deletes, sudo, network egress) are refused. "
+        + "run_in_background detaches the command into a durable ChatJob — poll it with "
+        + "job_list/job_output, stop it with job_kill.";
     public string ParametersJson => """
-        {"type":"object","properties":{"command":{"type":"string","description":"The shell command line to run"},"timeout_seconds":{"type":"integer","description":"Execution timeout in seconds (default 60, max 300)"}},"required":["command"]}
+        {"type":"object","properties":{"command":{"type":"string","description":"The shell command line to run"},"timeout_seconds":{"type":"integer","description":"Execution timeout in seconds (default 60, max 300)"},"run_in_background":{"type":"boolean","description":"Detach into a durable background job that outlives this run"}},"required":["command"]}
         """;
 
     public async Task<ChatToolResult> ExecuteAsync(
@@ -46,6 +51,37 @@ public sealed class ShellExecTool(
                 ErrorJson($"refused by security gateway: {assessment.Reason}"),
                 Refused: true,
                 assessment.Reason);
+        }
+
+        // SPEC-20261005-chat-jobs-schedule-search RF-001: detach into a
+        // durable ChatJob — same gateway above, no timeout cap, output to a
+        // per-job file, completion note on the transcript.
+        var runInBackground = arguments.TryGetProperty("run_in_background", out var bg)
+            && bg.ValueKind is JsonValueKind.True;
+        if (runInBackground)
+        {
+            if (configuration is not null
+                && !ChatFeatureFlags.IsEnabled(configuration, ChatFeatureFlags.JobsEnabledKey))
+            {
+                return new ChatToolResult(
+                    ErrorJson("chat jobs are disabled"), Refused: true, "jobs disabled");
+            }
+
+            if (jobs is null || context.ConversationId is null)
+            {
+                return new ChatToolResult(
+                    ErrorJson("background jobs unavailable in this context"),
+                    Refused: true, "no job service");
+            }
+
+            var job = await jobs.StartAsync(
+                context.ConversationId, context.RunId, command, context.WorkspacePath,
+                cancellationToken).ConfigureAwait(false);
+            return new ChatToolResult(JsonSerializer.Serialize(new
+            {
+                jobId = job.Id,
+                status = "running",
+            }));
         }
 
         var timeoutSeconds = arguments.TryGetProperty("timeout_seconds", out var t) && t.TryGetInt32(out var tv)

@@ -256,6 +256,189 @@
     scroll-behavior: smooth;
 }
 
+/* SPEC-20261005-chat-jobs-schedule-search RF-009: grouped FTS hits — a
+   conversation header + clickable <mark>-highlighted snippets. */
+.provider-chat-hit-group {
+    margin-bottom: .5rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    overflow: hidden;
+}
+
+.provider-chat-hit-title {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: var(--bs-tertiary-bg, var(--bs-secondary-bg));
+    text-align: left;
+    font-weight: 600;
+    font-size: .8rem;
+    padding: .35rem .5rem;
+    color: inherit;
+}
+
+.provider-chat-hit {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--bs-border-color);
+    background: transparent;
+    text-align: left;
+    font-size: .8rem;
+    padding: .3rem .5rem;
+    color: inherit;
+    overflow-wrap: anywhere;
+}
+
+.provider-chat-hit:hover {
+    background: var(--bs-secondary-bg);
+}
+
+.provider-chat-hit mark {
+    background: var(--bs-warning-bg-subtle, #fff3cd);
+    color: inherit;
+    padding: 0 .1rem;
+}
+
+/* RF-003: live background-job strip above the transcript. */
+.provider-jobs-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    padding: .3rem .75rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.provider-job-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .15rem .25rem .15rem .55rem;
+    border: 1px solid var(--bs-info-border-subtle, var(--bs-border-color));
+    border-radius: 1rem;
+    background: var(--bs-info-bg-subtle, transparent);
+    font-size: .8rem;
+}
+
+.provider-job-spinner {
+    width: .6rem;
+    height: .6rem;
+    border: 2px solid var(--bs-info, #0dcaf0);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: provider-job-spin .8s linear infinite;
+}
+
+@keyframes provider-job-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.provider-job-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 16rem;
+}
+
+.provider-job-elapsed {
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.provider-job-kill {
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    padding: 0 .3rem;
+    line-height: 1;
+}
+
+.provider-job-kill:hover {
+    color: var(--bs-danger);
+}
+
+/* RF-004/RF-005: schedules header button + popover panel. */
+.provider-sched-anchor {
+    position: relative;
+}
+
+.provider-sched-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: .9rem;
+    height: .9rem;
+    border-radius: .45rem;
+    background: var(--bs-info, #0dcaf0);
+    color: var(--bs-dark, #000);
+    font-size: .6rem;
+    line-height: .9rem;
+    text-align: center;
+}
+
+.provider-sched-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + .3rem);
+    z-index: 30;
+    width: 19rem;
+    max-height: 22rem;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-body-bg);
+    box-shadow: 0 .5rem 1rem rgb(0 0 0 / .15);
+    font-size: .8rem;
+}
+
+.provider-sched-head {
+    font-weight: 600;
+    padding: .4rem .6rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.provider-sched-row {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .35rem .6rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.provider-sched-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.provider-sched-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.provider-sched-act {
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    padding: 0 .2rem;
+    line-height: 1;
+}
+
+.provider-sched-act:hover {
+    color: var(--bs-body-color);
+}
+
+.provider-sched-new {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+    padding: .5rem .6rem;
+}
+
 /* SPEC-20261005-chat-fork-steering RF-005/RF-007: pending steer chips above
    the composer — each enters the wire at the next tool-result boundary. */
 .provider-steer-list {

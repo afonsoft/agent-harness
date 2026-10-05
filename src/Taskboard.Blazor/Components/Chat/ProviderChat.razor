@@ -26,8 +26,19 @@
             <div class="px-3 py-2">
                 <button type="button" class="btn btn-primary btn-sm w-100" @onclick="StartNewChatAsync" disabled="@_busy">+ New chat</button>
             </div>
-            <div class="px-3 pb-2">
-                <input type="search" class="form-control form-control-sm" enterkeyhint="search" data-shortcut-search placeholder="Buscar conversas…" @bind="_search" @bind:after="OnSearchChangedAsync" />
+            <div class="px-3 pb-2 d-flex gap-2">
+                <input type="search" class="form-control form-control-sm" enterkeyhint="search" data-shortcut-search placeholder="@(_searchContent ? "Buscar no conteúdo…" : "Buscar conversas…")" @bind="_search" @bind:after="OnSearchChangedAsync" />
+                @* SPEC-20261005-chat-jobs-schedule-search RF-009: Títulos =
+                   filtro do histórico; Conteúdo = busca full-text (FTS5)
+                   no corpo das mensagens, resultados agrupados por conversa. *@
+                <div class="btn-group btn-group-sm flex-shrink-0" role="group" aria-label="Escopo da busca">
+                    <button type="button" class="btn @(!_searchContent ? "btn-primary" : "btn-outline-secondary")"
+                            title="Filtrar por título" aria-pressed="@(!_searchContent ? "true" : "false")"
+                            @onclick="() => SetSearchContentAsync(false)">Títulos</button>
+                    <button type="button" class="btn @(_searchContent ? "btn-primary" : "btn-outline-secondary")"
+                            title="Buscar no conteúdo das mensagens" aria-pressed="@(_searchContent ? "true" : "false")"
+                            @onclick="() => SetSearchContentAsync(true)">Conteúdo</button>
+                </div>
             </div>
             <div class="px-3 pb-2">
                 <div class="btn-group btn-group-sm w-100" role="group" aria-label="Filtro de conversas">
@@ -43,6 +54,34 @@
                 </div>
             </div>
             <div class="provider-chat-list flex-grow-1 overflow-auto px-2">
+                @if (_searchContent && !string.IsNullOrWhiteSpace(_search))
+                {
+                    @* RF-009: grouped FTS hits — click opens the conversation
+                       and scrolls to #m-{messageId} in the transcript. *@
+                    @if (_searchHits.Count == 0)
+                    {
+                        <div class="text-body-secondary small px-2 py-3">Nenhum resultado.</div>
+                    }
+                    @foreach (var group in _searchHits.GroupBy(h => h.ConversationId))
+                    {
+                        <div class="provider-chat-hit-group" @key="group.Key">
+                            <button type="button" class="provider-chat-hit-title"
+                                    @onclick="() => OpenConversationAsync(group.Key)">
+                                @group.First().ConversationTitle
+                            </button>
+                            @foreach (var hit in group)
+                            {
+                                <button type="button" class="provider-chat-hit" @key="hit.MessageId"
+                                        title="@hit.CreatedAt.ToLocalTime():g"
+                                        @onclick="() => OpenHitAsync(hit)">
+                                    @((MarkupString)SearchSnippetMarkup(hit.Snippet))
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+                else
+                {
                 @if (_conversations.Count == 0)
                 {
                     <div class="text-body-secondary small px-2 py-3">@(_showArchived ? "Nenhuma conversa arquivada." : "Nenhuma conversa ainda.")</div>
@@ -108,6 +147,7 @@
                             </button>
                         }
                     </div>
+                }
                 }
             </div>
             @HistoryExtra
@@ -210,11 +250,102 @@
                     <Icon Name="IconName.Diagram2" />
                 </button>
             }
+            @* SPEC-20261005-chat-jobs-schedule-search RF-004/RF-005:
+               schedules popover — list, cancel/re-arm, delete, quick create. *@
+            @if (_conversationId is not null && !_archived)
+            {
+                <div class="provider-sched-anchor">
+                    <button type="button" class="provider-chat-action" title="Agendamentos"
+                            aria-label="Agendamentos da conversa"
+                            aria-pressed="@(_schedulePanelOpen ? "true" : "false")"
+                            @onclick="ToggleSchedulePanelAsync">
+                        <Icon Name="IconName.ClockHistory" />
+                        @if (_schedules.Any(s => s.Active))
+                        {
+                            <span class="provider-sched-badge">@_schedules.Count(s => s.Active)</span>
+                        }
+                    </button>
+                    @if (_schedulePanelOpen)
+                    {
+                        <div class="provider-sched-panel">
+                            <div class="provider-sched-head">Agendamentos</div>
+                            @if (_schedules.Count == 0)
+                            {
+                                <div class="small text-body-secondary px-2 py-2">Nenhum agendamento.</div>
+                            }
+                            @foreach (var schedule in _schedules)
+                            {
+                                <div class="provider-sched-row" @key="schedule.Id">
+                                    <div class="provider-sched-meta">
+                                        <span class="provider-sched-title">@schedule.Title</span>
+                                        <span class="small text-body-secondary">
+                                            @DescribeSchedule(schedule)
+                                        </span>
+                                    </div>
+                                    <button type="button" class="provider-sched-act" title="@(schedule.Active ? "Pausar" : "Reativar")"
+                                            @onclick='() => ToggleScheduleAsync(schedule)'>
+                                        @(schedule.Active ? "⏸" : "▶")
+                                    </button>
+                                    <button type="button" class="provider-sched-act text-danger" title="Excluir"
+                                            @onclick='() => DeleteScheduleAsync(schedule.Id)'>
+                                        ×
+                                    </button>
+                                </div>
+                            }
+                            <div class="provider-sched-new">
+                                <input class="form-control form-control-sm" placeholder="Título…" maxlength="120"
+                                       @bind="_schedTitle" />
+                                <input class="form-control form-control-sm" placeholder="Prompt enviado ao disparar…"
+                                       @bind="_schedPrompt" />
+                                <div class="d-flex gap-1 align-items-center">
+                                    <select class="form-select form-select-sm" @bind="_schedKind" aria-label="Tipo">
+                                        <option value="after_seconds">em N segundos</option>
+                                        <option value="at">data/hora (ISO)</option>
+                                        <option value="cron">cron</option>
+                                    </select>
+                                    @if (_schedKind == "after_seconds")
+                                    {
+                                        <input class="form-control form-control-sm" type="number" min="1" style="width: 6rem"
+                                               @bind="_schedSeconds" aria-label="Segundos" />
+                                    }
+                                    else
+                                    {
+                                        <input class="form-control form-control-sm" style="width: 9rem"
+                                               placeholder="@(_schedKind == "cron" ? "*/5 * * * *" : "2026-10-06T09:00")"
+                                               @bind="_schedExpr" aria-label="Expressão" />
+                                    }
+                                </div>
+                                <button type="button" class="btn btn-primary btn-sm"
+                                        disabled="@(string.IsNullOrWhiteSpace(_schedPrompt) || _schedBusy)"
+                                        @onclick="CreateScheduleAsync">Agendar</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
             @if (_conversationTitle is { Length: > 0 })
             {
                 <span class="ms-auto small text-body-secondary text-truncate d-none d-md-block">@_conversationTitle</span>
             }
         </div>
+
+        @* SPEC-20261005-chat-jobs-schedule-search RF-003: live background-job
+           strip above the transcript — polled (active jobs only); ⏹ kills. *@
+        @if (_activeJobs.Count > 0)
+        {
+            <div class="provider-jobs-strip" aria-label="Background jobs">
+                @foreach (var job in _activeJobs)
+                {
+                    <span class="provider-job-chip" @key="job.Id" title="@job.Command">
+                        <span class="provider-job-spinner" aria-hidden="true"></span>
+                        <span class="provider-job-name">@ShortCommand(job.Command)</span>
+                        <span class="provider-job-elapsed">@JobElapsed(job)</span>
+                        <button type="button" class="provider-job-kill" title="Kill" aria-label="Kill job"
+                                @onclick='() => KillJobAsync(job.Id)'>×</button>
+                    </span>
+                }
+            </div>
+        }
 
         <div class="provider-chat-messages flex-grow-1 overflow-auto px-3 py-3" id="provider-chat-scroll">
             <div class="provider-chat-thread">
@@ -227,7 +358,9 @@
             }
             @foreach (var message in _messages)
             {
-                <div class="provider-chat-bubble @BubbleClass(message.Role)">
+                @* RF-009: #m-{id} anchors let a content-search hit scroll to
+                   this bubble (taskboardChat.scrollIntoView). *@
+                <div class="provider-chat-bubble @BubbleClass(message.Role)" id="m-@message.Id">
                     @if (message.Role == "tool")
                     {
                         <details class="provider-tool-card" open="@message.Refused">
@@ -780,6 +913,25 @@
     private string _composer = string.Empty;
     private string _search = string.Empty;
 
+    // SPEC-20261005-chat-jobs-schedule-search RF-009: Títulos|Conteúdo
+    // sidebar search scope — content mode queries the FTS5 endpoint.
+    private bool _searchContent;
+    private IReadOnlyList<ChatSearchHitDto> _searchHits = [];
+
+    // RF-003: active ChatJob strip — polled while a conversation is open.
+    private IReadOnlyList<ChatJobDto> _activeJobs = [];
+    private CancellationTokenSource? _jobsPollCts;
+
+    // RF-004/RF-005: schedules popover + quick-create form.
+    private List<ChatScheduleDto> _schedules = [];
+    private bool _schedulePanelOpen;
+    private bool _schedBusy;
+    private string _schedTitle = string.Empty;
+    private string _schedPrompt = string.Empty;
+    private string _schedKind = "after_seconds";
+    private string _schedExpr = string.Empty;
+    private int _schedSeconds = 300;
+
     // SPEC-20261001-chat-skills-slash-commands: slash palette state.
     private IReadOnlyList<SlashCommandPalette.SlashItem> _slashItems = [];
     private IReadOnlyList<SlashCommandPalette.SlashItem> _skillItems = [];
@@ -1051,11 +1203,224 @@
         try
         {
             _conversations = await Client.GetChatConversationsAsync(_search, _showArchived, _negativeOnly);
+            if (_searchContent)
+            {
+                _searchHits = await Client.SearchChatContentAsync(_search, null, 50);
+            }
         }
         catch (Exception)
         {
             // Search is best-effort.
         }
+    }
+
+    /// <summary>RF-009: toggle between title filter and full-text content
+    /// search — a content hit navigates to the message anchor.</summary>
+    private async Task SetSearchContentAsync(bool content)
+    {
+        if (_searchContent == content)
+        {
+            return;
+        }
+
+        _searchContent = content;
+        _searchHits = [];
+        await OnSearchChangedAsync();
+    }
+
+    /// <summary>RF-009: open the hit's conversation then scroll to the
+    /// message anchor rendered as #m-{messageId}.</summary>
+    private async Task OpenHitAsync(ChatSearchHitDto hit)
+    {
+        await OpenConversationAsync(hit.ConversationId);
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardChat.scrollIntoView", $"m-{hit.MessageId}");
+        }
+        catch (JSException)
+        {
+            // Anchor scroll is best-effort.
+        }
+    }
+
+    /// <summary>Snippet text is arbitrary message content — HTML-encode then
+    /// restore only the &lt;mark&gt; wrappers FTS emitted.</summary>
+    private static string SearchSnippetMarkup(string snippet)
+    {
+        var encoded = System.Net.WebUtility.HtmlEncode(snippet);
+        return encoded
+            .Replace("&lt;mark&gt;", "<mark>", StringComparison.Ordinal)
+            .Replace("&lt;/mark&gt;", "</mark>", StringComparison.Ordinal);
+    }
+
+    // ---- RF-003: background-job strip ----
+
+    /// <summary>Restart the 4s jobs poll for the open conversation.</summary>
+    private void StartJobsPoll()
+    {
+        _jobsPollCts?.Cancel();
+        _jobsPollCts?.Dispose();
+        _jobsPollCts = new CancellationTokenSource();
+        var token = _jobsPollCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await LoadJobsAsync();
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(4000, token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception)
+            {
+                // Poll is best-effort — a dead endpoint just empties the strip.
+            }
+        });
+    }
+
+    private async Task LoadJobsAsync()
+    {
+        if (_conversationId is null)
+        {
+            _activeJobs = [];
+            return;
+        }
+
+        _activeJobs = await Client.GetChatJobsAsync(_conversationId, activeOnly: true);
+    }
+
+    private async Task KillJobAsync(string jobId)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        await Client.KillChatJobAsync(_conversationId, jobId);
+        await LoadJobsAsync();
+    }
+
+    private static string ShortCommand(string command) =>
+        command.Length <= 40 ? command : command[..39] + "…";
+
+    private static string JobElapsed(ChatJobDto job)
+    {
+        var start = job.StartedAt ?? job.CreatedAt;
+        var elapsed = DateTime.UtcNow - start;
+        return elapsed.TotalHours >= 1 ? elapsed.ToString("h\\:mm", System.Globalization.CultureInfo.InvariantCulture)
+            : elapsed.ToString("m\\:ss", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // ---- RF-004/RF-005: schedules ----
+
+    private async Task ToggleSchedulePanelAsync()
+    {
+        _schedulePanelOpen = !_schedulePanelOpen;
+        if (_schedulePanelOpen)
+        {
+            await LoadSchedulesAsync();
+        }
+    }
+
+    private async Task LoadSchedulesAsync()
+    {
+        if (_conversationId is null)
+        {
+            _schedules = [];
+            return;
+        }
+
+        _schedules = (await Client.GetChatSchedulesAsync(_conversationId)).ToList();
+    }
+
+    private async Task CreateScheduleAsync()
+    {
+        if (_conversationId is null || string.IsNullOrWhiteSpace(_schedPrompt))
+        {
+            return;
+        }
+
+        _schedBusy = true;
+        try
+        {
+            var request = _schedKind switch
+            {
+                "at" => new CreateChatScheduleRequest("at", Expr: _schedExpr,
+                    Title: BlankToNull(_schedTitle), Prompt: _schedPrompt),
+                "cron" => new CreateChatScheduleRequest("cron", Expr: _schedExpr,
+                    Title: BlankToNull(_schedTitle), Prompt: _schedPrompt),
+                _ => new CreateChatScheduleRequest("after_seconds", AfterSeconds: _schedSeconds,
+                    Title: BlankToNull(_schedTitle), Prompt: _schedPrompt),
+            };
+            var created = await Client.CreateChatScheduleAsync(_conversationId, request);
+            if (created is null)
+            {
+                _error = "Falha ao agendar — verifique a expressão (cron/ISO) ou o limite por conversa.";
+            }
+            else
+            {
+                _schedTitle = string.Empty;
+                _schedPrompt = string.Empty;
+                _schedExpr = string.Empty;
+            }
+
+            await LoadSchedulesAsync();
+        }
+        finally
+        {
+            _schedBusy = false;
+        }
+    }
+
+    private async Task ToggleScheduleAsync(ChatScheduleDto schedule)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        await Client.UpdateChatScheduleAsync(
+            _conversationId, schedule.Id, new PatchChatScheduleRequest(Active: !schedule.Active));
+        await LoadSchedulesAsync();
+    }
+
+    private async Task DeleteScheduleAsync(string scheduleId)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        await Client.DeleteChatScheduleAsync(_conversationId, scheduleId);
+        await LoadSchedulesAsync();
+    }
+
+    private static string? BlankToNull(string s) =>
+        string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string DescribeSchedule(ChatScheduleDto s) =>
+        s.Kind switch
+        {
+            "cron" => $"cron {s.CronExpression}",
+            "at" => "uma vez",
+            _ => "uma vez",
+        } + (s.NextFireAtUtc is { } fire
+            ? $" · próx: {fire.ToLocalTime():g}"
+            : s.Active ? " · sem próxima data" : " · pausado");
+
+    public void Dispose()
+    {
+        Notifications.RunPressure -= OnRunPressure;
+        Notifications.SteerChanged -= OnSteerChanged;
+        _streamCts?.Cancel();
+        _streamCts?.Dispose();
+        _jobsPollCts?.Cancel();
+        _jobsPollCts?.Dispose();
     }
 
     private async Task StartNewChatAsync()
@@ -1089,6 +1454,10 @@
             _stagedAttachments.Clear();
             _feedbackFor = null;
             _lastRunDeliverables = null;
+            _schedules = [];
+            _activeJobs = [];
+            _schedulePanelOpen = false;
+            StartJobsPoll();
             await OnSearchChangedAsync();
         }
         catch (Exception ex)
@@ -1114,6 +1483,10 @@
             }
 
             await ApplyConversationAsync(detail);
+            // RF-003: poll this conversation's jobs until another one opens.
+            StartJobsPoll();
+            _schedules = [];
+            _schedulePanelOpen = false;
             await ScrollToEndAsync();
         }
         catch (Exception ex)
@@ -2401,11 +2774,4 @@
     private static string FormatTokens(int tokens) =>
         tokens >= 1000 ? $"{tokens / 1000.0:0.#}k" : tokens.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-    public void Dispose()
-    {
-        Notifications.RunPressure -= OnRunPressure;
-        Notifications.SteerChanged -= OnSteerChanged;
-        _streamCts?.Cancel();
-        _streamCts?.Dispose();
-    }
 }

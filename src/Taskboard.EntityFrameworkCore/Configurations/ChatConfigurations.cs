@@ -521,3 +521,109 @@ public sealed class ChatRunDeliverableConfiguration : IEntityTypeConfiguration<C
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+/// <summary>SPEC-20261005-chat-jobs-schedule-search RF-001 — one row per background job.</summary>
+public sealed class ChatJobConfiguration : IEntityTypeConfiguration<ChatJob>
+{
+    public void Configure(EntityTypeBuilder<ChatJob> builder)
+    {
+        builder.ToTable("ChatJobs");
+
+        builder.Property(j => j.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatJobId>());
+
+        builder.HasKey(j => j.Id);
+
+        builder.Property(j => j.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(j => j.RunId)
+            .HasMaxLength(128)
+            .HasConversion(new NullableStringIdValueConverter<ChatRunId>());
+
+        builder.Property(j => j.Command)
+            .HasMaxLength(ChatJob.MaxCommandLength)
+            .IsRequired();
+
+        builder.Property(j => j.Status)
+            .HasMaxLength(16)
+            .IsRequired()
+            .HasConversion(new StringValueObjectConverter<ChatJobStatus>());
+
+        builder.Property(j => j.ExitCode);
+        builder.Property(j => j.Pid);
+
+        builder.Property(j => j.OutputPath)
+            .HasMaxLength(512);
+
+        builder.Property(j => j.Error)
+            .HasMaxLength(1024);
+
+        builder.Property(j => j.CreatedAt);
+        builder.Property(j => j.StartedAt);
+        builder.Property(j => j.FinishedAt);
+
+        // Jobs strip (active per conversation) + boot-sweep scan (non-terminal).
+        builder.HasIndex(j => new { j.ConversationId, j.CreatedAt });
+        builder.HasIndex(j => j.Status);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(j => j.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>SPEC-20261005-chat-jobs-schedule-search RF-004 — due-scan index on active rows.</summary>
+public sealed class ChatScheduleConfiguration : IEntityTypeConfiguration<ChatSchedule>
+{
+    public void Configure(EntityTypeBuilder<ChatSchedule> builder)
+    {
+        builder.ToTable("ChatSchedules");
+
+        builder.Property(s => s.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatScheduleId>());
+
+        builder.HasKey(s => s.Id);
+
+        builder.Property(s => s.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(s => s.Kind)
+            .HasMaxLength(16)
+            .IsRequired();
+
+        builder.Property(s => s.CronExpression)
+            .HasMaxLength(ChatSchedule.MaxCronLength);
+
+        builder.Property(s => s.TimeZoneId)
+            .HasMaxLength(ChatSchedule.MaxTimeZoneLength);
+
+        builder.Property(s => s.NextFireAtUtc);
+
+        builder.Property(s => s.Title)
+            .HasMaxLength(ChatSchedule.MaxTitleLength)
+            .IsRequired();
+
+        builder.Property(s => s.Prompt)
+            .HasMaxLength(ChatSchedule.MaxPromptLength)
+            .IsRequired();
+
+        builder.Property(s => s.Active);
+        builder.Property(s => s.LastDeliveredAt);
+        builder.Property(s => s.CreatedAt);
+
+        // Due scan: active rows ordered by next fire + per-conversation listing.
+        builder.HasIndex(s => new { s.Active, s.NextFireAtUtc });
+        builder.HasIndex(s => s.ConversationId);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(s => s.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

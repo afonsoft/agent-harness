@@ -236,6 +236,20 @@ public sealed class RuntimeConfigurationService
             Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        // SPEC-20261005-chat-jobs-schedule-search RNF-004: feature flags —
+        // all default-on; "false" disables the endpoints/tools at the gate.
+        new("Taskboard:Chat:Jobs:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Schedule:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Schedule:MaxPerConversation", "20", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Search:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         // SPEC-20261005 RF-009: VAPID identity for Web Push. Empty keys are
         // auto-generated once by VapidKeyService on first subscribe and
         // persisted here (private key stays masked like every secret).

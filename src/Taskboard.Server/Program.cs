@@ -52,6 +52,7 @@ using Taskboard.Issues;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore;
 using Taskboard.EntityFrameworkCore.Agents;
+using Taskboard.EntityFrameworkCore.Chat;
 using Taskboard.EntityFrameworkCore.CliMetrics;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Delegation;
@@ -557,7 +558,9 @@ void RegisterWorkspaceAndChatServices()
         [
             new ShellExecTool(
                 sp.GetRequiredService<ICommandRiskClassifier>(),
-                sp.GetRequiredService<ISecretRedactor>()),
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetService<IChatJobService>(),
+                configuration),
             new ReadFileTool(
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetRequiredService<ISpillStore>(),
@@ -625,6 +628,16 @@ void RegisterWorkspaceAndChatServices()
             // SPEC-20261005-chat-plan-mode RF-003: plan review — the approval
             // gate intercepts the call; the tool only confirms approval.
             new ExitPlanModeTool(),
+            // SPEC-20261005-chat-jobs-schedule-search RF-002/RF-005/RF-010:
+            // background-job, schedule and FTS search tools.
+            new JobListTool(sp.GetRequiredService<IChatJobService>(), configuration),
+            new JobOutputTool(sp.GetRequiredService<IChatJobService>(), configuration),
+            new JobKillTool(sp.GetRequiredService<IChatJobService>(), configuration),
+            new ScheduleCreateTool(sp.GetRequiredService<IServiceScopeFactory>(), configuration),
+            new ScheduleListTool(sp.GetRequiredService<IServiceScopeFactory>(), configuration),
+            new ScheduleUpdateTool(sp.GetRequiredService<IServiceScopeFactory>(), configuration),
+            new ScheduleDeleteTool(sp.GetRequiredService<IServiceScopeFactory>(), configuration),
+            new SessionSearchTool(sp.GetRequiredService<IServiceScopeFactory>(), configuration),
             // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
             // SPEC-20261004-chat-board-tools: board card lifecycle — a card IS a
@@ -673,6 +686,21 @@ void RegisterWorkspaceAndChatServices()
     });
     builder.Services.AddHostedService<ChatRunDispatcherService>();
     builder.Services.AddHostedService<ChatRunRetentionService>();
+    // SPEC-20261005-chat-jobs-schedule-search RF-001/RF-002: process registry
+    // for background jobs — singleton shared by the tools and the endpoints;
+    // output files under ~/.agent-harness/jobs/.
+    builder.Services.AddSingleton(sp => new ChatJobService(
+        sp.GetRequiredService<IServiceScopeFactory>(),
+        sp.GetRequiredService<ISecretRedactor>(),
+        sp.GetRequiredService<ILogger<ChatJobService>>(),
+        environment.GetDataDir()));
+    builder.Services.AddSingleton<IChatJobService>(sp => sp.GetRequiredService<ChatJobService>());
+    // RF-004/RF-005/RF-006: conversation schedules + the hosted ticker that
+    // delivers them as normal runs (boot pass covers missed fires).
+    builder.Services.AddScoped<IChatScheduleService, ChatScheduleService>();
+    builder.Services.AddHostedService<ChatScheduleDispatcherService>();
+    // RF-007/RF-008: FTS5 message index (scoped — shares the request DbContext).
+    builder.Services.AddScoped<IChatMessageSearchIndex, ChatMessageSearchIndex>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
     builder.Services.AddSingleton<IMcpClientManager>(sp =>
         new ChatMcpClientManager(
@@ -1230,6 +1258,12 @@ async System.Threading.Tasks.Task InitializeDatabaseAsync()
         // The overrides table may have just been created by this migration.
         sqliteConfigProvider.Reload();
     }
+
+    // SPEC-20261005-chat-jobs-schedule-search: rows left running by the last
+    // host are orphaned OS processes — mark terminated + note (PID reuse makes
+    // signaling them unsafe).
+    await app.Services.GetRequiredService<ChatJobService>()
+        .TerminateOrphansAsync(CancellationToken.None);
 
     // SPEC-20260915-api-authorization-hardening RF-001/RF-002: the whole API
     // requires an authenticated principal (cookie or X-Api-Key); only the
@@ -2968,6 +3002,189 @@ void MapSettingsAndChatEndpoints()
         return Results.NoContent();
     });
 
+    // ---- SPEC-20261005-chat-jobs-schedule-search: background jobs ----
+
+    // RF-002/RF-003: conversation-scoped job list — ?active=true for the strip.
+    chat.MapGet("conversations/{id}/jobs", async (
+        string id,
+        bool? active,
+        IChatJobService jobService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, JobsEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat jobs are disabled." } });
+        }
+
+        var jobs = await jobService.ListAsync(id, active is true, ct);
+        return Results.Ok(new { jobs });
+    });
+
+    // RF-002: tail of the captured output (stdout+stderr).
+    chat.MapGet("conversations/{id}/jobs/{jobId}/output", async (
+        string id,
+        string jobId,
+        int? tailBytes,
+        IChatJobService jobService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, JobsEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat jobs are disabled." } });
+        }
+
+        var output = await jobService.GetOutputAsync(id, jobId, tailBytes ?? 16 * 1024, ct);
+        return output is null
+            ? Results.NotFound(new { error = new { code = "JOB_NOT_FOUND", message = $"Job '{jobId}' not found." } })
+            : Results.Ok(new { output });
+    });
+
+    // RF-002: operator kill — SIGTERM→SIGKILL; 409 once terminal.
+    chat.MapPost("conversations/{id}/jobs/{jobId}/kill", async (
+        string id,
+        string jobId,
+        IChatJobService jobService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, JobsEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat jobs are disabled." } });
+        }
+
+        try
+        {
+            var job = await jobService.KillAsync(id, jobId, ct);
+            return job is null
+                ? Results.NotFound(new { error = new { code = "JOB_NOT_FOUND", message = $"Job '{jobId}' not found." } })
+                : Results.Ok(new { job });
+        }
+        catch (ChatJobConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "JOB_TERMINAL", message = ex.Message } });
+        }
+    });
+
+    // ---- SPEC-20261005-chat-jobs-schedule-search: schedules ----
+
+    // RF-005: conversation-scoped list.
+    chat.MapGet("conversations/{id}/schedules", async (
+        string id,
+        IChatScheduleService scheduleService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+        }
+
+        var schedules = await scheduleService.ListAsync(id, ct);
+        return Results.Ok(new { schedules });
+    });
+
+    // RF-004/RF-005: create — cron|at|after_seconds, capped per conversation.
+    chat.MapPost("conversations/{id}/schedules", async (
+        string id,
+        CreateChatScheduleRequest request,
+        IChatScheduleService scheduleService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+        }
+
+        try
+        {
+            var schedule = await scheduleService.CreateAsync(id, request, ct);
+            return Results.Created(
+                $"/api/local/chat/conversations/{id}/schedules/{schedule.Id}",
+                new { schedule });
+        }
+        catch (ChatConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "SCHEDULE_CAP", message = ex.Message } });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    // RF-005: edit prompt/title or activate-deactivate.
+    chat.MapPatch("conversations/{id}/schedules/{scheduleId}", async (
+        string id,
+        string scheduleId,
+        PatchChatScheduleRequest request,
+        IChatScheduleService scheduleService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+        }
+
+        try
+        {
+            var schedule = await scheduleService.UpdateAsync(id, scheduleId, request, ct);
+            return schedule is null
+                ? Results.NotFound(new { error = new { code = "SCHEDULE_NOT_FOUND", message = $"Schedule '{scheduleId}' not found." } })
+                : Results.Ok(new { schedule });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    chat.MapDelete("conversations/{id}/schedules/{scheduleId}", async (
+        string id,
+        string scheduleId,
+        IChatScheduleService scheduleService,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, ScheduleEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat schedules are disabled." } });
+        }
+
+        var deleted = await scheduleService.DeleteAsync(id, scheduleId, ct);
+        return deleted
+            ? Results.NoContent()
+            : Results.NotFound(new { error = new { code = "SCHEDULE_NOT_FOUND", message = $"Schedule '{scheduleId}' not found." } });
+    });
+
+    // ---- SPEC-20261005-chat-jobs-schedule-search: FTS search (RF-008) ----
+
+    // bm25 + <mark> snippets; ?conversationId= filters; limit capped at 50.
+    chat.MapGet("search", async (
+        string? q,
+        string? conversationId,
+        int? limit,
+        IChatMessageSearchIndex searchIndex,
+        IConfiguration configuration,
+        CancellationToken ct) =>
+    {
+        if (!ChatFeatureEnabled(configuration, SearchEnabledKey))
+        {
+            return Results.NotFound(new { error = new { code = "FEATURE_DISABLED", message = "Chat search is disabled." } });
+        }
+
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = "q is required." } });
+        }
+
+        var hits = await searchIndex.SearchAsync(q, conversationId, Math.Min(limit ?? 20, 50), ct);
+        return Results.Ok(new { hits });
+    });
+
     chat.MapGet("images/{fileName}", (string fileName, ChatImageStore imageStore) =>
     {
         var full = imageStore.Resolve(fileName);
@@ -4485,6 +4702,15 @@ public partial class Program
 
     // Repeated literals (S1192).
     private const string ErrValidation = "VALIDATION";
+
+    // SPEC-20261005-chat-jobs-schedule-search RNF-004: per-feature kill
+    // switches — tools also check them so nothing mutates while disabled.
+    private const string JobsEnabledKey = ChatFeatureFlags.JobsEnabledKey;
+    private const string ScheduleEnabledKey = ChatFeatureFlags.ScheduleEnabledKey;
+    private const string SearchEnabledKey = ChatFeatureFlags.SearchEnabledKey;
+
+    private static bool ChatFeatureEnabled(IConfiguration configuration, string key) =>
+        ChatFeatureFlags.IsEnabled(configuration, key);
     private const string ErrConversationNotFound = "CONVERSATION_NOT_FOUND";
     private const string ErrFeatureDisabled = "FEATURE_DISABLED";
     private const string ErrRepoNotFound = "repo-not-found";

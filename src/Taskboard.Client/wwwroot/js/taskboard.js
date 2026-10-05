@@ -460,6 +460,15 @@ window.taskboardChat = {
         });
     },
 
+    // SPEC-20261005-chat-jobs-schedule-search RF-009: scroll a search-hit
+    // message anchor (#m-{messageId}) into view inside the transcript.
+    scrollIntoView: function (elementId) {
+        var el = document.getElementById(elementId);
+        if (el) {
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    },
+
     // SPEC-20261005-chat-plan-mode RF-004: export the reviewed plan as a
     // .md download (Blob URL — no server round-trip).
     download: function (filename, text, mime) {

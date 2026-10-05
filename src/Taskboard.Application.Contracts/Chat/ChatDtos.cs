@@ -240,3 +240,71 @@ public sealed record PatchChatConversationRequest(
     ChatAgentContext? Agent = null,
     // SPEC-20261005-chat-tool-approval RF-006: chat|ask|full — editable mid-run.
     string? PermissionPreset = null);
+
+// ---- SPEC-20261005-chat-jobs-schedule-search ----
+
+/// <summary>
+/// A background shell job (RF-001/RF-002): the row outlives its spawning run —
+/// the jobs strip polls active rows and kills via the endpoint.
+/// </summary>
+public sealed record ChatJobDto(
+    string Id,
+    string ConversationId,
+    string Command,
+    string Status,
+    int? ExitCode,
+    string? Error,
+    DateTime CreatedAt,
+    DateTime? StartedAt,
+    DateTime? FinishedAt);
+
+/// <summary>Result of <c>job_output</c> / <c>GET .../jobs/{id}/output</c> (RF-002).</summary>
+public sealed record ChatJobOutputDto(string JobId, string Status, int? ExitCode, string OutputTail);
+
+/// <summary>
+/// A scheduled follow-up bound to a conversation (RF-004/RF-005). For
+/// <c>cron</c> rows <see cref="CronExpression"/> (+optional IANA
+/// <see cref="TimeZoneId"/>) drives <see cref="NextFireAtUtc"/> recomputation.
+/// </summary>
+public sealed record ChatScheduleDto(
+    string Id,
+    string ConversationId,
+    string Kind,
+    string? CronExpression,
+    string? TimeZoneId,
+    DateTime NextFireAtUtc,
+    string Title,
+    string Prompt,
+    bool Active,
+    DateTime? LastDeliveredAt,
+    DateTime CreatedAt);
+
+/// <summary>Body of <c>POST /api/local/chat/conversations/{id}/schedules</c> (RF-005).</summary>
+public sealed record CreateChatScheduleRequest(
+    /// <summary>cron | at | after_seconds.</summary>
+    string Kind,
+    /// <summary>5-field cron expr (kind=cron), ISO-8601 instant (kind=at).</summary>
+    string? Expr = null,
+    string? TimeZoneId = null,
+    /// <summary>kind=after_seconds.</summary>
+    int? AfterSeconds = null,
+    string? Title = null,
+    string Prompt = "");
+
+/// <summary>Body of <c>PATCH /api/local/chat/conversations/{id}/schedules/{sid}</c> (RF-005).</summary>
+public sealed record PatchChatScheduleRequest(
+    bool? Active = null,
+    string? Title = null,
+    string? Prompt = null);
+
+/// <summary>
+/// One FTS hit (RF-008): <see cref="Snippet"/> carries <c>&lt;mark&gt;</c>s
+/// from sqlite's snippet() — render as markup, never editable text.
+/// </summary>
+public sealed record ChatSearchHitDto(
+    string ConversationId,
+    string ConversationTitle,
+    string MessageId,
+    string Snippet,
+    DateTime CreatedAt,
+    double Rank);
