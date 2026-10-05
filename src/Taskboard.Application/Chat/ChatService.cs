@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Skills;
@@ -51,6 +52,7 @@ public sealed class ChatService(
     IWorkspacePathResolver workspace,
     IConfiguration configuration,
     ChatRunCoordinator runs,
+    HybridCache cache,
     TimeProvider? clock = null)
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -62,12 +64,30 @@ public sealed class ChatService(
 
     private DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
 
+    // SPEC-20261004-provider-pick-hybridcache RF-002: chat catalog caching via
+    // HybridCache (L1 memory; L2 = Redis when Taskboard:Cache:Redis is set).
+    internal const string ProvidersCacheKey = "chat-providers";
+    internal const string ProvidersCacheTag = "chat-providers";
+    internal const string ProviderModelsCacheTag = "chat-provider-models";
+    internal static readonly TimeSpan ProvidersTtl = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan ProviderModelsTtl = TimeSpan.FromMinutes(5);
+
+    private static string ProviderModelsKey(Guid providerId) => $"chat-provider-models-{providerId}";
+
     // ---- Providers (RF-001/RF-002) ----
 
     public async Task<IReadOnlyList<ChatProviderDto>> ListProvidersAsync(CancellationToken ct = default)
     {
-        var rows = await providers.Query.OrderBy(p => p.Name).ToListAsync(ct).ConfigureAwait(false);
-        return rows.Select(ToDto).ToList();
+        return await cache.GetOrCreateAsync(
+            ProvidersCacheKey,
+            async inner =>
+            {
+                var rows = await providers.Query.OrderBy(p => p.Name).ToListAsync(inner).ConfigureAwait(false);
+                return (IReadOnlyList<ChatProviderDto>)rows.Select(ToDto).ToList();
+            },
+            new HybridCacheEntryOptions { Expiration = ProvidersTtl },
+            [ProvidersCacheTag],
+            ct).ConfigureAwait(false);
     }
 
     public async Task<ChatProviderDto> CreateProviderAsync(ChatProviderUpsertRequest request, CancellationToken ct = default)
@@ -86,6 +106,7 @@ public sealed class ChatService(
         var provider = ChatProvider.Create(name, request.BaseUrl, request.ApiKey ?? string.Empty, UtcNow);
         await providers.AddAsync(provider, ct).ConfigureAwait(false);
         await providers.SaveChangesAsync(ct).ConfigureAwait(false);
+        await cache.RemoveByTagAsync(ProvidersCacheTag, ct).ConfigureAwait(false);
         return ToDto(provider);
     }
 
@@ -105,6 +126,7 @@ public sealed class ChatService(
 
         provider.Update(request.Name, request.BaseUrl, request.ApiKey, request.Enabled, UtcNow);
         await providers.SaveChangesAsync(ct).ConfigureAwait(false);
+        await InvalidateProviderCachesAsync(provider.Id, ct).ConfigureAwait(false);
         return ToDto(provider);
     }
 
@@ -118,6 +140,7 @@ public sealed class ChatService(
 
         await providers.DeleteAsync(provider, ct).ConfigureAwait(false);
         await providers.SaveChangesAsync(ct).ConfigureAwait(false);
+        await InvalidateProviderCachesAsync(id, ct).ConfigureAwait(false);
         return true;
     }
 
@@ -126,13 +149,24 @@ public sealed class ChatService(
         var provider = await RequireProviderAsync(providerId, ct).ConfigureAwait(false);
         try
         {
-            var models = await client.ListModelsAsync(provider.BaseUrl, provider.ApiKey, ct).ConfigureAwait(false);
-            return new ChatModelListDto(models, Cached: false);
+            var models = await cache.GetOrCreateAsync(
+                ProviderModelsKey(providerId),
+                async inner => await client.ListModelsAsync(provider.BaseUrl, provider.ApiKey, inner).ConfigureAwait(false),
+                new HybridCacheEntryOptions { Expiration = ProviderModelsTtl },
+                [ProviderModelsCacheTag, ProvidersCacheTag],
+                ct).ConfigureAwait(false);
+            return new ChatModelListDto(models, Cached: true);
         }
         catch (HttpRequestException ex)
         {
             throw new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
         }
+    }
+
+    private async Task InvalidateProviderCachesAsync(Guid providerId, CancellationToken ct)
+    {
+        await cache.RemoveByTagAsync(ProvidersCacheTag, ct).ConfigureAwait(false);
+        await cache.RemoveAsync(ProviderModelsKey(providerId), ct).ConfigureAwait(false);
     }
 
     // ---- Conversations (RF-004) ----
