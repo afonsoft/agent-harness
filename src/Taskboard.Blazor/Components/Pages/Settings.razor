@@ -605,78 +605,138 @@
                     }
                 </div>
 
-                <div class="form-section">
-                    <h2 class="form-section-title">Configuration</h2>
-                    <p class="small text-body-secondary">Database overrides win over environment variables and appsettings.</p>
-                    @if (_configError is not null)
+                @* SPEC-20261010-settings-configuration-tab: dedicated tab — keys
+                   grouped by category, managed-elsewhere keys hidden into links,
+                   connections info header on top. *@
+                <div class="tab-pane" role="tabpanel" aria-label="Configuration" hidden="@(_activeTab != "configuration")">
+                @if (_configError is not null)
+                {
+                    <div class="alert alert-warning mb-3">@_configError</div>
+                }
+                else if (_configEntries.Count == 0)
+                {
+                    <EmptyState Message="No configuration keys." />
+                }
+                else
+                {
+                    <div class="form-section">
+                        <h2 class="form-section-title">Connections</h2>
+                        <p class="small text-body-secondary">Active database provider and cache mode (read-only).</p>
+                        @if (_connectionInfo is not null)
+                        {
+                            <div class="setting-row">
+                                <div>
+                                    <div class="fw-medium">Database</div>
+                                    <div class="small text-body-secondary font-monospace">
+                                        ConnectionStrings:@(_connectionInfo.DbConnectionName ?? "Taskboard") = @(_connectionInfo.DbConnectionString ?? "—")
+                                    </div>
+                                </div>
+                                <span class="badge text-bg-info align-self-center">@(_connectionInfo.DbProvider == "postgresql" ? "PostgreSQL" : "SQLite")</span>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="fw-medium">Cache</div>
+                                    <div class="small text-body-secondary font-monospace">
+                                        @if (_connectionInfo.CacheMode == "redis")
+                                        {
+                                            @($"Taskboard:Cache:Redis:InstanceName = {_connectionInfo.CacheInstanceName}")
+                                        }
+                                        else
+                                        {
+                                            @("Taskboard:Cache:Redis:ConnectionString — empty (L1 only)")
+                                        }
+                                    </div>
+                                </div>
+                                <span class="badge text-bg-info align-self-center">@(_connectionInfo.CacheMode == "redis" ? "Redis (L1+L2)" : "In-memory (L1)")</span>
+                            </div>
+                        }
+                    </div>
+
+                    @foreach (var (groupId, title, description) in ConfigurationGroupSections)
                     {
-                        <div class="alert alert-warning mb-0">@_configError</div>
-                    }
-                    else if (_configEntries.Count == 0)
-                    {
-                        <EmptyState Message="No configuration keys." />
-                    }
-                    else
-                    {
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Key</th>
-                                        <th scope="col">Value</th>
-                                        <th scope="col">Source</th>
-                                        <th scope="col"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var entry in _configEntries)
-                                    {
-                                        <tr @key="entry.Key">
-                                            <td class="font-monospace small">@entry.Key</td>
-                                            <td class="small">
-                                                @if (_editingKey == entry.Key)
-                                                {
-                                                    <input type="text" class="form-control form-control-sm font-monospace" @bind="_editingValue" aria-label="Value for @entry.Key" />
-                                                }
-                                                else
-                                                {
-                                                    @(entry.EffectiveValue ?? "—")
-                                                    @if (entry.RequiresRestart)
-                                                    {
-                                                        <span class="badge text-bg-secondary ms-1" title="Applies on next restart">restart</span>
-                                                    }
-                                                }
-                                            </td>
-                                            <td><span class="badge @GetSourceBadgeClass(entry.Source)">@entry.Source</span></td>
-                                            <td class="text-end text-nowrap">
-                                                @if (_editingKey == entry.Key)
-                                                {
-                                                    <div class="d-inline-flex gap-2">
-                                                        <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveConfigAsync(entry)">Save</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelConfigEdit">Cancel</button>
-                                                    </div>
-                                                }
-                                                else if (entry.Editable)
-                                                {
-                                                    <div class="d-inline-flex gap-2">
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartConfigEdit(entry)">Edit</button>
-                                                        @if (entry.Source == "db")
-                                                        {
-                                                            <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ResetConfigAsync(entry)">Reset</button>
-                                                        }
-                                                    </div>
-                                                }
-                                                else if (!string.IsNullOrEmpty(entry.ReadOnlyReason))
-                                                {
-                                                    <span class="small text-body-secondary" title="@entry.ReadOnlyReason">read-only</span>
-                                                }
-                                            </td>
+                        var groupEntries = _configEntries.Where(e => e.ManagedIn is null && e.Group == groupId).ToList();
+                        if (groupEntries.Count == 0)
+                        {
+                            continue;
+                        }
+                        <div class="form-section" @key="groupId">
+                            <h2 class="form-section-title">@title</h2>
+                            <p class="small text-body-secondary">@description Database overrides win over environment variables and appsettings.</p>
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Key</th>
+                                            <th scope="col">Value</th>
+                                            <th scope="col">Source</th>
+                                            <th scope="col"></th>
                                         </tr>
-                                    }
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var entry in groupEntries)
+                                        {
+                                            <tr @key="entry.Key">
+                                                <td class="font-monospace small">@entry.Key</td>
+                                                <td class="small">
+                                                    @if (_editingKey == entry.Key)
+                                                    {
+                                                        <input type="text" class="form-control form-control-sm font-monospace" @bind="_editingValue" aria-label="Value for @entry.Key" />
+                                                    }
+                                                    else
+                                                    {
+                                                        @(entry.EffectiveValue ?? "—")
+                                                        @if (entry.RequiresRestart)
+                                                        {
+                                                            <span class="badge text-bg-secondary ms-1" title="Applies on next restart">restart</span>
+                                                        }
+                                                    }
+                                                </td>
+                                                <td><span class="badge @GetSourceBadgeClass(entry.Source)">@entry.Source</span></td>
+                                                <td class="text-end text-nowrap">
+                                                    @if (_editingKey == entry.Key)
+                                                    {
+                                                        <div class="d-inline-flex gap-2">
+                                                            <button type="button" class="btn btn-sm btn-primary" @onclick="() => SaveConfigAsync(entry)">Save</button>
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelConfigEdit">Cancel</button>
+                                                        </div>
+                                                    }
+                                                    else if (entry.Editable)
+                                                    {
+                                                        <div class="d-inline-flex gap-2">
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => StartConfigEdit(entry)">Edit</button>
+                                                            @if (entry.Source == "db")
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => ResetConfigAsync(entry)">Reset</button>
+                                                            }
+                                                        </div>
+                                                    }
+                                                    else if (!string.IsNullOrEmpty(entry.ReadOnlyReason))
+                                                    {
+                                                        <span class="small text-body-secondary" title="@entry.ReadOnlyReason">read-only</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     }
+
+                    var managed = _configEntries.Where(e => e.ManagedIn is not null).ToList();
+                    @if (managed.Count > 0)
+                    {
+                        <details class="mb-3">
+                            <summary class="small text-body-secondary">Managed in other screens (@managed.Count keys)</summary>
+                            <ul class="small mt-2 mb-0">
+                                @foreach (var entry in managed)
+                                {
+                                    <li @key="entry.Key"><a href="@entry.ManagedIn">@entry.Key</a></li>
+                                }
+                            </ul>
+                        </details>
+                    }
+                }
                 </div>
                 </div>
             </div>
@@ -707,9 +767,26 @@
     private string _tokenToggleLabel = "Show";
 
     private IReadOnlyList<ConfigurationEntryDto> _configEntries = [];
+    private ConnectionInfoDto? _connectionInfo;
     private string? _configError;
     private string? _editingKey;
     private string _editingValue = string.Empty;
+
+    // SPEC-20261010-settings-configuration-tab RF-004: sections render in this
+    // order — keys grouped by their catalog Group.
+    private static readonly (string Id, string Title, string Description)[] ConfigurationGroupSections =
+    [
+        (ConfigurationGroups.Connections, "Storage & cache keys",
+            "Data directory, connection string and HybridCache wiring."),
+        (ConfigurationGroups.Server, "Server",
+            "Binding, hosts and admin identity — read-only, set via env or appsettings."),
+        (ConfigurationGroups.Logging, "Logging",
+            "Minimum log levels — applies immediately."),
+        (ConfigurationGroups.Chat, "Chat",
+            "AI chat behaviour and tool-call limits."),
+        (ConfigurationGroups.Security, "Security",
+            "API key protecting the local endpoints."),
+    ];
 
     // SPEC-20260929-ai-code-provider-chat RF-011: provider catalog + capability
     // defaults + search backend for the AI Code provider chat.
@@ -785,6 +862,7 @@
     private static readonly (string Id, string Label)[] SettingsTabs =
     [
         ("general", "General"),
+        ("configuration", "Configuration"),
         ("integrations", "Integrations"),
         ("agents", "Agents"),
         ("chat", "Chat"),
@@ -1292,7 +1370,9 @@
     {
         try
         {
-            _configEntries = await Client.GetConfigurationEntriesAsync();
+            var snapshot = await Client.GetConfigurationSnapshotAsync();
+            _configEntries = snapshot?.Entries ?? [];
+            _connectionInfo = snapshot?.Connections;
             _configError = null;
             var skillsEntry = _configEntries.FirstOrDefault(e => e.Key == SkillsRepositoryKey);
             if (skillsEntry is not null)
