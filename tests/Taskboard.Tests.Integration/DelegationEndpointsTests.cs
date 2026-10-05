@@ -213,6 +213,27 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
         (await response.Content.ReadAsStringAsync()).ShouldContain("no worktree");
     }
 
+    // ---- SPEC-20261004-promote-leg-pr: ?createPr=true accepted ----
+
+    [Fact]
+    public async Task Dado_TaskSemWorktree_Quando_PromoteComCreatePr_Entao_400SemTentarPr()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var scope = $"itest-promote-{Guid.NewGuid():N}";
+        await using var diScope = _factory.Services.GetService<IServiceScopeFactory>()!
+            .CreateAsyncScope();
+        var delegation = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
+        var task = await delegation.CreateTaskAsync(
+            new CreateDelegationTaskRequest("p", "codex", scope, "/ws"));
+
+        var response = await client.PostAsync(
+            $"/api/local/delegation/tasks/{task.Id}/promote?scope={scope}&createPr=true",
+            content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain("no worktree");
+    }
+
     [Fact]
     public async Task Dado_SemCredenciais_Quando_FromIssue_Entao_401()
     {

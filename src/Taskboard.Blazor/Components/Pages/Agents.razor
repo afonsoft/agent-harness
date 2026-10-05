@@ -317,6 +317,11 @@
                                             <Badge Color="BadgeColor.Success" title="@promoted.CommitSha"
                                                    style="max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle">
                                                 @promoted.Branch</Badge>
+                                            @if (!string.IsNullOrWhiteSpace(promoted.PullRequestUrl))
+                                            {
+                                                <a href="@promoted.PullRequestUrl" target="_blank" rel="noopener noreferrer"
+                                                   class="small d-block">@L.T("agents.compare.openPr")</a>
+                                            }
                                         }
                                         else
                                         {
@@ -325,6 +330,16 @@
                                                     @onclick="() => PromoteLegAsync(leg)">
                                                 @(_promotingId == leg.TaskId ? "…" : L.T("agents.compare.useLeg"))
                                             </Button>
+                                            @* SPEC-20261004-promote-leg-pr: repo-backed legs can open the PR in one shot. *@
+                                            @if (leg.RepositoryPath is not null)
+                                            {
+                                                <Button Color="ButtonColor.Success" Outline="true" Size="ButtonSize.Small"
+                                                        Class="ms-1"
+                                                        Disabled="@(_promotingId is not null)"
+                                                        @onclick="() => PromoteLegAsync(leg, createPr: true)">
+                                                    @(_promotingId == leg.TaskId ? "…" : L.T("agents.compare.useLegPr"))
+                                                </Button>
+                                            }
                                         }
                                         @if (_promoteError.TryGetValue(leg.TaskId, out var perr))
                                         {
@@ -681,13 +696,14 @@
         }
     }
 
-    private async Task PromoteLegAsync(FanoutCompareLegDto leg)
+    private async Task PromoteLegAsync(FanoutCompareLegDto leg, bool createPr = false)
     {
         _promotingId = leg.TaskId;
         _promoteError.Remove(leg.TaskId);
         try
         {
-            var (result, error) = await Client.PromoteDelegationTaskAsync(leg.TaskId);
+            var (result, error) = await Client.PromoteDelegationTaskAsync(
+                leg.TaskId, createPr: createPr);
             if (result is not null)
             {
                 _promoted[leg.TaskId] = result;

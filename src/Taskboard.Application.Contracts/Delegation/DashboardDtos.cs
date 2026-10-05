@@ -33,7 +33,9 @@ public sealed record FanoutCompareLegDto(
     string? WorktreeRunId,
     FanoutCompareFilesDto? Files,
     string? Patch,
-    string? Note);
+    string? Note,
+    /// <summary>SPEC-20261004-promote-leg-pr: clone root when the leg has a repo — gates the "promote + PR" affordance.</summary>
+    string? RepositoryPath = null);
 
 /// <summary>Per-leg diffstat: counts plus the touched paths.</summary>
 public sealed record FanoutCompareFilesDto(

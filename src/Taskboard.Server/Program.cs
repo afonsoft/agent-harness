@@ -457,6 +457,7 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddScoped<IDelegationTaskRepository, EfCoreDelegationTaskRepository>();
     builder.Services.AddScoped<IAgentMailboxRepository, EfCoreAgentMailboxRepository>();
     builder.Services.AddScoped<IDelegationService, DelegationService>();
+    builder.Services.AddScoped<IPromotedLegPrService, PromotedLegPrService>();
     builder.Services.AddHostedService<DelegationDispatcherService>();
 
     // SPEC-20261006-agent-dashboard-sessions-checkpoints: dashboard aggregation,
@@ -2094,7 +2095,8 @@ void MapSettingsAndChatEndpoints()
             if (task.WorktreeRunId is null)
             {
                 legs.Add(new FanoutCompareLegDto(
-                    task.Id, task.CliName, status, null, null, null, "no worktree"));
+                    task.Id, task.CliName, status, null, null, null, "no worktree",
+                    task.RepositoryPath));
                 continue;
             }
 
@@ -2108,13 +2110,13 @@ void MapSettingsAndChatEndpoints()
                     diff.Patch.Length <= patchMaxLength
                         ? diff.Patch
                         : diff.Patch[..patchMaxLength] + "…",
-                    null));
+                    null, task.RepositoryPath));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 legs.Add(new FanoutCompareLegDto(
                     task.Id, task.CliName, status, task.WorktreeRunId,
-                    null, null, $"diff failed: {ex.Message}"));
+                    null, null, $"diff failed: {ex.Message}", task.RepositoryPath));
             }
         }
 
@@ -2124,10 +2126,14 @@ void MapSettingsAndChatEndpoints()
     });
 
     // SPEC-20261009 RF-002: pick a fan-out/compare winner — commit the leg's
-    // worktree and push its branch (the PR step stays manual in the cockpit).
+    // worktree and push its branch. SPEC-20261004-promote-leg-pr: with
+    // ?createPr=true the pushed branch also becomes a GitHub PR against the
+    // session base (title/baseBranch overridable).
     api.MapPost("local/delegation/tasks/{id}/promote", async (
-        string id, string? scope, IDelegationTaskRepository tasks,
-        IWorkspaceIsolationService isolation, CancellationToken ct) =>
+        string id, string? scope, string? title, string? baseBranch,
+        IDelegationTaskRepository tasks,
+        IWorkspaceIsolationService isolation, IPromotedLegPrService promotePr,
+        CancellationToken ct, bool createPr = false) =>
     {
         var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
         var task = await tasks.GetAsync(id, ct);
@@ -2154,7 +2160,20 @@ void MapSettingsAndChatEndpoints()
                 $"delegation: promote {task.CliName} leg ({task.Id})",
                 "Harness <harness@local>", ct);
             var branch = await isolation.PushAsync(task.WorktreeRunId, ct);
-            return Results.Ok(new { taskId = task.Id, branch, commitSha = sha });
+            if (!createPr)
+            {
+                return Results.Ok(new { taskId = task.Id, branch, commitSha = sha, pullRequestUrl = (string?)null });
+            }
+
+            var pr = await promotePr.TryCreateAsync(task, title, baseBranch, ct);
+            return pr.Error switch
+            {
+                null => Results.Ok(new { taskId = task.Id, branch, commitSha = sha, pullRequestUrl = pr.PullRequestUrl }),
+                PromotedLegPrError.GithubFailed => Results.BadRequest(
+                    new { error = $"pr creation failed: {pr.Detail}", branch, commitSha = sha }),
+                _ => Results.BadRequest(
+                    new { error = $"could not resolve repository slug: {pr.Detail}", branch, commitSha = sha }),
+            };
         }
         catch (DomainException ex)
         {

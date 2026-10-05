@@ -490,12 +490,31 @@ public sealed class TaskboardClient
         return response?.Legs ?? [];
     }
 
-    /// <summary>SPEC-20261009 RF-002: promote a worktree leg — commit + push its branch.</summary>
+    /// <summary>
+    /// SPEC-20261009 RF-002: promote a worktree leg — commit + push its branch.
+    /// SPEC-20261004-promote-leg-pr: <paramref name="createPr"/> also opens the PR.
+    /// </summary>
     public async Task<(PromoteResultDto? Result, string? Error)> PromoteDelegationTaskAsync(
-        string taskId, string? scope = null, CancellationToken cancellationToken = default)
+        string taskId, string? scope = null, bool createPr = false,
+        string? title = null, string? baseBranch = null,
+        CancellationToken cancellationToken = default)
     {
+        var query = string.IsNullOrWhiteSpace(scope) ? "" : $"scope={Uri.EscapeDataString(scope)}";
+        if (createPr)
+        {
+            query += string.IsNullOrEmpty(query) ? "createPr=true" : "&createPr=true";
+        }
+        if (title is not null)
+        {
+            query += $"{(query.Length == 0 ? "" : "&")}title={Uri.EscapeDataString(title)}";
+        }
+        if (baseBranch is not null)
+        {
+            query += $"{(query.Length == 0 ? "" : "&")}baseBranch={Uri.EscapeDataString(baseBranch)}";
+        }
+
         var response = await _httpClient.PostAsync(
-            $"/api/local/delegation/tasks/{Uri.EscapeDataString(taskId)}/promote{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            $"/api/local/delegation/tasks/{Uri.EscapeDataString(taskId)}/promote{(query.Length == 0 ? "" : $"?{query}")}",
             content: null, cancellationToken);
         return response.IsSuccessStatusCode
             ? (await response.Content.ReadFromJsonAsync<PromoteResultDto>(cancellationToken), null)
@@ -976,8 +995,9 @@ public sealed class TaskboardClient
 
     private sealed record DelegationEventsResponse(List<DelegationEventDto> Events);
 
-    /// <summary>SPEC-20261009 RF-002: promote result — pushed branch + commit.</summary>
-    public sealed record PromoteResultDto(string TaskId, string Branch, string CommitSha);
+    /// <summary>SPEC-20261009 RF-002: promote result — pushed branch + commit (+ PR URL when requested).</summary>
+    public sealed record PromoteResultDto(
+        string TaskId, string Branch, string CommitSha, string? PullRequestUrl = null);
 
     // SPEC-20260929-ai-code-provider-chat.
     public async Task<IReadOnlyList<ChatProviderDto>> GetChatProvidersAsync(CancellationToken cancellationToken = default)
