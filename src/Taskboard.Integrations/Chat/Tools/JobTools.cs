@@ -87,7 +87,7 @@ public sealed class JobOutputTool(IChatJobService jobs, IConfiguration configura
         var tailBytes = arguments.TryGetProperty("tail_bytes", out var t) && t.TryGetInt32(out var tv)
             ? tv
             : 16 * 1024;
-        var output = await jobs.GetOutputAsync(conversationId, id.GetString()!, tailBytes, cancellationToken)
+        var output = await jobs.GetOutputAsync(conversationId, id.GetString() ?? string.Empty, tailBytes, cancellationToken)
             .ConfigureAwait(false);
         if (output is null)
         {
@@ -135,7 +135,7 @@ public sealed class JobKillTool(IChatJobService jobs, IConfiguration configurati
 
         try
         {
-            var job = await jobs.KillAsync(conversationId, id.GetString()!, cancellationToken)
+            var job = await jobs.KillAsync(conversationId, id.GetString() ?? string.Empty, cancellationToken)
                 .ConfigureAwait(false);
             if (job is null)
             {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -87,9 +88,11 @@ public sealed class ChatScheduleService : IChatScheduleService
         var timeZoneId = ResolveTimeZoneId(request.TimeZoneId)?.Id;
 
         var schedule = ChatSchedule.Create(
-            ChatScheduleId.NewGuid(), conversation.Id, kind,
-            kind == ChatScheduleKinds.Cron ? request.Expr : null,
-            timeZoneId, nextFireAtUtc, request.Title ?? string.Empty, request.Prompt, now);
+            ChatScheduleId.NewGuid(), conversation.Id,
+            new ChatScheduleSpec(
+                kind, kind == ChatScheduleKinds.Cron ? request.Expr : null,
+                timeZoneId, nextFireAtUtc, request.Title ?? string.Empty, request.Prompt),
+            now);
         await _schedules.AddAsync(schedule, cancellationToken).ConfigureAwait(false);
         await _schedules.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ToDto(schedule);
@@ -113,7 +116,7 @@ public sealed class ChatScheduleService : IChatScheduleService
             DateTime? nextFire = null;
             if (active && schedule.Kind == ChatScheduleKinds.Cron)
             {
-                nextFire = ChatCronSchedule.Parse(schedule.CronExpression!)
+                nextFire = ChatCronSchedule.Parse(schedule.CronExpression ?? "")
                     .NextAfter(UtcNow, ResolveTimeZoneId(schedule.TimeZoneId));
             }
             else if (active && schedule.NextFireAtUtc <= UtcNow)
@@ -166,7 +169,7 @@ public sealed class ChatScheduleService : IChatScheduleService
                 // cron recomputes past `nowUtc` — missed periods collapse into
                 // one delivery per row (RF-006: missed fires deliver once).
                 var next = schedule.Kind == ChatScheduleKinds.Cron
-                    ? ChatCronSchedule.Parse(schedule.CronExpression!)
+                    ? ChatCronSchedule.Parse(schedule.CronExpression ?? "")
                         .NextAfter(nowUtc, ResolveTimeZoneId(schedule.TimeZoneId))
                     : (DateTime?)null;
                 schedule.MarkDelivered(nowUtc, next);
@@ -202,12 +205,12 @@ public sealed class ChatScheduleService : IChatScheduleService
                 : null;
     }
 
-    private DateTime ComputeNextFire(string kind, CreateChatScheduleRequest request, DateTime now)
+    private static DateTime ComputeNextFire(string kind, CreateChatScheduleRequest request, DateTime now)
     {
         switch (kind)
         {
             case ChatScheduleKinds.At:
-                if (!DateTimeOffset.TryParse(request.Expr, out var at))
+                if (!DateTimeOffset.TryParse(request.Expr, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at))
                 {
                     throw new ChatValidationException("kind=at requires expr as an ISO-8601 instant.");
                 }

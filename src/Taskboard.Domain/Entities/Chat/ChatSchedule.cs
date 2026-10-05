@@ -18,6 +18,16 @@ public static class ChatScheduleKinds
     public static bool IsValid(string kind) => kind is Cron or At or AfterSeconds;
 }
 
+/// <summary>Creation payload for <see cref="ChatSchedule.Create"/> — keeps
+/// the factory signature under the parameter-count gate (Sonar S107).</summary>
+public sealed record ChatScheduleSpec(
+    string Kind,
+    string? CronExpression,
+    string? TimeZoneId,
+    DateTime NextFireAtUtc,
+    string Title,
+    string Prompt);
+
 /// <summary>
 /// A conversation-bound scheduled follow-up (RF-004): at <see cref="NextFireAtUtc"/>
 /// the dispatcher enqueues a normal chat run whose user message carries the
@@ -32,14 +42,14 @@ public sealed class ChatSchedule : Entity<ChatScheduleId>
     public const int MaxCronLength = 128;
     public const int MaxTimeZoneLength = 64;
 
-    public ChatConversationId ConversationId { get; private set; } = default!;
-    public string Kind { get; private set; } = default!;
+    public ChatConversationId ConversationId { get; private set; } = default!; // NOSONAR S8970 — EF entity pattern usado em todo o Domain
+    public string Kind { get; private set; } = default!; // NOSONAR S8970
     public string? CronExpression { get; private set; }
     /// <summary>IANA tz for cron evaluation (e.g. "America/Sao_Paulo"); null = UTC.</summary>
     public string? TimeZoneId { get; private set; }
     public DateTime NextFireAtUtc { get; private set; }
-    public string Title { get; private set; } = default!;
-    public string Prompt { get; private set; } = default!;
+    public string Title { get; private set; } = default!; // NOSONAR S8970
+    public string Prompt { get; private set; } = default!; // NOSONAR S8970
     public bool Active { get; private set; }
     public DateTime? LastDeliveredAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
@@ -49,31 +59,31 @@ public sealed class ChatSchedule : Entity<ChatScheduleId>
     }
 
     private ChatSchedule(
-        ChatScheduleId id, ChatConversationId conversationId, string kind,
-        string? cronExpression, string? timeZoneId, DateTime nextFireAtUtc,
-        string title, string prompt, DateTime createdAt)
+        ChatScheduleId id, ChatConversationId conversationId,
+        ChatScheduleSpec spec, DateTime createdAt)
         : base(id)
     {
-        if (!ChatScheduleKinds.IsValid(kind))
+        if (!ChatScheduleKinds.IsValid(spec.Kind))
         {
-            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Unknown schedule kind '{kind}'.");
+            throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, $"Unknown schedule kind '{spec.Kind}'.");
         }
 
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (string.IsNullOrWhiteSpace(spec.Prompt))
         {
             throw new DomainException(TaskboardDomainErrorCodes.InvalidValue, "Schedule prompt cannot be empty.");
         }
 
-        if (prompt.Length > MaxPromptLength)
+        if (spec.Prompt.Length > MaxPromptLength)
         {
             throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidValue,
                 $"Schedule prompt exceeds {MaxPromptLength} chars.");
         }
 
+        var title = spec.Title;
         if (string.IsNullOrWhiteSpace(title))
         {
-            title = prompt.Length <= MaxTitleLength ? prompt : prompt[..MaxTitleLength];
+            title = spec.Prompt.Length <= MaxTitleLength ? spec.Prompt : spec.Prompt[..MaxTitleLength];
         }
 
         if (title.Length > MaxTitleLength)
@@ -83,29 +93,27 @@ public sealed class ChatSchedule : Entity<ChatScheduleId>
                 $"Schedule title exceeds {MaxTitleLength} chars.");
         }
 
-        if (kind == ChatScheduleKinds.Cron && string.IsNullOrWhiteSpace(cronExpression))
+        if (spec.Kind == ChatScheduleKinds.Cron && string.IsNullOrWhiteSpace(spec.CronExpression))
         {
             throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidValue, "Cron schedules require an expression.");
         }
 
         ConversationId = conversationId;
-        Kind = kind;
-        CronExpression = cronExpression;
-        TimeZoneId = string.IsNullOrWhiteSpace(timeZoneId) ? null : timeZoneId.Trim();
-        NextFireAtUtc = nextFireAtUtc;
+        Kind = spec.Kind;
+        CronExpression = spec.CronExpression;
+        TimeZoneId = string.IsNullOrWhiteSpace(spec.TimeZoneId) ? null : spec.TimeZoneId.Trim();
+        NextFireAtUtc = spec.NextFireAtUtc;
         Title = title.Trim();
-        Prompt = prompt.Trim();
+        Prompt = spec.Prompt.Trim();
         Active = true;
         CreatedAt = createdAt;
     }
 
     public static ChatSchedule Create(
-        ChatScheduleId id, ChatConversationId conversationId, string kind,
-        string? cronExpression, string? timeZoneId, DateTime nextFireAtUtc,
-        string title, string prompt, DateTime? now = null) =>
-        new(id, conversationId, kind, cronExpression, timeZoneId, nextFireAtUtc,
-            title ?? string.Empty, prompt, now ?? DateTime.UtcNow);
+        ChatScheduleId id, ChatConversationId conversationId,
+        ChatScheduleSpec spec, DateTime? now = null) =>
+        new(id, conversationId, spec, now ?? DateTime.UtcNow);
 
     /// <summary>
     /// Delivery stamp — for one-shot kinds (<c>at</c>/<c>after_seconds</c>)

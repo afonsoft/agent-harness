@@ -14,9 +14,9 @@ public sealed class ChatJob : Entity<ChatJobId>
 {
     public const int MaxCommandLength = 2000;
 
-    public ChatConversationId ConversationId { get; private set; } = default!;
+    public ChatConversationId ConversationId { get; private set; } = default!; // NOSONAR S8970 — EF entity pattern usado em todo o Domain
     public ChatRunId? RunId { get; private set; }
-    public string Command { get; private set; } = default!;
+    public string Command { get; private set; } = default!; // NOSONAR S8970 — EF entity pattern usado em todo o Domain
     public ChatJobStatus Status { get; private set; } = ChatJobStatus.Queued;
     public int? ExitCode { get; private set; }
     public int? Pid { get; private set; }
@@ -90,7 +90,7 @@ public sealed class ChatJob : Entity<ChatJobId>
 
     private void Settle(ChatJobStatus status, int? exitCode, string? error, DateTime? now)
     {
-        if (status.IsTerminal is false || Status.IsTerminal)
+        if (!status.IsTerminal || Status.IsTerminal)
         {
             return;
         }

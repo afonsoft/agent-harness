@@ -70,7 +70,7 @@ public sealed class ChatCronSchedule
 
             if (!_months[local.Month])
             {
-                candidate = NextBoundaryUtc(candidate, tz, boundary: new DateTime(local.Year, local.Month, 1).AddMonths(1));
+                candidate = NextBoundaryUtc(candidate, tz, boundary: new DateTime(local.Year, local.Month, 1, 0, 0, 0, DateTimeKind.Unspecified).AddMonths(1));
                 continue;
             }
 
@@ -144,49 +144,55 @@ public sealed class ChatCronSchedule
     {
         foreach (var part in field.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var rangeText = part;
-            var step = 1;
-            var slash = part.IndexOf('/');
-            if (slash >= 0)
-            {
-                if (!int.TryParse(part[(slash + 1)..], out step) || step < 1)
-                {
-                    throw new FormatException($"Invalid cron step in '{part}'.");
-                }
-
-                rangeText = part[..slash];
-            }
-
-            int lo;
-            int hi;
-            if (rangeText is "*" or "?")
-            {
-                lo = min;
-                hi = max;
-            }
-            else
-            {
-                var dash = rangeText.IndexOf('-');
-                if (dash < 0)
-                {
-                    lo = hi = ParseNumber(rangeText, min, max);
-                }
-                else
-                {
-                    lo = ParseNumber(rangeText[..dash], min, max);
-                    hi = ParseNumber(rangeText[(dash + 1)..], min, max);
-                    if (hi < lo)
-                    {
-                        throw new FormatException($"Invalid cron range '{rangeText}'.");
-                    }
-                }
-            }
-
+            var (lo, hi, step) = ParsePart(part, min, max);
             for (var v = lo; v <= hi; v += step)
             {
                 target[v] = true;
             }
         }
+    }
+
+    private static (int Lo, int Hi, int Step) ParsePart(string part, int min, int max)
+    {
+        var rangeText = part;
+        var step = 1;
+        var slash = part.IndexOf('/');
+        if (slash >= 0)
+        {
+            if (!int.TryParse(part[(slash + 1)..], out step) || step < 1)
+            {
+                throw new FormatException($"Invalid cron step in '{part}'.");
+            }
+
+            rangeText = part[..slash];
+        }
+
+        var (lo, hi) = ParseRange(rangeText, min, max);
+        return (lo, hi, step);
+    }
+
+    private static (int Lo, int Hi) ParseRange(string rangeText, int min, int max)
+    {
+        if (rangeText is "*" or "?")
+        {
+            return (min, max);
+        }
+
+        var dash = rangeText.IndexOf('-');
+        if (dash < 0)
+        {
+            var value = ParseNumber(rangeText, min, max);
+            return (value, value);
+        }
+
+        var lo = ParseNumber(rangeText[..dash], min, max);
+        var hi = ParseNumber(rangeText[(dash + 1)..], min, max);
+        if (hi < lo)
+        {
+            throw new FormatException($"Invalid cron range '{rangeText}'.");
+        }
+
+        return (lo, hi);
     }
 
     private static int ParseNumber(string text, int min, int max)

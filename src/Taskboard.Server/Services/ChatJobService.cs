@@ -144,7 +144,7 @@ public sealed class ChatJobService : IChatJobService, IDisposable
         if (_live.TryGetValue(job.Id.Value, out var handle))
         {
             // The runner settles the row (killed + exit code) — it owns the EF write.
-            handle.KillSwitch.Cancel();
+            await handle.KillSwitch.CancelAsync().ConfigureAwait(false);
             try
             {
                 handle.Process.Kill(entireProcessTree: true);
@@ -157,9 +157,12 @@ public sealed class ChatJobService : IChatJobService, IDisposable
         else
         {
             // No live handle (row survived a restart) — mark terminated.
+            // `job` veio de um scope já descartado (GetOwnedAsync): reattach
+            // via UpdateAsync para o Terminate persistir no contexto novo.
             job.Terminate("no live process handle (host restarted)");
             await using var scope = _scopeFactory.CreateAsyncScope();
             var jobs = scope.ServiceProvider.GetRequiredService<IRepository<ChatJob>>();
+            await jobs.UpdateAsync(job, cancellationToken).ConfigureAwait(false);
             await jobs.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -206,11 +209,11 @@ public sealed class ChatJobService : IChatJobService, IDisposable
     /// <summary>Shutdown: kill live children and mark their rows terminated.</summary>
     public async Task TerminateAllAsync()
     {
-        foreach (var (id, handle) in _live.ToArray())
+        foreach (var handle in _live.Values)
         {
             try
             {
-                handle.KillSwitch.Cancel();
+                await handle.KillSwitch.CancelAsync().ConfigureAwait(false);
                 handle.Process.Kill(entireProcessTree: true);
             }
             catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
@@ -224,9 +227,9 @@ public sealed class ChatJobService : IChatJobService, IDisposable
             await Task.WhenAll(_live.Values.Select(h => h.Runner))
                 .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         }
-        catch (TimeoutException)
+        catch (TimeoutException ex)
         {
-            _logger.LogWarning("job shutdown wait timed out — {Count} runner(s) abandoned", _live.Count);
+            _logger.LogWarning(ex, "job shutdown wait timed out — {Count} runner(s) abandoned", _live.Count);
         }
     }
 
