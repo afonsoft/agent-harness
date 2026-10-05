@@ -243,4 +243,23 @@ public class AiChatSourceGuardTests
         occurrences.ShouldBeGreaterThanOrEqualTo(2,
             "setAiChatLastAgent deve ser chamado tanto no auto-select do init quanto em OnCfgCliChanged");
     }
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_ChatModeTemBotoesWorkspaceRepo()
+    {
+        // Os botões Workspace/Repositório do modo Agent existem também no
+        // ProviderChat do modo Chat — mesmo mecanismo (AgentContext + PATCH).
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        var chatBlock = source.IndexOf("_cfgMode == \"provider\"", StringComparison.Ordinal);
+        var agentBlock = source.IndexOf("_activeThread is null", StringComparison.Ordinal);
+        chatBlock.ShouldBeGreaterThanOrEqualTo(0);
+        agentBlock.ShouldBeGreaterThan(chatBlock);
+
+        var chatPane = source[chatBlock..agentBlock];
+        chatPane.ShouldContain("AgentContext=\"CurrentAgentContext\"");
+        chatPane.ShouldContain("OnConversationAgentLoaded=\"OnConversationAgentLoaded\"");
+        chatPane.ShouldContain("ShowWorkspaceModalAsync");
+        chatPane.ShouldContain("ShowRepoModalAsync");
+    }
 }

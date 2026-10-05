@@ -185,7 +185,7 @@
 
     <div class="provider-chat-main flex-grow-1 d-flex flex-column">
         <div class="provider-chat-header d-flex align-items-center gap-2 px-3 py-2 border-bottom">
-            @if (AgentContext is not null)
+            @if (AgentContext?.AgentCli is not null)
             {
                 <span class="badge text-bg-primary" title="Agent mode — delegated CLI runs bound to this conversation">agent</span>
             }
