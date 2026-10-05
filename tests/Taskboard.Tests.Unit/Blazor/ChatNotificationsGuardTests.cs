@@ -96,4 +96,71 @@ public class ChatNotificationsGuardTests
         aiChat.ShouldContain("[SupplyParameterFromQuery(Name = \"c\")]");
         aiChat.ShouldContain("SeedConversationId=\"@_seedConversationId\"");
     }
+
+    // ---- SPEC-20261005 RF-009: Web Push seams ----
+
+    [Fact]
+    public void Dado_Program_Quando_Le_Entao_MapeiaEndpointsPushERegistraWebPushNotifier()
+    {
+        var program = Read("src", "Taskboard.Server", "Program.cs");
+
+        program.ShouldContain("api.MapGroup(\"local/push\").RequireAuthorization()");
+        program.ShouldContain("push.MapGet(\"vapid-public\"");
+        program.ShouldContain("push.MapPost(\"subscriptions\"");
+        program.ShouldContain("push.MapDelete(\"subscriptions\"");
+        program.ShouldContain("AddScoped<IChatRunNotifier, WebPushChatRunNotifier>()");
+        program.ShouldContain("AddScoped<IWebPushSender, WebPushSender>()");
+    }
+
+    [Fact]
+    public void Dado_Dispatcher_Quando_Le_Entao_FanOutParaTodosOsNotifiers()
+    {
+        var dispatcher = Read("src", "Taskboard.Server", "Services", "ChatRunDispatcherService.cs");
+
+        dispatcher.ShouldContain("GetServices<IChatRunNotifier>()");
+        dispatcher.ShouldContain("foreach (var notifier in notifiers)");
+    }
+
+    [Fact]
+    public void Dado_PushSw_Quando_Le_Entao_ShowNotificationEOpenWindow()
+    {
+        var sw = Read("src", "Taskboard.Client", "wwwroot", "push-sw.js");
+
+        sw.ShouldContain("self.addEventListener('push'");
+        sw.ShouldContain("showNotification");
+        sw.ShouldContain("notificationclick");
+        sw.ShouldContain("clients.openWindow");
+    }
+
+    [Fact]
+    public void Dado_TaskboardJs_Quando_Le_Entao_TemHelpersDePush()
+    {
+        var js = Read("src", "Taskboard.Client", "wwwroot", "js", "taskboard.js");
+
+        js.ShouldContain("subscribePush: async function");
+        js.ShouldContain("unsubscribePush: async function");
+        js.ShouldContain("isPushSubscribed: async function");
+        js.ShouldContain("pushManager.subscribe");
+        js.ShouldContain("/push-sw.js");
+    }
+
+    [Fact]
+    public void Dado_ChatNotificationsService_Quando_Le_Entao_SincronizaPushSubscription()
+    {
+        var service = Read("src", "Taskboard.Blazor", "Services", "ChatNotificationsService.cs");
+
+        service.ShouldContain("SyncPushAsync");
+        service.ShouldContain("taskboardNotify.isPushSubscribed");
+        service.ShouldContain("taskboardNotify.subscribePush");
+        service.ShouldContain("taskboardNotify.unsubscribePush");
+        service.ShouldContain("/api/local/push/");
+    }
+
+    [Fact]
+    public void Dado_Settings_Quando_Le_Entao_TogglePushChamaSync()
+    {
+        var settings = Read("src", "Taskboard.Blazor", "Components", "Pages", "Settings.razor");
+
+        settings.ShouldContain("ChatNotifications.SyncPushAsync()");
+    }
 }

@@ -860,7 +860,7 @@
         new("Taskboard:Chat:Notify:Done:Browser", "Chat notifications — browser",
             "Desktop Notification API when a turn finishes with the tab hidden. Opt-in asks for browser permission."),
         new("Taskboard:Chat:Notify:Done:Push", "Chat notifications — web push",
-            "Web Push delivery even with the browser closed (requires the PWA push setup — Phase 3)."),
+            "Web Push delivery even with the browser fully closed (service-worker push; subscribes this browser when on)."),
     ];
 
     private const string SkillsRepositoryKey = "Taskboard:Skills:Repository";
@@ -965,6 +965,13 @@
         if (pref == "browser" && normalized == "true")
         {
             await ChatNotifications.EnsureBrowserPermissionAsync();
+        }
+
+        // SPEC-20261005 RF-009: per-browser push pref — subscribe/unsubscribe
+        // this browser to match the resolved preference.
+        if (pref == "push")
+        {
+            _ = ChatNotifications.SyncPushAsync();
         }
     }
 
@@ -1855,6 +1862,13 @@
         else
         {
             await ToastService.NotifyAsync(new(ToastType.Success, $"{key} {(enabled ? "enabled" : "disabled")}"));
+        }
+
+        // SPEC-20261005 RF-009: subscribe/unsubscribe this browser right away
+        // when the push toggle flips (SyncPushAsync reads the resolved pref).
+        if (key == "Taskboard:Chat:Notify:Done:Push")
+        {
+            _ = ChatNotifications.SyncPushAsync();
         }
 
         await LoadConfigurationAsync();

@@ -301,4 +301,81 @@ public class ChatEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
         create.EnsureSuccessStatusCode();
         return (await create.Content.ReadFromJsonAsync<JsonObject>())!["provider"]!.AsObject();
     }
+
+    // ---- SPEC-20261005 RF-009: Web Push subscription endpoints ----
+
+    [Fact]
+    public async Task Dado_VapidPublic_Quando_Get_Entao_GeraChavePersistenteBase64Url()
+    {
+        var client = await ApiClientAsync();
+
+        var first = await client.GetAsync("/api/local/push/vapid-public");
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var key = (await first.Content.ReadFromJsonAsync<JsonObject>())!["publicKey"]!.GetValue<string>();
+        key.ShouldNotBeNullOrEmpty();
+        key.ShouldMatch("^[A-Za-z0-9_-]+$");
+
+        // A chave persiste — segunda leitura devolve a mesma.
+        var second = await client.GetAsync("/api/local/push/vapid-public");
+        (await second.Content.ReadFromJsonAsync<JsonObject>())!["publicKey"]!.GetValue<string>()
+            .ShouldBe(key);
+    }
+
+    [Fact]
+    public async Task Dado_SubscriptionValida_Quando_Post_Entao_UpsertPorEndpoint()
+    {
+        var client = await ApiClientAsync();
+        var endpoint = $"https://push.example/sub/{Guid.NewGuid():N}";
+
+        var post = await client.PostAsJsonAsync("/api/local/push/subscriptions", new
+        {
+            endpoint,
+            keys = new { p256dh = "p256dh-abc", auth = "auth-xyz" },
+            userAgent = "itest",
+        });
+        post.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Re-post no mesmo endpoint é upsert, não segunda linha — DELETE
+        // posterior remove de uma vez só.
+        var repost = await client.PostAsJsonAsync("/api/local/push/subscriptions", new
+        {
+            endpoint,
+            keys = new { p256dh = "p256dh-rotated", auth = "auth-rotated" },
+        });
+        repost.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var delete = await client.DeleteAsync(
+            $"/api/local/push/subscriptions?endpoint={Uri.EscapeDataString(endpoint)}");
+        delete.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var deleteAgain = await client.DeleteAsync(
+            $"/api/local/push/subscriptions?endpoint={Uri.EscapeDataString(endpoint)}");
+        deleteAgain.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Dado_SubscriptionIncompleta_Quando_Post_Entao_Retorna400()
+    {
+        var client = await ApiClientAsync();
+
+        var post = await client.PostAsJsonAsync("/api/local/push/subscriptions", new
+        {
+            endpoint = $"https://push.example/sub/{Guid.NewGuid():N}",
+            keys = new { p256dh = "", auth = "" },
+        });
+        post.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_PushEndpoints_Quando_SemAuth_Entao_Retorna401()
+    {
+        var client = _factory.CreateClient();
+
+        (await client.GetAsync("/api/local/push/vapid-public"))
+            .StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await client.PostAsJsonAsync("/api/local/push/subscriptions", new { endpoint = "x" }))
+            .StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await client.DeleteAsync("/api/local/push/subscriptions?endpoint=x"))
+            .StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
 }

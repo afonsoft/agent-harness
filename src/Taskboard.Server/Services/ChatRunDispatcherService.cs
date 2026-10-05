@@ -136,7 +136,9 @@ public sealed class ChatRunDispatcherService : BackgroundService
         await using var scope = _scopeFactory.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRepository<ChatRun>>();
         var executor = scope.ServiceProvider.GetRequiredService<IChatRunExecutor>();
-        var notifier = scope.ServiceProvider.GetService<IChatRunNotifier>();
+        var notifiers = scope.ServiceProvider
+            .GetServices<IChatRunNotifier>()
+            .ToList();
 
         var run = await repo.GetAsync(ChatRunId.From(item.RunId), stoppingToken).ConfigureAwait(false);
         if (run is null || run.Status != ChatRunStatus.Queued)
@@ -221,15 +223,18 @@ public sealed class ChatRunDispatcherService : BackgroundService
             cts.Dispose();
         }
 
-        if (notifier is not null && run.Status.IsTerminal)
+        if (run.Status.IsTerminal)
         {
-            try
+            foreach (var notifier in notifiers)
             {
-                await notifier.RunCompletedAsync(run, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "chat run {RunId} completion notify failed", item.RunId);
+                try
+                {
+                    await notifier.RunCompletedAsync(run, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "chat run {RunId} completion notify failed", item.RunId);
+                }
             }
         }
     }

@@ -133,6 +133,48 @@ public sealed class ChatRunConfiguration : IEntityTypeConfiguration<ChatRun>
     }
 }
 
+/// <summary>
+/// SPEC-20261005-chat-background-resume RF-009: browser Web Push endpoints —
+/// unique per endpoint; re-subscribe rotates keys in place.
+/// </summary>
+public sealed class ChatPushSubscriptionConfiguration : IEntityTypeConfiguration<ChatPushSubscription>
+{
+    public void Configure(EntityTypeBuilder<ChatPushSubscription> builder)
+    {
+        builder.ToTable("ChatPushSubscriptions");
+
+        builder.Property(s => s.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatPushSubscriptionId>());
+
+        builder.HasKey(s => s.Id);
+
+        builder.Property(s => s.Endpoint)
+            .IsRequired()
+            .HasMaxLength(2048);
+
+        builder.HasIndex(s => s.Endpoint)
+            .IsUnique();
+
+        builder.Property(s => s.P256dh)
+            .IsRequired()
+            .HasMaxLength(256);
+
+        builder.Property(s => s.Auth)
+            .IsRequired()
+            .HasMaxLength(256);
+
+        builder.Property(s => s.UserAgent)
+            .HasMaxLength(512);
+
+        builder.Property(s => s.CreatedAt);
+        builder.Property(s => s.UpdatedAt);
+
+        builder.Property(s => s.Version)
+            .IsConcurrencyToken();
+    }
+}
+
 public sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMessage>
 {
     public void Configure(EntityTypeBuilder<ChatMessage> builder)
