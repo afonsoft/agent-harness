@@ -25,138 +25,140 @@ public sealed class RuntimeConfigurationService
 
     private static readonly CatalogEntry[] Catalog =
     [
-        new("Taskboard:Port", "47823", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
+        new("Taskboard:Port", "47823", Editable: false, RequiresRestart: true,
+            ReadOnlyReason: "Server binding — change via HARNESS_PORT or appsettings.json.",
             EnvAlias: "HARNESS_PORT",
             Validate: v => int.TryParse(v, out var p) && p is >= 1 and <= 65535
                 ? null
-                : "Port must be an integer between 1 and 65535."),
-        new("Taskboard:BaseUrl", "http://127.0.0.1:47823", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
+                : "Port must be an integer between 1 and 65535.", Group: "Server", ManagedIn: null),
+        new("Taskboard:BaseUrl", "http://127.0.0.1:47823", Editable: false, RequiresRestart: true,
+            ReadOnlyReason: "Server binding — change via HARNESS_URL or appsettings.json.",
             EnvAlias: "HARNESS_URL",
             Validate: v => Uri.TryCreate(v, UriKind.Absolute, out var u) && u.Scheme is "http" or HttpsScheme
                 ? null
-                : "BaseUrl must be an absolute http(s) URL."),
+                : "BaseUrl must be an absolute http(s) URL.", Group: "Server", ManagedIn: null),
         new("AllowedHosts", "*", Editable: true, RequiresRestart: true, ReadOnlyReason: null,
             EnvAlias: null,
-            Validate: v => string.IsNullOrWhiteSpace(v) ? "AllowedHosts cannot be empty." : null),
+            Validate: v => string.IsNullOrWhiteSpace(v) ? "AllowedHosts cannot be empty." : null, Group: "Server", ManagedIn: null),
         new("Logging:LogLevel:Default", "Information", Editable: true, RequiresRestart: false, ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateLogLevel),
+            EnvAlias: null, Validate: ValidateLogLevel, Group: "Logging", ManagedIn: null),
         new("Logging:LogLevel:Microsoft.AspNetCore", "Warning", Editable: true, RequiresRestart: false, ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateLogLevel),
+            EnvAlias: null, Validate: ValidateLogLevel, Group: "Logging", ManagedIn: null),
         new("Taskboard:DataDir", ".data", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Cannot be stored in the database it configures.",
-            EnvAlias: "HARNESS_DATA_DIR", Validate: null),
+            EnvAlias: "HARNESS_DATA_DIR", Validate: null, Group: "Connections", ManagedIn: null),
         new("Taskboard:Database:ConnectionStringName", "Taskboard", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Cannot be stored in the database it configures.",
-            EnvAlias: null, Validate: null),
+            EnvAlias: null, Validate: null, Group: "Connections", ManagedIn: null),
         new("ConnectionStrings:Taskboard", null, Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Cannot be stored in the database it configures.",
-            EnvAlias: null, Validate: null),
+            EnvAlias: null, Validate: null, Group: "Connections", ManagedIn: null),
         new("Admin:Username", "admin", Editable: false, RequiresRestart: true,
             ReadOnlyReason: "Managed by the admin account (admin.json).",
-            EnvAlias: "HARNESS_ADMIN_USERNAME", Validate: null),
+            EnvAlias: "HARNESS_ADMIN_USERNAME", Validate: null, Group: "Server", ManagedIn: null),
         new("Taskboard:Skills:Repository", "afonsoft/skills", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_SKILLS_REPO", Validate: ValidateSkillsRepository),
+            EnvAlias: "HARNESS_SKILLS_REPO", Validate: ValidateSkillsRepository, Group: "Connections", ManagedIn: "/settings?tab=integrations"),
         new("Taskboard:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_API_KEY", Validate: ValidateApiKey),
+            EnvAlias: "HARNESS_API_KEY", Validate: ValidateApiKey, Group: "Security", ManagedIn: null),
         new("Taskboard:Rag:ServerName", "knowledge", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_RAG_NAME", Validate: ValidateRagServerName),
+            EnvAlias: "HARNESS_RAG_NAME", Validate: ValidateRagServerName, Group: "Connections", ManagedIn: "/settings?tab=integrations"),
         new("Taskboard:Rag:Url", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_RAG_URL", Validate: ValidateRagUrl),
+            EnvAlias: "HARNESS_RAG_URL", Validate: ValidateRagUrl, Group: "Connections", ManagedIn: "/settings?tab=integrations"),
         new("Taskboard:Rag:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_RAG_API_KEY", Validate: ValidateRagApiKey),
+            EnvAlias: "HARNESS_RAG_API_KEY", Validate: ValidateRagApiKey, Group: "Connections", ManagedIn: "/settings?tab=integrations"),
         new("Taskboard:Terminal:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_TERMINAL_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_TERMINAL_ENABLED", Validate: ValidateBoolean, Group: "Server", ManagedIn: "/settings?tab=general"),
         // SPEC-20260929-ai-chat-view-first RF-003: liga os endpoints de
         // agente interativo (prompt/queue/retry/cancel/events). Lida por
         // request, sem restart. SPEC-20260929-webcli-toggle-finops-active-
         // sessions RF-001: default on (toggle visível em Settings → Features).
         new("Taskboard:WebCliAgent:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_WEB_CLI_AGENT_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_WEB_CLI_AGENT_ENABLED", Validate: ValidateBoolean, Group: "Server", ManagedIn: "/settings?tab=general"),
         new("Taskboard:Agents:DefaultPrompt", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt),
+            EnvAlias: "HARNESS_DEFAULT_PROMPT", Validate: ValidateDefaultPrompt, Group: "Chat", ManagedIn: "/agents?tab=prompt"),
         // SPEC-20260929-ai-code-provider-chat: provider chat (Settings → Chat).
         new("Taskboard:Chat:Tools:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_TOOLS_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_CHAT_TOOLS_ENABLED", Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
         new("Taskboard:Chat:MaxToolIterations", "8", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidatePositiveInt),
+            EnvAlias: null, Validate: ValidatePositiveInt, Group: "Chat", ManagedIn: null),
         new("Taskboard:Chat:SearchBackend", "none", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_SEARCH_BACKEND", Validate: ValidateSearchBackend),
+            EnvAlias: "HARNESS_CHAT_SEARCH_BACKEND", Validate: ValidateSearchBackend, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         new("Taskboard:Chat:SearchUrl", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_SEARCH_URL", Validate: ValidateSearchUrl),
+            EnvAlias: "HARNESS_CHAT_SEARCH_URL", Validate: ValidateSearchUrl, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         new("Taskboard:Chat:SearchApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_SEARCH_API_KEY", Validate: null),
+            EnvAlias: "HARNESS_CHAT_SEARCH_API_KEY", Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         new("Taskboard:Chat:DefaultChatModel", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: null),
+            EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         new("Taskboard:Chat:DefaultCodeModel", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: null),
+            EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         new("Taskboard:Chat:DefaultImageModel", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: null),
+            EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         // SPEC-20261001-chat-default-mode: auto = chat when configured, else agent.
         new("Taskboard:AiChat:DefaultMode", "auto", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_AICHAT_DEFAULT_MODE", Validate: ValidateAiChatDefaultMode),
+            EnvAlias: "HARNESS_AICHAT_DEFAULT_MODE", Validate: ValidateAiChatDefaultMode, Group: "Chat", ManagedIn: null),
         // SPEC-20261001-chat-capability-registry: masters + granular toggles.
         new("Taskboard:Chat:Skills:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_SKILLS_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_CHAT_SKILLS_ENABLED", Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
         new("Taskboard:Chat:AgentDelegation:Enabled", "true", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_AGENT_DELEGATION_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_CHAT_AGENT_DELEGATION_ENABLED", Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
         new("Taskboard:Chat:Mcp:Enabled", "false", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_MCP_ENABLED", Validate: ValidateBoolean),
+            EnvAlias: "HARNESS_CHAT_MCP_ENABLED", Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=mcp-skills"),
         // SPEC-20261001-chat-mcp-client: servers JSON + per-call timeout.
         new("Taskboard:Chat:Mcp:Servers", "[]", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_MCP_SERVERS", Validate: ValidateJsonArray),
+            EnvAlias: "HARNESS_CHAT_MCP_SERVERS", Validate: ValidateJsonArray, Group: "Chat", ManagedIn: "/settings?tab=mcp-skills"),
         new("Taskboard:Chat:Mcp:CallTimeoutSeconds", "30", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateIntRange5To300),
+            EnvAlias: null, Validate: ValidateIntRange5To300, Group: "Chat", ManagedIn: "/settings?tab=mcp-skills"),
         new("Taskboard:Chat:Capabilities:Disabled", "[]", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateJsonStringArray),
+            EnvAlias: null, Validate: ValidateJsonStringArray, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         // SPEC-20261005-chat-background-resume RF-002: detached chat runs —
         // global concurrency cap, checkpoint cadence, run-row retention.
         new("Taskboard:Chat:Runs:MaxConcurrent", "4", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_CHAT_RUNS_MAX_CONCURRENT", Validate: ValidatePositiveInt),
+            EnvAlias: "HARNESS_CHAT_RUNS_MAX_CONCURRENT", Validate: ValidatePositiveInt, Group: "Chat", ManagedIn: null),
         new("Taskboard:Chat:Runs:CheckpointMs", "750", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateNonNegativeInt),
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: null),
         new("Taskboard:Chat:Runs:RetentionDays", "30", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateNonNegativeInt),
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: null),
         // SPEC-20261004-redis-hybrid-cache RF-002: HybridCache L1+L2 — DI wiring
         // only happens at boot, so all four keys require restart. The generic
         // HARNESS__* env mapper already covers them (no dedicated EnvAlias).
         new("Taskboard:Cache:DefaultExpiration", "00:05:00", Editable: true, RequiresRestart: true,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateTimeSpan),
+            EnvAlias: null, Validate: ValidateTimeSpan, Group: "Connections", ManagedIn: null),
         new("Taskboard:Cache:LocalCacheExpiration", "00:01:00", Editable: true, RequiresRestart: true,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateTimeSpan),
+            EnvAlias: null, Validate: ValidateTimeSpan, Group: "Connections", ManagedIn: null),
         new("Taskboard:Cache:Redis:ConnectionString", null, Editable: true, RequiresRestart: true,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateRedisConnectionString),
+            EnvAlias: null, Validate: ValidateRedisConnectionString, Group: "Connections", ManagedIn: null),
         new("Taskboard:Cache:Redis:InstanceName", "harness:", Editable: true, RequiresRestart: true,
             ReadOnlyReason: null,
-            EnvAlias: null, Validate: ValidateRedisInstanceName),
+            EnvAlias: null, Validate: ValidateRedisInstanceName, Group: "Connections", ManagedIn: null),
     ];
 
     private readonly IConfiguration _configuration;
@@ -182,8 +184,30 @@ public sealed class RuntimeConfigurationService
                 entry.Editable,
                 entry.RequiresRestart,
                 masked,
-                entry.ReadOnlyReason);
+                entry.ReadOnlyReason,
+                entry.Group,
+                entry.ManagedIn);
         }).ToList();
+    }
+
+    /// <summary>
+    /// SPEC-20261010-settings-configuration-tab RF-003: provider/cache summary
+    /// for the Configuration tab header — resolved on <b>unmasked</b> values so
+    /// detection survives secret masking.
+    /// </summary>
+    public ConnectionInfoDto GetConnectionInfo()
+    {
+        var raw = Catalog.Select(entry => new ConfigurationEntryDto(
+            entry.Key,
+            ResolveValue(entry),
+            ResolveSource(entry),
+            entry.Editable,
+            entry.RequiresRestart,
+            Masked: false,
+            entry.ReadOnlyReason,
+            entry.Group,
+            entry.ManagedIn)).ToList();
+        return ConnectionInfoResolver.Resolve(raw);
     }
 
     /// <summary>Validates and persists a database override for <paramref name="key"/>.</summary>
@@ -493,7 +517,9 @@ public sealed class RuntimeConfigurationService
         bool RequiresRestart,
         string? ReadOnlyReason,
         string? EnvAlias,
-        Func<string, string?>? Validate);
+        Func<string, string?>? Validate,
+        string Group,
+        string? ManagedIn);
 }
 
 public enum ConfigurationWriteError

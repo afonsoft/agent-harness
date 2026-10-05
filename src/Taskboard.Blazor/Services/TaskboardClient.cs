@@ -273,8 +273,17 @@ public sealed class TaskboardClient
     /// </summary>
     public async Task<IReadOnlyList<ConfigurationEntryDto>> GetConfigurationEntriesAsync(CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.GetFromJsonAsync<ConfigurationEntriesResponse>("/api/configuration", cancellationToken);
-        return response?.Entries ?? [];
+        var snapshot = await GetConfigurationSnapshotAsync(cancellationToken);
+        return snapshot?.Entries ?? [];
+    }
+
+    /// <summary>
+    /// SPEC-20261010-settings-configuration-tab: catálogo + resumo de
+    /// conexões (provider do banco e modo do cache) numa só chamada.
+    /// </summary>
+    public async Task<ConfigurationEntriesResponse?> GetConfigurationSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        return await _httpClient.GetFromJsonAsync<ConfigurationEntriesResponse>("/api/configuration", cancellationToken);
     }
 
     /// <summary>
@@ -1230,7 +1239,7 @@ public sealed class TaskboardClient
     private sealed record SettingsResponse(SettingsDto Settings);
     private sealed record SkillsResponse(List<SkillDto> Skills);
     private sealed record SkillDetailResponse(SkillDetailDto Skill);
-    private sealed record ConfigurationEntriesResponse(List<ConfigurationEntryDto> Entries);
+    public sealed record ConfigurationEntriesResponse(List<ConfigurationEntryDto> Entries, ConnectionInfoDto? Connections = null);
     private sealed record SkillFileContentResponse(string Path, string Content);
     private sealed record CliCommandsResponse(List<CliCommandDto> Commands);
     private sealed record CliCommandResponse(CliCommandDetailDto Command);

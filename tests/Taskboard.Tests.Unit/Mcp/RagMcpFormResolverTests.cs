@@ -96,5 +96,6 @@ public class RagMcpFormResolverTests
     }
 
     private static ConfigurationEntryDto Entry(string key, string? value, string source) =>
-        new(key, value, source, Editable: true, RequiresRestart: false, Masked: false, ReadOnlyReason: null);
+        new(key, value, source, Editable: true, RequiresRestart: false, Masked: false, ReadOnlyReason: null,
+            Group: "Connections", ManagedIn: null);
 }

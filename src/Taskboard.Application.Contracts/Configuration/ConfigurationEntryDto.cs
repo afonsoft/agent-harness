@@ -8,6 +8,16 @@ namespace Taskboard.Application.Contracts.Configuration;
 /// <param name="RequiresRestart">Whether a change only applies on next process start.</param>
 /// <param name="Masked">Whether <paramref name="EffectiveValue"/> is redacted.</param>
 /// <param name="ReadOnlyReason">Why the key cannot be overridden, when not editable.</param>
+/// <param name="Group">
+/// Display category for the Settings Configuration tab — see
+/// <see cref="ConfigurationGroups"/>.
+/// </param>
+/// <param name="ManagedIn">
+/// Internal route of the screen that already owns this key (e.g.
+/// <c>/settings?tab=chat</c>), or <c>null</c> when the key is edited on the
+/// Configuration tab itself. Entries with a route are hidden from the generic
+/// table and surfaced as "managed in other screens" links instead.
+/// </param>
 public sealed record ConfigurationEntryDto(
     string Key,
     string? EffectiveValue,
@@ -15,4 +25,6 @@ public sealed record ConfigurationEntryDto(
     bool Editable,
     bool RequiresRestart,
     bool Masked,
-    string? ReadOnlyReason);
+    string? ReadOnlyReason,
+    string Group,
+    string? ManagedIn);

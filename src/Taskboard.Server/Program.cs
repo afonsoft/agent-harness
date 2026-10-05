@@ -2632,7 +2632,12 @@ void MapSettingsAndChatEndpoints()
 void MapConfigAndJobsEndpoints()
 {
     api.MapGet("configuration", (RuntimeConfigurationService configuration) =>
-        Results.Ok(new { entries = configuration.GetEntries() }))
+        Results.Ok(new
+        {
+            entries = configuration.GetEntries(),
+            // SPEC-20261010-settings-configuration-tab RF-003.
+            connections = configuration.GetConnectionInfo(),
+        }))
         .RequireAuthorization();
 
     api.MapPut("configuration/{key}", async (

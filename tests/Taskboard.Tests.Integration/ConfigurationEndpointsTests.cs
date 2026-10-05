@@ -129,8 +129,6 @@ public class ConfigurationEndpointsTests : IClassFixture<ConfigurationEndpointsT
     }
 
     [Theory]
-    [InlineData("/api/configuration/Taskboard:Port", "abc")]
-    [InlineData("/api/configuration/Taskboard:Port", "99999")]
     [InlineData("/api/configuration/Logging:LogLevel:Default", "Verbose")]
     [InlineData("/api/configuration/Foo:Bar", "x")]
     public async Task Dado_ValorInvalidoOuChaveDesconhecida_Quando_Put_Entao_400Validation(string url, string value)
@@ -149,6 +147,10 @@ public class ConfigurationEndpointsTests : IClassFixture<ConfigurationEndpointsT
     [InlineData("/api/configuration/Taskboard:DataDir")]
     [InlineData("/api/configuration/ConnectionStrings:Taskboard")]
     [InlineData("/api/configuration/Admin:Username")]
+    // SPEC-20261010-settings-configuration-tab RF-002: server binding não é
+    // editável via UI/API — via HARNESS_PORT/HARNESS_URL ou appsettings.
+    [InlineData("/api/configuration/Taskboard:Port")]
+    [InlineData("/api/configuration/Taskboard:BaseUrl")]
     public async Task Dado_ChaveReadOnly_Quando_Put_Entao_400KeyReadOnly(string url)
     {
         // Covers RF-004: read-only keys return 400 KEY_READ_ONLY
@@ -159,6 +161,33 @@ public class ConfigurationEndpointsTests : IClassFixture<ConfigurationEndpointsT
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
         result!["error"]!["code"]!.GetValue<string>().ShouldBe("KEY_READ_ONLY");
+    }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_GetConfiguration_Entao_DtoTemGroupManagedInEConnections()
+    {
+        // SPEC-20261010-settings-configuration-tab RF-001/RF-003: o GET expõe
+        // group + managedIn por entry e o bloco connections.
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/configuration");
+        var result = await response.Content.ReadFromJsonAsync<JsonObject>();
+
+        var entries = result?["entries"] as JsonArray;
+        entries.ShouldNotBeNull();
+        var promptEntry = entries!.Select(e => e!)
+            .Single(e => e["key"]!.GetValue<string>() == "Taskboard:Agents:DefaultPrompt");
+        promptEntry["group"]!.GetValue<string>().ShouldBe("Chat");
+        promptEntry["managedIn"]!.GetValue<string>().ShouldBe("/agents?tab=prompt");
+        var portEntry = entries.Select(e => e!)
+            .Single(e => e["key"]!.GetValue<string>() == "Taskboard:Port");
+        portEntry["group"]!.GetValue<string>().ShouldBe("Server");
+        portEntry["editable"]!.GetValue<bool>().ShouldBeFalse();
+
+        var connections = result!["connections"] as JsonObject;
+        connections.ShouldNotBeNull();
+        connections!["dbProvider"]!.GetValue<string>().ShouldBe("sqlite");
+        connections["cacheMode"]!.GetValue<string>().ShouldBe("memory");
     }
 
     [Fact]
