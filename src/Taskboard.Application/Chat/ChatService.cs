@@ -34,8 +34,18 @@ public sealed record ChatReasoningEvent(string Content) : ChatStreamEvent;
 
 public sealed record ChatDoneEvent(int? TokensIn, int? TokensOut, string? FinishReason, string? Error = null) : ChatStreamEvent;
 
+/// <summary>
+/// Internal plumbing (SPEC-20261005-chat-background-resume): marks the point
+/// where the in-flight assistant text became a durable ChatMessage — the
+/// broadcaster clears its partial checkpoint here. Never serialized to SSE.
+/// </summary>
+public sealed record ChatPersistedEvent : ChatStreamEvent;
+
 /// <summary>Request-level validation failure surfaced as 400.</summary>
 public sealed class ChatValidationException(string message) : Exception(message);
+
+/// <summary>Send attempted on an archived conversation — surfaced as 409.</summary>
+public sealed class ChatArchivedException(string message) : Exception(message);
 
 /// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
@@ -53,7 +63,10 @@ public sealed class ChatService(
     IConfiguration configuration,
     ChatRunCoordinator runs,
     HybridCache cache,
-    TimeProvider? clock = null)
+    IRepository<ChatRun> runRepository,
+    ChatRunQueue runQueue,
+    ChatRunBroadcaster broadcaster,
+    TimeProvider? clock = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -197,9 +210,11 @@ public sealed class ChatService(
     }
 
     public async Task<IReadOnlyList<ChatConversationDto>> ListConversationsAsync(
-        string? query, CancellationToken ct = default)
+        string? query, bool archived = false, CancellationToken ct = default)
     {
+        // RF-006: archive is a view flag — active/archived lists are disjoint.
         var rows = await conversations.Query
+            .Where(c => (c.ArchivedAt != null) == archived)
             .OrderByDescending(c => c.UpdatedAt)
             .Take(200)
             .ToListAsync(ct).ConfigureAwait(false);
@@ -230,7 +245,24 @@ public sealed class ChatService(
             }
         }
 
-        return rows.Select(c => ToDto(c, previewByConversation.GetValueOrDefault(c.Id.Value))).ToList();
+        // Live-run badge (RF-007): a run survives the browser — the chip is
+        // the only signal that work is still going.
+        var activeRuns = await runRepository.Query
+            .Where(r => r.Status == ChatRunStatus.Queued || r.Status == ChatRunStatus.Running)
+            .ToListAsync(ct).ConfigureAwait(false);
+        var activeByConversation = activeRuns
+            .GroupBy(r => r.ConversationId.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Any(r => r.Status == ChatRunStatus.Running)
+                    ? ChatRunStatus.Running.Value
+                    : ChatRunStatus.Queued.Value,
+                StringComparer.Ordinal);
+
+        return rows.Select(c => ToDto(
+            c,
+            previewByConversation.GetValueOrDefault(c.Id.Value),
+            activeByConversation.GetValueOrDefault(c.Id.Value))).ToList();
     }
 
     public async Task<ChatConversationDetailDto?> GetConversationAsync(string id, CancellationToken ct = default)
@@ -245,7 +277,25 @@ public sealed class ChatService(
             .Where(m => m.ConversationId == conversation.Id)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct).ConfigureAwait(false);
-        return new ChatConversationDetailDto(ToDto(conversation, null), rows.Select(ToDto).ToList());
+
+        // RF-004: the running/earliest-queued run is the attach target; the
+        // latest finished run feeds the "interrupted" inline notice.
+        var runRows = await runRepository.Query
+            .Where(r => r.ConversationId == conversation.Id)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(10)
+            .ToListAsync(ct).ConfigureAwait(false);
+        var active = runRows
+            .Where(r => r.Status.IsActive)
+            .OrderByDescending(r => r.Status == ChatRunStatus.Running)
+            .ThenBy(r => r.CreatedAt)
+            .FirstOrDefault();
+        var last = runRows.FirstOrDefault(r => r.Status.IsTerminal);
+
+        return new ChatConversationDetailDto(
+            ToDto(conversation, null), rows.Select(ToDto).ToList(),
+            active is null ? null : ToDto(active),
+            last is null ? null : ToDto(last));
     }
 
     public async Task<ChatConversationDto?> PatchConversationAsync(
@@ -279,6 +329,37 @@ public sealed class ChatService(
         return ToDto(conversation, null);
     }
 
+    /// <summary>RF-006: archive/unarchive is a view flag — the run keeps going in background.</summary>
+    public async Task<ChatConversationDto?> SetConversationArchivedAsync(
+        string id, bool archived, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        if (archived)
+        {
+            conversation.Archive(UtcNow);
+        }
+        else
+        {
+            conversation.Unarchive(UtcNow);
+        }
+
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(conversation, null);
+    }
+
+    /// <summary>Latest run row for the conversation/id pair — the <c>chat.done</c> payload (RF-003).</summary>
+    public async Task<ChatRunDto?> GetRunAsync(
+        string conversationId, string runId, CancellationToken ct = default)
+    {
+        var run = await runRepository.GetAsync(ChatRunId.From(runId), ct).ConfigureAwait(false);
+        return run is null || run.ConversationId.Value != conversationId ? null : ToDto(run);
+    }
+
     public async Task<bool> DeleteConversationAsync(string id, CancellationToken ct = default)
     {
         var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
@@ -287,47 +368,128 @@ public sealed class ChatService(
             return false;
         }
 
+        // Hard delete kills any live run first — the cascade would drop the
+        // rows, but the executor must release its token.
+        await StopAsync(id, ct).ConfigureAwait(false);
         await conversations.DeleteAsync(conversation, ct).ConfigureAwait(false);
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
         return true;
     }
 
-    // ---- Send / stream / stop (RF-005) ----
+    // ---- Enqueue / execute / stop (SPEC-20261005-chat-background-resume RF-002..RF-004) ----
 
-    public async Task<IAsyncEnumerable<ChatStreamEvent>> SendMessageAsync(
-        string conversationId, string content, CancellationToken requestAborted)
+    /// <summary>
+    /// RF-002: persists the user message and queues a durable run — the
+    /// dispatcher executes it detached from this request. FIFO per
+    /// conversation: a send during a live run becomes the next turn.
+    /// </summary>
+    public async Task<ChatRunDto> EnqueueMessageAsync(
+        string conversationId, string content, CancellationToken ct = default)
     {
-        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), requestAborted).ConfigureAwait(false)
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
-        var provider = await providers.GetAsync(conversation.ProviderId, requestAborted).ConfigureAwait(false)
-            ?? throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
+        if (conversation.ArchivedAt is not null)
+        {
+            throw new ChatArchivedException($"Conversation '{conversationId}' is archived.");
+        }
 
-        // B-01: the coordinator is a singleton — /stop from another request
-        // (another scoped ChatService) reaches this run's token.
-        var cts = await runs.BeginAsync(conversation.Id.Value, requestAborted).ConfigureAwait(false);
-        return StreamTurnAsync(conversation, provider, content, cts, requestAborted);
-    }
+        if (await providers.GetAsync(conversation.ProviderId, ct).ConfigureAwait(false) is null)
+        {
+            throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
+        }
 
-    public bool Stop(string conversationId) => runs.Stop(conversationId);
-
-    private async IAsyncEnumerable<ChatStreamEvent> StreamTurnAsync(
-        ChatConversation conversation,
-        ChatProvider provider,
-        string content,
-        CancellationTokenSource cts,
-        [EnumeratorCancellation] CancellationToken requestAborted)
-    {
-        var ct = cts.Token;
         var userMessage = ChatMessage.CreateUser(conversation.Id, content, UtcNow);
         await messages.AddAsync(userMessage, ct).ConfigureAwait(false);
         conversation.EnsureTitle(content, UtcNow);
         conversation.Touch(UtcNow);
+
+        var run = ChatRun.Create(ChatRunId.NewGuid(), conversation.Id, userMessage.Id, UtcNow);
+        await runRepository.AddAsync(run, ct).ConfigureAwait(false);
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        runQueue.Enqueue(new ChatRunWorkItem(run.Id.Value, conversation.Id.Value));
+        return ToDto(run);
+    }
+
+    /// <summary>
+    /// Stops everything pending on the conversation: the live run through the
+    /// singleton coordinator (reaches the executor's detached token) plus any
+    /// queued runs — the dispatcher never picks them up.
+    /// </summary>
+    public async Task<bool> StopAsync(string conversationId, CancellationToken ct = default)
+    {
+        var stopped = runs.Stop(conversationId);
+        var conversation = ChatConversationId.From(conversationId);
+        var queued = await runRepository.Query
+            .Where(r => r.ConversationId == conversation && r.Status == ChatRunStatus.Queued)
+            .ToListAsync(ct).ConfigureAwait(false);
+        foreach (var run in queued)
+        {
+            run.Stop(UtcNow);
+        }
+
+        if (queued.Count > 0)
+        {
+            await runRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+            stopped = true;
+        }
+
+        return stopped;
+    }
+
+    /// <summary>
+    /// The <c>chat.sync</c> payload for an attach (RF-003): durable messages +
+    /// the live checkpoint (broadcaster first, DB checkpoint as fallback for a
+    /// broadcast that lost its state) + the sequence high-water mark.
+    /// </summary>
+    public async Task<ChatRunSyncDto?> GetRunSnapshotAsync(
+        string conversationId, string runId, CancellationToken ct = default)
+    {
+        var run = await runRepository.GetAsync(ChatRunId.From(runId), ct).ConfigureAwait(false);
+        if (run is null || run.ConversationId.Value != conversationId)
+        {
+            return null;
+        }
+
+        var rows = await messages.Query
+            .Where(m => m.ConversationId == run.ConversationId)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var live = broadcaster.GetLive(runId);
+        var active = run.Status.IsActive;
+        return new ChatRunSyncDto(
+            rows.Select(ToDto).ToList(),
+            ToDto(run),
+            live?.Partial ?? (active ? run.PartialContent : null),
+            live?.PartialReasoning ?? (active ? run.PartialReasoning : null),
+            live?.LastSeq ?? 0);
+    }
+
+    /// <summary>
+    /// <see cref="IChatRunExecutor"/>: the detached turn — same tool loop the
+    /// request-bound stream had, minus <c>requestAborted</c>: the run token is
+    /// cancelled only by a user stop; the host-lifetime token carries
+    /// post-stop persistence and propagates shutdown as an interrupt.
+    /// </summary>
+    public async IAsyncEnumerable<ChatStreamEvent> ExecuteAsync(
+        ChatRun run, CancellationTokenSource runCts,
+        [EnumeratorCancellation] CancellationToken stoppingToken)
+    {
+        var conversation = await conversations.GetAsync(run.ConversationId, stoppingToken).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Conversation '{run.ConversationId.Value}' not found.");
+        var provider = await providers.GetAsync(conversation.ProviderId, stoppingToken).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
+
+        // Shutdown also cancels the stream — TryMoveNextAsync tells a host
+        // interrupt (rethrown) from a user stop (StoppedByUser).
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(runCts.Token, stoppingToken);
+        var ct = linked.Token;
 
         // SPEC-20261001-chat-capability-registry FR-003: effective tool set —
         // disabled capabilities never reach the provider payload.
         var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
-        var wire = await BuildTranscriptAsync(conversation, toolSet, ct).ConfigureAwait(false);
+        var wire = await BuildTranscriptAsync(conversation, toolSet, run.TriggerMessageId, ct).ConfigureAwait(false);
         var toolDefs = BuildToolDefinitions(toolSet);
         var state = new TurnState();
         var maxIterations = ParseInt("Taskboard:Chat:MaxToolIterations", 8);
@@ -338,11 +500,11 @@ public sealed class ChatService(
 
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
-            // B-02: deltas are yielded as they arrive — the SSE client sees
-            // live progress instead of a burst after the provider finishes.
+            // B-02: deltas are yielded as they arrive — subscribers see live
+            // progress instead of a burst after the provider finishes.
             var stream = new StreamOutcome();
             var consume = new ConsumeContext(
-                provider, conversation, wire, toolDefs, maxTokens, stream, cts, requestAborted);
+                provider, conversation, wire, toolDefs, maxTokens, stream, runCts, stoppingToken);
             await foreach (var ev in ConsumeStreamAsync(consume, ct).ConfigureAwait(false))
             {
                 yield return ev;
@@ -362,11 +524,12 @@ public sealed class ChatService(
             }
 
             // After a user stop the run token is cancelled — the partial reply
-            // is still persisted using the request token, which stays alive.
-            var persistCt = stream.StoppedByUser ? requestAborted : ct;
+            // is still persisted using the host token, which stays alive.
+            var persistCt = stream.StoppedByUser ? stoppingToken : ct;
             var toolCalls = await PersistAssistantTurnAsync(
                     conversation, wire, stream, state.TokensIn, state.TokensOut, persistCt)
                 .ConfigureAwait(false);
+            yield return new ChatPersistedEvent();
 
             if (toolCalls.Count == 0)
             {
@@ -383,9 +546,8 @@ public sealed class ChatService(
             await conversations.SaveChangesAsync(persistCt).ConfigureAwait(false);
         }
 
-        await conversations.SaveChangesAsync(requestAborted.IsCancellationRequested ? CancellationToken.None : requestAborted)
+        await conversations.SaveChangesAsync(stoppingToken.IsCancellationRequested ? CancellationToken.None : stoppingToken)
             .ConfigureAwait(false);
-        runs.End(conversation.Id.Value, cts);
         yield return new ChatDoneEvent(state.TokensIn, state.TokensOut, state.Error is null ? "stop" : "error", state.Error);
     }
 
@@ -539,7 +701,7 @@ public sealed class ChatService(
         int MaxTokens,
         StreamOutcome Outcome,
         CancellationTokenSource Stop,
-        CancellationToken RequestAborted);
+        CancellationToken HostStopping);
 
     private async IAsyncEnumerable<ChatStreamEvent> ConsumeStreamAsync(
         ConsumeContext ctx,
@@ -559,7 +721,7 @@ public sealed class ChatService(
                 yield return ev;
             }
 
-            if (!await TryMoveNextAsync(next, ctx.Outcome, ctx.Stop, ctx.RequestAborted).ConfigureAwait(false))
+            if (!await TryMoveNextAsync(next, ctx.Outcome, ctx.Stop, ctx.HostStopping).ConfigureAwait(false))
             {
                 yield break;
             }
@@ -599,7 +761,7 @@ public sealed class ChatService(
         Task<bool> next,
         StreamOutcome outcome,
         CancellationTokenSource cts,
-        CancellationToken requestAborted)
+        CancellationToken hostStopping)
     {
         try
         {
@@ -613,7 +775,13 @@ public sealed class ChatService(
         {
             outcome.ProviderError = new ChatProviderException($"Provider unreachable: {ex.Message}", 502);
         }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested && !requestAborted.IsCancellationRequested)
+        catch (OperationCanceledException) when (hostStopping.IsCancellationRequested)
+        {
+            // SPEC-20261005: host shutdown is not a user stop — propagate so
+            // the dispatcher marks the run Interrupted instead of Completed.
+            throw;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             outcome.StoppedByUser = true;
         }
@@ -744,21 +912,37 @@ public sealed class ChatService(
         }
     }
 
+    /// <summary>
+    /// Transcript for a run = history up to its trigger message plus every
+    /// non-user row after it — those are the tails of earlier runs that
+    /// finished while this one sat queued. User messages persisted after the
+    /// trigger belong to later queued runs and are skipped (RF-002).
+    /// </summary>
     private async Task<List<OpenAiChatMessage>> BuildTranscriptAsync(
         ChatConversation conversation,
-        IReadOnlyDictionary<string, IChatTool> toolSet, CancellationToken ct)
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatMessageId? triggerMessageId,
+        CancellationToken ct)
     {
         var rows = await messages.Query
             .Where(m => m.ConversationId == conversation.Id)
             .OrderBy(m => m.CreatedAt)
             .ToListAsync(ct).ConfigureAwait(false);
 
+        var trigger = triggerMessageId is null ? null : rows.FirstOrDefault(m => m.Id == triggerMessageId);
         var wire = new List<OpenAiChatMessage>
         {
             new("system", SystemPrompt(toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false))),
         };
         foreach (var message in rows)
         {
+            if (trigger is not null
+                && message.Role == ChatMessageRole.User
+                && message.CreatedAt > trigger.CreatedAt)
+            {
+                continue;
+            }
+
             var role = message.Role.Value;
             if (role == "user")
             {
@@ -889,7 +1073,20 @@ public sealed class ChatService(
         provider.CreatedAt,
         provider.UpdatedAt);
 
-    private static ChatConversationDto ToDto(ChatConversation conversation, string? preview) => new(
+    private static ChatRunDto ToDto(ChatRun run) => new(
+        run.Id.Value,
+        run.ConversationId.Value,
+        run.Status.Value,
+        run.TriggerMessageId.Value,
+        run.Error,
+        run.TokensIn,
+        run.TokensOut,
+        run.CreatedAt,
+        run.StartedAt,
+        run.FinishedAt);
+
+    private static ChatConversationDto ToDto(
+        ChatConversation conversation, string? preview, string? activeRunStatus = null) => new(
         conversation.Id.Value,
         conversation.ProviderId,
         conversation.ProviderName,
@@ -903,7 +1100,9 @@ public sealed class ChatService(
             ? null
             : new ChatAgentContext(
                 conversation.AgentCli, conversation.RepositoryFullName,
-                conversation.WorkspacePath, conversation.AgentModel));
+                conversation.WorkspacePath, conversation.AgentModel),
+        conversation.ArchivedAt,
+        activeRunStatus);
 
     private static ChatMessageDto ToDto(ChatMessage message) => new(
         message.Id.Value,

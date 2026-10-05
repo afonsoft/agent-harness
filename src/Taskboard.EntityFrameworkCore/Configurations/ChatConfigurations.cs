@@ -63,15 +63,72 @@ public sealed class ChatConversationConfiguration : IEntityTypeConfiguration<Cha
 
         builder.Property(c => c.CreatedAt);
         builder.Property(c => c.UpdatedAt);
+        builder.Property(c => c.ArchivedAt);
 
         builder.Property(c => c.Version)
             .IsConcurrencyToken();
 
         builder.HasIndex(c => c.UpdatedAt);
+        builder.HasIndex(c => c.ArchivedAt);
 
         builder.HasMany(c => c.Messages)
             .WithOne()
             .HasForeignKey(m => m.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>
+/// SPEC-20261005-chat-background-resume RF-001: durable run rows — the detached
+/// executor's lifecycle + in-flight checkpoints. Cascade-deleted with the
+/// conversation.
+/// </summary>
+public sealed class ChatRunConfiguration : IEntityTypeConfiguration<ChatRun>
+{
+    public void Configure(EntityTypeBuilder<ChatRun> builder)
+    {
+        builder.ToTable("ChatRuns");
+
+        builder.Property(r => r.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatRunId>());
+
+        builder.HasKey(r => r.Id);
+
+        builder.Property(r => r.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(r => r.TriggerMessageId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatMessageId>());
+
+        builder.Property(r => r.Status)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasConversion(new StringValueObjectConverter<ChatRunStatus>());
+
+        builder.Property(r => r.PartialContent);
+        builder.Property(r => r.PartialReasoning);
+        builder.Property(r => r.Error)
+            .HasMaxLength(1024);
+        builder.Property(r => r.TokensIn);
+        builder.Property(r => r.TokensOut);
+        builder.Property(r => r.CreatedAt);
+        builder.Property(r => r.StartedAt);
+        builder.Property(r => r.FinishedAt);
+
+        builder.Property(r => r.Version)
+            .IsConcurrencyToken();
+
+        // One live run lookup per conversation (attach path + history badge)
+        // and the dispatcher's queued-FIFO scan.
+        builder.HasIndex(r => new { r.ConversationId, r.Status });
+        builder.HasIndex(r => r.CreatedAt);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(r => r.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -49,17 +49,19 @@
                 }
             </button>
         </div>
-        @* SPEC-20260929-ai-chat-rail-overlay RF-002: histórico + new chat no
-           topo-direito sobre o painel de chat — o rail fica oculto por padrão. *@
+        @* SPEC-20261005-chat-background-resume RF-007: histórico + new chat
+           proxyam para a sidebar do ProviderChat quando o chat está ativo
+           (superfície única de histórico); com uma thread legada aberta,
+           seguem dirigindo o rail legado. *@
         <button type="button" class="ai-chat-iconbtn" title="Threads history"
                 aria-label="Open thread history"
-                @onclick="OpenRailDrawerAsync">
+                @onclick="ToggleHistoryDrawerAsync">
             <Icon Name="IconName.ClockHistory" />
         </button>
         <button type="button" class="ai-chat-iconbtn primary" title="New conversation"
                 aria-label="New conversation"
-                disabled="@(!HasEligibleAgent)"
-                @onclick="NewConversationAsync">
+                disabled="@(_providerChat is null && !HasEligibleAgent)"
+                @onclick="NewChatOrConversationAsync">
             <Icon Name="IconName.PlusSquare" />
         </button>
     </div>
@@ -92,7 +94,9 @@ else
             @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode —
                replaces the agent-CLI UI with the open-webui-like layout. *@
             <div class="card-body p-2">
-                <ProviderChat OnSwitchToAgent="SwitchToAgentMode" />
+                <ProviderChat @ref="_providerChat" OnSwitchToAgent="SwitchToAgentMode">
+                    <HistoryExtra>@LegacyThreadsSection</HistoryExtra>
+                </ProviderChat>
             </div>
         }
         else if (_activeThread is null)
@@ -103,11 +107,12 @@ else
                CLI/repo/model persist on the conversation. The bar stays
                editable while no legacy thread is bound. *@
             <div class="card-body p-2">
-                <ProviderChat @key="_agentChatKey"
+                <ProviderChat @ref="_providerChat" @key="_agentChatKey"
                               AgentContext="CurrentAgentContext"
                               SeedConversationId="@_seedConversationId"
                               OnConversationAgentLoaded="OnConversationAgentLoaded"
                               OnSwitchToAgent="SwitchToAgentMode">
+                    <HistoryExtra>@LegacyThreadsSection</HistoryExtra>
                     <AgentTools>
                     <label class="ai-chat-ctl"
                            title="Structured agent chat or a raw CLI terminal (PTY) thread">
@@ -785,6 +790,9 @@ else
     private bool _scrollPending;
     // SPEC-20260928: rail state — collapsed (desktop icon rail), drawer (mobile overlay).
     private bool _railDrawerOpen;
+    // SPEC-20261005-chat-background-resume RF-007: the page header proxies
+    // history/new-chat into whichever ProviderChat surface is rendered.
+    private ProviderChat? _providerChat;
     private bool _overflowOpen;
     private ElementReference _messagesRef;
     private ElementReference _composerRef;
@@ -1637,6 +1645,67 @@ else
         _railDrawerOpen = true;
         await RefreshThreadsAsync();
     }
+
+    /// <summary>
+    /// SPEC-20261005-chat-background-resume RF-007: the header ☰ proxies to
+    /// the ProviderChat sidebar (single history surface) while the chat
+    /// surface is on screen; with a legacy thread open it keeps driving the
+    /// legacy rail drawer.
+    /// </summary>
+    private async Task ToggleHistoryDrawerAsync()
+    {
+        if (_providerChat is not null)
+        {
+            _providerChat.ToggleHistoryDrawer();
+            await RefreshThreadsAsync();
+            return;
+        }
+
+        await OpenRailDrawerAsync();
+    }
+
+    /// <summary>Header "+" → new provider-chat conversation when the chat
+    /// surface is active; legacy thread flow otherwise.</summary>
+    private async Task NewChatOrConversationAsync()
+    {
+        if (_providerChat is not null)
+        {
+            await _providerChat.StartNewChatPublicAsync();
+            return;
+        }
+
+        await NewConversationAsync();
+    }
+
+    /// <summary>RF-007: the legacy thread list lives inside the chat history
+    /// drawer as a collapsed section.</summary>
+    private RenderFragment LegacyThreadsSection => __builder =>
+    {
+        if (_threads is null || !_threads.Any())
+        {
+            return;
+        }
+
+        <details class="provider-chat-legacy">
+            <summary class="small text-body-secondary">Legacy threads (@_threads.Count)</summary>
+            <ul class="list-unstyled m-0 px-2 py-1">
+                @foreach (var thread in OrderedThreads)
+                {
+                    <li class="d-flex align-items-center" @key="thread.Id">
+                        <button type="button" class="ai-chat-thread-btn text-truncate"
+                                title="@thread.Title"
+                                @onclick="() => SelectThreadFromRailAsync(thread)">
+                            @thread.Title
+                            @if (thread.Status == "running")
+                            {
+                                <span class="badge text-bg-warning ms-1">running</span>
+                            }
+                        </button>
+                    </li>
+                }
+            </ul>
+        </details>
+    };
 
     /// <summary>Best-effort thread-list refresh — keeps the stale list on error.</summary>
     private async Task RefreshThreadsAsync()

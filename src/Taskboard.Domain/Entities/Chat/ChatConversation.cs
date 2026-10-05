@@ -20,6 +20,13 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261005-chat-background-resume RF-006: soft-delete flag — archived
+    /// conversations hide behind the "Arquivadas" filter, open read-only and
+    /// block new sends until restored.
+    /// </summary>
+    public DateTime? ArchivedAt { get; private set; }
+
     // Agent-chat binding (SPEC-20261003-ai-code-agent-chat) — null on plain
     // provider-chat conversations.
     public string? AgentCli { get; private set; }
@@ -103,6 +110,19 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
         RepositoryFullName = NullIfBlank(repositoryFullName);
         WorkspacePath = NullIfBlank(workspacePath);
         AgentModel = NullIfBlank(agentModel);
+    }
+
+    /// <summary>
+    /// Archive is a view flag, not a state change — it does not reorder the
+    /// history list (UpdatedAt stays; open question #2 in the spec).
+    /// </summary>
+    public void Archive(DateTime now) => ArchivedAt = now;
+
+    /// <summary>Restores the conversation and surfaces it back on top of history.</summary>
+    public void Unarchive(DateTime now)
+    {
+        ArchivedAt = null;
+        UpdatedAt = now;
     }
 
     private static string? NullIfBlank(string? value) =>

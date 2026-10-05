@@ -29,6 +29,10 @@ public sealed class ChatServiceTests : IDisposable
     private readonly ChatService _service;
     private readonly ChatProvider _provider;
     private readonly List<HttpClient> _httpClients = [];
+    private readonly ChatRunBroadcaster _broadcaster = new();
+    private readonly ChatRunQueue _runQueue = new();
+    private readonly ChatRunCoordinator _coordinator = new();
+    private readonly List<TaskboardDbContext> _extraContexts = [];
 
     public ChatServiceTests()
     {
@@ -43,11 +47,12 @@ public sealed class ChatServiceTests : IDisposable
         _context.ChatProviders.Add(_provider);
         _context.SaveChanges();
 
-        _service = NewService(new FakeProviderHandler(), new ChatRunCoordinator());
+        _service = NewService(new FakeProviderHandler(), _coordinator);
     }
 
-    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null)
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null)
     {
+        context ??= _context;
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -64,16 +69,67 @@ public sealed class ChatServiceTests : IDisposable
             tools[extraTool.Name] = extraTool;
         }
         return new ChatService(
-            new EfCoreRepository<ChatProvider>(_context),
-            new EfCoreRepository<ChatConversation>(_context),
-            new EfCoreRepository<ChatMessage>(_context),
+            new EfCoreRepository<ChatProvider>(context),
+            new EfCoreRepository<ChatConversation>(context),
+            new EfCoreRepository<ChatMessage>(context),
             new OpenAiCompatibleClient(TrackHttp(handler)),
             new ChatCapabilityRegistry(tools, new FakeSkillDiscovery(), configuration),
             new FakeSkillDiscovery(),
             workspace ?? new FakeWorkspaceResolver(),
             configuration,
             coordinator,
-            NewHybridCache());
+            NewHybridCache(),
+            new EfCoreRepository<ChatRun>(context),
+            _runQueue,
+            _broadcaster);
+    }
+
+    /// <summary>DbContext separado no mesmo SQLite — o "outro scope" do /stop.</summary>
+    private TaskboardDbContext NewSecondContext()
+    {
+        var options = new DbContextOptionsBuilder<TaskboardDbContext>()
+            .UseSqlite($"Data Source={_dbPath};Pooling=false")
+            .Options;
+        var ctx = new TaskboardDbContext(options);
+        _extraContexts.Add(ctx);
+        return ctx;
+    }
+
+    /// <summary>
+    /// SPEC-20261005: o dispatcher em miniatura — enqueue (persiste user + run
+    /// Queued) e depois ExecuteAsync com o runCts do coordinator, igual ao
+    /// ChatRunDispatcherService.RunItemAsync.
+    /// </summary>
+    private async Task<List<ChatStreamEvent>> RunTurnAsync(
+        ChatService service, ChatRunCoordinator coordinator, string conversationId, string content)
+    {
+        var run = await service.EnqueueMessageAsync(conversationId, content);
+        return await ExecuteRunAsync(service, coordinator, conversationId, run.Id);
+    }
+
+    private async Task<List<ChatStreamEvent>> ExecuteRunAsync(
+        ChatService service, ChatRunCoordinator coordinator, string conversationId, string runId)
+    {
+        var run = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(runId));
+        run.Start(DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+
+        var runCts = await coordinator.BeginAsync(conversationId);
+        try
+        {
+            var events = new List<ChatStreamEvent>();
+            await foreach (var chatEvent in service.ExecuteAsync(run, runCts, CancellationToken.None))
+            {
+                events.Add(chatEvent);
+            }
+
+            return events;
+        }
+        finally
+        {
+            coordinator.End(conversationId, runCts);
+            runCts.Dispose();
+        }
     }
 
     private static HybridCache NewHybridCache() =>
@@ -94,6 +150,11 @@ public sealed class ChatServiceTests : IDisposable
             client.Dispose();
         }
 
+        foreach (var extra in _extraContexts)
+        {
+            extra.Dispose();
+        }
+
         _context.Dispose();
         if (File.Exists(_dbPath))
         {
@@ -107,16 +168,14 @@ public sealed class ChatServiceTests : IDisposable
         var conversation = await _service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
 
-        var events = new List<ChatStreamEvent>();
-        await foreach (var chatEvent in await _service.SendMessageAsync(conversation.Id, "rode ls", CancellationToken.None))
-        {
-            events.Add(chatEvent);
-        }
+        var events = await RunTurnAsync(_service, _coordinator, conversation.Id, "rode ls");
 
         // 1º turno: tool call + tool result; 2º: resposta final.
         events.OfType<ChatToolCallEvent>().Select(e => e.Name).ShouldBe(["echo_tool"]);
         events.OfType<ChatToolResultEvent>().Single().ResultJson.ShouldContain("echo:rode");
         events.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["pronto"]);
+        events.OfType<ChatPersistedEvent>().ShouldNotBeEmpty(
+            "SPEC-20261005 RF-003: o marcador de persistência separa o parcial do durável");
         events.OfType<ChatDoneEvent>().ShouldHaveSingleItem().FinishReason.ShouldBe("stop");
 
         // RF-004: transcript persistido na ordem user → assistant(tool) → tool → assistant.
@@ -145,10 +204,7 @@ public sealed class ChatServiceTests : IDisposable
     {
         var conversation = await _service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
-        await foreach (var unused in await _service.SendMessageAsync(conversation.Id, "termo-unico-xyz", CancellationToken.None))
-        {
-            _ = unused;
-        }
+        await RunTurnAsync(_service, _coordinator, conversation.Id, "termo-unico-xyz");
 
         var list = await _service.ListConversationsAsync("termo-unico-xyz");
 
@@ -228,7 +284,114 @@ public sealed class ChatServiceTests : IDisposable
         await _service.DeleteProviderAsync(_provider.Id);
 
         await Should.ThrowAsync<ChatValidationException>(
-            async () => await _service.SendMessageAsync(conversation.Id, "oi", CancellationToken.None));
+            async () => await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Dado_ConversaArquivada_Quando_Enqueue_Entao_ChatArchivedException()
+    {
+        // RF-006: arquivada é view flag — não aceita novo turno até restaurar.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var archived = await _service.SetConversationArchivedAsync(conversation.Id, archived: true);
+        archived.ShouldNotBeNull().ArchivedAt.ShouldNotBeNull();
+
+        await Should.ThrowAsync<ChatArchivedException>(
+            async () => await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None));
+
+        var restored = await _service.SetConversationArchivedAsync(conversation.Id, archived: false);
+        restored.ShouldNotBeNull().ArchivedAt.ShouldBeNull();
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        run.Status.ShouldBe("queued");
+    }
+
+    [Fact]
+    public async Task Dado_RunQueued_Quando_StopAsync_Entao_QueuedViraStopped()
+    {
+        // RF-004: stop cancela também runs na fila — nada recomeça depois.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+
+        (await _service.StopAsync(conversation.Id)).ShouldBeTrue();
+
+        var row = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        row.Status.ShouldBe(ChatRunStatus.Stopped);
+        row.Error.ShouldBe("stopped by user");
+    }
+
+    [Fact]
+    public async Task Dado_SegundaMensagemNaFila_Quando_ExecutaRun1_Entao_TranscriptNaoCarregaUserDepois()
+    {
+        // RF-002 FIFO: user rows persisted AFTER the run's trigger belong to
+        // later queued turns — they must not leak into this run's wire.
+        var handler = new RecordingProviderHandler();
+        var service = NewService(handler, _coordinator);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run1 = await service.EnqueueMessageAsync(conversation.Id, "primeira", CancellationToken.None);
+        var run2 = await service.EnqueueMessageAsync(conversation.Id, "segunda-enquanto-roda", CancellationToken.None);
+
+        await ExecuteRunAsync(service, _coordinator, conversation.Id, run1.Id);
+
+        var wire1 = handler.RequestBodies[0];
+        wire1.ShouldContain("primeira");
+        wire1.ShouldNotContain("segunda-enquanto-roda");
+
+        await ExecuteRunAsync(service, _coordinator, conversation.Id, run2.Id);
+        handler.RequestBodies[1].ShouldContain("segunda-enquanto-roda");
+    }
+
+    [Fact]
+    public async Task Dado_Detail_Quando_RunQueued_Entao_ActiveRunEListBadge()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+
+        var detail = await _service.GetConversationAsync(conversation.Id);
+        detail.ShouldNotBeNull();
+        detail.ActiveRun.ShouldNotBeNull().Id.ShouldBe(run.Id);
+        detail.LastRun.ShouldBeNull("nenhum run terminal ainda");
+
+        var list = await _service.ListConversationsAsync(query: null);
+        list.Single(c => c.Id == conversation.Id).ActiveRunStatus.ShouldBe("queued");
+    }
+
+    [Fact]
+    public async Task Dado_RunConcluido_Quando_GetRunSnapshot_Entao_SyncComMensagensETerminal()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        var entity = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        entity.Start(DateTime.UtcNow);
+        entity.Complete(5, 3, DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+
+        var sync = await _service.GetRunSnapshotAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        sync.ShouldNotBeNull();
+        sync.Run.Status.ShouldBe("completed");
+        sync.Run.TokensIn.ShouldBe(5);
+        sync.Messages.Select(m => m.Role).ShouldBe(["user"]);
+        sync.Partial.ShouldBeNull("run terminal não carrega checkpoint");
+    }
+
+    /// <summary>Provider fake que grava o corpo do request — transcript introspection.</summary>
+    private sealed class RecordingProviderHandler : HttpMessageHandler
+    {
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestBodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            const string body = """data: {"choices":[{"delta":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" + "\ndata: [DONE]\n";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            };
+        }
     }
 
     [Fact]
@@ -239,24 +402,17 @@ public sealed class ChatServiceTests : IDisposable
         var coordinator = new ChatRunCoordinator();
         var handler = new GatedProviderHandler();
         var sender = NewService(handler, coordinator);
-        var stopper = NewService(handler, coordinator);
+        // O stopper é o "outro request scope": mesmo coordinator singleton,
+        // DbContext próprio (EF não é thread-safe).
+        var stopper = NewService(handler, coordinator, context: NewSecondContext());
 
         var conversation = await sender.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
 
-        var collect = Task.Run(async () =>
-        {
-            var events = new List<ChatStreamEvent>();
-            await foreach (var e in await sender.SendMessageAsync(conversation.Id, "oi", CancellationToken.None))
-            {
-                events.Add(e);
-            }
-
-            return events;
-        });
+        var collect = Task.Run(() => RunTurnAsync(sender, coordinator, conversation.Id, "oi"));
 
         await handler.FirstDeltaSent.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        stopper.Stop(conversation.Id).ShouldBeTrue(
+        (await stopper.StopAsync(conversation.Id)).ShouldBeTrue(
             "B-01: o stop de outro request scope alcança o run via coordinator singleton");
 
         var events = await collect.WaitAsync(TimeSpan.FromSeconds(10));
@@ -271,11 +427,17 @@ public sealed class ChatServiceTests : IDisposable
         // provider ainda está bloqueado no gate; com buffering ele só chegaria
         // depois do stream completo.
         var handler = new GatedProviderHandler();
-        var service = NewService(handler, new ChatRunCoordinator());
+        var coordinator = new ChatRunCoordinator();
+        var service = NewService(handler, coordinator);
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
 
-        var stream = await service.SendMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        var run = await service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        var entity = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        entity.Start(DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+        var runCts = await coordinator.BeginAsync(conversation.Id);
+        var stream = service.ExecuteAsync(entity, runCts, CancellationToken.None);
         await using var enumerator = stream.GetAsyncEnumerator();
 
         (await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10))).ShouldBeTrue();
@@ -290,6 +452,8 @@ public sealed class ChatServiceTests : IDisposable
 
         rest.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["parte-2"]);
         rest.OfType<ChatDoneEvent>().ShouldHaveSingleItem();
+        coordinator.End(conversation.Id, runCts);
+        runCts.Dispose();
     }
 
     [Fact]
@@ -299,11 +463,7 @@ public sealed class ChatServiceTests : IDisposable
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "deepseek-r1"));
 
-        var events = new List<ChatStreamEvent>();
-        await foreach (var chatEvent in await service.SendMessageAsync(conversation.Id, "oi", CancellationToken.None))
-        {
-            events.Add(chatEvent);
-        }
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
 
         events.OfType<ChatReasoningEvent>().Select(e => e.Content).ShouldBe(["thinking", "pong"]);
         var detail = await service.GetConversationAsync(conversation.Id);
@@ -338,10 +498,7 @@ public sealed class ChatServiceTests : IDisposable
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
 
-        await foreach (var unused in await service.SendMessageAsync(conversation.Id, "gere um gato", CancellationToken.None))
-        {
-            _ = unused;
-        }
+        await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "gere um gato");
 
         var detail = await service.GetConversationAsync(conversation.Id);
         var toolMessage = detail!.Messages.Single(m => m.Role == "tool");
@@ -392,11 +549,7 @@ public sealed class ChatServiceTests : IDisposable
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "deepseek"));
 
-        var events = new List<ChatStreamEvent>();
-        await foreach (var chatEvent in await service.SendMessageAsync(conversation.Id, "rode ls", CancellationToken.None))
-        {
-            events.Add(chatEvent);
-        }
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "rode ls");
 
         events.OfType<ChatToolCallEvent>().Select(e => e.Name).ShouldBe(["echo_tool"]);
         events.OfType<ChatDeltaEvent>().Select(e => e.Content).ShouldBe(["vou rodar ", "feito"]);
