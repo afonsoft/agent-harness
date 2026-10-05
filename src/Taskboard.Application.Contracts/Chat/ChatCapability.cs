@@ -27,4 +27,9 @@ public sealed record ChatCapability(
     string Description,
     bool Enabled,
     bool RequiresConfirmation,
-    string? Origin);
+    string? Origin,
+    /// <summary>
+    /// SPEC-20261005-chat-tool-approval RF-008: per-tool policy override
+    /// (<c>ask|never|allow</c>) or null when the preset decides.
+    /// </summary>
+    string? ApprovalPolicy = null);

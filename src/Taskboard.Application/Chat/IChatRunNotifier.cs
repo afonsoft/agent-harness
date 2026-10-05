@@ -11,4 +11,13 @@ public interface IChatRunNotifier
 {
     /// <summary>Called once per run when it reaches a terminal status.</summary>
     Task RunCompletedAsync(ChatRun run, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SPEC-20261005-chat-tool-approval RF-002: a run parked on a pending
+    /// approval — hub/push fan-out so a closed tab still learns the run needs
+    /// a human. Default no-op keeps custom notifiers compiling.
+    /// </summary>
+    Task ApprovalAskedAsync(
+        ChatRun run, string approvalId, string toolName, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }

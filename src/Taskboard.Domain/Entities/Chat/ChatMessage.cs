@@ -78,6 +78,15 @@ public sealed class ChatMessage : Entity<ChatMessageId>
         new(ChatMessageId.NewGuid(), conversationId, ChatMessageRole.Tool, resultJson,
             now ?? DateTime.UtcNow, toolCallId: toolCallId, toolName: toolName, refused: refused);
 
+    /// <summary>
+    /// SPEC-20261005-chat-tool-approval RNF-003: audit note in the transcript —
+    /// approval decisions and permission-preset changes. Role "system" is a UI
+    /// row only; the provider wire transcript skips it.
+    /// </summary>
+    public static ChatMessage CreateSystemNote(
+        ChatConversationId conversationId, string content, DateTime? now = null) =>
+        new(ChatMessageId.NewGuid(), conversationId, ChatMessageRole.System, content, now ?? DateTime.UtcNow);
+
     public void AttachImage(string imagePath, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(imagePath))

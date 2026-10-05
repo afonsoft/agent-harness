@@ -43,7 +43,11 @@ public sealed record ChatConversationDto(
     ChatAgentContext? Agent = null,
     // SPEC-20261005-chat-background-resume: soft-delete flag + live-run badge.
     DateTime? ArchivedAt = null,
-    string? ActiveRunStatus = null);
+    // "waiting-approval" when the active run parks on a pending ChatApproval
+    // (SPEC-20261005-chat-tool-approval RF-007).
+    string? ActiveRunStatus = null,
+    // SPEC-20261005-chat-tool-approval RF-006: chat|ask|full.
+    string? PermissionPreset = null);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -66,7 +70,10 @@ public sealed record ChatConversationDetailDto(
     // SPEC-20261005-chat-background-resume RF-004: live run to attach to +
     // latest finished run (interrupted/failed notice).
     ChatRunDto? ActiveRun = null,
-    ChatRunDto? LastRun = null);
+    ChatRunDto? LastRun = null,
+    // SPEC-20261005-chat-tool-approval RF-007: unresolved approvals replayed
+    // into the pending card — survives a browser-closed run.
+    IReadOnlyList<ChatApprovalDto>? PendingApprovals = null);
 
 /// <summary>
 /// A provider-chat run (SPEC-20261005-chat-background-resume RF-004) —
@@ -119,7 +126,34 @@ public sealed record PushSubscriptionKeysRequest(string P256dh, string Auth);
 /// <summary>202 body of <c>POST /conversations/{id}/messages</c> — the queued run.</summary>
 public sealed record EnqueueChatMessageResponse(ChatRunDto Run);
 
+/// <summary>
+/// A provider-chat tool approval (SPEC-20261005-chat-tool-approval RF-001) —
+/// pending rows feed the approval card; decided rows are the audit trail.
+/// </summary>
+public sealed record ChatApprovalDto(
+    string Id,
+    string RunId,
+    string ConversationId,
+    string ToolCallId,
+    string ToolName,
+    string ArgumentsPreview,
+    string Status,
+    DateTime RequestedAt,
+    DateTime? DecidedAt,
+    string? Decision,
+    string? DecidedBy);
+
+/// <summary>Body of <c>POST /api/local/chat/approvals/{id}/decide</c> (RF-003/RF-004).</summary>
+public sealed record DecideChatApprovalRequest(
+    /// <summary>"allow" → allowed-once; "deny" → rejected.</summary>
+    string Outcome,
+    string? Reason = null,
+    /// <summary>RF-004: add the tool to the conversation allowed-list (allow only).</summary>
+    bool RememberTool = false);
+
 public sealed record PatchChatConversationRequest(
     string? Title = null,
     string? Model = null,
-    ChatAgentContext? Agent = null);
+    ChatAgentContext? Agent = null,
+    // SPEC-20261005-chat-tool-approval RF-006: chat|ask|full — editable mid-run.
+    string? PermissionPreset = null);

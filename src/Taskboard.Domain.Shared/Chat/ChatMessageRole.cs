@@ -7,12 +7,16 @@ public sealed record ChatMessageRole : StringValueObject
     {
         "user",
         "assistant",
-        "tool"
+        "tool",
+        // SPEC-20261005-chat-tool-approval RNF-003: audit note rows (approval
+        // decisions, preset changes) — rendered inline, never sent to the model.
+        "system"
     };
 
     public static readonly ChatMessageRole User = new("user");
     public static readonly ChatMessageRole Assistant = new("assistant");
     public static readonly ChatMessageRole Tool = new("tool");
+    public static readonly ChatMessageRole System = new("system");
 
     public ChatMessageRole(string value)
         : base(value, AllowedValues)

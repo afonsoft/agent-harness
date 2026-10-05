@@ -65,6 +65,13 @@ public sealed class ChatConversationConfiguration : IEntityTypeConfiguration<Cha
         builder.Property(c => c.UpdatedAt);
         builder.Property(c => c.ArchivedAt);
 
+        // SPEC-20261005-chat-tool-approval RF-006: per-conversation preset +
+        // RF-004 allowed-list (JSON array of tool names).
+        builder.Property(c => c.PermissionPreset)
+            .IsRequired()
+            .HasMaxLength(16);
+        builder.Property(c => c.AllowedToolsJson);
+
         builder.Property(c => c.Version)
             .IsConcurrencyToken();
 
@@ -129,6 +136,72 @@ public sealed class ChatRunConfiguration : IEntityTypeConfiguration<ChatRun>
         builder.HasOne<ChatConversation>()
             .WithMany()
             .HasForeignKey(r => r.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+/// <summary>
+/// SPEC-20261005-chat-tool-approval RF-001: pending tool-execution questions —
+/// replayable on re-attach, answerable from any tab, audited by
+/// decided-at/by. Cascade-deleted with the conversation.
+/// </summary>
+public sealed class ChatApprovalConfiguration : IEntityTypeConfiguration<ChatApproval>
+{
+    public void Configure(EntityTypeBuilder<ChatApproval> builder)
+    {
+        builder.ToTable("ChatApprovals");
+
+        builder.Property(a => a.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatApprovalId>());
+
+        builder.HasKey(a => a.Id);
+
+        builder.Property(a => a.RunId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatRunId>());
+
+        builder.Property(a => a.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(a => a.ToolCallId)
+            .IsRequired()
+            .HasMaxLength(128);
+
+        builder.Property(a => a.ToolName)
+            .IsRequired()
+            .HasMaxLength(128);
+
+        builder.Property(a => a.ArgumentsPreview)
+            .IsRequired()
+            .HasMaxLength(ChatApproval.ArgumentsPreviewMaxLength);
+
+        builder.Property(a => a.Status)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasConversion(new StringValueObjectConverter<ChatApprovalStatus>());
+
+        builder.Property(a => a.RequestedAt);
+        builder.Property(a => a.DecidedAt);
+        builder.Property(a => a.Decision)
+            .HasMaxLength(1024);
+        builder.Property(a => a.DecidedBy)
+            .HasMaxLength(16)
+            .HasConversion(
+                v => v == null ? null : v.Value,
+                v => v == null ? null : ChatApprovalDecidedBy.From(v));
+
+        builder.Property(a => a.Version)
+            .IsConcurrencyToken();
+
+        // Re-attach replay + sidebar badge scan (RF-007).
+        builder.HasIndex(a => new { a.ConversationId, a.Status });
+        builder.HasIndex(a => a.RunId);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(a => a.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

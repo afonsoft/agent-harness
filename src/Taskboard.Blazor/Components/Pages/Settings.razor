@@ -517,12 +517,75 @@
                         </div>
                     </div>
 
+                    @* SPEC-20261005-chat-tool-approval RF-004/RF-008: gate
+                       global, preset default e timeout — conversas novas
+                       herdam o preset; per-tool overrides na tabela abaixo. *@
+                    <h3 class="h6 mt-3">Tool approvals</h3>
+                    <p class="small text-body-secondary">
+                        Gate de permissão para tools mutantes. <code>chat</code> recusa mutação,
+                        <code>ask</code> pede aprovação por call, <code>full</code> nunca pede.
+                    </p>
+                    @{ var approvalEnabledKey = "Taskboard:Chat:Approval:Enabled"; var approvalEnabledEntry = FeatureEntry(approvalEnabledKey); }
+                    <div class="setting-row">
+                        <div>
+                            <div class="fw-medium">Enable tool approval gate</div>
+                            <div class="small text-body-secondary">Off = comportamento atual (nenhuma tool é bloqueada).</div>
+                            @if (approvalEnabledEntry is not null)
+                            {
+                                <div class="mt-1"><span class="badge @GetSourceBadgeClass(approvalEnabledEntry.Source)">@approvalEnabledEntry.Source</span></div>
+                            }
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" role="switch" class="form-check-input"
+                                   checked="@(approvalEnabledEntry is not null && IsFeatureEnabled(approvalEnabledEntry))"
+                                   @onchange="e => ToggleFeatureAsync(approvalEnabledKey, (bool)e.Value!)"
+                                   aria-label="Enable tool approval gate" />
+                        </div>
+                    </div>
+
+                    @{ var approvalPresetEntry = FeatureEntry("Taskboard:Chat:Approval:Preset"); }
+                    <div class="setting-row">
+                        <div>
+                            <div class="fw-medium">Default permission preset</div>
+                            <div class="small text-body-secondary">Preset das conversas novas (chip no header do chat).</div>
+                            @if (approvalPresetEntry is not null)
+                            {
+                                <div class="mt-1"><span class="badge @GetSourceBadgeClass(approvalPresetEntry.Source)">@approvalPresetEntry.Source</span></div>
+                            }
+                        </div>
+                        <select class="form-select form-select-sm" style="width:auto" aria-label="Default permission preset"
+                                value="@(approvalPresetEntry?.EffectiveValue ?? "ask")"
+                                @onchange="ChangeApprovalPresetAsync">
+                            <option value="chat">chat — read-only</option>
+                            <option value="ask">ask — prompt por tool</option>
+                            <option value="full">full — never ask</option>
+                        </select>
+                    </div>
+
+                    @{ var approvalTimeoutEntry = FeatureEntry("Taskboard:Chat:Approval:TimeoutSeconds"); }
+                    <div class="setting-row">
+                        <div>
+                            <div class="fw-medium">Approval timeout (s)</div>
+                            <div class="small text-body-secondary">Espera da decisão antes de negar fail-closed. 0 = espera para sempre.</div>
+                            @if (approvalTimeoutEntry is not null)
+                            {
+                                <div class="mt-1"><span class="badge @GetSourceBadgeClass(approvalTimeoutEntry.Source)">@approvalTimeoutEntry.Source</span></div>
+                            }
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="number" class="form-control form-control-sm" style="width:6rem" min="0" max="3600"
+                                   @bind="_chatApprovalTimeout" aria-label="Approval timeout" />
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="SaveApprovalTimeoutAsync">Save</button>
+                        </div>
+                    </div>
+
                     @* SPEC-20261001-chat-capability-registry: catálogo unificado
                        (builtin/MCP/skill/delegation) com toggle granular. *@
                     <h3 class="h6 mt-3">Capabilities</h3>
                     <p class="small text-body-secondary">
                         Tools builtin, MCP, skills e delegação. Clique no estado para habilitar/desabilitar
-                        individualmente (lista <code>Taskboard:Chat:Capabilities:Disabled</code>).
+                        individualmente (lista <code>Taskboard:Chat:Capabilities:Disabled</code>). Policy:
+                        override por tool (<code>Taskboard:Chat:Approval:ToolPolicy:{name}</code>).
                     </p>
                     @if (_capabilities.Count == 0)
                     {
@@ -538,6 +601,7 @@
                                         <th scope="col">Capability</th>
                                         <th scope="col">Origin</th>
                                         <th scope="col">State</th>
+                                        <th scope="col">Policy</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -555,6 +619,24 @@
                                                 @if (cap.RequiresConfirmation)
                                                 {
                                                     <span class="badge text-bg-warning">mutating</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (cap.Kind is ChatCapabilityKind.BuiltinTool or ChatCapabilityKind.McpTool)
+                                                {
+                                                    <select class="form-select form-select-sm" style="width:auto"
+                                                            aria-label="Approval policy for @cap.Name"
+                                                            value="@(cap.ApprovalPolicy ?? "")"
+                                                            @onchange="e => SetToolPolicyAsync(cap, e.Value?.ToString())">
+                                                        <option value="">—</option>
+                                                        <option value="ask">ask</option>
+                                                        <option value="never">never</option>
+                                                        <option value="allow">allow</option>
+                                                    </select>
+                                                }
+                                                else
+                                                {
+                                                    <span class="small text-body-secondary">—</span>
                                                 }
                                             </td>
                                         </tr>
@@ -2301,6 +2383,7 @@
     private string? _agentMcpError;
     private bool _mcpTabLoaded;
     private string _chatMcpTimeout = "30";
+    private string _chatApprovalTimeout = "120";
     private string _chatMcpServersJson = "[]";
     private bool _mcpBusy;
 
@@ -2337,6 +2420,7 @@
             _agentMcpInventory = await Client.GetAgentMcpInventoryAsync();
             _installedSkills = await Client.GetSkillsAsync();
             _chatMcpTimeout = FeatureEntry("Taskboard:Chat:Mcp:CallTimeoutSeconds")?.EffectiveValue ?? "30";
+            _chatApprovalTimeout = FeatureEntry("Taskboard:Chat:Approval:TimeoutSeconds")?.EffectiveValue ?? "120";
             _chatMcpServersJson = FeatureEntry("Taskboard:Chat:Mcp:Servers")?.EffectiveValue ?? "[]";
             if (string.IsNullOrWhiteSpace(_skillsRepoInstall))
             {
@@ -2360,10 +2444,66 @@
     {
         var error = await Client.SetConfigurationValueAsync(
             "Taskboard:Chat:Mcp:CallTimeoutSeconds", _chatMcpTimeout.Trim());
-        await ToastService.NotifyAsync(error is not null
-            ? new(ToastType.Danger, $"Failed to save timeout: {error}")
-            : new(ToastType.Success, "MCP call timeout saved"));
+        if (error is not null)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save tool timeout: {error}"));
+            return;
+        }
+
+        await ToastService.NotifyAsync(new(ToastType.Success, "Tool timeout saved"));
         await LoadConfigurationAsync();
+    }
+
+    /// <summary>SPEC-20261005-chat-tool-approval RF-008: generic key write for the approval section.</summary>
+    private async Task SaveApprovalSettingAsync(string key, string? value)
+    {
+        var error = await Client.SetConfigurationValueAsync(key, value ?? string.Empty);
+        if (error is not null)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save {key}: {error}"));
+            return;
+        }
+
+        await ToastService.NotifyAsync(new(ToastType.Success, "Approval setting saved"));
+        await LoadConfigurationAsync();
+        await LoadChatStateAsync();
+    }
+
+    private async Task SaveApprovalTimeoutAsync()
+    {
+        await SaveApprovalSettingAsync("Taskboard:Chat:Approval:TimeoutSeconds", _chatApprovalTimeout.Trim());
+    }
+
+    private async Task ChangeApprovalPresetAsync(ChangeEventArgs args)
+    {
+        await SaveApprovalSettingAsync("Taskboard:Chat:Approval:Preset", args.Value?.ToString());
+    }
+
+    /// <summary>RF-008: per-tool policy — "" clears the override (preset decides).</summary>
+    private async Task SetToolPolicyAsync(ChatCapability cap, string? policy)
+    {
+        var key = $"Taskboard:Chat:Approval:ToolPolicy:{cap.Name}";
+        string? error;
+        if (string.IsNullOrEmpty(policy))
+        {
+            error = await Client.DeleteConfigurationValueAsync(key);
+            // "not found" on clear means the override was never written — fine.
+            error = error is not null && error.Contains("not found", StringComparison.OrdinalIgnoreCase) ? null : error;
+        }
+        else
+        {
+            error = await Client.SetConfigurationValueAsync(key, policy);
+        }
+
+        if (error is not null)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save policy for {cap.Name}: {error}"));
+            return;
+        }
+
+        await ToastService.NotifyAsync(new(ToastType.Success, $"Policy {policy ?? "default"} → {cap.Name}"));
+        await LoadConfigurationAsync();
+        await LoadChatStateAsync();
     }
 
     private async Task SaveChatMcpServersJsonAsync()

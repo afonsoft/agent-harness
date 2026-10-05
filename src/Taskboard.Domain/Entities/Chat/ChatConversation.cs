@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Taskboard;
 using Taskboard.ValueObjects;
 
@@ -33,6 +34,20 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
     public string? RepositoryFullName { get; private set; }
     public string? WorkspacePath { get; private set; }
     public string? AgentModel { get; private set; }
+
+    /// <summary>
+    /// SPEC-20261005-chat-tool-approval RF-006: per-conversation permission
+    /// preset — <c>chat</c> (mutating calls refused), <c>ask</c> (default;
+    /// confirm mutating calls), <c>full</c> (never ask). Editable mid-run;
+    /// takes effect on the next tool call.
+    /// </summary>
+    public string PermissionPreset { get; private set; } = ChatPermissionPresets.Ask;
+
+    /// <summary>
+    /// JSON array of tool names the user always allows in this conversation
+    /// (RF-004 <c>rememberTool</c>). Cleared when the preset changes.
+    /// </summary>
+    public string? AllowedToolsJson { get; private set; }
 
     private ChatConversation()
     {
@@ -110,6 +125,62 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
         RepositoryFullName = NullIfBlank(repositoryFullName);
         WorkspacePath = NullIfBlank(workspacePath);
         AgentModel = NullIfBlank(agentModel);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-tool-approval RF-006: switches the preset and clears
+    /// the per-conversation allowed-list (open question #2 — the list is
+    /// scoped to the preset it was granted under).
+    /// </summary>
+    public void SetPermissionPreset(string preset, DateTime now)
+    {
+        if (!ChatPermissionPresets.IsValid(preset))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Unknown permission preset '{preset}'.");
+        }
+
+        if (PermissionPreset == preset)
+        {
+            return;
+        }
+
+        PermissionPreset = preset;
+        AllowedToolsJson = null;
+        UpdatedAt = now;
+    }
+
+    /// <summary>RF-004: adds a tool to the per-conversation allowed-list (idempotent).</summary>
+    public void AllowTool(string toolName, DateTime now)
+    {
+        var list = new HashSet<string>(AllowedTools(), StringComparer.Ordinal);
+        if (list.Add(toolName))
+        {
+            AllowedToolsJson = JsonSerializer.Serialize(list.Order());
+            UpdatedAt = now;
+        }
+    }
+
+    /// <summary>Per-conversation allowed-list (RF-004) — empty when unset/invalid.</summary>
+    public IReadOnlySet<string> AllowedTools()
+    {
+        if (string.IsNullOrWhiteSpace(AllowedToolsJson))
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<string>>(AllowedToolsJson);
+            return list is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(list, StringComparer.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
     }
 
     /// <summary>

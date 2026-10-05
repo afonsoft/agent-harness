@@ -1195,6 +1195,57 @@ public sealed class TaskboardClient
     }
 
     /// <summary>
+    /// SPEC-20261005-chat-tool-approval RF-006: persists the permission preset
+    /// (chat|ask|full) — takes effect on the next tool call.
+    /// </summary>
+    public async Task<ChatConversationDto?> UpdateChatConversationPresetAsync(
+        string id, string preset, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PatchAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}",
+            new PatchChatConversationRequest(PermissionPreset: preset), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body?.Conversation;
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-tool-approval RF-003: answers a pending approval.
+    /// Returns the updated row, or null when it already decided (409).
+    /// </summary>
+    public async Task<ChatApprovalDto?> DecideChatApprovalAsync(
+        string approvalId, string outcome, string? reason = null, bool rememberTool = false,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/approvals/{Uri.EscapeDataString(approvalId)}/decide",
+            new DecideChatApprovalRequest(outcome, reason, rememberTool), cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict
+            || response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatApprovalResponse>(cancellationToken: cancellationToken);
+        return body?.Approval;
+    }
+
+    /// <summary>RF-007: approvals of a conversation — "pending" replays the unresolved card.</summary>
+    public async Task<IReadOnlyList<ChatApprovalDto>> GetChatApprovalsAsync(
+        string conversationId, string? status = null, CancellationToken cancellationToken = default)
+    {
+        var url = $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/approvals";
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            url += $"?status={Uri.EscapeDataString(status)}";
+        }
+
+        var body = await _httpClient.GetFromJsonAsync<ChatApprovalListResponse>(url, cancellationToken);
+        return body?.Approvals ?? [];
+    }
+
+    /// <summary>
     /// SPEC-20261005-chat-background-resume RF-002: queues a durable chat run
     /// (202 + run row) — the server executes it detached from this call.
     /// </summary>
@@ -1307,6 +1358,8 @@ public sealed class TaskboardClient
     private sealed record ChatModelListResponse(List<string> Models);
     private sealed record ChatConversationListResponse(List<ChatConversationDto> Conversations);
     private sealed record ChatConversationResponse(ChatConversationDto Conversation);
+    private sealed record ChatApprovalResponse(ChatApprovalDto Approval);
+    private sealed record ChatApprovalListResponse(List<ChatApprovalDto> Approvals);
     private sealed record ChatCapabilitiesResponse(List<ChatCapability> Capabilities);
     private sealed record CustomCliModelsResponse(List<string> Models);
 

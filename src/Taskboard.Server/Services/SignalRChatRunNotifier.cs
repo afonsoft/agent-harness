@@ -18,6 +18,29 @@ public sealed class SignalRChatRunNotifier(
 {
     public const string RunCompletedEvent = "run.completed";
 
+    /// <summary>SPEC-20261005-chat-tool-approval RF-002: run parked on an approval.</summary>
+    public const string RunApprovalEvent = "run.approval";
+
+    public async Task ApprovalAskedAsync(
+        ChatRun run, string approvalId, string toolName, CancellationToken ct = default)
+    {
+        var conversation = await conversations
+            .GetAsync(run.ConversationId, ct)
+            .ConfigureAwait(false);
+
+        await hubContext.Clients.All.SendAsync(
+            RunApprovalEvent,
+            new
+            {
+                runId = run.Id.Value,
+                conversationId = run.ConversationId.Value,
+                approvalId,
+                toolName,
+                title = conversation?.Title,
+            },
+            ct).ConfigureAwait(false);
+    }
+
     public async Task RunCompletedAsync(ChatRun run, CancellationToken ct = default)
     {
         var conversation = await conversations
