@@ -241,13 +241,14 @@ public sealed class DelegationPlanCreator(IServiceScopeFactory scopeFactory)
         {
             await using var diScope = scopeFactory.CreateAsyncScope();
             service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
-            var isolation = diScope.ServiceProvider.GetService<IWorkspaceIsolationService>();
+            var plan = new PlanContext(
+                service, diScope.ServiceProvider.GetService<IWorkspaceIsolationService>(),
+                repoPath, baseBranch, scope, workspacePath, defaultCli);
 
             for (var i = 0; i < specs.Count; i++)
             {
                 var task = await CreateOneAsync(
-                    specs[i], createdIds, service, isolation, repoPath, baseBranch,
-                    scope, workspacePath, defaultCli, ct).ConfigureAwait(false);
+                    specs[i], createdIds, plan, ct).ConfigureAwait(false);
                 createdIds.Add(task.Id);
                 created.Add(new DelegationPlanItem(i, task.Id, task.CliName));
             }
@@ -261,23 +262,26 @@ public sealed class DelegationPlanCreator(IServiceScopeFactory scopeFactory)
         return created;
     }
 
+    private sealed record PlanContext(
+        IDelegationService Service, IWorkspaceIsolationService? Isolation,
+        string? RepoPath, string BaseBranch, string Scope, string WorkspacePath,
+        string? DefaultCli);
+
     private static async Task<DelegationTaskDto> CreateOneAsync(
-        DelegationPlanSpec spec, List<string> createdIds, IDelegationService service,
-        IWorkspaceIsolationService? isolation, string? repoPath, string baseBranch,
-        string scope, string workspacePath, string? defaultCli, CancellationToken ct)
+        DelegationPlanSpec spec, List<string> createdIds, PlanContext plan, CancellationToken ct)
     {
         var dependsOn = spec.Deps.Count == 0
             ? null
             : spec.Deps.Select(d => createdIds[d]).ToList();
-        var cli = string.IsNullOrWhiteSpace(spec.Cli)
-            ? defaultCli ?? "opencode"
-            : spec.Cli!.Trim();
+        var cli = spec.Cli?.Trim() is { Length: > 0 } trimmed
+            ? trimmed
+            : plan.DefaultCli ?? "opencode";
 
-        var task = await service.CreateTaskAsync(
+        var task = await plan.Service.CreateTaskAsync(
             new CreateDelegationTaskRequest(
-                spec.Prompt, cli, scope, workspacePath,
+                spec.Prompt, cli, plan.Scope, plan.WorkspacePath,
                 dependsOn, RetryOf: null, FanoutGroupId: null,
-                spec.UseWorktree, repoPath, BaseCommitSha: null),
+                spec.UseWorktree, plan.RepoPath, BaseCommitSha: null),
             ct).ConfigureAwait(false);
 
         if (!spec.UseWorktree)
@@ -285,16 +289,18 @@ public sealed class DelegationPlanCreator(IServiceScopeFactory scopeFactory)
             return task;
         }
 
-        if (isolation is null)
+        if (plan.Isolation is null)
         {
             throw new InvalidOperationException("worktree service unavailable");
         }
 
-        var session = await isolation.CreateWorktreeAsync(
-            task.Id, repoPath!, baseBranch,
+        var session = await plan.Isolation.CreateWorktreeAsync(
+            task.Id,
+            plan.RepoPath ?? throw new InvalidOperationException("worktree requested without repo path"),
+            plan.BaseBranch,
             $"plan-{task.Id[^Math.Min(8, task.Id.Length)..]}",
             retainOnFailure: false, ct).ConfigureAwait(false);
-        return (await service.AttachWorktreeAsync(task.Id, session.RunId, ct)
+        return (await plan.Service.AttachWorktreeAsync(task.Id, session.RunId, ct)
             .ConfigureAwait(false)) ?? task;
     }
 

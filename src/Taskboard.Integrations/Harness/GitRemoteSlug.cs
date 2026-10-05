@@ -23,48 +23,9 @@ public static class GitRemoteSlug
         }
         url = url.TrimEnd('/');
 
-        string host;
-        string path;
-        var schemeSep = url.IndexOf("://", StringComparison.Ordinal);
-        var at = url.IndexOf('@');
-        var colon = url.IndexOf(':');
-        if (schemeSep >= 0)
+        if (!TrySplitHostPath(url, out var host, out var path))
         {
-            // scheme://[user@]host[:port]/path
-            var rest = url[(schemeSep + 3)..];
-            var slash = rest.IndexOf('/');
-            if (slash < 0)
-            {
-                return null;
-            }
-            host = rest[..slash];
-            path = rest[(slash + 1)..];
-            var atInHost = host.IndexOf('@');
-            if (atInHost >= 0)
-            {
-                host = host[(atInHost + 1)..];
-            }
-            var port = host.IndexOf(':');
-            if (port >= 0)
-            {
-                host = host[..port];
-            }
-        }
-        else if (at >= 0 && colon > at)
-        {
-            // scp-like user@host:path
-            host = url[(at + 1)..colon];
-            path = url[(colon + 1)..];
-        }
-        else
-        {
-            var slash = url.IndexOf('/');
-            if (slash < 0)
-            {
-                return null;
-            }
-            host = url[..slash];
-            path = url[(slash + 1)..];
+            return null;
         }
 
         if (!host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
@@ -80,6 +41,63 @@ public static class GitRemoteSlug
         }
 
         return string.Concat(parts[0], "/", parts[1]);
+    }
+
+    /// <summary>Splits a remote URL into (host, path) across the supported
+    /// schemes: scheme://[user@]host[:port]/path, scp-like user@host:path and
+    /// bare host/path.</summary>
+    private static bool TrySplitHostPath(string url, out string host, out string path)
+    {
+        var schemeSep = url.IndexOf("://", StringComparison.Ordinal);
+        var at = url.IndexOf('@');
+        var colon = url.IndexOf(':');
+        if (schemeSep >= 0)
+        {
+            return TrySplitSchemeUrl(url[(schemeSep + 3)..], out host, out path);
+        }
+
+        if (at >= 0 && colon > at)
+        {
+            // scp-like user@host:path
+            host = url[(at + 1)..colon];
+            path = url[(colon + 1)..];
+            return true;
+        }
+
+        var bareSlash = url.IndexOf('/');
+        if (bareSlash < 0)
+        {
+            host = path = string.Empty;
+            return false;
+        }
+        host = url[..bareSlash];
+        path = url[(bareSlash + 1)..];
+        return true;
+    }
+
+    private static bool TrySplitSchemeUrl(string rest, out string host, out string path)
+    {
+        var slash = rest.IndexOf('/');
+        if (slash < 0)
+        {
+            host = path = string.Empty;
+            return false;
+        }
+
+        host = rest[..slash];
+        path = rest[(slash + 1)..];
+        var atInHost = host.IndexOf('@');
+        if (atInHost >= 0)
+        {
+            host = host[(atInHost + 1)..];
+        }
+        var port = host.IndexOf(':');
+        if (port >= 0)
+        {
+            host = host[..port];
+        }
+
+        return true;
     }
 
     private static bool IsNamePart(string segment) =>

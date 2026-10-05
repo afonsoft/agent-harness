@@ -99,15 +99,20 @@ public sealed class DelegateTaskTool(
 
             if (useWorktree)
             {
+                if (repoPath is null)
+                {
+                    return DelegationToolSupport.Error("repository_path could not be resolved", "no repo path");
+                }
+
                 var attach = await AttachWorktreeAsync(
                     diScope.ServiceProvider.GetService<IWorkspaceIsolationService>(),
-                    service, task, repoPath!, arguments, cancellationToken).ConfigureAwait(false);
+                    service, task, repoPath, arguments, cancellationToken).ConfigureAwait(false);
                 if (attach.Error is not null)
                 {
                     return attach.Error;
                 }
 
-                task = attach.Task!;
+                task = attach.Task ?? task;
             }
         }
         catch (DomainException ex)

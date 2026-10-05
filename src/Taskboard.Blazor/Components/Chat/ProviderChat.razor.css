@@ -211,7 +211,9 @@
     display: flex;
     align-items: center;
     gap: .25rem;
+    row-gap: .15rem;
     min-width: 0;
+    flex-wrap: wrap;
     /* RF-005: no clipping — the pick panel is absolutely positioned inside. */
 }
 
@@ -349,11 +351,6 @@
     padding: .4rem .55rem;
     font-size: .8rem;
     color: var(--bs-secondary-color);
-}
-
-.provider-chat-composer-picks {
-    flex-wrap: wrap;
-    row-gap: .15rem;
 }
 
 .provider-chat-composer-actions {

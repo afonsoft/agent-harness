@@ -144,7 +144,7 @@ public class GlobalSettings : CommandSettings
 
 public class AppRootCommand : AsyncCommand<EmptySettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, EmptySettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, EmptySettings settings, CancellationToken cancellationToken)
     {
         Console.WriteLine("taskctl - [green]Taskboard CLI[/]");
         Console.WriteLine("Use [blue]taskctl --help[/] para listar comandos.");
@@ -162,7 +162,7 @@ public class CloudLoginSettings : GlobalSettings
 
 public class CloudLoginCommand : AsyncCommand<CloudLoginSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, CloudLoginSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, CloudLoginSettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             var config = CliConfigService.Load();
@@ -189,7 +189,7 @@ public class CloudStatusSettings : GlobalSettings
 
 public class CloudStatusCommand : AsyncCommand<CloudStatusSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, CloudStatusSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, CloudStatusSettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             var result = await client.GetAsync("/api/local/cloud-session", ct);
@@ -204,7 +204,7 @@ public class CloudLogoutSettings : GlobalSettings
 
 public class CloudLogoutCommand : AsyncCommand<CloudLogoutSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, CloudLogoutSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, CloudLogoutSettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             var config = CliConfigService.Load();
@@ -223,7 +223,7 @@ public class ContextCurrentSettings : GlobalSettings
 
 public class ContextCurrentCommand : AsyncCommand<ContextCurrentSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, ContextCurrentSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, ContextCurrentSettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             var config = CliConfigService.Load();
@@ -254,7 +254,7 @@ public class GitHubIssueHistorySettings : GlobalSettings
 
 public class GitHubIssueHistoryCommand : AsyncCommand<GitHubIssueHistorySettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueHistorySettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueHistorySettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             var query = settings.Take is { } t ? $"?take={t}" : string.Empty;
@@ -278,7 +278,7 @@ public class GitHubIssueCommentListSettings : GlobalSettings
 
 public class GitHubIssueCommentListCommand : AsyncCommand<GitHubIssueCommentListSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueCommentListSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueCommentListSettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             var (owner, name) = SplitRepo(settings.Repo);
@@ -314,7 +314,7 @@ public class GitHubIssueCommentAddSettings : GlobalSettings
 
 public class GitHubIssueCommentAddCommand : AsyncCommand<GitHubIssueCommentAddSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueCommentAddSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, GitHubIssueCommentAddSettings settings, CancellationToken cancellationToken)
         => await Program.RunAsync(settings, async (client, ct) =>
         {
             if (string.IsNullOrWhiteSpace(settings.Body))
@@ -348,7 +348,7 @@ public class BackupSettings : GlobalSettings
 
 public class BackupCommand : AsyncCommand<BackupSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, BackupSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, BackupSettings settings, CancellationToken cancellationToken)
     {
         try
         {
@@ -356,17 +356,17 @@ public class BackupCommand : AsyncCommand<BackupSettings>
             var dest = await Task.Run(
                 () => DatabaseBackupService.Backup(source, settings.DestDir, settings.Keep ?? 7),
                 cancellationToken).ConfigureAwait(false);
-            Console.WriteLine(dest);
+            await Console.Out.WriteLineAsync(dest);
             return 0;
         }
         catch (CliException ex)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            await Console.Error.WriteLineAsync($"error: {ex.Message}");
             return ex.ExitCode;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            await Console.Error.WriteLineAsync($"error: {ex.Message}");
             return 1;
         }
     }
@@ -386,7 +386,7 @@ public class RestoreSettings : GlobalSettings
 
 public class RestoreCommand : AsyncCommand<RestoreSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, RestoreSettings settings, CancellationToken cancellationToken)
+    public override async Task<int> ExecuteAsync(CommandContext context, RestoreSettings settings, CancellationToken cancellationToken)
     {
         try
         {
@@ -394,17 +394,17 @@ public class RestoreCommand : AsyncCommand<RestoreSettings>
             await Task.Run(
                 () => DatabaseBackupService.Restore(settings.BackupFile, target, settings.Force),
                 cancellationToken).ConfigureAwait(false);
-            Console.WriteLine(target);
+            await Console.Out.WriteLineAsync(target);
             return 0;
         }
         catch (CliException ex)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            await Console.Error.WriteLineAsync($"error: {ex.Message}");
             return ex.ExitCode;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            await Console.Error.WriteLineAsync($"error: {ex.Message}");
             return 1;
         }
     }

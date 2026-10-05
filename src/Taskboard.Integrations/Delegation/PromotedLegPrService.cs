@@ -40,8 +40,7 @@ public sealed class PromotedLegPrService : IPromotedLegPrService
 
         var session = await _isolation.GetAsync(task.WorktreeRunId, cancellationToken);
         var repoPath = session?.RepositoryPath ?? task.RepositoryPath;
-        var head = session?.Branch;
-        if (string.IsNullOrWhiteSpace(head))
+        if (session?.Branch is not { Length: > 0 } head)
         {
             return new PromotedLegPrResult(
                 null, PromotedLegPrError.SlugUnresolved,
@@ -62,7 +61,7 @@ public sealed class PromotedLegPrService : IPromotedLegPrService
         }
 
         var baseBranch = NormalizeBase(baseOverride)
-            ?? NormalizeBase(session?.BaseBranch)
+            ?? NormalizeBase(session.BaseBranch)
             ?? await OriginHeadAsync(repoPath, cancellationToken)
             ?? "main";
 
