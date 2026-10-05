@@ -2567,12 +2567,73 @@ void MapSettingsAndChatEndpoints()
 
         try
         {
+            // SPEC-20261005-chat-fork-steering RF-005: steer=true + active run
+            // → the message lands in the steer inbox; without one it degrades
+            // to the normal queued send.
+            if (request.Steer)
+            {
+                if (await chatService.EnqueueSteerAsync(id, request.Content, ct) is { } steered)
+                {
+                    return Results.Accepted(value: new EnqueueChatMessageResponse(steered.Run, Steered: true, steered.SteerId));
+                }
+            }
+
             var run = await chatService.EnqueueMessageAsync(id, request.Content, ct);
             return Results.Accepted(value: new EnqueueChatMessageResponse(run));
         }
         catch (ChatArchivedException ex)
         {
             return Results.Conflict(new { error = new { code = "CONVERSATION_ARCHIVED", message = ex.Message } });
+        }
+        catch (ChatSteerConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "STEER_CONFLICT", message = ex.Message } });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.NotFound(new { error = new { code = ErrConversationNotFound, message = ex.Message } });
+        }
+    });
+
+    // SPEC-20261005-chat-fork-steering RF-002: branch the conversation at a
+    // message — copies the prefix into a new conversation with lineage.
+    chat.MapPost("conversations/{id}/fork", async (
+        string id,
+        ForkChatConversationRequest request,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(request.MessageId))
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = "MessageId is required." } });
+        }
+
+        try
+        {
+            var fork = await chatService.ForkConversationAsync(id, request.MessageId, ct);
+            return Results.Ok(fork);
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    // SPEC-20261005-chat-fork-steering RF-007: withdraw an unclaimed steer.
+    chat.MapPost("conversations/{id}/steer/{steerId}/cancel", async (
+        string id,
+        string steerId,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            await chatService.CancelSteerAsync(id, steerId, ct);
+            return Results.NoContent();
+        }
+        catch (ChatSteerConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "STEER_CONFLICT", message = ex.Message } });
         }
         catch (ChatValidationException ex)
         {
@@ -2627,6 +2688,13 @@ void MapSettingsAndChatEndpoints()
                         estimatedTokens = e.EstimatedTokens,
                         limit = e.Limit,
                         compacted = e.Compacted,
+                    }),
+                    // SPEC-20261005-chat-fork-steering RF-006: the wire gained
+                    // a mid-turn user message — attached clients refresh.
+                    ChatSteerClaimedEvent e => ("steer.claimed", new
+                    {
+                        steerId = e.SteerId,
+                        content = e.Content,
                     }),
                     // SPEC-20261005-chat-tool-approval RF-002/RF-003: pending
                     // card + resolve on every attached stream.

@@ -24,6 +24,32 @@ public sealed class SignalRChatRunNotifier(
     /// <summary>SPEC-20261005-chat-context-management RF-007: wire-pressure sample.</summary>
     public const string RunPressureEvent = "run.pressure";
 
+    /// <summary>SPEC-20261005-chat-fork-steering RF-005: steer queued on a live run.</summary>
+    public const string SteerQueuedEvent = "steer.queued";
+
+    /// <summary>RF-006/RF-007: steer claimed by the executor / withdrawn (outcome=claimed|cancelled).</summary>
+    public const string SteerResolvedEvent = "steer.resolved";
+
+    public async Task SteerQueuedAsync(
+        string conversationId, string steerId, string content,
+        CancellationToken cancellationToken = default)
+    {
+        await hubContext.Clients.All.SendAsync(
+            SteerQueuedEvent,
+            new { conversationId, steerId, content },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SteerResolvedAsync(
+        string conversationId, string steerId, string outcome,
+        CancellationToken cancellationToken = default)
+    {
+        await hubContext.Clients.All.SendAsync(
+            SteerResolvedEvent,
+            new { conversationId, steerId, outcome },
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task RunPressureAsync(
         string runId, string conversationId, int estimatedTokens, int limit,
         bool compacted, CancellationToken cancellationToken = default)

@@ -49,6 +49,12 @@
                             <span class="d-block text-truncate">@conversation.Title</span>
                             <span class="d-block text-truncate text-body-secondary small">
                                 @conversation.Model
+                                @if (conversation.ForkCount > 0)
+                                {
+                                    @* SPEC-20261005-chat-fork-steering RF-004:
+                                       fork-count badge on the source row. *@
+                                    <span class="badge text-bg-secondary ms-1" title="@conversation.ForkCount fork(s)">↯@conversation.ForkCount</span>
+                                }
                                 @if (conversation.ActiveRunStatus is "waiting-approval")
                                 {
                                     <span class="badge text-bg-info ms-1" title="Aguardando aprovação de tool">approval?</span>
@@ -68,6 +74,16 @@
                                 }
                             </span>
                         </button>
+                        @if (conversation.ForkedFromConversationId is { } forkSource)
+                        {
+                            @* SPEC-20261005-chat-fork-steering RF-004: lineage
+                               subtitle — links back to the source conversation. *@
+                            <button type="button" class="provider-chat-fork-line"
+                                    title="Abrir conversa de origem"
+                                    @onclick="() => OpenConversationAsync(forkSource)">
+                                ↯ fork of @(ForkTitle(forkSource))
+                            </button>
+                        }
                         @if (_showArchived)
                         {
                             <button type="button" class="provider-chat-item-action" title="Restaurar"
@@ -178,6 +194,17 @@
                     </span>
                 }
             }
+            @* SPEC-20261005-chat-fork-steering RF-004: header-level fork —
+               branches at the last message; the per-row ⎇ forks mid-way. *@
+            @if (_conversationId is not null && _messages.Count > 0 && !_archived)
+            {
+                <button type="button" class="provider-chat-action" title="Fork — nova conversa a partir daqui"
+                        aria-label="Fork conversation from the last message"
+                        disabled="@_busy"
+                        @onclick="() => ForkFromMessageAsync(_messages[^1].Id)">
+                    <Icon Name="IconName.Diagram2" />
+                </button>
+            }
             @if (_conversationTitle is { Length: > 0 })
             {
                 <span class="ms-auto small text-body-secondary text-truncate d-none d-md-block">@_conversationTitle</span>
@@ -231,22 +258,38 @@
                         }
                         else
                         {
+                            @* SPEC-20261005-chat-fork-steering RF-008: mid-turn
+                               steer marker — the user message entered at a
+                               tool-result boundary, not as a queued turn. *@
+                            @if (message.Kind == "steer")
+                            {
+                                <span class="badge text-bg-warning mb-1" title="Steer — injetado durante a run">steer</span>
+                            }
                             <div class="ai-chat-md">@((MarkupString)MarkdownRenderer.ToSafeHtml(message.Content))</div>
                         }
                         @if (message.ImageUrl is not null)
                         {
                             <img src="@message.ImageUrl" alt="generated" class="provider-chat-image img-fluid rounded mt-2" />
                         }
-                        @if (message.Role == "assistant")
-                        {
-                            @* open-webui message actions — copy the markdown source. *@
-                            <div class="provider-chat-actions">
+                        <div class="provider-chat-actions">
+                            @if (message.Role == "assistant")
+                            {
+                                @* open-webui message actions — copy the markdown source. *@
                                 <button type="button" class="provider-chat-action" title="Copiar resposta"
                                         @onclick="() => CopyMessageAsync(message.Id, message.Content)">
                                     <Icon Name="@(_copiedId == message.Id ? IconName.CheckLg : IconName.Clipboard)" />
                                 </button>
-                            </div>
-                        }
+                            }
+                            @* SPEC-20261005-chat-fork-steering RF-004: ⎇ fork
+                               from here — branches the conversation at this
+                               message into "{title} (fork)". *@
+                            <button type="button" class="provider-chat-action" title="Fork daqui — nova conversa a partir desta mensagem"
+                                    aria-label="Fork conversation from this message"
+                                    disabled="@(_busy || _archived)"
+                                    @onclick="() => ForkFromMessageAsync(message.Id)">
+                                <Icon Name="IconName.Diagram2" />
+                            </button>
+                        </div>
                     }
                 </div>
             }
@@ -408,6 +451,24 @@
                             @onclick="() => _notice = null"></button>
                 </div>
             }
+            @* SPEC-20261005-chat-fork-steering RF-005/RF-007: pending steer
+               chips — each enters at the next tool-result boundary; ✕
+               withdraws while unclaimed. *@
+            @if (_pendingSteers.Count > 0)
+            {
+                <div class="provider-steer-list" aria-label="Steers pendentes">
+                    @foreach (var steer in _pendingSteers)
+                    {
+                        <span class="provider-steer-chip" @key="steer.Id"
+                              title="Steer pendente — entra no próximo boundary de tool">
+                            <span class="provider-steer-chip-text">@steer.Content</span>
+                            <button type="button" class="provider-steer-cancel" title="Cancelar steer"
+                                    aria-label="Cancel steer"
+                                    @onclick="() => CancelSteerAsync(steer)">✕</button>
+                        </span>
+                    }
+                </div>
+            }
             @* SPEC-20261001-chat-skills-slash-commands FR-003: "/" no início do
                composer abre a paleta de skills/comandos. *@
             <SlashCommandPalette Items="SlashItems" Filter="@SlashFilter"
@@ -475,11 +536,19 @@
                                send queues the next turn (FIFO per conversation). *@
                             @if (_running)
                             {
+                                @* SPEC-20261005-chat-fork-steering RF-005: Steer
+                                   (Ctrl+Enter) — injects into the live run at
+                                   the next tool boundary instead of queueing. *@
+                                <button type="button" class="provider-chat-send steer" @onclick="() => SendAsync(steer: true)"
+                                        title="Steer — injeta na run atual (Ctrl+Enter)" aria-label="Steer"
+                                        disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model) || _archived)">
+                                    <Icon Name="IconName.ArrowUpRightCircle" />
+                                </button>
                                 <button type="button" class="provider-chat-send stop" @onclick="StopAsync" title="Stop" aria-label="Stop">
                                     <Icon Name="IconName.StopCircle" />
                                 </button>
                             }
-                            <button type="button" class="provider-chat-send" @onclick="SendAsync" title="Enviar" aria-label="Send"
+                            <button type="button" class="provider-chat-send" @onclick="() => SendAsync()" title="Enviar" aria-label="Send"
                                     disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model) || _archived)">
                                 <Icon Name="IconName.Send" />
                             </button>
@@ -615,6 +684,11 @@
     private (int Estimated, int Limit, bool Compacted)? _pressure;
     private readonly Dictionary<string, (int Estimated, int Limit, bool Compacted)> _pressureByConversation = new();
 
+    // SPEC-20261005-chat-fork-steering RF-005/RF-007: pending steer chips.
+    private sealed record PendingSteer(string Id, string Content);
+
+    private readonly List<PendingSteer> _pendingSteers = [];
+
     /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
     public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
 
@@ -624,6 +698,7 @@
     protected override async Task OnInitializedAsync()
     {
         Notifications.RunPressure += OnRunPressure;
+        Notifications.SteerChanged += OnSteerChanged;
         try
         {
             _providers = await Client.GetChatProvidersAsync();
@@ -1046,6 +1121,15 @@
             return;
         }
 
+        // SPEC-20261005-chat-fork-steering RF-005: Ctrl+Enter = steer while
+        // a run is live — injects at the next tool-result boundary.
+        if (e.Key == "Enter" && e.CtrlKey && !e.ShiftKey && _running)
+        {
+            _slashPreventDefault = true;
+            await SendAsync(steer: true);
+            return;
+        }
+
         if (e.Key == "Enter" && !e.ShiftKey)
         {
             _slashPreventDefault = true;
@@ -1211,7 +1295,7 @@
         return end < 0 ? content : content[(end + 1)..].TrimStart();
     }
 
-    private async Task SendAsync()
+    private async Task SendAsync(bool steer = false)
     {
         var content = _composer.Trim();
         if (await EnsureConversationAsync(content) is not { } conversationId)
@@ -1234,16 +1318,120 @@
         _composer = string.Empty;
         try
         {
-            var run = await Client.EnqueueChatMessageAsync(conversationId, content);
-            // RF-002/RF-003: the optimistic bubble is unnecessary — chat.sync
-            // arrives within a frame carrying the persisted user message.
-            AttachRun(conversationId, run.Id);
+            var (run, steered, steerId) = await Client.EnqueueChatMessageAsync(conversationId, content, steer);
+            if (steered && steerId is not null)
+            {
+                // SPEC-20261005-chat-fork-steering RF-005: the message entered
+                // the live run's inbox — pending chip until steer.claimed.
+                _pendingSteers.RemoveAll(s => s.Id == steerId);
+                _pendingSteers.Add(new PendingSteer(steerId, content));
+            }
+            else
+            {
+                // RF-002/RF-003: the optimistic bubble is unnecessary — chat.sync
+                // arrives within a frame carrying the persisted user message.
+                AttachRun(conversationId, run.Id);
+            }
+
             await OnSearchChangedAsync();
         }
         catch (Exception ex)
         {
             _error = $"Falha no envio: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-007: withdraws an unclaimed steer.
+    /// A 409/404 (already claimed / unknown) just drops the chip — the claim
+    /// event or the transcript reload converges the UI anyway.
+    /// </summary>
+    private async Task CancelSteerAsync(PendingSteer steer)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (await Client.CancelChatSteerAsync(_conversationId, steer.Id))
+            {
+                _pendingSteers.Remove(steer);
+            }
+            else
+            {
+                _pendingSteers.Remove(steer);
+                _notice = "Steer já foi aplicado — virou mensagem no transcript.";
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+        {
+            _error = $"Falha ao cancelar steer: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-002/RF-004: branches the
+    /// conversation at <paramref name="messageId"/> and opens the fork.
+    /// </summary>
+    private async Task ForkFromMessageAsync(string messageId)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var fork = await Client.ForkChatConversationAsync(_conversationId, messageId);
+            if (fork is null)
+            {
+                return;
+            }
+
+            await OnSearchChangedAsync();
+            await OpenConversationAsync(fork.Id);
+            _notice = $"Fork criado — '{fork.Title}'.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+        {
+            _error = $"Falha no fork: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>RF-004: source title for the "↯ fork of …" sidebar line.</summary>
+    private string ForkTitle(string sourceId) =>
+        _conversations.FirstOrDefault(c => c.Id == sourceId)?.Title ?? "conversa";
+
+    /// <summary>RF-005/RF-007: steer.queued/steer.resolved hub fan-out.</summary>
+    private void OnSteerChanged(string conversationId, string steerId, string? detail, bool queued)
+    {
+        if (conversationId != _conversationId)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            if (queued && detail is not null)
+            {
+                _pendingSteers.RemoveAll(s => s.Id == steerId);
+                _pendingSteers.Add(new PendingSteer(steerId, detail));
+            }
+            else if (!queued)
+            {
+                _pendingSteers.RemoveAll(s => s.Id == steerId);
+            }
+
+            StateHasChanged();
+        });
     }
 
     /// <summary>
@@ -1430,6 +1618,9 @@
                     _streaming = sync.Partial;
                     _reasoning = sync.PartialReasoning;
                     _running = sync.Run.Status is "queued" or "running";
+                    // RF-007: chips are ephemeral UI state — a fresh attach
+                    // rebuilds them from steer.queued replays, if any.
+                    _pendingSteers.Clear();
                 }
 
                 await ScrollToEndAsync();
@@ -1520,6 +1711,21 @@
                     _pressureByConversation[_conversationId] = _pressure.Value;
                 }
                 break;
+            case "steer.claimed":
+            {
+                // SPEC-20261005-chat-fork-steering RF-006: the steer entered
+                // the wire — drop the pending chip, reload the transcript row.
+                var claimed = JsonSerializer.Deserialize<JsonElement>(data);
+                var claimedId = claimed.TryGetProperty("steerId", out var cid) ? cid.GetString() : null;
+                if (claimedId is not null)
+                {
+                    _pendingSteers.RemoveAll(s => s.Id == claimedId);
+                }
+
+                await ReloadConversationAsync();
+                await ScrollToEndAsync();
+                break;
+            }
             case "chat.tool_result":
                 await ReloadConversationAsync();
                 await ScrollToEndAsync();
@@ -1544,6 +1750,7 @@
                 _statusPhase = null;
                 _statusLabel = null;
                 _pendingApprovals.Clear();
+                _pendingSteers.Clear();
                 break;
         }
     }
@@ -1830,6 +2037,7 @@
     public void Dispose()
     {
         Notifications.RunPressure -= OnRunPressure;
+        Notifications.SteerChanged -= OnSteerChanged;
         _streamCts?.Cancel();
         _streamCts?.Dispose();
     }

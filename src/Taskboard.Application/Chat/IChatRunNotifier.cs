@@ -29,4 +29,20 @@ public interface IChatRunNotifier
         string runId, string conversationId, int estimatedTokens, int limit,
         bool compacted, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-005: a steer item queued against
+    /// the live run — hub fan-out so every attached client shows the pending
+    /// chip, not just the sender.
+    /// </summary>
+    Task SteerQueuedAsync(
+        string conversationId, string steerId, string content,
+        CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    /// <summary>RF-006/RF-007: the executor claimed / a user withdrew a steer — chips clear.</summary>
+    Task SteerResolvedAsync(
+        string conversationId, string steerId, string outcome,
+        CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }

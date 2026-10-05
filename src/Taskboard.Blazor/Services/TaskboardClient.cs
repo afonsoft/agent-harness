@@ -1278,15 +1278,47 @@ public sealed class TaskboardClient
     /// <summary>
     /// SPEC-20261005-chat-background-resume RF-002: queues a durable chat run
     /// (202 + run row) — the server executes it detached from this call.
+    /// SPEC-20261005-chat-fork-steering RF-005: <paramref name="steer"/> asks
+    /// the server to land the message in the live run's steer inbox instead —
+    /// <c>Steered</c> reports whether that happened (it degrades to a normal
+    /// queued send when no run is active).
     /// </summary>
-    public async Task<ChatRunDto> EnqueueChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
+    public async Task<(ChatRunDto Run, bool Steered, string? SteerId)> EnqueueChatMessageAsync(
+        string id, string content, bool steer = false, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages",
-            new SendChatMessageRequest(content), cancellationToken);
+            new SendChatMessageRequest(content, steer), cancellationToken);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<EnqueueChatMessageResponse>(cancellationToken: cancellationToken);
-        return body!.Run;
+        return (body!.Run, body.Steered, body.SteerId);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-002: branches the conversation at
+    /// <paramref name="messageId"/> — returns the new fork conversation.
+    /// </summary>
+    public async Task<ChatConversationDto?> ForkChatConversationAsync(
+        string id, string messageId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/fork",
+            new ForkChatConversationRequest(messageId), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ChatConversationDto>(cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-007: withdraws an unclaimed steer —
+    /// 204 on success; false on 409 (already claimed) or 404.
+    /// </summary>
+    public async Task<bool> CancelChatSteerAsync(
+        string id, string steerId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/steer/{Uri.EscapeDataString(steerId)}/cancel",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
     }
 
     /// <summary>RF-003: opens the attach stream of a chat run — chat.sync then live events.</summary>

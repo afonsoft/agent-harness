@@ -101,6 +101,7 @@ public sealed class ChatServiceTests : IDisposable
             _runQueue,
             _broadcaster,
             new EfCoreRepository<ChatApproval>(context),
+            new EfCoreRepository<ChatSteer>(context),
             _approvalCoordinator,
             _notifiers,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ChatService>.Instance,
@@ -1469,6 +1470,274 @@ public sealed class ChatServiceTests : IDisposable
 
         store.Read(id).ShouldBeNull();
         Directory.Exists(Path.Join(dir, "spill", "run-x")).ShouldBeFalse();
+    }
+
+    // ---- Fork & steering (SPEC-20261005-chat-fork-steering) ----
+
+    /// <summary>Semeia uma run "Running" (status que o dispatcher grava).</summary>
+    private async Task<ChatRun> SeedRunningRunAsync(string conversationId, string trigger = "vai")
+    {
+        var convId = ChatConversationId.From(conversationId);
+        var user = ChatMessage.CreateUser(convId, trigger, DateTime.UtcNow);
+        _context.ChatMessages.Add(user);
+        var run = ChatRun.Create(ChatRunId.NewGuid(), convId, user.Id, DateTime.UtcNow);
+        _context.ChatRuns.Add(run);
+        await _context.SaveChangesAsync();
+        run.Start(DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+        return run;
+    }
+
+    [Fact]
+    public async Task Dado_ConversaComMensagens_Quando_Fork_Entao_CopiaPrefixoComNovosIdsELinhagem()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1", Title: "origem"));
+        var convId = ChatConversationId.From(conversation.Id);
+        var t0 = DateTime.UtcNow.AddMinutes(-5);
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "m-um", t0));
+        _context.ChatMessages.Add(ChatMessage.CreateAssistant(convId, "m-dois", null, null, null, "m1", t0.AddSeconds(1)));
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "m-tres", t0.AddSeconds(2)));
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "m-quatro", t0.AddSeconds(3)));
+        await _context.SaveChangesAsync();
+        var bound = _context.ChatMessages
+            .Where(m => m.ConversationId == convId).OrderBy(m => m.CreatedAt).Skip(1).First();
+
+        var fork = await _service.ForkConversationAsync(conversation.Id, bound.Id.Value);
+
+        fork.ForkedFromConversationId.ShouldBe(conversation.Id);
+        fork.ForkedAtMessageId.ShouldBe(bound.Id.Value);
+        fork.Title.ShouldBe("origem (fork)");
+        var copied = _context.ChatMessages
+            .Where(m => m.ConversationId == ChatConversationId.From(fork.Id))
+            .OrderBy(m => m.CreatedAt).ToList();
+        // RF-001: prefixo inclusivo (m-um, m-dois) — o resto não copia.
+        copied.Select(m => m.Content).ShouldBe(["m-um", "m-dois"]);
+        copied.ShouldAllBe(m => m.ForkedFromMessageId != null);
+        copied.Select(m => m.Id.Value).ShouldNotContain(bound.Id.Value);
+        // RF-003: runs/approvals não copiam — a fork nasce idle.
+        _context.ChatRuns.Count(r => r.ConversationId == ChatConversationId.From(fork.Id)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Dado_Fork_Quando_Listar_Entao_SourceGanhaForkCount()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var convId = ChatConversationId.From(conversation.Id);
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "alvo", DateTime.UtcNow));
+        await _context.SaveChangesAsync();
+        var bound = _context.ChatMessages.Single(m => m.ConversationId == convId);
+
+        await _service.ForkConversationAsync(conversation.Id, bound.Id.Value);
+
+        var list = await _service.ListConversationsAsync(null);
+        list.Single(c => c.Id == conversation.Id).ForkCount.ShouldBe(1);
+        list.Single(c => c.ForkedFromConversationId == conversation.Id).Title.ShouldContain("(fork)");
+    }
+
+    [Fact]
+    public async Task Dado_MessageIdDeOutraConversa_Quando_Fork_Entao_BadRequest()
+    {
+        var a = await _service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1"));
+        var b = await _service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1"));
+        _context.ChatMessages.Add(ChatMessage.CreateUser(
+            ChatConversationId.From(b.Id), "de-b", DateTime.UtcNow));
+        await _context.SaveChangesAsync();
+        var foreign = _context.ChatMessages.Single(m => m.ConversationId == ChatConversationId.From(b.Id));
+
+        // RF-002: messageId tem que pertencer à conversa — 400.
+        await Should.ThrowAsync<ChatValidationException>(
+            async () => await _service.ForkConversationAsync(a.Id, foreign.Id.Value));
+    }
+
+    [Fact]
+    public async Task Dado_ConversaComSummary_Quando_Fork_Entao_RemapaSupersedesUntil()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var convId = ChatConversationId.From(conversation.Id);
+        var t0 = DateTime.UtcNow.AddMinutes(-3);
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "old-1", t0));
+        var old2 = ChatMessage.CreateUser(convId, "old-2", t0.AddSeconds(1));
+        _context.ChatMessages.Add(old2);
+        _context.ChatMessages.Add(ChatMessage.CreateSummary(convId, "resumo", old2.Id.Value, t0.AddSeconds(2)));
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "depois", t0.AddSeconds(3)));
+        await _context.SaveChangesAsync();
+
+        var boundId = _context.ChatMessages
+            .Where(m => m.ConversationId == convId)
+            .OrderBy(m => m.CreatedAt).Last().Id.Value;
+        var fork = await _service.ForkConversationAsync(conversation.Id, boundId);
+
+        var copiedSummary = _context.ChatMessages
+            .Where(m => m.ConversationId == ChatConversationId.From(fork.Id) && m.Kind == "summary")
+            .Single();
+        var copiedBound = _context.ChatMessages
+            .Where(m => m.ConversationId == ChatConversationId.From(fork.Id)
+                && m.ForkedFromMessageId == old2.Id.Value)
+            .Single();
+        // O bound aponta para a CÓPIA do old-2, não para a linha original.
+        copiedSummary.SupersedesUntilMessageId.ShouldBe(copiedBound.Id.Value);
+    }
+
+    [Fact]
+    public async Task Dado_ConversaEmPlanMode_Quando_Fork_Entao_CopiaModoEPresetSemRun()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var convId = ChatConversationId.From(conversation.Id);
+        var entity = await _context.ChatConversations.SingleAsync(c => c.Id == convId);
+        entity.SetPlanMode(true, DateTime.UtcNow);
+        entity.SetPermissionPreset("full", DateTime.UtcNow);
+        _context.ChatMessages.Add(ChatMessage.CreateUser(convId, "alvo", DateTime.UtcNow));
+        await _context.SaveChangesAsync();
+
+        var fork = await _service.ForkConversationAsync(conversation.Id,
+            _context.ChatMessages.Single(m => m.ConversationId == convId).Id.Value);
+        var forkEntity = await _context.ChatConversations
+            .SingleAsync(c => c.Id == ChatConversationId.From(fork.Id));
+
+        // RF-003: modo/preset copiam; runs e approvals não.
+        forkEntity.PlanMode.ShouldBe("on");
+        forkEntity.PermissionPreset.ShouldBe("full");
+    }
+
+    [Fact]
+    public async Task Dado_SemRunAtiva_Quando_EnqueueSteer_Entao_DegradaParaNull()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        // RF-005: steer sem run ativa → null (o caller faz o send normal).
+        var result = await _service.EnqueueSteerAsync(conversation.Id, "corrige o caminho");
+
+        result.ShouldBeNull();
+        _context.ChatSteers.Count().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Dado_RunAtiva_Quando_EnqueueSteer_Entao_CriaSteerPendenteNaRun()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await SeedRunningRunAsync(conversation.Id);
+
+        var result = await _service.EnqueueSteerAsync(conversation.Id, "  troca de arquivo  ");
+
+        result.ShouldNotBeNull();
+        result.Value.Run.Id.ShouldBe(run.Id.Value);
+        var steer = _context.ChatSteers.Single();
+        steer.RunId.ShouldBe(run.Id);
+        steer.Content.ShouldBe("troca de arquivo");
+        steer.ClaimedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_InboxCheia_Quando_EnqueueSteer_Entao_Conflito409()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await SeedRunningRunAsync(conversation.Id);
+        for (var i = 0; i < ChatSteer.MaxPendingPerRun; i++)
+        {
+            _context.ChatSteers.Add(ChatSteer.Create(
+                ChatSteerId.NewGuid(), run.Id, run.ConversationId, $"s-{i}", DateTime.UtcNow.AddSeconds(i)));
+        }
+
+        await _context.SaveChangesAsync();
+
+        await Should.ThrowAsync<ChatSteerConflictException>(
+            async () => await _service.EnqueueSteerAsync(conversation.Id, "mais um"));
+    }
+
+    [Fact]
+    public async Task Dado_SteerPendente_Quando_BoundaryDeToolResult_Entao_ClaimNaMesmaRun()
+    {
+        var convIdHolder = new ChatConversationId[1];
+        var handler = new ScriptedProviderHandler(call =>
+        {
+            if (call == 1)
+            {
+                // "Enfileira" o steer no meio da run — entre a resposta do
+                // provider e o boundary de tool-result (ordem determinística).
+                var convId = convIdHolder[0];
+                var run = _context.ChatRuns.Single(r => r.ConversationId == convId);
+                _context.ChatSteers.Add(ChatSteer.Create(
+                    ChatSteerId.NewGuid(), run.Id, convId, "conteudo-steer", DateTime.UtcNow));
+                _context.SaveChanges();
+                return ("""data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"echo_tool","arguments":"{}"}}]}}]}""" + "\ndata: [DONE]\n",
+                    HttpStatusCode.OK);
+            }
+
+            return (OkSse("depois"), HttpStatusCode.OK);
+        });
+        var service = NewService(handler, new ChatRunCoordinator());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        convIdHolder[0] = ChatConversationId.From(conversation.Id);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
+
+        // RF-006: o steer virou mensagem user Kind=steer e entrou no wire ANTES
+        // da 2ª chamada ao modelo.
+        var claimed = events.OfType<ChatSteerClaimedEvent>().ShouldHaveSingleItem();
+        claimed.Content.ShouldBe("conteudo-steer");
+        handler.Calls.ShouldBe(2);
+        handler.Bodies[1].ShouldContain("conteudo-steer");
+        _context.ChatMessages
+            .Any(m => m.Kind == "steer" && m.Role == ChatMessageRole.User).ShouldBeTrue();
+        // O claim vai ao banco via ExecuteUpdate — recarrega sem o tracker stale.
+        _context.ChangeTracker.Clear();
+        _context.ChatSteers.Single().ClaimedAt.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_SteerPendente_Quando_Cancel_Entao_RemoveLinha()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await SeedRunningRunAsync(conversation.Id);
+        var steer = ChatSteer.Create(ChatSteerId.NewGuid(), run.Id, run.ConversationId, "sai", DateTime.UtcNow);
+        _context.ChatSteers.Add(steer);
+        await _context.SaveChangesAsync();
+
+        await _service.CancelSteerAsync(conversation.Id, steer.Id.Value);
+
+        _context.ChatSteers.Count().ShouldBe(0);
+        await Should.ThrowAsync<ChatValidationException>(
+            async () => await _service.CancelSteerAsync(conversation.Id, steer.Id.Value));
+    }
+
+    [Fact]
+    public async Task Dado_SteerClaimed_Quando_Cancel_Entao_Conflito409()
+    {
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await SeedRunningRunAsync(conversation.Id);
+        var steer = ChatSteer.Create(ChatSteerId.NewGuid(), run.Id, run.ConversationId, "tarde", DateTime.UtcNow);
+        _context.ChatSteers.Add(steer);
+        await _context.SaveChangesAsync();
+        steer.Claim(DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+
+        // RF-007: já claimed — o cancel responde 409.
+        await Should.ThrowAsync<ChatSteerConflictException>(
+            async () => await _service.CancelSteerAsync(conversation.Id, steer.Id.Value));
+    }
+
+    [Fact]
+    public async Task Dado_SteerDeOutraConversa_Quando_Cancel_Entao_NotFound()
+    {
+        var a = await _service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1"));
+        var b = await _service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await SeedRunningRunAsync(b.Id);
+        var steer = ChatSteer.Create(ChatSteerId.NewGuid(), run.Id, run.ConversationId, "x", DateTime.UtcNow);
+        _context.ChatSteers.Add(steer);
+        await _context.SaveChangesAsync();
+
+        await Should.ThrowAsync<ChatValidationException>(
+            async () => await _service.CancelSteerAsync(a.Id, steer.Id.Value));
     }
 
     /// <summary>Provider fake: 1ª chamada devolve tool_calls, 2ª devolve a resposta final.</summary>

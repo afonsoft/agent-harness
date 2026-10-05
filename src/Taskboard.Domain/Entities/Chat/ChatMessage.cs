@@ -24,6 +24,12 @@ public sealed class ChatMessage : Entity<ChatMessageId>
     public bool Refused { get; private set; }
     /// <summary>Relative path of a generated image under the data dir (RF-009).</summary>
     public string? ImagePath { get; private set; }
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-001: back-pointer to the source
+    /// message this row was copied from when the conversation was forked.
+    /// Null on originals.
+    /// </summary>
+    public string? ForkedFromMessageId { get; private set; }
     public int? TokensIn { get; private set; }
     public int? TokensOut { get; private set; }
     public string? Model { get; private set; }
@@ -112,6 +118,46 @@ public sealed class ChatMessage : Entity<ChatMessageId>
         {
             Kind = ChatMessageKinds.Summary,
             SupersedesUntilMessageId = supersedesUntilMessageId,
+        };
+        return message;
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-006/008: a user message claimed
+    /// from the steer inbox — same wire shape as a normal user turn, marked
+    /// <c>Kind="steer"</c> so the transcript shows it entered mid-turn.
+    /// </summary>
+    public static ChatMessage CreateSteer(
+        ChatConversationId conversationId, string content, DateTime? now = null)
+    {
+        var message = new ChatMessage(
+            ChatMessageId.NewGuid(), conversationId, ChatMessageRole.User,
+            content, now ?? DateTime.UtcNow)
+        {
+            Kind = ChatMessageKinds.Steer,
+        };
+        return message;
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-001: clones <paramref name="source"/>
+    /// into a forked conversation — caller mints <paramref name="newId"/>,
+    /// back-pointer set, role, content, tool fields, kind and timestamps
+    /// preserved. The caller remaps <see cref="SupersedesUntilMessageId"/>
+    /// through the old→new id map.
+    /// </summary>
+    public static ChatMessage CreateForked(
+        ChatMessageId newId, ChatConversationId conversationId, ChatMessage source,
+        string? remappedSupersedesUntil = null)
+    {
+        var message = new ChatMessage(
+            newId, conversationId, source.Role, source.Content,
+            source.CreatedAt, source.ToolCallsJson, source.ToolCallId, source.ToolName,
+            source.Refused, source.ImagePath, source.TokensIn, source.TokensOut, source.Model)
+        {
+            Kind = source.Kind,
+            SupersedesUntilMessageId = remappedSupersedesUntil ?? source.SupersedesUntilMessageId,
+            ForkedFromMessageId = source.Id.Value,
         };
         return message;
     }

@@ -66,6 +66,13 @@ public sealed record ChatApprovalDecidedEvent(
 public sealed record ChatPressureEvent(
     int EstimatedTokens, int Limit, bool Compacted) : ChatStreamEvent;
 
+/// <summary>
+/// SPEC-20261005-chat-fork-steering RF-006: the executor drained a pending
+/// steer at a tool-result boundary — SSE <c>steer.claimed</c> so attached
+/// clients persist a transcript refresh.
+/// </summary>
+public sealed record ChatSteerClaimedEvent(string SteerId, string Content) : ChatStreamEvent;
+
 /// <summary>Request-level validation failure surfaced as 400.</summary>
 public sealed class ChatValidationException(string message) : Exception(message);
 
@@ -74,6 +81,12 @@ public sealed class ChatArchivedException(string message) : Exception(message);
 
 /// <summary>Decide attempted on an approval that already left pending — surfaced as 409 (RF-003).</summary>
 public sealed class ChatApprovalConflictException(string message) : Exception(message);
+
+/// <summary>
+/// SPEC-20261005-chat-fork-steering: steer cap exceeded or cancel attempted on
+/// an already-claimed steer — surfaced as 409.
+/// </summary>
+public sealed class ChatSteerConflictException(string message) : Exception(message);
 
 /// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
@@ -95,6 +108,7 @@ public sealed class ChatService(
     ChatRunQueue runQueue,
     ChatRunBroadcaster broadcaster,
     IRepository<ChatApproval> approvalRepository,
+    IRepository<ChatSteer> steerRepository,
     ChatApprovalCoordinator approvalCoordinator,
     IEnumerable<IChatRunNotifier> notifiers,
     ILogger<ChatService> logger,
@@ -313,10 +327,19 @@ public sealed class ChatService(
             }
         }
 
+        // SPEC-20261005-chat-fork-steering RF-004: fork badge on the source row.
+        var forkCountBySource = (await conversations.Query
+                .Where(c => c.ForkedFromConversationId != null)
+                .GroupBy(c => c.ForkedFromConversationId!)
+                .Select(g => new { Source = g.Key, Count = g.Count() })
+                .ToListAsync(ct).ConfigureAwait(false))
+            .ToDictionary(x => x.Source, x => x.Count, StringComparer.Ordinal);
+
         return rows.Select(c => ToDto(
             c,
             previewByConversation.GetValueOrDefault(c.Id.Value),
-            activeByConversation.GetValueOrDefault(c.Id.Value))).ToList();
+            activeByConversation.GetValueOrDefault(c.Id.Value),
+            forkCountBySource.GetValueOrDefault(c.Id.Value))).ToList();
     }
 
     public async Task<ChatConversationDetailDto?> GetConversationAsync(string id, CancellationToken ct = default)
@@ -459,10 +482,55 @@ public sealed class ChatService(
     // ---- Enqueue / execute / stop (SPEC-20261005-chat-background-resume RF-002..RF-004) ----
 
     /// <summary>
-    /// RF-002: persists the user message and queues a durable run — the
-    /// dispatcher executes it detached from this request. FIFO per
-    /// conversation: a send during a live run becomes the next turn.
+    /// SPEC-20261005-chat-fork-steering RF-005: queues <paramref name="content"/>
+    /// into the live run's steer inbox — claimed by the executor at the next
+    /// tool-result boundary (RF-006). Returns <c>null</c> when no run is
+    /// running so the caller degrades to <see cref="EnqueueMessageAsync"/>.
+    /// 409 when the inbox is full (<see cref="ChatSteer.MaxPendingPerRun"/>).
     /// </summary>
+    public async Task<(ChatRunDto Run, string SteerId)?> EnqueueSteerAsync(
+        string conversationId, string content, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new ChatValidationException("Content is required.");
+        }
+
+        var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
+        if (conversation.ArchivedAt is not null)
+        {
+            throw new ChatArchivedException($"Conversation '{conversationId}' is archived.");
+        }
+
+        var active = await runRepository.Query
+            .Where(r => r.ConversationId == conversation.Id && r.Status == ChatRunStatus.Running)
+            .OrderBy(r => r.CreatedAt)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (active is null)
+        {
+            return null;
+        }
+
+        var pending = await steerRepository.Query
+            .CountAsync(s => s.RunId == active.Id && s.ClaimedAt == null, ct)
+            .ConfigureAwait(false);
+        if (pending >= ChatSteer.MaxPendingPerRun)
+        {
+            throw new ChatSteerConflictException(
+                $"Steer inbox is full ({ChatSteer.MaxPendingPerRun} pending).");
+        }
+
+        var item = ChatSteer.Create(
+            ChatSteerId.NewGuid(), active.Id, conversation.Id, content.Trim(), UtcNow);
+        await steerRepository.AddAsync(item, ct).ConfigureAwait(false);
+        conversation.Touch(UtcNow);
+        await steerRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        await NotifySteerQueuedAsync(conversation.Id.Value, item.Id.Value, item.Content, ct)
+            .ConfigureAwait(false);
+        return (ToDto(active), item.Id.Value);
+    }
+
     public async Task<ChatRunDto> EnqueueMessageAsync(
         string conversationId, string content, CancellationToken ct = default)
     {
@@ -489,6 +557,172 @@ public sealed class ChatService(
 
         runQueue.Enqueue(new ChatRunWorkItem(run.Id.Value, conversation.Id.Value));
         return ToDto(run);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-007: withdraws an unclaimed steer —
+    /// 404 when unknown, 409 once the executor claimed it.
+    /// </summary>
+    public async Task CancelSteerAsync(string conversationId, string steerId, CancellationToken ct = default)
+    {
+        var steer = await steerRepository.GetAsync(ChatSteerId.From(steerId), ct).ConfigureAwait(false);
+        if (steer is null || !string.Equals(steer.ConversationId.Value, conversationId, StringComparison.Ordinal))
+        {
+            throw new ChatValidationException($"Steer '{steerId}' not found.");
+        }
+
+        if (steer.ClaimedAt is not null)
+        {
+            throw new ChatSteerConflictException($"Steer '{steerId}' was already claimed.");
+        }
+
+        await steerRepository.DeleteAsync(steer, ct).ConfigureAwait(false);
+        await steerRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        await NotifySteerResolvedAsync(conversationId, steerId, "cancelled", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-001/RF-002/RF-003: branches the
+    /// conversation at <paramref name="messageId"/> — copies the prefix
+    /// (inclusive, order preserved, ids regenerated with
+    /// <c>ForkedFromMessageId</c> back-pointers and summary bounds remapped),
+    /// records the lineage, copies PlanMode/agent context. Runs, approvals
+    /// and notify state do NOT copy — the fork starts idle.
+    /// </summary>
+    public async Task<ChatConversationDto> ForkConversationAsync(
+        string conversationId, string messageId, CancellationToken ct = default)
+    {
+        var sourceId = ChatConversationId.From(conversationId);
+        var source = await conversations.GetAsync(sourceId, ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
+
+        var rows = await messages.Query
+            .Where(m => m.ConversationId == source.Id)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+        var boundIndex = rows.FindIndex(m => m.Id.Value == messageId);
+        if (boundIndex < 0)
+        {
+            throw new ChatValidationException(
+                $"Message '{messageId}' does not belong to conversation '{conversationId}'.");
+        }
+
+        var now = UtcNow;
+        var fork = ChatConversation.Create(
+            ChatConversationId.NewGuid(), source.ProviderId, source.ProviderName,
+            source.Model, $"{source.Title} (fork)", now);
+        fork.MarkForkedFrom(source.Id.Value, messageId);
+        if (source.PlanMode == ChatPlanModes.On)
+        {
+            fork.SetPlanMode(true, now);
+        }
+
+        fork.SetPermissionPreset(source.PermissionPreset, now);
+        fork.SetAgentContext(
+            source.AgentCli, source.RepositoryFullName, source.WorkspacePath, source.AgentModel);
+        await conversations.AddAsync(fork, ct).ConfigureAwait(false);
+
+        // Two passes: mint ids first so summary SupersedesUntilMessageId
+        // bounds remap to the copied rows instead of dangling on the source.
+        var prefix = rows.Take(boundIndex + 1).ToList();
+        var newIds = prefix.Select(_ => ChatMessageId.NewGuid()).ToList();
+        var idMap = prefix.Zip(newIds, (m, id) => (m.Id.Value, Id: id.Value))
+            .ToDictionary(x => x.Value, x => x.Id, StringComparer.Ordinal);
+        foreach (var (message, newId) in prefix.Zip(newIds))
+        {
+            var remappedBound = message.SupersedesUntilMessageId is not null
+                ? idMap.GetValueOrDefault(message.SupersedesUntilMessageId)
+                : null;
+            await messages.AddAsync(
+                ChatMessage.CreateForked(newId, fork.Id, message, remappedBound), ct)
+                .ConfigureAwait(false);
+        }
+
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(fork, null);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-006: claims pending steers (oldest
+    /// first), persists each as a <c>Kind=steer</c> user message and appends
+    /// to the live wire. Serialized with the run — the drain runs inside the
+    /// executor's loop, never concurrently.
+    /// </summary>
+    private async IAsyncEnumerable<ChatStreamEvent> DrainSteersAsync(
+        ChatRun run,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        var pending = await steerRepository.Query
+            .Where(s => s.RunId == run.Id && s.ClaimedAt == null)
+            .OrderBy(s => s.CreatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+        if (pending.Count == 0)
+        {
+            yield break;
+        }
+
+        var now = UtcNow;
+        foreach (var steer in pending)
+        {
+            // Atomic claim — a cancel that already deleted the row (or raced
+            // the claim) affects 0 rows and the steer is skipped.
+            var claimed = await steerRepository.Query
+                .Where(s => s.Id == steer.Id && s.ClaimedAt == null)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(x => x.ClaimedAt, now), ct)
+                .ConfigureAwait(false) > 0;
+            if (!claimed)
+            {
+                continue;
+            }
+
+            var message = ChatMessage.CreateSteer(conversation.Id, steer.Content, now);
+            await messages.AddAsync(message, ct).ConfigureAwait(false);
+            wire.Add(new OpenAiChatMessage("user", steer.Content));
+            yield return new ChatSteerClaimedEvent(steer.Id.Value, steer.Content);
+        }
+
+        conversation.Touch(UtcNow);
+        await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+        foreach (var steer in pending)
+        {
+            await NotifySteerResolvedAsync(conversation.Id.Value, steer.Id.Value, "claimed", ct)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task NotifySteerQueuedAsync(
+        string conversationId, string steerId, string content, CancellationToken ct)
+    {
+        foreach (var notifier in notifiers)
+        {
+            try
+            {
+                await notifier.SteerQueuedAsync(conversationId, steerId, content, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "chat steer {SteerId} queued notify failed", steerId);
+            }
+        }
+    }
+
+    private async Task NotifySteerResolvedAsync(
+        string conversationId, string steerId, string outcome, CancellationToken ct)
+    {
+        foreach (var notifier in notifiers)
+        {
+            try
+            {
+                await notifier.SteerResolvedAsync(conversationId, steerId, outcome, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "chat steer {SteerId} {Outcome} notify failed", steerId, outcome);
+            }
+        }
     }
 
     /// <summary>
@@ -673,6 +907,15 @@ public sealed class ChatService(
                 // auto-cancelled the pending row); end the turn as stopped.
                 state.Error = "stopped by user";
                 break;
+            }
+
+            // SPEC-20261005-chat-fork-steering RF-006: drain the steer inbox
+            // at the tool-result boundary — each claimed steer persists as a
+            // user message and lands on the wire before the next model call.
+            await foreach (var ev in DrainSteersAsync(run, conversation, wire, ct)
+                .ConfigureAwait(false))
+            {
+                yield return ev;
             }
 
             conversation.Touch(UtcNow);
@@ -2159,7 +2402,8 @@ public sealed class ChatService(
         approval.Kind.Value);
 
     private static ChatConversationDto ToDto(
-        ChatConversation conversation, string? preview, string? activeRunStatus = null) => new(
+        ChatConversation conversation, string? preview, string? activeRunStatus = null,
+        int forkCount = 0) => new(
         conversation.Id.Value,
         conversation.ProviderId,
         conversation.ProviderName,
@@ -2177,7 +2421,10 @@ public sealed class ChatService(
         conversation.ArchivedAt,
         activeRunStatus,
         conversation.PermissionPreset,
-        conversation.PlanMode);
+        conversation.PlanMode,
+        conversation.ForkedFromConversationId,
+        conversation.ForkedAtMessageId,
+        forkCount);
 
     private static ChatMessageDto ToDto(ChatMessage message) => new(
         message.Id.Value,

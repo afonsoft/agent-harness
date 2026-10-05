@@ -10,4 +10,10 @@ public static class ChatMessageKinds
 {
     public const string Normal = "normal";
     public const string Summary = "summary";
+
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-008: a user message that entered
+    /// mid-turn via steering — rendered with a steer marker in the transcript.
+    /// </summary>
+    public const string Steer = "steer";
 }

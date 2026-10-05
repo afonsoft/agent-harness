@@ -25,6 +25,8 @@ public sealed class ChatNotificationsService : IAsyncDisposable
     internal const string HubPath = "/chat-run-hub";
     internal const string EventName = "run.completed";
     internal const string PressureEventName = "run.pressure";
+    internal const string SteerQueuedEventName = "steer.queued";
+    internal const string SteerResolvedEventName = "steer.resolved";
     internal const string InAppKey = "Taskboard:Chat:Notify:Done:InApp";
     internal const string BrowserKey = "Taskboard:Chat:Notify:Done:Browser";
     internal const string PushKey = "Taskboard:Chat:Notify:Done:Push";
@@ -74,6 +76,10 @@ public sealed class ChatNotificationsService : IAsyncDisposable
             // SPEC-20261005-chat-context-management RF-007: wire-pressure
             // samples — subscribers (chat sidebar) badge the conversation.
             _hub.On<JsonObject>(PressureEventName, payload => OnRunPressure(payload));
+            // SPEC-20261005-chat-fork-steering RF-005/007: steer inbox changes —
+            // queued rows get a pending chip; resolved rows drop it.
+            _hub.On<JsonObject>(SteerQueuedEventName, payload => OnSteerChanged(payload, queued: true));
+            _hub.On<JsonObject>(SteerResolvedEventName, payload => OnSteerChanged(payload, queued: false));
 
             try
             {
@@ -157,6 +163,35 @@ public sealed class ChatNotificationsService : IAsyncDisposable
     /// limit, compacted. Fires on the hub thread; subscribers must marshal.
     /// </summary>
     public event Action<string, int, int, bool>? RunPressure;
+
+    /// <summary>
+    /// RF-005/RF-007: steer lifecycle fan-out — queued=true args
+    /// (conversationId, steerId, content); queued=false args
+    /// (conversationId, steerId, outcome=claimed|cancelled).
+    /// </summary>
+    public event Action<string, string, string?, bool>? SteerChanged;
+
+    private void OnSteerChanged(JsonObject payload, bool queued)
+    {
+        try
+        {
+            var conversationId = payload["conversationId"]?.GetValue<string>();
+            var steerId = payload["steerId"]?.GetValue<string>();
+            if (conversationId is null || steerId is null)
+            {
+                return;
+            }
+
+            var detail = queued
+                ? payload["content"]?.GetValue<string>()
+                : payload["outcome"]?.GetValue<string>();
+            SteerChanged?.Invoke(conversationId, steerId, detail, queued);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "steer fan-out failed");
+        }
+    }
 
     private void OnRunPressure(JsonObject payload)
     {
