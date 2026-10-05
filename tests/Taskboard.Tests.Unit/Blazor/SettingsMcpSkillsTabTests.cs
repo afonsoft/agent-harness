@@ -122,4 +122,31 @@ public class SettingsMcpSkillsTabTests
         src.ShouldContain("item.Source + \"@\" + item.Key");
         src.ShouldContain("_cacheStats = snapshot?.Cache;");
     }
+
+    [Fact]
+    public void Dado_Settings_Quando_LeFonte_Entao_PanesIrmaosNaoAninhados()
+    {
+        // Regressão: o .tab-pane do General não tinha </div> próprio e o
+        // pane Configuration nascia ANINHADO dentro dele — o pai fica
+        // display:none e a aba inteira renderiza invisível. Entre os dois
+        // aria-labels precisam existir o </div> do form-section e o do pane.
+        var src = SettingsSource();
+
+        var general = src.IndexOf("aria-label=\"General\"", StringComparison.Ordinal);
+        var configuration = src.IndexOf("aria-label=\"Configuration\"", StringComparison.Ordinal);
+        general.ShouldBeGreaterThan(0);
+        configuration.ShouldBeGreaterThan(general);
+
+        var between = src.Substring(general, configuration - general);
+        var closes = 0;
+        for (var i = between.IndexOf("</div>", StringComparison.Ordinal);
+             i >= 0;
+             i = between.IndexOf("</div>", i + 1, StringComparison.Ordinal))
+        {
+            closes++;
+        }
+
+        closes.ShouldBeGreaterThanOrEqualTo(2,
+            "o .tab-pane do General deve fechar antes do pane Configuration abrir");
+    }
 }
