@@ -100,7 +100,7 @@ public sealed class ChatJobService : IChatJobService, IDisposable
         }
         catch
         {
-            startGate.TrySetCanceled();
+            startGate.TrySetCanceled(cancellationToken);
             try
             {
                 process.Kill(entireProcessTree: true);
