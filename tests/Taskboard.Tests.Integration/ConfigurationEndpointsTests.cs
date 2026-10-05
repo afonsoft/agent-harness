@@ -105,6 +105,24 @@ public class ConfigurationEndpointsTests : IClassFixture<ConfigurationEndpointsT
     }
 
     [Fact]
+    public async Task Dado_Autenticado_Quando_GetConfiguration_Entao_BlocoCachePresente()
+    {
+        // Settings → Configuration mostra provider (memory|redis) e a lista
+        // de keys — o bloco 'cache' precisa vir no snapshot.
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/configuration");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var result = await response.Content.ReadFromJsonAsync<JsonObject>();
+        var cache = result?["cache"] as JsonObject;
+        cache.ShouldNotBeNull();
+        cache!["provider"]!.GetValue<string>().ShouldBe("memory");
+        (cache["keys"] as JsonArray).ShouldNotBeNull();
+        cache["redisConfigured"]!.GetValue<bool>().ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Dado_Autenticado_Quando_PutOverrideValido_Entao_204ESourceDb()
     {
         // Covers RF-004 / AC: PUT persists and next GET reports source=db

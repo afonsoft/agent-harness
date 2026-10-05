@@ -1027,6 +1027,94 @@
                                 <span class="badge text-bg-info align-self-center">@(_connectionInfo.CacheMode == "redis" ? "Redis (L1+L2)" : "In-memory (L1)")</span>
                             </div>
                         }
+                        @if (_cacheStats is not null)
+                        {
+                            <div class="setting-row">
+                                <div>
+                                    <div class="fw-medium">Provider</div>
+                                    <div class="small text-body-secondary font-monospace">
+                                        @if (_cacheStats.RedisConfigured)
+                                        {
+                                            @($"instance = {_cacheStats.InstanceName ?? "harness:"}")
+                                            @if (_cacheStats.RedisConnected)
+                                            {
+                                                <text> — connected</text>
+                                            }
+                                            else
+                                            {
+                                                <text> — unreachable</text>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            @("in-process L1 — no Redis configured")
+                                        }
+                                    </div>
+                                </div>
+                                <div class="d-flex gap-1 align-self-center">
+                                    <span class="badge @(_cacheStats.Provider == "redis" ? "text-bg-info" : "text-bg-secondary")">@_cacheStats.Provider</span>
+                                    @if (_cacheStats.RedisConfigured)
+                                    {
+                                        <span class="badge @(_cacheStats.RedisConnected ? "text-bg-success" : "text-bg-danger")" title="Redis PING">@(_cacheStats.RedisConnected ? "connected" : "down")</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="fw-medium">TTLs</div>
+                                    <div class="small text-body-secondary font-monospace">
+                                        @($"L2 = {_cacheStats.DefaultExpirationSeconds}s · L1 = {_cacheStats.LocalCacheExpirationSeconds}s")
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="fw-medium">Keys</div>
+                                    <div class="small text-body-secondary">
+                                        written through HybridCache since boot
+                                        @if (_cacheStats.ServerKeys is not null)
+                                        {
+                                            @($" · {_cacheStats.ServerKeys} on server{(_cacheStats.ServerKeysPartial ? "+" : "")}")
+                                        }
+                                    </div>
+                                </div>
+                                <span class="badge text-bg-light border align-self-center">@_cacheStats.Keys.Count</span>
+                            </div>
+                            @if (_cacheStats.StatsError is not null)
+                            {
+                                <div class="alert alert-warning small mb-2">@_cacheStats.StatsError</div>
+                            }
+                            @if (_cacheStats.Keys.Count == 0)
+                            {
+                                <p class="small text-body-secondary mb-0">No cached keys tracked yet — entries appear after the first cache write.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Key</th>
+                                                <th scope="col">Tags</th>
+                                                <th scope="col">Seen</th>
+                                                <th scope="col">Source</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var key in _cacheStats.Keys)
+                                            {
+                                                <tr @key="CacheKeyRowKey(key)">
+                                                    <td class="font-monospace small text-break">@key.Key</td>
+                                                    <td class="small text-body-secondary">@(key.Tags ?? "—")</td>
+                                                    <td class="small text-nowrap">@(key.FirstSeenUtc == DateTimeOffset.MinValue ? "—" : key.FirstSeenUtc.LocalDateTime.ToString("HH:mm:ss"))</td>
+                                                    <td><span class="badge @(key.Source == "redis" ? "text-bg-info" : "text-bg-light border")">@key.Source</span></td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        }
                     </div>
 
                     @foreach (var (groupId, title, description) in ConfigurationGroupSections)
@@ -1218,6 +1306,7 @@
 
     private IReadOnlyList<ConfigurationEntryDto> _configEntries = [];
     private ConnectionInfoDto? _connectionInfo;
+    private CacheStatsDto? _cacheStats;
     private string? _configError;
     private string? _editingKey;
     private string _editingValue = string.Empty;
@@ -1892,6 +1981,7 @@
             var snapshot = await Client.GetConfigurationSnapshotAsync();
             _configEntries = snapshot?.Entries ?? [];
             _connectionInfo = snapshot?.Connections;
+            _cacheStats = snapshot?.Cache;
             _configError = null;
             var skillsEntry = _configEntries.FirstOrDefault(e => e.Key == SkillsRepositoryKey);
             if (skillsEntry is not null)
@@ -2710,6 +2800,10 @@
     private static string ChatMcpServerKey(ChatMcpServerStatus server) => server.Name + "@" + server.Origin;
 
     private static string AgentMcpServerKey(AgentMcpServerEntryDto server) => server.Name + "@" + server.Transport + "@" + server.Detail;
+
+    // a mesma key pode aparecer duas vezes (registry + redis scan) — o source
+    // diferencia para o @key ficar único entre irmãos.
+    private static string CacheKeyRowKey(CacheKeyItemDto item) => item.Source + "@" + item.Key;
 
     private async Task InstallOneSkillAsync(SkillSearchResultDto result)
     {

@@ -748,6 +748,25 @@ CacheBootInfo RegisterCaching()
         LocalCacheExpiration = localExpiration,
     });
 
+    // Cache inspection (Settings → Configuration): a tracked-key registry
+    // behind a HybridCache decorator — the only enumerable view of the L1.
+    builder.Services.AddSingleton<CacheKeyRegistry>();
+    var hybridRegistration = builder.Services.LastOrDefault(d => d.ServiceType == typeof(HybridCache));
+    if (hybridRegistration is not null)
+    {
+        builder.Services.Remove(hybridRegistration);
+        builder.Services.AddSingleton(typeof(HybridCache), sp =>
+        {
+            var inner = hybridRegistration.ImplementationInstance as HybridCache
+                ?? (hybridRegistration.ImplementationFactory is { } factory
+                    ? (HybridCache)factory(sp)
+                    : (HybridCache)ActivatorUtilities.CreateInstance(sp, hybridRegistration.ImplementationType!));
+            return new TrackingHybridCache(inner, sp.GetRequiredService<CacheKeyRegistry>());
+        });
+    }
+
+    builder.Services.AddSingleton<CacheInspectorService>();
+
     // Schema aninhado (RF-001); a connstring flat "Taskboard:Cache:Redis" do
     // SPEC-20261004-provider-pick-hybridcache segue como fallback.
     var conn = builder.Configuration["Taskboard:Cache:Redis:ConnectionString"];
@@ -777,6 +796,11 @@ CacheBootInfo RegisterCaching()
             o.Configuration = conn;
             o.InstanceName = instanceName;
         });
+
+        // Inspection multiplexer — the package keeps its own internal one;
+        // abortConnect=false is already appended so Connect stays lazy.
+        builder.Services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(
+            _ => StackExchange.Redis.ConnectionMultiplexer.Connect(conn));
     }
 
     return new CacheBootInfo(instanceName, defaultExpiration, localClamped);
@@ -3269,12 +3293,16 @@ void MapSettingsAndChatEndpoints()
 
 void MapConfigAndJobsEndpoints()
 {
-    api.MapGet("configuration", (RuntimeConfigurationService configuration) =>
+    api.MapGet("configuration", async (
+        RuntimeConfigurationService configuration,
+        CacheInspectorService cacheInspector,
+        CancellationToken ct) =>
         Results.Ok(new
         {
             entries = configuration.GetEntries(),
             // SPEC-20261010-settings-configuration-tab RF-003.
             connections = configuration.GetConnectionInfo(),
+            cache = await cacheInspector.GetStatsAsync(ct),
         }))
         .RequireAuthorization();
 

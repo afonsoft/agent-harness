@@ -1607,7 +1607,10 @@ public sealed class TaskboardClient
     private sealed record SettingsResponse(SettingsDto Settings);
     private sealed record SkillsResponse(List<SkillDto> Skills);
     private sealed record SkillDetailResponse(SkillDetailDto Skill);
-    public sealed record ConfigurationEntriesResponse(List<ConfigurationEntryDto> Entries, ConnectionInfoDto? Connections = null);
+    public sealed record ConfigurationEntriesResponse(
+        List<ConfigurationEntryDto> Entries,
+        ConnectionInfoDto? Connections = null,
+        CacheStatsDto? Cache = null);
     private sealed record SkillFileContentResponse(string Path, string Content);
     private sealed record CliCommandsResponse(List<CliCommandDto> Commands);
     private sealed record CliCommandResponse(CliCommandDetailDto Command);
