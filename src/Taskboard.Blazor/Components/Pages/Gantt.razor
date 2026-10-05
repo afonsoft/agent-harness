@@ -196,30 +196,17 @@ else
         }
     }
 
-    private double GetBarLeft(IssueTimelineDto issue)
+    // SPEC-20261010-gantt-bar-clamp: a geometria mora em GanttBarGeometry —
+    // clamp com max >= 1 garantido (crash quando a issue nasce no último dia
+    // da janela → left = 100 → Math.Clamp(x, 1, 0) → Argument_MinMaxValue).
+    private string GetBarStyle(IssueTimelineDto issue)
     {
-        var total = (_rangeEnd - _rangeStart).TotalDays;
-        var start = issue.CreatedAt.UtcDateTime.Date;
-        var offset = (start < _rangeStart ? _rangeStart : start) - _rangeStart;
-        return Math.Clamp(offset.TotalDays / total * 100, 0, 100);
+        var (left, width) = GanttBarGeometry.BarPercent(
+            _rangeStart, _rangeEnd,
+            issue.CreatedAt.UtcDateTime.Date,
+            issue.ClosedAt?.UtcDateTime.Date);
+        return $"left: {Percent(left)}%; width: {Percent(width)}%";
     }
-
-    private double GetBarWidth(IssueTimelineDto issue)
-    {
-        var total = (_rangeEnd - _rangeStart).TotalDays;
-        var start = issue.CreatedAt.UtcDateTime.Date;
-        var end = issue.ClosedAt?.UtcDateTime.Date ?? _rangeEnd;
-        if (end > _rangeEnd)
-        {
-            end = _rangeEnd;
-        }
-
-        var days = Math.Max((end - (start < _rangeStart ? _rangeStart : start)).TotalDays, 1);
-        return Math.Clamp(days / total * 100, 1, 100 - GetBarLeft(issue));
-    }
-
-    private string GetBarStyle(IssueTimelineDto issue) =>
-        $"left: {Percent(GetBarLeft(issue))}%; width: {Percent(GetBarWidth(issue))}%";
 
     private static string GetBarClass(IssueTimelineDto issue)
     {
