@@ -79,13 +79,16 @@ public class ProviderChatSourceGuardTests
     }
 
     [Fact]
-    public void Dado_ProviderChatCss_Quando_LeFonte_Entao_RailSlim()
+    public void Dado_ProviderChatCss_Quando_LeFonte_Entao_CollapsedOculto()
     {
+        // Sidebar collapsed fica totalmente oculta — só abre pelo botão de
+        // histórico (clock-history) do header da página.
         var css = ProviderChatCss();
 
-        css.ShouldContain("provider-chat-rail-item");
+        css.ShouldContain(".provider-chat-sidebar.collapsed");
+        css.ShouldContain("display: none;");
         css.ShouldContain("provider-chat-run-dot");
-        css.ShouldNotContain(".provider-chat-sidebar.collapsed {\n    display: none;");
+        css.ShouldNotContain("provider-chat-rail-item");
     }
 
     [Fact]

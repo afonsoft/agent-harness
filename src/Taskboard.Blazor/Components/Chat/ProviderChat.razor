@@ -13,9 +13,9 @@
    pickers, streamed messages with tool cards and inline images. *@
 
 <div class="provider-chat d-flex">
-    @* SPEC-20261005-chat-background-resume RF-007: a sidebar é a superfície
-       única de histórico — o ☰ duplicado do chat header foi removido; a rail
-       slim (collapsed) mantém itens por ícone + dot de run ativa. *@
+    @* A sidebar é a superfície única de histórico — collapsed = oculta
+       (display:none); só abre pelo botão clock-history do header da página
+       (ToggleHistoryDrawer). *@
     <div class="provider-chat-sidebar @(_sidebarOpen ? "" : "collapsed")">
         @if (_sidebarOpen)
         {
@@ -151,35 +151,6 @@
                 }
             </div>
             @HistoryExtra
-        }
-        else
-        {
-            @* slim rail — same history surface, icon-only. *@
-            <div class="provider-chat-rail d-flex flex-column align-items-center pt-3 gap-1">
-                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Histórico">☰</button>
-                <button type="button" class="provider-chat-rail-btn" @onclick="StartNewChatAsync" title="New chat" disabled="@_busy">
-                    <Icon Name="IconName.PlusSquare" />
-                </button>
-                <div class="provider-chat-rail-items flex-grow-1 overflow-auto w-100 d-flex flex-column align-items-center">
-                    @foreach (var conversation in _conversations)
-                    {
-                        <button type="button"
-                                class="provider-chat-rail-item @(conversation.Id == _conversationId ? "active" : "")"
-                                title="@conversation.Title"
-                                @onclick="() => OpenConversationAsync(conversation.Id)">
-                            <Icon Name="IconName.ChatDots" />
-                            @if (conversation.ActiveRunStatus is "waiting-approval")
-                            {
-                                <span class="provider-chat-run-dot approval" title="Aguardando aprovação de tool"></span>
-                            }
-                            else if (conversation.ActiveRunStatus is "running" or "queued")
-                            {
-                                <span class="provider-chat-run-dot" title="Run em andamento"></span>
-                            }
-                        </button>
-                    }
-                </div>
-            </div>
         }
     </div>
 

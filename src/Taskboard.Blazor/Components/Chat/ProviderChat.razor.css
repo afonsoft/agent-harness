@@ -18,55 +18,10 @@
     transition: width .15s ease;
 }
 
-/* SPEC-20261005-chat-background-resume RF-007: collapsed = slim icon rail
-   (history still one click away), not a hidden column. */
+/* collapsed = sidebar totalmente oculta — só abre pelo botão de histórico
+   (clock-history) do header da página. */
 .provider-chat-sidebar.collapsed {
-    width: 52px;
-    min-width: 52px;
-}
-
-.provider-chat-rail-btn {
-    border: 0;
-    background: transparent;
-    color: var(--bs-primary);
-    padding: .35rem;
-    border-radius: .5rem;
-    font-size: 1rem;
-    line-height: 1;
-}
-
-.provider-chat-rail-btn:hover {
-    background: var(--bs-secondary-bg);
-}
-
-.provider-chat-rail-btn:disabled {
-    color: var(--bs-secondary-color);
-}
-
-.provider-chat-rail-items {
-    min-height: 0;
-}
-
-.provider-chat-rail-item {
-    position: relative;
-    border: 0;
-    background: transparent;
-    color: var(--bs-secondary-color);
-    padding: .45rem;
-    border-radius: .5rem;
-    font-size: .95rem;
-    line-height: 1;
-    margin-bottom: .15rem;
-}
-
-.provider-chat-rail-item:hover {
-    background: var(--bs-secondary-bg);
-    color: var(--bs-body-color);
-}
-
-.provider-chat-rail-item.active {
-    background: var(--bs-primary-bg-subtle);
-    color: var(--bs-primary);
+    display: none;
 }
 
 .provider-chat-item-action {
@@ -105,13 +60,6 @@
     background: var(--bs-warning);
     vertical-align: middle;
     animation: provider-chat-blink 1.2s ease-in-out infinite;
-}
-
-.provider-chat-rail-item .provider-chat-run-dot {
-    position: absolute;
-    top: .15rem;
-    right: .15rem;
-    margin-left: 0;
 }
 
 /* SPEC-20261005-chat-tool-approval: waiting-approval dot + card + preset chip */
@@ -862,7 +810,7 @@
         height: calc(100vh - 220px);
     }
 
-    /* Mobile: the open drawer overlays; the slim rail keeps its 52px strip. */
+    /* Mobile: the open drawer overlays; collapsed stays fully hidden. */
     .provider-chat-sidebar:not(.collapsed) {
         position: absolute;
         z-index: 10;
