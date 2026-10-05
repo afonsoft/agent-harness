@@ -547,12 +547,18 @@ public sealed class TaskboardClient
         return response?.Events ?? [];
     }
 
-    /// <summary>SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.</summary>
+    /// <summary>SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.
+    /// SPEC-20261010-agents-page-tabs RF-003/RF-004: `cli` + `take` filters.</summary>
     public async Task<IReadOnlyList<AgentSessionInfoDto>> GetAgentSessionsAsync(
-        string? cli = null, CancellationToken cancellationToken = default)
+        string? cli = null, int? take = null, CancellationToken cancellationToken = default)
     {
+        var query = string.Join('&', new[]
+            {
+                string.IsNullOrWhiteSpace(cli) ? null : $"cli={Uri.EscapeDataString(cli)}",
+                take is null ? null : $"take={take}",
+            }.Where(p => p is not null));
         var response = await _httpClient.GetFromJsonAsync<AgentSessionsResponse>(
-            $"/api/agents/sessions{(string.IsNullOrWhiteSpace(cli) ? "" : $"?cli={Uri.EscapeDataString(cli)}")}",
+            $"/api/agents/sessions{(query.Length == 0 ? "" : $"?{query}")}",
             cancellationToken);
         return response?.Sessions ?? [];
     }
