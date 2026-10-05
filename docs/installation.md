@@ -77,6 +77,10 @@ dotnet test Taskboard.sln
 | `HARNESS_CHAT_SEARCH_BACKEND` | `none` | Web-search backend used by the chat `web_search` tool: `none` / `searxng` / `tavily` / `brave` |
 | `HARNESS_CHAT_SEARCH_URL` | *(none)* | SearxNG instance URL (required when the search backend is `searxng`) |
 | `HARNESS_CHAT_SEARCH_API_KEY` | *(none)* | API key for the `tavily`/`brave` search backends (masked in reads; also editable in `/settings`) |
+| `HARNESS__CACHE__REDIS__CONNECTIONSTRING` | *(none)* | Redis connection string for the HybridCache L2 tier (e.g. `localhost:6379`); empty/absent = L1 in-memory only. Masked in `/settings` reads |
+| `HARNESS__CACHE__REDIS__INSTANCENAME` | `harness:` | Redis key prefix — set a unique value when several apps share one Redis |
+| `HARNESS__CACHE__DEFAULTEXPIRATION` | `00:05:00` | Default L2 entry lifetime (`TimeSpan`, requires restart) |
+| `HARNESS__CACHE__LOCALCACHEEXPIRATION` | `00:01:00` | Default L1 (in-memory) lifetime; clamped to ≤ `DefaultExpiration` |
 
 Set variables for the current shell session:
 

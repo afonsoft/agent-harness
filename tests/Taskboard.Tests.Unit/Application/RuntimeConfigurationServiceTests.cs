@@ -57,6 +57,10 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Chat:Mcp:Servers",
             "Taskboard:Chat:Mcp:CallTimeoutSeconds",
             "Taskboard:Chat:Capabilities:Disabled",
+            "Taskboard:Cache:DefaultExpiration",
+            "Taskboard:Cache:LocalCacheExpiration",
+            "Taskboard:Cache:Redis:ConnectionString",
+            "Taskboard:Cache:Redis:InstanceName",
         ]);
         entries.All(e => e.Source == "default" || e.Source == "appsettings" || e.Source == "env").ShouldBeTrue();
     }
@@ -148,6 +152,12 @@ public class RuntimeConfigurationServiceTests
     [InlineData("Taskboard:Rag:ServerName", "has space")]
     [InlineData("Taskboard:Rag:ServerName", "")]
     [InlineData("Taskboard:Rag:ApiKey", "short")]
+    [InlineData("Taskboard:Cache:DefaultExpiration", "abc")]
+    [InlineData("Taskboard:Cache:DefaultExpiration", "00:00:00")]
+    [InlineData("Taskboard:Cache:LocalCacheExpiration", "not-a-timespan")]
+    [InlineData("Taskboard:Cache:Redis:ConnectionString", "  ")]
+    [InlineData("Taskboard:Cache:Redis:InstanceName", "has space")]
+    [InlineData("Taskboard:Cache:Redis:InstanceName", "")]
     public async Task Dado_ValorInvalido_Quando_SetOverride_Entao_RetornaValidation(string key, string value)
     {
         // Covers RF-004: per-key validation rejects bad values without persisting
@@ -213,6 +223,38 @@ public class RuntimeConfigurationServiceTests
         var entry = service.GetEntries().Single(e => e.Key == "Taskboard:Rag:ServerName");
 
         entry.EffectiveValue.ShouldBe("knowledge");
+    }
+
+    [Fact]
+    public void Dado_RedisConnectionString_Quando_Listar_Entao_MascaradaERequiresRestart()
+    {
+        // SPEC-20261004-redis-hybrid-cache RF-002: connstring never leaves the API
+        // in clear text; DI wiring only happens at boot.
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>(
+                "Taskboard:Cache:Redis:ConnectionString", "localhost:6379,password=abc")])
+            .Build();
+        var (service, _, _) = CreateSut(configuration);
+
+        var entry = service.GetEntries().Single(e => e.Key == "Taskboard:Cache:Redis:ConnectionString");
+
+        entry.Masked.ShouldBeTrue();
+        entry.Editable.ShouldBeTrue();
+        entry.RequiresRestart.ShouldBeTrue();
+        entry.EffectiveValue.ShouldBe("••••=abc");
+    }
+
+    [Fact]
+    public async Task Dado_CacheExpirationValida_Quando_SetOverride_Entao_Persiste()
+    {
+        var (service, context, _) = CreateSut(new ConfigurationBuilder().Build());
+
+        var result = await service.SetOverrideAsync("Taskboard:Cache:DefaultExpiration", "00:10:00");
+
+        result.Error.ShouldBe(ConfigurationWriteError.None);
+        context.ConfigurationOverrides
+            .Single(o => o.Key == "Taskboard:Cache:DefaultExpiration")
+            .Value.ShouldBe("00:10:00");
     }
 
     [Fact]

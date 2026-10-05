@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/devin-20261004-redis-hybrid-cache` |
 | Technical owner | afonsoft |
-| Status | Draft |
+| Status | Done |
 | Date | 2026-10-04 |
 | Target agent | Devin |
 | Related SPECs | SPEC-008-frontend (§22 — Redis backplane como mitigação de SignalR scaling), SPEC-20260920-harness-maintenance-jobs (RF-003 — SpecDriftReportCache), SPEC-20260923-cockpit-run-hardening (padrão Taskboard:* options) |
@@ -23,7 +23,7 @@
 
 ### Problem
 
-O Harness é single-node: todo cache hoje é in-process — `SpecDriftReportCache` (singleton hand-rolled), snapshots de CLI probe, `UseOutputCache` in-memory. Restart do processo perde tudo; o endpoint `/api/specs/drift-report` precisa re-escanear ~100 arquivos de spec após cada boot. Não existe `IDistributedCache` nem pacote Redis no repo — a única menção é a mitigação futura "Redis backplane" em SPEC-008 §22.
+O Harness é single-node: restart do processo perde todo cache in-process — `SpecDriftReportCache` (singleton hand-rolled), snapshots de CLI probe, `UseOutputCache` in-memory. O endpoint `/api/specs/drift-report` precisa re-escanear ~100 arquivos de spec após cada boot. O #484 já introduziu `HybridCache` + `StackExchangeRedis` condicional (connstring flat `Taskboard:Cache:Redis`) para o catálogo de chat — esta spec completa a infraestrutura: schema de config completo, catálogo de runtime, wiring centralizado e um piloto (`SpecDriftReportCache`) que valida o caminho de ponta a ponta.
 
 ### Objective
 
@@ -36,6 +36,12 @@ Introduzir `Microsoft.Extensions.Caching.Hybrid` (`HybridCache`) como abstraçã
 - Conjunto completo de chaves: `ConnectionString` + `InstanceName` + expirações default.
 - Redis indisponível/mal configurado → **degrada para L1-only** (comportamento natural do HybridCache: falha de L2 vira miss + log, nunca crash).
 
+**Delta pós-#484 (mergeado antes desta spec):**
+
+- `AddHybridCache()`, `AddStackExchangeRedisCache` condicional e os 2 pacotes (`Microsoft.Extensions.Caching.Hybrid` 10.10.0, `Microsoft.Extensions.Caching.StackExchangeRedis` 10.0.9) já estão em `Program.cs`/`Directory.Packages.props` — RF-003 parcial e RF-006 já satisfeitos.
+- A chave flat `Taskboard:Cache:Redis` (connstring) é substituída pelo schema aninhado desta spec (`Redis:ConnectionString` + `Redis:InstanceName`). Sem breaking: a config só existe via env/appsettings, nada persistido consumia a chave flat.
+- O catálogo de chat (providers/models/agent-defs) já consome HybridCache desde o #484 — a spec só adiciona o piloto `SpecDriftReportCache`.
+
 ## 2. Scope
 
 **In scope:**
@@ -43,7 +49,7 @@ Introduzir `Microsoft.Extensions.Caching.Hybrid` (`HybridCache`) como abstraçã
 - Registro de `HybridCache` no DI (sempre ativo, L1-only por padrão) + `AddStackExchangeRedisCache` condicional quando `ConnectionString` não-vazia.
 - `HybridCacheOptions.DefaultEntryOptions` a partir de `Taskboard:Cache:DefaultExpiration` / `LocalCacheExpiration`.
 - Piloto: `SpecDriftReportCache` migrado para fachada sobre `HybridCache`; `SpecDriftScanService` e endpoint `/api/specs/drift-report` atualizados.
-- Pacotes NuGet `Microsoft.Extensions.Caching.Hybrid` + `Microsoft.Extensions.Caching.StackExchangeRedis` pinados em `Directory.Packages.props` (CPM) — justificativa obrigatória no PR (soft rule).
+- Pacotes NuGet `Microsoft.Extensions.Caching.Hybrid` + `Microsoft.Extensions.Caching.StackExchangeRedis` — já pinados em `Directory.Packages.props` desde o #484 (10.10.0 / 10.0.9); nenhum pacote novo.
 - Testes unitários (catálogo + fachada) e integração (boot L1-only, endpoint 200).
 - Documentação `docs/installation.md` (+`.pt-br.md`) / `docs/technologies.md` (+`.pt-br.md`).
 
@@ -121,7 +127,8 @@ tests/Taskboard.Tests.Integration/…                             (boot L1-only 
 - **Description:** novo `RegisterCaching()` em `Program.cs` (chamado antes de `builder.Build()`, junto ao bloco `RegisterCoreServices`):
   - `AddStackExchangeRedisCache` **somente** quando `Taskboard:Cache:Redis:ConnectionString` não-vazia (`options.Configuration` = connstring, `options.InstanceName` = prefixo).
   - `AddHybridCache` **sempre**, com `DefaultEntryOptions.Expiration`/`LocalCacheExpiration` lidos das chaves RF-001.
-  - Log `Information` no boot: `HybridCache: Redis L2 enabled (instance 'harness:')` ou `HybridCache: L1-only (no Redis configured)`. **Nunca** logar a connection string.
+  - Connstring sem `abortConnect` recebe append `abortConnect=false` antes de registrar o RedisCache — sem isso, Redis indisponível segura a primeira operação de cache no timeout de connect (~5s) em vez de degradar instantâneo.
+- Log `Information` no boot: `HybridCache: Redis L2 enabled (instance 'harness:')` ou `HybridCache: L1-only (no Redis configured)`. **Nunca** logar a connection string.
 - **Rules:** quando L2 configurada, `IDistributedCache` resolve para `RedisCache`; quando não, `GetService<IDistributedCache>()` retorna `null` e HybridCache opera L1-only.
 
 ### RF-004: Degradação L1-only
@@ -138,9 +145,8 @@ tests/Taskboard.Tests.Integration/…                             (boot L1-only 
   - Endpoint `drift-report` (sem `?repo=`): `Results.Ok(await driftCache.GetOrCreateAsync(c => detector.BuildReportAsync(null, c), ct))` — substitui `Last ?? BuildReportAsync`; `?repo=` continua bypassando o cache.
 - **Rules:** comportamento observável idêntico (relatório servido sem rescan); com Redis ativo, restart do processo ainda serve o último relatório (diferença real entregue pela feature).
 
-### RF-006: Pacotes NuGet
-- **Description:** `Directory.Packages.props` recebe `Microsoft.Extensions.Caching.Hybrid` e `Microsoft.Extensions.Caching.StackExchangeRedis` na linha 10.x estável compatível com net10 (mesma cadência dos `Microsoft.Extensions.*` já pinados, hoje `10.0.12`); `Taskboard.Server.csproj` recebe as 2 `PackageReference`. Nenhum outro projeto referencia os pacotes (fachada e wiring vivem no Server).
-- **Rules:** versões estáveis publicadas há >7 dias; PR justifica os 2 pacotes (soft rule).
+### RF-006: Pacotes NuGet — DONE no #484
+- `Microsoft.Extensions.Caching.Hybrid` 10.10.0 e `Microsoft.Extensions.Caching.StackExchangeRedis` 10.0.9 já estão em `Directory.Packages.props` e referenciados no `Taskboard.Server.csproj`. Nenhum pacote novo; a fachada e o wiring continuam no Server.
 
 ### RF-007: Documentação
 - **Description:** `docs/installation.md` + `.pt-br.md` documentam `Taskboard:Cache:*` (chaves, defaults, env `HARNESS__CACHE__REDIS__CONNECTIONSTRING`, exemplo `localhost:6379`, comportamento L1-only); `docs/technologies.md` + `.pt-br.md` listam HybridCache/StackExchange.Redis.
@@ -175,6 +181,7 @@ N/A — nenhum endpoint novo. `/api/configuration` passa a listar as 4 chaves no
 | InstanceName customizado | `"acme:"` | chaves Redis prefixadas `acme:` |
 | DB override de connstring | via Settings UI | mascarado no GET, exige restart para efetivar |
 | Redis compartilhado entre apps | mesma connstring | `InstanceName` evita colisão de chaves |
+| Connstring sem `abortConnect` | `localhost:6379` | append automático `abortConnect=false` no boot; log não inclui a connstring |
 
 ## 7. Task Plan
 

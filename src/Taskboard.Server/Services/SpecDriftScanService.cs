@@ -1,4 +1,5 @@
 using Taskboard.Application.Contracts.Specs;
+using Taskboard.Dtos;
 
 namespace Taskboard.Server.Services;
 
@@ -15,6 +16,10 @@ public sealed class SpecDriftScanService : ManagedJobService
 
     private readonly ISpecDriftDetector _detector;
     private readonly SpecDriftReportCache _cache;
+    // SPEC-20261004-redis-hybrid-cache RF-005: the "new drifts since last scan"
+    // diff only makes sense inside this process — keep it local, push reports
+    // to the shared HybridCache.
+    private SpecDriftReportDto? _previous;
 
     public SpecDriftScanService(
         ISpecDriftDetector detector,
@@ -29,9 +34,10 @@ public sealed class SpecDriftScanService : ManagedJobService
 
     protected override async Task<string?> RunJobAsync(CancellationToken cancellationToken)
     {
-        var previous = _cache.Last;
+        var previous = _previous;
         var report = await _detector.BuildReportAsync(null, cancellationToken).ConfigureAwait(false);
-        _cache.Update(report);
+        _previous = report;
+        await _cache.SetAsync(report, cancellationToken).ConfigureAwait(false);
 
         var previousIds = previous is null
             ? []

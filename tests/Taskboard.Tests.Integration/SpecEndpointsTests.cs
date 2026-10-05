@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Taskboard.Dtos;
 using Xunit;
@@ -163,6 +166,16 @@ public class SpecEndpointsTests : IClassFixture<SpecEndpointsTests.SpecsFactory>
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var report = await response.Content.ReadFromJsonAsync<SpecDriftReportDto>();
         report!.TotalSpecs.ShouldBe(2);
+    }
+
+    // SPEC-20261004-redis-hybrid-cache: sem ConnectionString o boot fica L1-only
+    // — HybridCache resolve, IDistributedCache não existe no container.
+
+    [Fact]
+    public void Dado_BootSemRedis_Quando_ResolverCaches_Entao_L1Only()
+    {
+        _factory.Services.GetService<IDistributedCache>().ShouldBeNull();
+        _factory.Services.GetRequiredService<HybridCache>().ShouldNotBeNull();
     }
 
     // SPEC-20260920-global-repo-selector RF-005 — ?repo=owner/name.

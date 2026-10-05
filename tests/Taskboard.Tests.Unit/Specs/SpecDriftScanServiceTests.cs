@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
@@ -10,23 +12,31 @@ using Xunit;
 
 namespace Taskboard.Tests.Unit.Specs;
 
-/// <summary>SPEC-20260920-harness-maintenance-jobs RF-003 — drift scan horário + cache.</summary>
+/// <summary>SPEC-20260920-harness-maintenance-jobs RF-003 + SPEC-20261004-redis-hybrid-cache RF-005
+/// — drift scan horário publica no cache HybridCache; diff "novos drifts" usa
+/// snapshot process-local (<c>_previous</c>).</summary>
 public sealed class SpecDriftScanServiceTests
 {
     [Fact]
-    public void Dado_CacheVazio_Quando_Update_Entao_LastRetornaRelatorio()
+    public async Task Dado_CacheVazio_Quando_SetAsync_Entao_GetOrCreateServeSemFactory()
     {
-        var cache = new SpecDriftReportCache();
-        cache.Last.ShouldBeNull();
-
+        var cache = CreateCache();
         var report = new SpecDriftReportDto(10, 1, []);
-        cache.Update(report);
+        await cache.SetAsync(report, CancellationToken.None);
 
-        cache.Last.ShouldBe(report);
+        var factoryRan = false;
+        var served = await cache.GetOrCreateAsync(ct =>
+        {
+            factoryRan = true;
+            return new ValueTask<SpecDriftReportDto>(new SpecDriftReportDto(0, 0, []));
+        }, CancellationToken.None);
+
+        served.TotalSpecs.ShouldBe(report.TotalSpecs);
+        factoryRan.ShouldBeFalse();
     }
 
     [Fact]
-    public async Task Dado_DetectorComDrift_Quando_StartAsync_Entao_PrimeiraPassadaAlimentaCache()
+    public async Task Dado_DetectorComDrift_Quando_StartAsync_Entao_PrimeiraPassadaPublicaCache()
     {
         var report = new SpecDriftReportDto(10, 1,
         [
@@ -34,19 +44,33 @@ public sealed class SpecDriftScanServiceTests
         ]);
         var detector = Substitute.For<ISpecDriftDetector>();
         detector.BuildReportAsync(null, Arg.Any<CancellationToken>()).Returns(Task.FromResult(report));
-        var cache = new SpecDriftReportCache();
+        var cache = CreateCache();
         var service = new SpecDriftScanService(detector, cache, CreateRegistry(), NullLogger<SpecDriftScanService>.Instance);
 
         await service.StartAsync(CancellationToken.None);
         try
         {
+            // Poll the facade: once SetAsync lands, GetOrCreateAsync serves the
+            // report without running the probe factory.
+            var served = false;
             var deadline = DateTime.UtcNow.AddSeconds(5);
-            while (cache.Last is null && DateTime.UtcNow < deadline)
+            while (!served && DateTime.UtcNow < deadline)
             {
-                await Task.Delay(50);
+                var factoryRan = false;
+                var value = await cache.GetOrCreateAsync(ct =>
+                {
+                    factoryRan = true;
+                    return new ValueTask<SpecDriftReportDto>(new SpecDriftReportDto(0, 0, []));
+                }, CancellationToken.None);
+                // Cache round-trips via serializer — compare content, not identity.
+                served = !factoryRan && value.TotalSpecs == report.TotalSpecs;
+                if (!served)
+                {
+                    await Task.Delay(50);
+                }
             }
 
-            cache.Last.ShouldBe(report);
+            served.ShouldBeTrue();
             await detector.Received(1).BuildReportAsync(null, Arg.Any<CancellationToken>());
         }
         finally
@@ -56,12 +80,12 @@ public sealed class SpecDriftScanServiceTests
     }
 
     [Fact]
-    public async Task Dado_DetectorFalhando_Quando_StartAsync_Entao_ServicoSobrevive()
+    public async Task Dado_DetectorFalhando_Quando_StartAsync_Entao_ServicoSobreviveECacheFicaVazio()
     {
         var detector = Substitute.For<ISpecDriftDetector>();
         detector.BuildReportAsync(null, Arg.Any<CancellationToken>())
             .Returns<Task<SpecDriftReportDto>>(_ => throw new InvalidOperationException("boom"));
-        var cache = new SpecDriftReportCache();
+        var cache = CreateCache();
         var service = new SpecDriftScanService(detector, cache, CreateRegistry(), NullLogger<SpecDriftScanService>.Instance);
 
         // A exceção do tick fica contida — Start/Stop não propagam.
@@ -69,7 +93,22 @@ public sealed class SpecDriftScanServiceTests
         await Task.Delay(300);
         await service.StopAsync(CancellationToken.None);
 
-        cache.Last.ShouldBeNull();
+        // Cache vazio: a probe factory é obrigada a rodar.
+        var factoryRan = false;
+        await cache.GetOrCreateAsync(ct =>
+        {
+            factoryRan = true;
+            return new ValueTask<SpecDriftReportDto>(new SpecDriftReportDto(0, 0, []));
+        }, CancellationToken.None);
+        factoryRan.ShouldBeTrue();
+    }
+
+    private static SpecDriftReportCache CreateCache()
+    {
+        var services = new ServiceCollection();
+        services.AddHybridCache();
+        return new SpecDriftReportCache(
+            services.BuildServiceProvider().GetRequiredService<HybridCache>());
     }
 
     private static JobRegistry CreateRegistry() => JobRegistryTestHost.Create(
