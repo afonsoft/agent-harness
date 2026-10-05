@@ -155,6 +155,39 @@ window.taskboard = {
 // approval gates — permission is requested lazily on the first cockpit visit;
 // every failure path degrades to the in-app toast/modal silently.
 window.taskboardNotify = {
+    // SPEC-20261005 RF-008: current Notification.permission ('default',
+    // 'granted', 'denied' ou 'unsupported').
+    permission: function () {
+        return ('Notification' in window) ? Notification.permission : 'unsupported';
+    },
+
+    // 'visible' | 'hidden' — browser notify só dispara com a aba fora de foco.
+    isHidden: function () {
+        return document.hidden === true;
+    },
+
+    // Per-browser override de notificações do chat (harness.chat.notify.*).
+    // Lê 'true'/'false'; devolve null quando o key não existe ou storage está
+    // indisponível — nesse caso o default global (config catalog) vale.
+    getChatPref: function (name) {
+        try {
+            var v = localStorage.getItem('harness.chat.notify.' + name);
+            return (v === 'true' || v === 'false') ? v : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    setChatPref: function (name, value) {
+        try {
+            if (value === null || value === undefined) {
+                localStorage.removeItem('harness.chat.notify.' + name);
+            } else {
+                localStorage.setItem('harness.chat.notify.' + name, value ? 'true' : 'false');
+            }
+        } catch (e) { /* storage indisponível — default global segue */ }
+    },
+
     ensurePermission: async function () {
         try {
             if (!('Notification' in window)) {
@@ -171,12 +204,12 @@ window.taskboardNotify = {
     },
 
     // Returns true when a notification was actually shown.
-    notify: function (title, body, url) {
+    notify: function (title, body, url, tag) {
         try {
             if (!('Notification' in window) || Notification.permission !== 'granted') {
                 return false;
             }
-            var n = new Notification(title, { body: body || '', tag: 'harness-approval' });
+            var n = new Notification(title, { body: body || '', tag: tag || 'harness-approval' });
             n.onclick = function () {
                 try {
                     window.focus();

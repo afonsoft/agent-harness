@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.AspNetCore.Http.Connections;
 using Shouldly;
 using Xunit;
 
@@ -149,6 +152,46 @@ public class ChatEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
         body.ShouldContain("event: chat.sync");
         body.ShouldContain("event: chat.done");
         body.ShouldContain("\"status\":\"failed\"");
+    }
+
+    [Fact]
+    public async Task Dado_RunFalhado_Quando_Terminaliza_Entao_HubPublicaRunCompleted()
+    {
+        // SPEC-20261005 RF-008: o notifier registra SignalRChatRunNotifier no
+        // escopo do run — ao terminalizar, /chat-run-hub emite run.completed
+        // com o status e o conversationId (o toast/desktop-notify do client).
+        var client = await ApiClientAsync();
+        var provider = await CreateProviderAsync(client);
+        var create = await client.PostAsJsonAsync("/api/local/chat/conversations", new
+        {
+            providerId = provider["id"]!.GetValue<Guid>(),
+            model = "m1",
+        });
+        var id = ((await create.Content.ReadFromJsonAsync<JsonObject>())!["conversation"] as JsonObject)!["id"]!
+            .GetValue<string>();
+
+        await using var hub = new HubConnectionBuilder()
+            .WithUrl("http://localhost/chat-run-hub", options =>
+            {
+                options.Transports = HttpTransportType.LongPolling;
+                options.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
+                options.Headers["X-Api-Key"] = TaskboardWebApplicationFactory.TestApiKey;
+            })
+            .Build();
+        var received = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.On<JsonObject>("run.completed", payload => received.TrySetResult(payload));
+        await hub.StartAsync();
+        hub.State.ShouldBe(HubConnectionState.Connected);
+
+        await client.PostAsJsonAsync($"/api/local/chat/conversations/{id}/messages", new
+        {
+            content = "olá",
+        });
+
+        var payload = await received.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        payload["conversationId"]!.GetValue<string>().ShouldBe(id);
+        payload["status"]!.GetValue<string>().ShouldBe("failed");
+        payload["error"]!.GetValue<string>().ShouldContain("refused");
     }
 
     [Fact]
