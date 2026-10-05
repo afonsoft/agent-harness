@@ -505,43 +505,56 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 return 0;
             }
 
-            var buffer = new byte[64 * 1024];
-            var lines = 0;
-            var sniffed = 0;
-            var lastByte = -1;
             using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            int read;
-            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                if (sniffed < BinarySniffBytes)
-                {
-                    var window = Math.Min(read, BinarySniffBytes - sniffed);
-                    if (buffer.AsSpan(0, window).IndexOf((byte)0) >= 0)
-                    {
-                        return 0;
-                    }
-
-                    sniffed += window;
-                }
-
-                for (var i = 0; i < read; i++)
-                {
-                    if (buffer[i] == (byte)'\n')
-                    {
-                        lines++;
-                    }
-                }
-
-                lastByte = buffer[read - 1];
-            }
-
-            // Última linha sem '\n' final também conta, como no diff do git.
-            return lastByte >= 0 && lastByte != '\n' ? lines + 1 : lines;
+            return CountLinesInStream(stream);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             return 0; // corrida de deleção/lock — não pode derrubar o diff
         }
+    }
+
+    /// <summary>Conta '\n' no stream; sniff dos primeiros bytes aborta em binário
+    /// (retorna 0, como o <c>-</c> do numstat).</summary>
+    private static int CountLinesInStream(FileStream stream)
+    {
+        var buffer = new byte[64 * 1024];
+        var lines = 0;
+        var sniffed = 0;
+        var lastByte = -1;
+        int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (SniffIsBinary(buffer, read, ref sniffed))
+            {
+                return 0;
+            }
+
+            for (var i = 0; i < read; i++)
+            {
+                if (buffer[i] == (byte)'\n')
+                {
+                    lines++;
+                }
+            }
+
+            lastByte = buffer[read - 1];
+        }
+
+        // Última linha sem '\n' final também conta, como no diff do git.
+        return lastByte >= 0 && lastByte != '\n' ? lines + 1 : lines;
+    }
+
+    private static bool SniffIsBinary(byte[] buffer, int read, ref int sniffed)
+    {
+        if (sniffed >= BinarySniffBytes)
+        {
+            return false;
+        }
+
+        var window = Math.Min(read, BinarySniffBytes - sniffed);
+        sniffed += window;
+        return buffer.AsSpan(0, window).IndexOf((byte)0) >= 0;
     }
 
     /// <summary>Insertions de uma entrada Untracked: direto do mapa ou soma sob um 'dir/' colapsado.</summary>

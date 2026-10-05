@@ -2154,11 +2154,17 @@ void MapSettingsAndChatEndpoints()
     // ?createPr=true the pushed branch also becomes a GitHub PR against the
     // session base (title/baseBranch overridable).
     api.MapPost("local/delegation/tasks/{id}/promote", async (
-        string id, string? scope, string? title, string? baseBranch,
+        string id, HttpRequest request,
         IDelegationTaskRepository tasks,
         IWorkspaceIsolationService isolation, IPromotedLegPrService promotePr,
-        CancellationToken ct, bool createPr = false) =>
+        CancellationToken ct) =>
     {
+        // S107: query options read off the request instead of a fat lambda
+        // signature — POST callers send content:null, so no body model exists.
+        var scope = (string?)request.Query["scope"];
+        var title = (string?)request.Query["title"];
+        var baseBranch = (string?)request.Query["baseBranch"];
+        var createPr = string.Equals(request.Query["createPr"], "true", StringComparison.OrdinalIgnoreCase);
         var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
         var task = await tasks.GetAsync(id, ct);
         if (task is null || !string.Equals(task.Scope, effectiveScope, StringComparison.Ordinal))
@@ -3269,7 +3275,7 @@ void MapOperationsEndpoints()
             "agent-custom-defs",
             async inner => await defs.ListAsync(inner),
             new HybridCacheEntryOptions { Expiration = TimeSpan.FromSeconds(30) },
-            ["agent-defs"],
+            [Program.AgentDefsCacheTag],
             ct);
         return Results.Ok(list.Select(d => d with
         {
@@ -3311,7 +3317,7 @@ void MapOperationsEndpoints()
         try
         {
             var def = await defs.AddAsync(request, ct);
-            await cache.RemoveByTagAsync("agent-defs", ct);
+            await cache.RemoveByTagAsync(Program.AgentDefsCacheTag, ct);
             return Results.Created($"/api/agents/custom/{def.Id}", def with
             {
                 Resolved = PathSearch.FindExecutable(def.Executable) is not null,
@@ -3344,7 +3350,7 @@ void MapOperationsEndpoints()
             var def = await defs.UpdateAsync(id, request, ct);
             if (def is not null)
             {
-                await cache.RemoveByTagAsync("agent-defs", ct);
+                await cache.RemoveByTagAsync(Program.AgentDefsCacheTag, ct);
             }
             return def is null
                 ? Results.NotFound(new { error = customCliNotFound })
@@ -3365,7 +3371,7 @@ void MapOperationsEndpoints()
         var deleted = await defs.DeleteAsync(id, ct);
         if (deleted)
         {
-            await cache.RemoveByTagAsync("agent-defs", ct);
+            await cache.RemoveByTagAsync(Program.AgentDefsCacheTag, ct);
         }
         return deleted
             ? Results.NoContent()
@@ -3746,4 +3752,6 @@ public partial class Program
     private const string RepoShapeMessage = "repo must have the 'owner/name' shape.";
     private const string VscodePath = "/vscode";
     private const string SkillsSegment = "skills";
+    private const string AgentDefsCacheTag = "agent-defs";
+
 }

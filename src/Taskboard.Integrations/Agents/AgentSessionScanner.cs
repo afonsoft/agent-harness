@@ -268,11 +268,11 @@ public sealed class AgentSessionScanner : IAgentSessionScanner
                 .OrderByDescending(r => r.ModifiedAt)
                 .Select(r => new AgentSessionInfoDto(
                     "devin",
-                    r.Id!,
+                    r.Id ?? "",
                     r.Cwd,
                     r.ModifiedAt.UtcDateTime,
                     dbPath,
-                    ResumeCommand(spec, r.Id!)))
+                    ResumeCommand(spec, r.Id ?? "")))
                 .ToList();
         }
         catch (Exception ex) when (ex is CliDbReadException or CliDbAccessDeniedException
@@ -311,48 +311,8 @@ public sealed class AgentSessionScanner : IAgentSessionScanner
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         try
         {
-            if (File.Exists(historyPath) && new FileInfo(historyPath).Length <= AgyHistoryMaxBytes)
-            {
-                foreach (var line in File.ReadLines(historyPath))
-                {
-                    if (string.IsNullOrWhiteSpace(line))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(line);
-                        var root = doc.RootElement;
-                        if (root.TryGetProperty("conversationId", out var idEl)
-                            && root.TryGetProperty("workspace", out var wsEl)
-                            && idEl.GetString() is { Length: > 0 } id
-                            && wsEl.GetString() is { Length: > 0 } ws)
-                        {
-                            map[id] = ws;
-                        }
-                    }
-                    catch (JsonException)
-                    {
-                        // torn final line — skip it, keep the rest
-                    }
-                }
-            }
-
-            if (File.Exists(lastConversationsPath) && new FileInfo(lastConversationsPath).Length <= AgyHistoryMaxBytes)
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(lastConversationsPath));
-                if (doc.RootElement.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var prop in doc.RootElement.EnumerateObject())
-                    {
-                        if (prop.Value.GetString() is { Length: > 0 } id && !map.ContainsKey(id))
-                        {
-                            map[id] = prop.Name;
-                        }
-                    }
-                }
-            }
+            ReadAgyHistory(historyPath, map);
+            ReadAgyLastConversations(lastConversationsPath, map);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -360,6 +320,64 @@ public sealed class AgentSessionScanner : IAgentSessionScanner
         }
 
         return map;
+    }
+
+    /// <summary>history.jsonl — append-only journal; every line wins over the previous.</summary>
+    private static void ReadAgyHistory(string historyPath, Dictionary<string, string> map)
+    {
+        if (!File.Exists(historyPath) || new FileInfo(historyPath).Length > AgyHistoryMaxBytes)
+        {
+            return;
+        }
+
+        foreach (var line in File.ReadLines(historyPath))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("conversationId", out var idEl)
+                    && root.TryGetProperty("workspace", out var wsEl)
+                    && idEl.GetString() is { Length: > 0 } id
+                    && wsEl.GetString() is { Length: > 0 } ws)
+                {
+                    map[id] = ws;
+                }
+            }
+            catch (JsonException)
+            {
+                // torn final line — skip it, keep the rest
+            }
+        }
+    }
+
+    /// <summary>last_conversations.json — workspace → latest-conversation fallback
+    /// for ids absent from history.</summary>
+    private static void ReadAgyLastConversations(string lastConversationsPath, Dictionary<string, string> map)
+    {
+        if (!File.Exists(lastConversationsPath) || new FileInfo(lastConversationsPath).Length > AgyHistoryMaxBytes)
+        {
+            return;
+        }
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(lastConversationsPath));
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            if (prop.Value.GetString() is { Length: > 0 } id && !map.ContainsKey(id))
+            {
+                map[id] = prop.Name;
+            }
+        }
     }
 
     /// <summary>Newest <c>*.jsonl</c> mtime under <paramref name="dir"/>, else the dir's own mtime.</summary>

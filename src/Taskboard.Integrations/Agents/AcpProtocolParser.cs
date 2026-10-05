@@ -145,20 +145,10 @@ public static class AcpProtocolParser
         {
             foreach (var opt in opts.EnumerateArray())
             {
-                if (opt.ValueKind == JsonValueKind.Object
-                    && opt.TryGetProperty("optionId", out var oid)
-                    && oid.GetString() is { } optionId)
+                var parsed = OptionOf(opt);
+                if (parsed is not null)
                 {
-                    options.Add(new
-                    {
-                        optionId,
-                        name = opt.TryGetProperty("name", out var n) ? n.GetString() : null,
-                        kind = opt.TryGetProperty("kind", out var k) ? k.GetString() : null,
-                    });
-                }
-                else if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { } legacy)
-                {
-                    options.Add(new { optionId = legacy, name = (string?)null, kind = (string?)null });
+                    options.Add(parsed);
                 }
             }
         }
@@ -170,6 +160,27 @@ public static class AcpProtocolParser
         }
 
         return options;
+    }
+
+    /// <summary>One normalized option, or null for a shape we don't carry —
+    /// structured {optionId,name,kind} object or a bare legacy string id.</summary>
+    private static object? OptionOf(JsonElement opt)
+    {
+        if (opt.ValueKind == JsonValueKind.Object
+            && opt.TryGetProperty("optionId", out var oid)
+            && oid.GetString() is { } optionId)
+        {
+            return new
+            {
+                optionId,
+                name = opt.TryGetProperty("name", out var n) ? n.GetString() : null,
+                kind = opt.TryGetProperty("kind", out var k) ? k.GetString() : null,
+            };
+        }
+
+        return opt.ValueKind == JsonValueKind.String && opt.GetString() is { } legacy
+            ? new { optionId = legacy, name = (string?)null, kind = (string?)null }
+            : null;
     }
 
     /// <summary>

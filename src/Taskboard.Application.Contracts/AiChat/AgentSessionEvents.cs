@@ -38,7 +38,7 @@ public sealed record PermissionRequestInfo(
     [JsonIgnore]
     public IReadOnlyList<PermissionOptionInfo> EffectiveOptions =>
         OptionDetails is { Count: > 0 } details
-            ? details
+            ? details.ToList()
             : Options.Select(id => new PermissionOptionInfo(id, id, null)).ToList();
 }
 

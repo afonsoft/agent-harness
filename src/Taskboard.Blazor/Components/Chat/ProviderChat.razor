@@ -833,9 +833,16 @@
     /// on user bubbles.</summary>
     private static string? SkillChipName(string content)
     {
-        var offset = content.StartsWith("[skill:", StringComparison.Ordinal) ? 7
-            : content.StartsWith("[command:", StringComparison.Ordinal) ? 9
-            : -1;
+        var offset = -1;
+        if (content.StartsWith("[skill:", StringComparison.Ordinal))
+        {
+            offset = 7;
+        }
+        else if (content.StartsWith("[command:", StringComparison.Ordinal))
+        {
+            offset = 9;
+        }
+
         if (offset < 0)
         {
             return null;

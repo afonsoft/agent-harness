@@ -53,51 +53,20 @@ public sealed class RunAgentTool(
 
         var wait = arguments.TryGetProperty("wait", out var w) && w.ValueKind is JsonValueKind.True;
 
-        var agents = await orchestration.GetAvailableAgentsAsync(cancellationToken).ConfigureAwait(false);
-        // SPEC-20261003-ai-code-agent-chat: an omitted agent arg falls back to
-        // the CLI picked in the conversation's Agent bar.
-        var requested = arguments.TryGetProperty("agent", out var a) && a.ValueKind == JsonValueKind.String
-            ? a.GetString()
-            : context.DefaultAgentCli;
-        var agent = requested is null
-            ? agents.FirstOrDefault(x => x.Status == AgentStatus.Available)
-            : agents.FirstOrDefault(x =>
-                x.Status == AgentStatus.Available
-                && (string.Equals(x.Name, requested, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(x.Type.ToString(), requested, StringComparison.OrdinalIgnoreCase)));
-        if (agent is null)
+        var resolved = await ResolveAgentAsync(arguments, prompt, context, cancellationToken)
+            .ConfigureAwait(false);
+        if (resolved.Result is not null)
         {
-            var customResult = await TryRunCustomDefAsync(
-                requested, prompt, context, cancellationToken).ConfigureAwait(false);
-            if (customResult is not null)
-            {
-                return customResult;
-            }
-
-            var eligible = string.Join(", ", agents.Where(x => x.Status == AgentStatus.Available).Select(x => x.Name));
-            return new ChatToolResult(
-                ErrorJson($"no eligible agent CLI{(eligible.Length > 0 ? $" (available: {eligible})" : null)}"),
-                Refused: true, "no eligible agent");
+            return resolved.Result;
         }
+
+        var agent = resolved.Agent ?? throw new InvalidOperationException("resolution returned neither agent nor result");
 
         // B-07: unique id per delegation — two runs in the same conversation
         // must not share "chat:{id}", or wait=true could observe a previous
         // delegation's terminal state.
         var issueId = $"chat:{context.ConversationId ?? "unknown"}:{Guid.NewGuid().ToString("N")[..8]}";
-        var repoPath = context.WorkspacePath;
-        var request = new AgentExecutionRequest(
-            IssueId: issueId,
-            IssueNumber: 0,
-            RepositoryFullName: string.Empty,
-            RepoPath: repoPath,
-            Branch: null,
-            Scope: null,
-            Instructions: $"(delegated from chat conversation {context.ConversationId})\n\n{prompt}",
-            AgentType: agent.Type,
-            ResolvedModelName: string.IsNullOrWhiteSpace(context.DefaultAgentModel)
-                ? null
-                : context.DefaultAgentModel,
-            OmitModelFlag: string.IsNullOrWhiteSpace(context.DefaultAgentModel));
+        var request = BuildRequest(issueId, prompt, agent.Type, context);
 
         context.Activity?.Report("running_agent", agent.Name);
 
@@ -121,6 +90,60 @@ public sealed class RunAgentTool(
         return await AwaitRunCompletionAsync(orchestration, context, issueId, agent.Name, cancellationToken)
             .ConfigureAwait(false);
     }
+
+    private sealed record AgentResolution(AgentInfo? Agent, ChatToolResult? Result);
+
+    /// <summary>Picks the requested (or first available) builtin agent; when no
+    /// builtin matches, a custom CLI def may still serve the run inline.</summary>
+    private async Task<AgentResolution> ResolveAgentAsync(
+        JsonElement arguments, string prompt, ChatToolContext context,
+        CancellationToken cancellationToken)
+    {
+        var agents = await orchestration.GetAvailableAgentsAsync(cancellationToken).ConfigureAwait(false);
+        // SPEC-20261003-ai-code-agent-chat: an omitted agent arg falls back to
+        // the CLI picked in the conversation's Agent bar.
+        var requested = arguments.TryGetProperty("agent", out var a) && a.ValueKind == JsonValueKind.String
+            ? a.GetString()
+            : context.DefaultAgentCli;
+        var agent = requested is null
+            ? agents.FirstOrDefault(x => x.Status == AgentStatus.Available)
+            : agents.FirstOrDefault(x =>
+                x.Status == AgentStatus.Available
+                && (string.Equals(x.Name, requested, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(x.Type.ToString(), requested, StringComparison.OrdinalIgnoreCase)));
+        if (agent is not null)
+        {
+            return new(agent, null);
+        }
+
+        var customResult = await TryRunCustomDefAsync(
+            requested, prompt, context, cancellationToken).ConfigureAwait(false);
+        if (customResult is not null)
+        {
+            return new(null, customResult);
+        }
+
+        var eligible = string.Join(", ", agents.Where(x => x.Status == AgentStatus.Available).Select(x => x.Name));
+        return new(null, new ChatToolResult(
+            ErrorJson($"no eligible agent CLI{(eligible.Length > 0 ? $" (available: {eligible})" : null)}"),
+            Refused: true, "no eligible agent"));
+    }
+
+    private static AgentExecutionRequest BuildRequest(
+        string issueId, string prompt, AgentType agentType, ChatToolContext context) =>
+        new(
+            IssueId: issueId,
+            IssueNumber: 0,
+            RepositoryFullName: string.Empty,
+            RepoPath: context.WorkspacePath,
+            Branch: null,
+            Scope: null,
+            Instructions: $"(delegated from chat conversation {context.ConversationId})\n\n{prompt}",
+            AgentType: agentType,
+            ResolvedModelName: string.IsNullOrWhiteSpace(context.DefaultAgentModel)
+                ? null
+                : context.DefaultAgentModel,
+            OmitModelFlag: string.IsNullOrWhiteSpace(context.DefaultAgentModel));
 
     // SPEC-20261004 RF-007: a custom CLI definition is also a valid agent —
     // run it inline via its args template (defs aren't AgentTypes, so they

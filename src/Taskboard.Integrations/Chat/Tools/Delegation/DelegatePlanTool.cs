@@ -61,8 +61,13 @@ public sealed class DelegatePlanTool(
             return DelegationToolSupport.Error(parseError, "bad plan");
         }
 
+        if (specs is null)
+        {
+            return DelegationToolSupport.Error("could not parse tasks", "bad plan");
+        }
+
         var repoError = await ResolveRepoErrorAsync(
-            specs!, arguments, context, cancellationToken).ConfigureAwait(false);
+            specs, arguments, context, cancellationToken).ConfigureAwait(false);
         if (repoError.Error is not null)
         {
             return repoError.Error;
@@ -74,7 +79,7 @@ public sealed class DelegatePlanTool(
         try
         {
             var created = await planCreator.CreateAsync(
-                specs!, repoError.RepoPath, baseBranch, scope, context.WorkspacePath,
+                specs, repoError.RepoPath, baseBranch, scope, context.WorkspacePath,
                 context.DefaultAgentCli, cancellationToken).ConfigureAwait(false);
             context.Activity?.Report("delegated_plan", $"{created.Count} tasks");
             return DelegationToolSupport.Ok(new

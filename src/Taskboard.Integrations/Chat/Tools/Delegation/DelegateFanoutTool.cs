@@ -62,12 +62,15 @@ public sealed class DelegateFanoutTool(
 
         var scope = DelegationToolSupport.ScopeOf(context);
         var groupId = $"fan-{Guid.NewGuid():N}";
+        var leg = new LegContext(
+            repoResult.RepoPath, scope, groupId,
+            ReadString(arguments, "base_branch") ?? "main", context);
 
         try
         {
             var legs = await CreateLegsAsync(
-                prompt!, clis, useWorktree, repoResult.RepoPath, arguments, scope, groupId,
-                context, cancellationToken).ConfigureAwait(false);
+                prompt ?? string.Empty, clis, useWorktree, leg, cancellationToken)
+                .ConfigureAwait(false);
             context.Activity?.Report("delegated_fanout", groupId);
             return DelegationToolSupport.Ok(new { groupId, scope, legs });
         }
@@ -125,30 +128,32 @@ public sealed class DelegateFanoutTool(
             : new(repoPath, null);
     }
 
+    private sealed record LegContext(
+        string? RepoPath, string Scope, string GroupId, string BaseBranch,
+        ChatToolContext ToolContext);
+
     private async Task<List<object>> CreateLegsAsync(
-        string prompt, IReadOnlyList<string> clis, bool useWorktree, string? repoPath,
-        JsonElement arguments, string scope, string groupId, ChatToolContext context,
-        CancellationToken cancellationToken)
+        string prompt, IReadOnlyList<string> clis, bool useWorktree,
+        LegContext leg, CancellationToken cancellationToken)
     {
         var legs = new List<object>();
         await using var diScope = scopeFactory.CreateAsyncScope();
         var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
         var isolation = diScope.ServiceProvider.GetService<IWorkspaceIsolationService>();
-        var baseBranch = ReadString(arguments, "base_branch") ?? "main";
 
         foreach (var cli in clis)
         {
             var task = await service.CreateTaskAsync(
                 new CreateDelegationTaskRequest(
-                    prompt, cli, scope, context.WorkspacePath,
-                    DependsOn: null, RetryOf: null, groupId,
-                    useWorktree, repoPath, BaseCommitSha: null),
+                    prompt, cli, leg.Scope, leg.ToolContext.WorkspacePath,
+                    DependsOn: null, RetryOf: null, leg.GroupId,
+                    useWorktree, leg.RepoPath, BaseCommitSha: null),
                 cancellationToken).ConfigureAwait(false);
 
-            var leg = await AttachWorktreeAsync(
-                task, useWorktree, isolation, service, repoPath, baseBranch, cancellationToken)
-                .ConfigureAwait(false);
-            legs.Add(leg);
+            var attached = await AttachWorktreeAsync(
+                task, useWorktree, isolation, service, leg.RepoPath, leg.BaseBranch,
+                cancellationToken).ConfigureAwait(false);
+            legs.Add(attached);
         }
 
         return legs;
@@ -174,7 +179,9 @@ public sealed class DelegateFanoutTool(
         try
         {
             var session = await isolation.CreateWorktreeAsync(
-                task.Id, repoPath!, baseBranch,
+                task.Id,
+                repoPath ?? throw new InvalidOperationException("worktree requested without repo path"),
+                baseBranch,
                 $"fanout-{task.Id[^Math.Min(8, task.Id.Length)..]}",
                 retainOnFailure: false, cancellationToken).ConfigureAwait(false);
             task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
@@ -215,7 +222,7 @@ public sealed class DelegateFanoutTool(
 
         return p.EnumerateArray()
             .Where(e => e.ValueKind == JsonValueKind.String)
-            .Select(e => e.GetString()!)
+            .Select(e => e.GetString() ?? string.Empty)
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .ToList();
     }

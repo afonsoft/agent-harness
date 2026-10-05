@@ -54,23 +54,11 @@ public static class AcpSessionMessageParser
         {
             foreach (var opt in opts.EnumerateArray())
             {
-                if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { Length: > 0 } legacy)
+                var optionDetail = OptionDetailOf(opt);
+                if (optionDetail is not null)
                 {
-                    options.Add(legacy);
-                    details.Add(new PermissionOptionInfo(legacy, legacy, null));
-                }
-                else if (opt.ValueKind == JsonValueKind.Object
-                         && opt.TryGetProperty("optionId", out var oid)
-                         && oid.GetString() is { Length: > 0 } optionId)
-                {
-                    // SPEC-20261004 RF-001: keep the agent's own label/kind so
-                    // the card can render real choices, not mapped outcomes.
-                    var label = opt.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } nm
-                        ? nm
-                        : optionId;
-                    var kind = opt.TryGetProperty("kind", out var k) ? k.GetString() : null;
-                    options.Add(optionId);
-                    details.Add(new PermissionOptionInfo(optionId, label, kind));
+                    options.Add(optionDetail.OptionId);
+                    details.Add(optionDetail);
                 }
             }
         }
@@ -82,5 +70,29 @@ public static class AcpSessionMessageParser
         }
 
         return new PermissionRequestInfo(requestId, tool, detail, options.AsReadOnly(), details.AsReadOnly());
+    }
+
+    /// <summary>One option entry — a bare legacy string id, or the structured
+    /// {optionId,name,kind} object keeping the agent's own label/kind so the
+    /// card can render real choices, not mapped outcomes (SPEC-20261004 RF-001).</summary>
+    private static PermissionOptionInfo? OptionDetailOf(JsonElement opt)
+    {
+        if (opt.ValueKind == JsonValueKind.String && opt.GetString() is { Length: > 0 } legacy)
+        {
+            return new PermissionOptionInfo(legacy, legacy, null);
+        }
+
+        if (opt.ValueKind != JsonValueKind.Object
+            || !opt.TryGetProperty("optionId", out var oid)
+            || oid.GetString() is not { Length: > 0 } optionId)
+        {
+            return null;
+        }
+
+        var label = opt.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } nm
+            ? nm
+            : optionId;
+        var kind = opt.TryGetProperty("kind", out var k) ? k.GetString() : null;
+        return new PermissionOptionInfo(optionId, label, kind);
     }
 }
