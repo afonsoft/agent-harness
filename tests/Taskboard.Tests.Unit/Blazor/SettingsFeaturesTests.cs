@@ -6,9 +6,11 @@ namespace Taskboard.Tests.Unit.Blazor;
 /// <summary>
 /// SPEC-20260929-webcli-toggle-finops-active-sessions RF-002: a página
 /// Settings deve ter uma seção "Features" com switches dedicados para as
-/// chaves booleanas do catálogo (Web CLI Agent, Terminal), antes da tabela
-/// Configuration. A ordem e a presença são contrato — regressão coberta por
-/// teste de fonte (padrão NavMenuOrderTests).
+/// chaves booleanas do catálogo (Web CLI Agent, Terminal) dentro da aba
+/// General — a tabela Configuration virou uma aba dedicada
+/// (SPEC-20261010-settings-configuration-tab, coberta por
+/// SettingsConfigurationTabTests). A presença é contrato — regressão coberta
+/// por teste de fonte (padrão NavMenuOrderTests).
 /// </summary>
 public class SettingsFeaturesTests
 {
@@ -27,15 +29,19 @@ public class SettingsFeaturesTests
     }
 
     [Fact]
-    public void Dado_Settings_Quando_LeFonte_Entao_SecaoFeaturesAntesDaConfiguration()
+    public void Dado_Settings_Quando_LeFonte_Entao_SecaoFeaturesNaAbaGeneral()
     {
         var src = SettingsSource();
 
+        var generalPane = src.IndexOf("aria-label=\"General\"", StringComparison.Ordinal);
         var features = src.IndexOf("form-section-title\">Features", StringComparison.Ordinal);
-        var config = src.IndexOf("form-section-title\">Connections", StringComparison.Ordinal);
+        var configPane = src.IndexOf("aria-label=\"Configuration\"", StringComparison.Ordinal);
+        var connections = src.IndexOf("form-section-title\">Connections", StringComparison.Ordinal);
 
-        features.ShouldBeGreaterThan(0, "seção Features deve existir no Settings");
-        config.ShouldBeGreaterThan(features, "Features deve vir antes da seção Connections (ex-Configuration, SPEC-20261010)");
+        generalPane.ShouldBeGreaterThan(0, "aba General deve existir no Settings");
+        features.ShouldBeGreaterThan(generalPane, "Features deve estar na aba General");
+        configPane.ShouldBeGreaterThan(features, "a aba Configuration deve vir depois da seção Features");
+        connections.ShouldBeGreaterThan(configPane, "Connections é a primeira seção da aba Configuration (ex-Configuration, SPEC-20261010)");
     }
 
     [Fact]

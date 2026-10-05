@@ -42,13 +42,29 @@ public class SkillsInstallEndpointsTests : IClassFixture<SkillsInstallEndpointsT
             Locations: [],
             Error: null);
 
-        public void RequestInstall() => InstallRequests++;
+        public string? LastRepository { get; private set; }
+        public (string Repository, string? Skill)? LastSkillInstall { get; private set; }
+        public SkillsInstallStep? NextSkillStep { get; set; }
 
-        public Task<SkillsInstallStatus> InstallAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(GetStatus());
+        public void RequestInstall(string? repository = null) => InstallRequests++;
+
+        public Task<SkillsInstallStatus> InstallAsync(
+            string? repository = null, CancellationToken cancellationToken = default)
+        {
+            LastRepository = repository;
+            return Task.FromResult(GetStatus());
+        }
 
         public Task<SkillsInstallStatus> VerifyAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(GetStatus());
+
+        public Task<SkillsInstallStep> InstallSkillAsync(
+            string repository, string? skill, CancellationToken cancellationToken = default)
+        {
+            LastSkillInstall = (repository, skill);
+            return Task.FromResult(NextSkillStep ?? new SkillsInstallStep(
+                "npx-add-skill", SkillsInstallStepState.Succeeded, 0, 10, "ok"));
+        }
     }
 
     public sealed class InstallFactory : WebApplicationFactory<Program>
@@ -68,7 +84,28 @@ public class SkillsInstallEndpointsTests : IClassFixture<SkillsInstallEndpointsT
             builder.ConfigureTestServices(services =>
             {
                 services.AddSingleton<ISkillsInstallerService>(Installer);
+                // SPEC-20261010-mcp-skills-hub: deterministic skills search —
+                // never spawn a real `npx skills find` in tests.
+                services.AddSingleton(new Taskboard.Integrations.Skills.SkillsSearchService(
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<Taskboard.Integrations.Skills.SkillsSearchService>.Instance,
+                    runner: new FakeSearchRunner(),
+                    executableLocator: _ => "/usr/bin/npx"));
             });
+        }
+
+        /// <summary>Canned <c>npx skills find</c> output.</summary>
+        public sealed class FakeSearchRunner : Taskboard.Integrations.Skills.ISkillsInstallRunner
+        {
+            public IReadOnlyList<string>? LastArguments { get; private set; }
+
+            public Task<Taskboard.Integrations.Skills.CommandResult> RunAsync(
+                string executable, string workingDirectory,
+                IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+            {
+                LastArguments = arguments;
+                return Task.FromResult(new Taskboard.Integrations.Skills.CommandResult(
+                    0, "afonsoft/skills@code-review — Review a PR\nowner/pack - collection\n", ""));
+            }
         }
 
         public async Task<HttpClient> CreateAuthenticatedClientAsync()
@@ -167,5 +204,89 @@ public class SkillsInstallEndpointsTests : IClassFixture<SkillsInstallEndpointsT
         var body = JsonNode.Parse(await response.Content.ReadAsStringAsync())!.AsObject();
         body["installed"].ShouldNotBeNull();
         body["skillCount"].ShouldNotBeNull();
+    }
+
+    // ---- SPEC-20261010-mcp-skills-hub RF-004/RF-005 ----
+
+    [Fact]
+    public async Task Dado_RepoValido_Quando_InstallRepo_Entao_202ComOverride()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/skills/install-repo",
+            new { repository = "owner/pack" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        _factory.Installer.LastRepository.ShouldBe("owner/pack");
+    }
+
+    [Fact]
+    public async Task Dado_RepoInvalido_Quando_InstallRepo_Entao_400()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/skills/install-repo",
+            new { repository = "not a repo" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_QueryValida_Quando_Search_Entao_200ComResultados()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var results = await client.GetFromJsonAsync<JsonArray>("/api/skills/search?q=review");
+
+        results.ShouldNotBeNull();
+        results.Count.ShouldBe(2);
+        results[0]!["repository"]!.GetValue<string>().ShouldBe("afonsoft/skills");
+    }
+
+    [Fact]
+    public async Task Dado_SemQuery_Quando_Search_Entao_400()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/skills/search?q=%20");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_InstallOneValido_Quando_Post_Entao_202()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/skills/install-one",
+            new { repository = "afonsoft/skills", skill = "qa-analyst" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        _factory.Installer.LastSkillInstall.ShouldBe(("afonsoft/skills", "qa-analyst"));
+    }
+
+    [Fact]
+    public async Task Dado_InstallOneSkillInvalida_Quando_Post_Entao_400()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/skills/install-one",
+            new { repository = "afonsoft/skills", skill = "Bad Skill!" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_StepFalhou_Quando_InstallOne_Entao_502()
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        _factory.Installer.NextSkillStep = new SkillsInstallStep(
+            "npx-add-skill", SkillsInstallStepState.Failed, 1, 10, "boom");
+
+        var response = await client.PostAsJsonAsync("/api/skills/install-one",
+            new { repository = "afonsoft/skills" });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadGateway);
+        _factory.Installer.NextSkillStep = null;
     }
 }

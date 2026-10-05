@@ -88,7 +88,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
             Error: run?.Error);
     }
 
-    public void RequestInstall()
+    public void RequestInstall(string? repository = null)
     {
         if (!_gate.Wait(0))
         {
@@ -99,7 +99,7 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
         {
             try
             {
-                await InstallCoreAsync(CancellationToken.None).ConfigureAwait(false);
+                await InstallCoreAsync(repository, CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
@@ -108,7 +108,8 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
         });
     }
 
-    public async Task<SkillsInstallStatus> InstallAsync(CancellationToken cancellationToken = default)
+    public async Task<SkillsInstallStatus> InstallAsync(
+        string? repository = null, CancellationToken cancellationToken = default)
     {
         if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
@@ -117,11 +118,87 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
 
         try
         {
-            return await InstallCoreAsync(cancellationToken).ConfigureAwait(false);
+            return await InstallCoreAsync(repository, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// One-off granular install — <c>npx skills add &lt;repository&gt;[@&lt;skill&gt;]
+    /// -g -y --copy</c> (SPEC-20261010-mcp-skills-hub RF-005). Does not run the
+    /// repo's install.sh nor touch the configured repository.
+    /// </summary>
+    public async Task<SkillsInstallStep> InstallSkillAsync(
+        string repository, string? skill, CancellationToken cancellationToken = default)
+    {
+        if (!SkillsRepository.IsValid(repository))
+        {
+            return new SkillsInstallStep(
+                "npx-add-skill", SkillsInstallStepState.Failed, null, null,
+                $"Invalid skills repository '{repository}'.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(skill)
+            && !Taskboard.Application.Contracts.Skills.SkillInputValidation.IsValidSkillName(skill))
+        {
+            return new SkillsInstallStep(
+                "npx-add-skill", SkillsInstallStepState.Failed, null, null,
+                $"Invalid skill name '{skill}'.");
+        }
+
+        var npx = _locator("npx")
+            ?? throw new InvalidOperationException("PrerequisiteMissing: npx");
+
+        var target = string.IsNullOrWhiteSpace(skill)
+            ? repository.Trim()
+            : $"{repository.Trim()}@{skill.Trim()}";
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _log?.Info($"Skills install-one started — '{target}'.");
+            var step = await RunStepAsync(
+                "npx-add-skill",
+                npx,
+                _homeDirectory,
+                ["skills", "add", target, "-g", "-y", "--copy"],
+                cancellationToken).ConfigureAwait(false);
+            if (step.State == SkillsInstallStepState.Failed)
+            {
+                _log?.Error($"Step npx-add-skill: Failed — {step.Message}");
+            }
+            else
+            {
+                _log?.Info($"Step npx-add-skill: {step.State} — {target}");
+                RecordExtraInstall(target);
+            }
+
+            return step;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>Appends <paramref name="target"/> to the manifest's extra installs.</summary>
+    private void RecordExtraInstall(string target)
+    {
+        try
+        {
+            var manifest = InstallManifest.Load(_manifestPath) ?? new InstallManifest();
+            if (!manifest.ExtraInstalls.Contains(target, StringComparer.OrdinalIgnoreCase))
+            {
+                manifest.ExtraInstalls.Add(target);
+                manifest.Save(_manifestPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not persist extra skills install {Target}.", target);
         }
     }
 
@@ -138,7 +215,8 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
         return Task.FromResult(GetStatus());
     }
 
-    private async Task<SkillsInstallStatus> InstallCoreAsync(CancellationToken cancellationToken)
+    private async Task<SkillsInstallStatus> InstallCoreAsync(
+        string? repositoryOverride, CancellationToken cancellationToken)
     {
         var started = DateTimeOffset.UtcNow;
         var stopwatch = Stopwatch.StartNew();
@@ -151,7 +229,16 @@ public sealed class SkillsInstallerService : ISkillsInstallerService
 
         try
         {
-            repository = SkillsRepository.Resolve(_configuration);
+            // SPEC-20261010-mcp-skills-hub RF-004: per-run repository override
+            // (still validated before any npx spawn).
+            repository = string.IsNullOrWhiteSpace(repositoryOverride)
+                ? SkillsRepository.Resolve(_configuration)
+                : repositoryOverride.Trim();
+            if (!SkillsRepository.IsValid(repository))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid skills repository '{repository}'. Expected 'owner/repo' or an absolute git URL.");
+            }
             _log?.Info($"Skills install started — repository '{repository}'.");
 
             var missing = RequiredTools.Where(tool => _locator(tool) is null).ToList();

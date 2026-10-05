@@ -1,6 +1,8 @@
 using Tomlyn;
 using Tomlyn.Model;
 
+using Taskboard.Application.Contracts.Mcp;
+
 namespace Taskboard.Integrations.Mcp;
 
 /// <summary>
@@ -20,6 +22,24 @@ public static class TomlConfigMerger
     /// </summary>
     public static MergeOutcome Merge(string path, string name, string? url, string? apiKey)
     {
+        var spec = string.IsNullOrWhiteSpace(url)
+            ? null
+            : new ChatMcpServerSpec(
+                name,
+                Url: url,
+                Headers: string.IsNullOrWhiteSpace(apiKey)
+                    ? null
+                    : new Dictionary<string, string> { ["Authorization"] = $"Bearer {apiKey}" });
+        return Merge(path, name, spec);
+    }
+
+    /// <summary>
+    /// Spec-based merge (SPEC-20261010-mcp-skills-hub RF-003): http specs write
+    /// <c>url</c> + <c>[headers]</c>; stdio specs write <c>command</c>,
+    /// <c>args</c>, <c>[env]</c>; null removes the table.
+    /// </summary>
+    public static MergeOutcome Merge(string path, string name, ChatMcpServerSpec? spec)
+    {
         var (root, repaired) = ReadRoot(path);
 
         if (!root.TryGetValue(ContainerKey, out var serversObj) || serversObj is not TomlTable servers)
@@ -30,14 +50,14 @@ public static class TomlConfigMerger
 
         var changed = false;
         var created = false;
-        var removing = string.IsNullOrWhiteSpace(url);
+        var removing = spec is null;
         if (removing)
         {
             changed = servers.Remove(name);
         }
         else
         {
-            var desired = BuildServerTable(url!, apiKey);
+            var desired = BuildServerTable(spec!);
             if (!servers.TryGetValue(name, out var existingObj)
                 || existingObj is not TomlTable existing
                 || !TablesEqual(existing, desired))
@@ -90,15 +110,50 @@ public static class TomlConfigMerger
         return entry.TryGetValue("url", out var url) ? url as string : null;
     }
 
-    private static TomlTable BuildServerTable(string url, string? apiKey)
+    private static TomlTable BuildServerTable(ChatMcpServerSpec spec)
     {
-        var table = new TomlTable { ["url"] = url };
-        if (!string.IsNullOrWhiteSpace(apiKey))
+        var table = new TomlTable();
+        if (!string.IsNullOrWhiteSpace(spec.Command))
         {
-            table["headers"] = new TomlTable
+            table["command"] = spec.Command;
+            if (spec.Args is { Count: > 0 })
             {
-                ["Authorization"] = $"Bearer {apiKey}"
-            };
+                var args = new TomlArray();
+                foreach (var arg in spec.Args)
+                {
+                    args.Add(arg);
+                }
+
+                table["args"] = args;
+            }
+
+            if (spec.Env is { Count: > 0 })
+            {
+                var env = new TomlTable();
+                foreach (var (key, value) in spec.Env)
+                {
+                    env[key] = value;
+                }
+
+                table["env"] = env;
+            }
+        }
+        else
+        {
+            table["url"] = spec.Url
+                ?? throw new InvalidOperationException(
+                    $"MCP server '{spec.Name}' needs command or url.");
+        }
+
+        if (spec.Headers is { Count: > 0 })
+        {
+            var headers = new TomlTable();
+            foreach (var (key, value) in spec.Headers)
+            {
+                headers[key] = value;
+            }
+
+            table["headers"] = headers;
         }
 
         return table;
@@ -121,6 +176,7 @@ public static class TomlConfigMerger
             var equal = (value, other) switch
             {
                 (TomlTable ta, TomlTable tb) => TablesEqual(ta, tb),
+                (TomlArray aa, TomlArray ab) => aa.SequenceEqual(ab),
                 _ => Equals(value, other)
             };
             if (!equal)

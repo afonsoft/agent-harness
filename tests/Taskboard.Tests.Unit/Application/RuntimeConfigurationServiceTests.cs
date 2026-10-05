@@ -56,6 +56,7 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Chat:Mcp:Enabled",
             "Taskboard:Chat:Mcp:Servers",
             "Taskboard:Chat:Mcp:CallTimeoutSeconds",
+            "Taskboard:Chat:Mcp:IncludeGlobalAgents",
             "Taskboard:Chat:Capabilities:Disabled",
             "Taskboard:Chat:Runs:MaxConcurrent",
             "Taskboard:Chat:Runs:CheckpointMs",
@@ -432,7 +433,7 @@ public class RuntimeConfigurationServiceTests
     [InlineData("Taskboard:Agents:DefaultPrompt", "/agents?tab=prompt")]
     [InlineData("Taskboard:Terminal:Enabled", "/settings?tab=general")]
     [InlineData("Taskboard:WebCliAgent:Enabled", "/settings?tab=general")]
-    [InlineData("Taskboard:Skills:Repository", "/settings?tab=integrations")]
+    [InlineData("Taskboard:Skills:Repository", "/settings?tab=mcp-skills")]
     [InlineData("Taskboard:Rag:ServerName", "/settings?tab=integrations")]
     [InlineData("Taskboard:Rag:Url", "/settings?tab=integrations")]
     [InlineData("Taskboard:Rag:ApiKey", "/settings?tab=integrations")]
@@ -446,6 +447,7 @@ public class RuntimeConfigurationServiceTests
     [InlineData("Taskboard:Chat:Mcp:Enabled", "/settings?tab=mcp-skills")]
     [InlineData("Taskboard:Chat:Mcp:Servers", "/settings?tab=mcp-skills")]
     [InlineData("Taskboard:Chat:Mcp:CallTimeoutSeconds", "/settings?tab=mcp-skills")]
+    [InlineData("Taskboard:Chat:Mcp:IncludeGlobalAgents", "/settings?tab=mcp-skills")]
     public void Dado_ChaveComTelaDedicada_Quando_Listar_Entao_ManagedInRota(string key, string expectedRoute)
     {
         // SPEC-20261010-settings-configuration-tab RF-001 dedupe map: chaves com

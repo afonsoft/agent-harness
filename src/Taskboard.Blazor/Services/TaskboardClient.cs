@@ -440,6 +440,77 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<IReadOnlyList<OperationLogEntry>>("/api/mcp/log", cancellationToken)
         ?? [];
 
+    /// <summary>
+    /// MCP servers merged for the AI Code chat (config ∪ ~/.agents ∪ rag) —
+    /// SPEC-20261010-mcp-skills-hub.
+    /// </summary>
+    public async Task<IReadOnlyList<ChatMcpServerStatus>> GetChatMcpServersAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<ChatMcpServerStatus>>("/api/mcp/chat", cancellationToken)
+        ?? [];
+
+    /// <summary>Per-agent-CLI MCP inventory (name + transport per server).</summary>
+    public async Task<IReadOnlyList<AgentMcpInventoryDto>> GetAgentMcpInventoryAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentMcpInventoryDto>>("/api/mcp/agents", cancellationToken)
+        ?? [];
+
+    /// <summary>Installs an MCP server into the selected agent CLIs. Returns per-agent results or the API error.</summary>
+    public async Task<(IReadOnlyList<McpAgentResult>? Results, string? Error)> InstallAgentMcpAsync(
+        AgentMcpInstallRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/mcp/agents/install", request, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<List<McpAgentResult>>(cancellationToken), null)
+            : (null, await ReadErrorMessageAsync(response, cancellationToken));
+    }
+
+    /// <summary>Removes an MCP server from the selected agent CLIs.</summary>
+    public async Task<(IReadOnlyList<McpAgentResult>? Results, string? Error)> RemoveAgentMcpAsync(
+        AgentMcpRemoveRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync("/api/mcp/agents/remove", request, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<List<McpAgentResult>>(cancellationToken), null)
+            : (null, await ReadErrorMessageAsync(response, cancellationToken));
+    }
+
+    /// <summary>skills.sh search via <c>npx skills find</c> (max 20 rows).</summary>
+    public async Task<IReadOnlyList<SkillSearchResultDto>> SearchSkillsAsync(
+        string query, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/skills/search?q={Uri.EscapeDataString(query)}", cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<List<SkillSearchResultDto>>(cancellationToken) ?? []
+            : [];
+    }
+
+    /// <summary>Installs a skills repository (optional per-run override) — 202.</summary>
+    public async Task<(SkillsInstallStatus? Status, string? Error)> InstallSkillsRepositoryAsync(
+        string? repository, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            "/api/skills/install-repo",
+            new SkillRepoInstallRequest(repository),
+            cancellationToken);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<SkillsInstallStatus>(cancellationToken), null)
+            : (null, await ReadErrorMessageAsync(response, cancellationToken));
+    }
+
+    /// <summary>Installs a single skill — <c>repo[@skill]</c>. Returns the step + API error.</summary>
+    public async Task<(SkillsInstallStep? Step, string? Error)> InstallSkillAsync(
+        string repository, string? skill, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            "/api/skills/install-one",
+            new SkillInstallRequest(repository, skill),
+            cancellationToken);
+        var step = await response.Content.ReadFromJsonAsync<SkillsInstallStep>(cancellationToken);
+        return response.IsSuccessStatusCode
+            ? (step, null)
+            : (step, await ReadErrorMessageAsync(response, cancellationToken));
+    }
+
     /// <summary>Status dos CLIs de agente (instalado/versão/auth) — SPEC-20260917-cli-agents-terminal.</summary>
     public async Task<IReadOnlyList<AgentCliStatus>> GetAgentClisAsync(CancellationToken cancellationToken = default) =>
         await _httpClient.GetFromJsonAsync<IReadOnlyList<AgentCliStatus>>("/api/agent-clis", cancellationToken)

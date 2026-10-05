@@ -482,18 +482,18 @@ public sealed class McpProvisioningService : IMcpProvisioningService
 
         try
         {
-            MergeOutcome outcome;
-            if (target.Format == McpConfigFormat.Json)
-            {
-                // config.Url is validated non-null upstream; the ! is required (nullable enabled).
-                var jsonEntry = removing ? null : BuildJsonEntry(target.Style, config.Url!, config.ApiKey);
-                outcome = JsonConfigMerger.Merge(path, target.ContainerKey, config.Name, jsonEntry);
-            }
-            else
-            {
-                var tomlUrl = removing ? null : config.Url;
-                outcome = TomlConfigMerger.Merge(path, config.Name, tomlUrl, config.ApiKey);
-            }
+            var spec = removing
+                ? null
+                : new ChatMcpServerSpec(
+                    config.Name,
+                    Url: config.Url,
+                    Headers: string.IsNullOrWhiteSpace(config.ApiKey)
+                        ? null
+                        : new Dictionary<string, string>
+                        {
+                            ["Authorization"] = $"Bearer {config.ApiKey}"
+                        });
+            var outcome = McpConfigFileWriter.Apply(path, target, config.Name, spec);
 
             var state = outcome switch
             {
@@ -571,48 +571,6 @@ public sealed class McpProvisioningService : IMcpProvisioningService
                 agent, false, path, null, McpAgentState.Failed,
                 Sanitize(ex.Message, config.ApiKey));
         }
-    }
-
-    private static JsonObject BuildJsonEntry(McpEntryStyle style, string url, string? apiKey)
-    {
-        var entry = new JsonObject();
-        switch (style)
-        {
-            case McpEntryStyle.Devin:
-                entry["url"] = url;
-                entry["transport"] = "http";
-                break;
-            case McpEntryStyle.Claude:
-            case McpEntryStyle.Copilot:
-                entry["type"] = "http";
-                entry["url"] = url;
-                break;
-            case McpEntryStyle.OpenCode:
-                entry["type"] = "remote";
-                entry["url"] = url;
-                entry["enabled"] = true;
-                break;
-            case McpEntryStyle.OpenHands:
-            case McpEntryStyle.Kimi:
-            case McpEntryStyle.Kiro:
-                entry["url"] = url;
-                break;
-            case McpEntryStyle.Qwen:
-                entry["httpUrl"] = url;
-                break;
-            default:
-                throw new InvalidOperationException($"No JSON entry shape for style '{style}'.");
-        }
-
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            entry["headers"] = new JsonObject
-            {
-                ["Authorization"] = $"Bearer {apiKey}"
-            };
-        }
-
-        return entry;
     }
 
     private RagConfig ResolveConfig()

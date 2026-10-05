@@ -92,6 +92,14 @@ internal static class SkillsRepository
     }
 
     /// <summary>
+    /// Non-throwing <see cref="NormalizeUrl"/> check — true for
+    /// <c>owner/repo</c>, absolute URLs and rooted paths
+    /// (SPEC-20261010-mcp-skills-hub RF-005).
+    /// </summary>
+    internal static bool IsValid(string? value) =>
+        Taskboard.Application.Contracts.Skills.SkillInputValidation.IsValidRepository(value);
+
+    /// <summary>
     /// Ensures the cache directory is usable by the current process. A cache
     /// left behind by another user (e.g. a previous run as root) is renamed
     /// aside — never deleted — so a clean clone can take its place. Renaming

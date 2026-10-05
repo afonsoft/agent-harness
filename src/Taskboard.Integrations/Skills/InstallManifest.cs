@@ -33,6 +33,13 @@ internal sealed class InstallManifest
     [JsonPropertyName("installShStep")]
     public object? InstallShStep { get; set; }
 
+    /// <summary>
+    /// Granular installs done outside the configured repository —
+    /// <c>repo[@skill]</c> strings (SPEC-20261010-mcp-skills-hub).
+    /// </summary>
+    [JsonPropertyName("extraInstalls")]
+    public List<string> ExtraInstalls { get; set; } = [];
+
     public static InstallManifest? Load(string path)
     {
         try

@@ -58,7 +58,7 @@ public sealed class RuntimeConfigurationService
             EnvAlias: "HARNESS_ADMIN_USERNAME", Validate: null, Group: "Server", ManagedIn: null),
         new("Taskboard:Skills:Repository", "afonsoft/skills", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
-            EnvAlias: "HARNESS_SKILLS_REPO", Validate: ValidateSkillsRepository, Group: "Connections", ManagedIn: "/settings?tab=integrations"),
+            EnvAlias: "HARNESS_SKILLS_REPO", Validate: ValidateSkillsRepository, Group: "Connections", ManagedIn: "/settings?tab=mcp-skills"),
         new("Taskboard:ApiKey", null, Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: "HARNESS_API_KEY", Validate: ValidateApiKey, Group: "Security", ManagedIn: null),
@@ -130,6 +130,11 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Mcp:CallTimeoutSeconds", "30", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateIntRange5To300, Group: "Chat", ManagedIn: "/settings?tab=mcp-skills"),
+        // SPEC-20261010-mcp-skills-hub RF-002: AI Code also consumes the MCP
+        // servers installed globally under ~/.agents.
+        new("Taskboard:Chat:Mcp:IncludeGlobalAgents", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_MCP_INCLUDE_GLOBAL_AGENTS", Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=mcp-skills"),
         new("Taskboard:Chat:Capabilities:Disabled", "[]", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateJsonStringArray, Group: "Chat", ManagedIn: "/settings?tab=chat"),

@@ -8,6 +8,10 @@ namespace Taskboard.Application.Contracts.Mcp;
 /// Reuses the provisioning spec shape (name/url or command/args + headers/env);
 /// values of the form <c>env:VAR</c> are resolved server-side from the process
 /// environment and are never serialized into capability payloads.
+/// <see cref="Origin"/> records where the spec came from —
+/// <c>"config"</c> (<c>Taskboard:Chat:Mcp:Servers</c>),
+/// <c>"agents-global"</c> (<c>~/.agents</c>, SPEC-20261010-mcp-skills-hub) or
+/// <c>"rag"</c> (the provisioned RAG server).
 /// </summary>
 public sealed record ChatMcpServerSpec(
     string Name,
@@ -15,15 +19,17 @@ public sealed record ChatMcpServerSpec(
     string? Command = null,
     IReadOnlyList<string>? Args = null,
     IReadOnlyDictionary<string, string>? Headers = null,
-    IReadOnlyDictionary<string, string>? Env = null);
+    IReadOnlyDictionary<string, string>? Env = null,
+    string Origin = "config");
 
-/// <summary>Per-server health entry surfaced in Settings → Chat.</summary>
+/// <summary>Per-server health entry surfaced in Settings → MCP/Skills.</summary>
 public sealed record ChatMcpServerStatus(
     string Name,
     string Transport,
     bool Healthy,
     int ToolCount,
-    string? Error);
+    string? Error,
+    string Origin = "config");
 
 /// <summary>
 /// Chat-side MCP client bridge (SPEC-20261001-chat-mcp-client FR-002).

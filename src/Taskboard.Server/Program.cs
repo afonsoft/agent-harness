@@ -653,7 +653,8 @@ void RegisterWorkspaceAndChatServices()
         new ChatMcpClientManager(
             sp.GetRequiredService<IConfiguration>(),
             sp.GetRequiredService<ILoggerFactory>(),
-            sp.GetService<ISecretRedactor>()));
+            sp.GetService<ISecretRedactor>(),
+            homeDir));
     // SPEC-20260919-harness-verification-loop: motor + evidência + loop fechado.
     builder.Services.AddSingleton<IProcessRunner, ProcessCommandRunner>();
     builder.Services.AddSingleton<IVerificationEngine, DotNetVerificationEngine>();
@@ -922,6 +923,18 @@ void RegisterSkillsVscodeServices()
         homeDir,
         async ct => await ResolveEnabledAgentsAsync(sp, ct),
         sp.GetRequiredService<McpOperationLog>()));
+
+    // SPEC-20261010-mcp-skills-hub: arbitrary-spec provisioner + read-only
+    // inventory of every agent CLI's MCP entries.
+    builder.Services.AddSingleton(sp => new AgentMcpProvisioningService(
+        homeDir,
+        sp.GetRequiredService<ILogger<AgentMcpProvisioningService>>(),
+        sp.GetRequiredService<McpOperationLog>()));
+    builder.Services.AddSingleton(sp => new AgentMcpInventoryService(
+        homeDir,
+        sp.GetRequiredService<ILogger<AgentMcpInventoryService>>()));
+    builder.Services.AddSingleton(sp => new SkillsSearchService(
+        sp.GetRequiredService<ILogger<SkillsSearchService>>()));
 
     // SPEC-20260928-agent-cli-probe-background: persisted snapshot of the slow
     // CLI probes (--version, models) + background refresh; reads stay instant.
@@ -3499,6 +3512,76 @@ void MapOperationsEndpoints()
         Results.Ok(log.Snapshot()))
         .RequireAuthorization();
 
+    // SPEC-20261010-mcp-skills-hub RF-004/RF-005: repo install with optional
+    // per-run override + skills.sh search + single-skill install.
+    api.MapPost("skills/install-repo", async (
+        SkillRepoInstallRequest request,
+        ISkillsInstallerService installer,
+        CancellationToken ct) =>
+    {
+        var repository = request?.Repository;
+        if (!string.IsNullOrWhiteSpace(repository) && !SkillInputValidation.IsValidRepository(repository))
+        {
+            return Results.BadRequest(new { error = new { code = "skills-repo-invalid", message = "Expected 'owner/repo' or an absolute git URL." } });
+        }
+
+        var status = await installer.InstallAsync(repository, ct);
+        return Results.Json(status, statusCode: StatusCodes.Status202Accepted);
+    }).RequireAuthorization();
+
+    api.MapGet("skills/search", async (
+        string q,
+        SkillsSearchService search,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(q) || q.Length > 120)
+        {
+            return Results.BadRequest(new { error = new { code = "skills-query-invalid", message = "Query 'q' is required (max 120 chars)." } });
+        }
+
+        try
+        {
+            return Results.Ok(await search.SearchAsync(q.Trim(), ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Json(
+                new { error = new { code = "skills-search-unavailable", message = ex.Message } },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireAuthorization();
+
+    api.MapPost("skills/install-one", async (
+        SkillInstallRequest request,
+        ISkillsInstallerService installer,
+        CancellationToken ct) =>
+    {
+        if (request is null || !SkillInputValidation.IsValidRepository(request.Repository))
+        {
+            return Results.BadRequest(new { error = new { code = "skills-repo-invalid", message = "Expected 'owner/repo' or an absolute git URL." } });
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Skill)
+            && !SkillInputValidation.IsValidSkillName(request.Skill))
+        {
+            return Results.BadRequest(new { error = new { code = "skills-name-invalid", message = "Skill must match [a-z0-9-_]{1,64}." } });
+        }
+
+        try
+        {
+            var step = await installer.InstallSkillAsync(request.Repository, request.Skill, ct);
+            return step.State == SkillsInstallStepState.Failed
+                ? Results.Json(step, statusCode: StatusCodes.Status502BadGateway)
+                : Results.Json(step, statusCode: StatusCodes.Status202Accepted);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Json(
+                new { error = new { code = "skills-install-unavailable", message = ex.Message } },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireAuthorization();
+
     api.MapGet("agent-clis", async (IAgentCliStatusService agentClis, CancellationToken ct) =>
         Results.Ok(await agentClis.GetStatusAsync(ct)))
         .RequireAuthorization();
@@ -3774,6 +3857,83 @@ void MapOperationsEndpoints()
     api.MapGet("mcp/log", (McpOperationLog log) =>
         Results.Ok(log.Snapshot()))
         .RequireAuthorization();
+
+    // SPEC-20261010-mcp-skills-hub RF-004: chat-side MCP server inventory
+    // (config ∪ ~/.agents ∪ rag) with per-server health + origin.
+    api.MapGet("mcp/chat", (IMcpClientManager mcp) =>
+        Results.Ok(mcp.GetServers()))
+        .RequireAuthorization();
+
+    // Per-agent CLI MCP inventory — missing/corrupt files degrade to empty lists.
+    api.MapGet("mcp/agents", (AgentMcpInventoryService inventory) =>
+        Results.Ok(inventory.ListAll()))
+        .RequireAuthorization();
+
+    api.MapPost("mcp/agents/install", async (
+        AgentMcpInstallRequest request,
+        AgentMcpProvisioningService provisioner,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 64)
+        {
+            return Results.BadRequest(new { error = new { code = "mcp-name-required", message = "MCP server name is required (max 64 chars)." } });
+        }
+
+        var hasUrl = !string.IsNullOrWhiteSpace(request.Url);
+        var hasCommand = !string.IsNullOrWhiteSpace(request.Command);
+        if (hasUrl == hasCommand)
+        {
+            return Results.BadRequest(new { error = new { code = "mcp-transport-required", message = "Provide exactly one of 'url' (http) or 'command' (stdio)." } });
+        }
+
+        if (hasUrl && !Uri.TryCreate(request.Url, UriKind.Absolute, out _))
+        {
+            return Results.BadRequest(new { error = new { code = "mcp-url-invalid", message = "'url' must be an absolute URI." } });
+        }
+
+        var agents = (request.Agents ?? [])
+            .Where(AgentMcpProvisioningService.IsWritable)
+            .Distinct()
+            .ToList();
+        if (agents.Count == 0)
+        {
+            return Results.BadRequest(new { error = new { code = "mcp-no-writable-agents", message = "Select at least one agent with a writable MCP config." } });
+        }
+
+        var spec = new ChatMcpServerSpec(
+            request.Name.Trim(),
+            Url: hasUrl ? request.Url!.Trim() : null,
+            Command: hasCommand ? request.Command!.Trim() : null,
+            Args: request.Args,
+            Headers: request.Headers,
+            Env: request.Env);
+        var results = await provisioner.ApplyAsync(spec, agents, remove: false, ct);
+        return Results.Ok(results);
+    }).RequireAuthorization();
+
+    api.MapPost("mcp/agents/remove", async (
+        AgentMcpRemoveRequest request,
+        AgentMcpProvisioningService provisioner,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return Results.BadRequest(new { error = new { code = "mcp-name-required", message = "MCP server name is required." } });
+        }
+
+        var agents = (request.Agents ?? [])
+            .Where(AgentMcpProvisioningService.IsWritable)
+            .Distinct()
+            .ToList();
+        if (agents.Count == 0)
+        {
+            return Results.BadRequest(new { error = new { code = "mcp-no-writable-agents", message = "Select at least one agent with a writable MCP config." } });
+        }
+
+        var results = await provisioner.ApplyAsync(
+            new ChatMcpServerSpec(request.Name.Trim()), agents, remove: true, ct);
+        return Results.Ok(results);
+    }).RequireAuthorization();
 
     api.MapPut("mcp/rag", async (
         SaveRagMcpRequest request,
