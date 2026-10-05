@@ -15,6 +15,7 @@
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
+    <PackageReference Include="Lib.Net.Http.WebPush" />
     <Content Include="../../.claude/skills/manage-taskboard/**/*" CopyToOutputDirectory="PreserveNewest" Link="skills/manage-taskboard/%(RecursiveDir)%(Filename)%(Extension)" />
     <ProjectReference Include="../Taskboard.Application/Taskboard.Application.csproj" />
     <ProjectReference Include="../Taskboard.EntityFrameworkCore/Taskboard.EntityFrameworkCore.csproj" />

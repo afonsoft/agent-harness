@@ -32,10 +32,10 @@ public class SettingsFeaturesTests
         var src = SettingsSource();
 
         var features = src.IndexOf("form-section-title\">Features", StringComparison.Ordinal);
-        var config = src.IndexOf("form-section-title\">Configuration", StringComparison.Ordinal);
+        var config = src.IndexOf("form-section-title\">Connections", StringComparison.Ordinal);
 
         features.ShouldBeGreaterThan(0, "seção Features deve existir no Settings");
-        config.ShouldBeGreaterThan(features, "Features deve vir antes da tabela Configuration");
+        config.ShouldBeGreaterThan(features, "Features deve vir antes da seção Connections (ex-Configuration, SPEC-20261010)");
     }
 
     [Fact]

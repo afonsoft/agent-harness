@@ -79,10 +79,54 @@ public sealed class ChatNotificationsService : IAsyncDisposable
             {
                 _logger.LogWarning(ex, "chat-run hub unavailable — notifications degrade to nothing");
             }
+
+            // SPEC-20261005 RF-009: reconcile the push subscription with the
+            // resolved pref (local override > global default). Best-effort —
+            // SW unsupported / permission denied just leave no subscription.
+            _ = SyncPushAsync();
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// RFC-8030 subscription sync — subscribes when the resolved "push" pref is
+    /// on, unsubscribes when it is explicitly off. Safe to call on every
+    /// toggle change: subscribe is idempotent (upsert by endpoint).
+    /// </summary>
+    public async Task SyncPushAsync()
+    {
+        try
+        {
+            var prefs = await ResolvePrefsAsync();
+            var api = _nav.ToAbsoluteUri("/api/local/push/subscriptions").ToString();
+            var endpoint = await _js.InvokeAsync<string?>("taskboardNotify.isPushSubscribed");
+
+            if (prefs.Push && endpoint is null)
+            {
+                var publicKey = await _client.GetPushVapidPublicKeyAsync();
+                if (publicKey is null)
+                {
+                    return;
+                }
+
+                var result = await _js.InvokeAsync<JsonObject>(
+                    "taskboardNotify.subscribePush", publicKey, api);
+                if (result["error"] is not null)
+                {
+                    _logger.LogInformation("push subscribe skipped: {Error}", result["error"]!.GetValue<string>());
+                }
+            }
+            else if (!prefs.Push && endpoint is not null)
+            {
+                await _js.InvokeAsync<JsonObject>("taskboardNotify.unsubscribePush", api);
+            }
+        }
+        catch (Exception ex) when (ex is not JSDisconnectedException)
+        {
+            _logger.LogDebug(ex, "push subscription sync failed — notifications keep working without it");
         }
     }
 
