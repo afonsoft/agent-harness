@@ -49,7 +49,11 @@ public sealed record ChatConversationDto(
     // SPEC-20261005-chat-tool-approval RF-006: chat|ask|full.
     string? PermissionPreset = null,
     // SPEC-20261005-chat-plan-mode RF-001: on|off.
-    string? PlanMode = null);
+    string? PlanMode = null,
+    // SPEC-20261005-chat-fork-steering RF-001/RF-004: fork lineage + count.
+    string? ForkedFromConversationId = null,
+    string? ForkedAtMessageId = null,
+    int ForkCount = 0);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -119,7 +123,23 @@ public sealed record CreateChatConversationRequest(
     string? Title = null,
     ChatAgentContext? Agent = null);
 
-public sealed record SendChatMessageRequest(string Content);
+public sealed record SendChatMessageRequest(
+    string Content,
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-005: while a run is active the
+    /// message lands in the steer inbox (claimed at the next tool-result
+    /// boundary) instead of queueing a new run. No-op when nothing runs.
+    /// </summary>
+    bool Steer = false);
+
+/// <summary>Body of <c>POST /api/local/chat/conversations/{id}/fork</c> (RF-002).</summary>
+public sealed record ForkChatConversationRequest(string MessageId);
+
+/// <summary>
+/// A pending steer item (SPEC-20261005-chat-fork-steering RF-005) — feeds
+/// the withdrawable chip in the composer while unclaimed.
+/// </summary>
+public sealed record ChatSteerDto(string Id, string Content, DateTime CreatedAt);
 
 /// <summary>SPEC-20261005 RF-009: body of <c>POST /api/local/push/subscriptions</c>
 /// — mirrors the browser PushSubscription JSON ({endpoint, keys:{p256dh, auth}}).
@@ -131,8 +151,12 @@ public sealed record PushSubscriptionRequest(
 
 public sealed record PushSubscriptionKeysRequest(string P256dh, string Auth);
 
-/// <summary>202 body of <c>POST /conversations/{id}/messages</c> — the queued run.</summary>
-public sealed record EnqueueChatMessageResponse(ChatRunDto Run);
+/// <summary>
+/// 202 body of <c>POST /conversations/{id}/messages</c> — the queued run, or
+/// the live run the message steered into (SPEC-20261005-chat-fork-steering).
+/// </summary>
+public sealed record EnqueueChatMessageResponse(
+    ChatRunDto Run, bool Steered = false, string? SteerId = null);
 
 /// <summary>
 /// A provider-chat tool approval (SPEC-20261005-chat-tool-approval RF-001) —

@@ -56,6 +56,14 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
     /// </summary>
     public string PlanMode { get; private set; } = ChatPlanModes.Off;
 
+    /// <summary>
+    /// SPEC-20261005-chat-fork-steering RF-001: lineage of a forked
+    /// conversation — the source conversation + the message the prefix copy
+    /// stopped at (inclusive). Null on conversations created from scratch.
+    /// </summary>
+    public string? ForkedFromConversationId { get; private set; }
+    public string? ForkedAtMessageId { get; private set; }
+
     private ChatConversation()
     {
     }
@@ -206,6 +214,13 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
         {
             return new HashSet<string>(StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>RF-001: records the fork lineage right after creation.</summary>
+    public void MarkForkedFrom(string sourceConversationId, string atMessageId)
+    {
+        ForkedFromConversationId = sourceConversationId;
+        ForkedAtMessageId = atMessageId;
     }
 
     /// <summary>

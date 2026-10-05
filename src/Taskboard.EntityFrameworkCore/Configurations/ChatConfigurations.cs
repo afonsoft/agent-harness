@@ -79,6 +79,13 @@ public sealed class ChatConversationConfiguration : IEntityTypeConfiguration<Cha
             .HasMaxLength(8)
             .HasDefaultValue(ChatPlanModes.Off);
 
+        // SPEC-20261005-chat-fork-steering RF-001: fork lineage.
+        builder.Property(c => c.ForkedFromConversationId)
+            .HasMaxLength(128);
+        builder.Property(c => c.ForkedAtMessageId)
+            .HasMaxLength(128);
+        builder.HasIndex(c => c.ForkedFromConversationId);
+
         builder.Property(c => c.Version)
             .IsConcurrencyToken();
 
@@ -312,8 +319,54 @@ public sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMess
             .HasDefaultValue(ChatMessageKinds.Normal);
         builder.Property(m => m.SupersedesUntilMessageId)
             .HasMaxLength(128);
+        // SPEC-20261005-chat-fork-steering RF-001: back-pointer into the
+        // source conversation the copy came from.
+        builder.Property(m => m.ForkedFromMessageId)
+            .HasMaxLength(128);
         builder.Property(m => m.CreatedAt);
 
         builder.HasIndex(m => new { m.ConversationId, m.CreatedAt });
+    }
+}
+
+/// <summary>
+/// SPEC-20261005-chat-fork-steering RF-005: durable steer inbox — one row per
+/// pending steering message, claimed by the executor at tool-result
+/// boundaries. Cascade-deleted with the conversation.
+/// </summary>
+public sealed class ChatSteerConfiguration : IEntityTypeConfiguration<ChatSteer>
+{
+    public void Configure(EntityTypeBuilder<ChatSteer> builder)
+    {
+        builder.ToTable("ChatSteers");
+
+        builder.Property(s => s.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatSteerId>());
+
+        builder.HasKey(s => s.Id);
+
+        builder.Property(s => s.RunId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatRunId>());
+
+        builder.Property(s => s.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+
+        builder.Property(s => s.Content)
+            .IsRequired();
+
+        builder.Property(s => s.CreatedAt);
+        builder.Property(s => s.ClaimedAt);
+
+        // Drain scan (unclaimed per run) + cancel lookup.
+        builder.HasIndex(s => new { s.RunId, s.ClaimedAt });
+        builder.HasIndex(s => s.ConversationId);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(s => s.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
