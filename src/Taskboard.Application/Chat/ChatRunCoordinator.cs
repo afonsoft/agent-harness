@@ -15,10 +15,12 @@ public sealed class ChatRunCoordinator
     /// <summary>
     /// Registers a new run for <paramref name="conversationId"/>, cancelling
     /// and discarding any previous one for the same conversation.
+    /// SPEC-20261005-chat-background-resume: the token is detached — no
+    /// requestAborted in its chain, so closing the browser never cancels a run.
     /// </summary>
-    public async Task<CancellationTokenSource> BeginAsync(string conversationId, CancellationToken requestAborted)
+    public async Task<CancellationTokenSource> BeginAsync(string conversationId)
     {
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(requestAborted);
+        var cts = new CancellationTokenSource();
         if (_runs.TryRemove(conversationId, out var previous))
         {
             await previous.CancelAsync().ConfigureAwait(false);
@@ -41,6 +43,9 @@ public sealed class ChatRunCoordinator
 
         return false;
     }
+
+    /// <summary>True while a run for <paramref name="conversationId"/> is registered.</summary>
+    public bool IsRunning(string conversationId) => _runs.ContainsKey(conversationId);
 
     /// <summary>
     /// Removes the run only if it is still the registered one — a newer send

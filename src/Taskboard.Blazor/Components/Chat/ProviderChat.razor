@@ -12,44 +12,111 @@
    pickers, streamed messages with tool cards and inline images. *@
 
 <div class="provider-chat d-flex">
+    @* SPEC-20261005-chat-background-resume RF-007: a sidebar é a superfície
+       única de histórico — o ☰ duplicado do chat header foi removido; a rail
+       slim (collapsed) mantém itens por ícone + dot de run ativa. *@
     <div class="provider-chat-sidebar @(_sidebarOpen ? "" : "collapsed")">
-        <div class="d-flex justify-content-between align-items-center px-3 pt-3">
-            <span class="fw-semibold small text-body-secondary">Histórico</span>
-            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Recolher/expandir">☰</button>
-        </div>
-        <div class="px-3 py-2">
-            <button type="button" class="btn btn-primary btn-sm w-100" @onclick="StartNewChatAsync" disabled="@_busy">+ New chat</button>
-        </div>
-        <div class="px-3 pb-2">
-            <input type="search" class="form-control form-control-sm" enterkeyhint="search" data-shortcut-search placeholder="Buscar conversas…" @bind="_search" @bind:after="OnSearchChangedAsync" />
-        </div>
-        <div class="provider-chat-list flex-grow-1 overflow-auto px-2">
-            @if (_conversations.Count == 0)
-            {
-                <div class="text-body-secondary small px-2 py-3">Nenhuma conversa ainda.</div>
-            }
-            @foreach (var conversation in _conversations)
-            {
-                <div class="provider-chat-item @(conversation.Id == _conversationId ? "active" : "")" @key="conversation.Id">
-                    <button type="button" class="provider-chat-item-btn" @onclick="() => OpenConversationAsync(conversation.Id)" title="@conversation.Title">
-                        <span class="d-block text-truncate">@conversation.Title</span>
-                        <span class="d-block text-truncate text-body-secondary small">@conversation.Model</span>
-                    </button>
-                    <button type="button" class="btn-close btn-close-white btn-sm provider-chat-delete" title="Excluir" @onclick="() => DeleteConversationAsync(conversation.Id)"></button>
+        @if (_sidebarOpen)
+        {
+            <div class="d-flex justify-content-between align-items-center px-3 pt-3">
+                <span class="fw-semibold small text-body-secondary">Histórico</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Recolher/expandir">☰</button>
+            </div>
+            <div class="px-3 py-2">
+                <button type="button" class="btn btn-primary btn-sm w-100" @onclick="StartNewChatAsync" disabled="@_busy">+ New chat</button>
+            </div>
+            <div class="px-3 pb-2">
+                <input type="search" class="form-control form-control-sm" enterkeyhint="search" data-shortcut-search placeholder="Buscar conversas…" @bind="_search" @bind:after="OnSearchChangedAsync" />
+            </div>
+            <div class="px-3 pb-2">
+                <div class="btn-group btn-group-sm w-100" role="group" aria-label="Filtro de conversas">
+                    <button type="button" class="btn @(_showArchived ? "btn-outline-secondary" : "btn-primary")"
+                            @onclick="() => SetArchivedFilterAsync(false)">Ativas</button>
+                    <button type="button" class="btn @(_showArchived ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => SetArchivedFilterAsync(true)">Arquivadas</button>
                 </div>
-            }
-        </div>
+            </div>
+            <div class="provider-chat-list flex-grow-1 overflow-auto px-2">
+                @if (_conversations.Count == 0)
+                {
+                    <div class="text-body-secondary small px-2 py-3">@(_showArchived ? "Nenhuma conversa arquivada." : "Nenhuma conversa ainda.")</div>
+                }
+                @foreach (var conversation in _conversations)
+                {
+                    <div class="provider-chat-item @(conversation.Id == _conversationId ? "active" : "")" @key="conversation.Id">
+                        <button type="button" class="provider-chat-item-btn" @onclick="() => OpenConversationAsync(conversation.Id)" title="@conversation.Title">
+                            <span class="d-block text-truncate">@conversation.Title</span>
+                            <span class="d-block text-truncate text-body-secondary small">
+                                @conversation.Model
+                                @if (conversation.ActiveRunStatus is "running" or "queued")
+                                {
+                                    <span class="provider-chat-run-dot" title="Run em andamento"></span>
+                                }
+                            </span>
+                        </button>
+                        @if (_showArchived)
+                        {
+                            <button type="button" class="provider-chat-item-action" title="Restaurar"
+                                    @onclick="() => UnarchiveConversationAsync(conversation.Id)">
+                                <Icon Name="IconName.ArrowCounterclockwise" />
+                            </button>
+                            <button type="button" class="provider-chat-item-action text-danger" title="Excluir"
+                                    @onclick="() => DeleteConversationAsync(conversation.Id)">
+                                <Icon Name="IconName.Trash" />
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="provider-chat-item-action" title="Arquivar"
+                                    @onclick="() => ArchiveConversationAsync(conversation.Id)">
+                                <Icon Name="IconName.Archive" />
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+            @HistoryExtra
+        }
+        else
+        {
+            @* slim rail — same history surface, icon-only. *@
+            <div class="provider-chat-rail d-flex flex-column align-items-center pt-3 gap-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Histórico">☰</button>
+                <button type="button" class="provider-chat-rail-btn" @onclick="StartNewChatAsync" title="New chat" disabled="@_busy">
+                    <Icon Name="IconName.PlusSquare" />
+                </button>
+                <div class="provider-chat-rail-items flex-grow-1 overflow-auto w-100 d-flex flex-column align-items-center">
+                    @foreach (var conversation in _conversations)
+                    {
+                        <button type="button"
+                                class="provider-chat-rail-item @(conversation.Id == _conversationId ? "active" : "")"
+                                title="@conversation.Title"
+                                @onclick="() => OpenConversationAsync(conversation.Id)">
+                            <Icon Name="IconName.ChatDots" />
+                            @if (conversation.ActiveRunStatus is "running" or "queued")
+                            {
+                                <span class="provider-chat-run-dot" title="Run em andamento"></span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        }
     </div>
 
     <div class="provider-chat-main flex-grow-1 d-flex flex-column">
         <div class="provider-chat-header d-flex align-items-center gap-2 px-3 py-2 border-bottom">
-            @if (!_sidebarOpen)
-            {
-                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ToggleSidebar" title="Histórico">☰</button>
-            }
             @if (AgentContext is not null)
             {
                 <span class="badge text-bg-primary" title="Agent mode — delegated CLI runs bound to this conversation">agent</span>
+            }
+            @if (_running)
+            {
+                <span class="badge text-bg-warning">running</span>
+            }
+            @if (_archived)
+            {
+                <span class="badge text-bg-secondary">arquivada</span>
             }
             @if (_conversationTitle is { Length: > 0 })
             {
@@ -160,6 +227,16 @@
         </div>
 
         <div class="provider-chat-composer border-top px-3 py-2">
+            @if (_archived)
+            {
+                @* RF-006: archived conversations open read-only — the run in
+                   background keeps going but the composer stays shut. *@
+                <div class="alert alert-secondary py-1 px-2 small mb-2 d-flex align-items-center gap-2">
+                    <span>Conversa arquivada — leitura apenas.</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                            @onclick="() => UnarchiveConversationAsync(_conversationId!)">Restaurar</button>
+                </div>
+            }
             @if (_error is not null)
             {
                 <div class="alert alert-danger py-1 px-2 small mb-2">@_error</div>
@@ -235,19 +312,18 @@
                             </div>
                         </div>
                         <div class="provider-chat-composer-actions">
+                            @* RF-002: composer stays usable during a run — a
+                               send queues the next turn (FIFO per conversation). *@
                             @if (_running)
                             {
                                 <button type="button" class="provider-chat-send stop" @onclick="StopAsync" title="Stop" aria-label="Stop">
                                     <Icon Name="IconName.StopCircle" />
                                 </button>
                             }
-                            else
-                            {
-                                <button type="button" class="provider-chat-send" @onclick="SendAsync" title="Enviar" aria-label="Send"
-                                        disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model))">
-                                    <Icon Name="IconName.Send" />
-                                </button>
-                            }
+                            <button type="button" class="provider-chat-send" @onclick="SendAsync" title="Enviar" aria-label="Send"
+                                    disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model) || _archived)">
+                                <Icon Name="IconName.Send" />
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -332,6 +408,13 @@
     /// </summary>
     [Parameter] public EventCallback<ChatAgentContext?> OnConversationAgentLoaded { get; set; }
 
+    /// <summary>
+    /// SPEC-20261005-chat-background-resume RF-007: extra history surface
+    /// rendered at the bottom of the sidebar — AiChat mounts the collapsed
+    /// "Legacy threads" section here.
+    /// </summary>
+    [Parameter] public RenderFragment? HistoryExtra { get; set; }
+
     private ChatAgentContext? _appliedAgentContext;
 
     private string _composer = string.Empty;
@@ -356,6 +439,16 @@
     private bool _busy;
     private CancellationTokenSource? _streamCts;
     private string? _copiedId;
+    // SPEC-20261005-chat-background-resume: the attached run + archive view.
+    private string? _runId;
+    private bool _archived;
+    private bool _showArchived;
+
+    /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
+    public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
+
+    /// <summary>SF-web: page-header new-chat button proxies the sidebar's own action.</summary>
+    public Task StartNewChatPublicAsync() => StartNewChatAsync();
 
     protected override async Task OnInitializedAsync()
     {
@@ -455,6 +548,49 @@
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
 
+    /// <summary>RF-006: Ativas|Arquivadas filter — refetches the list.</summary>
+    private async Task SetArchivedFilterAsync(bool archived)
+    {
+        _showArchived = archived;
+        await OnSearchChangedAsync();
+    }
+
+    private async Task ArchiveConversationAsync(string id)
+    {
+        try
+        {
+            await Client.SetChatConversationArchivedAsync(id, archived: true);
+            if (_conversationId == id)
+            {
+                _archived = true;
+            }
+
+            await OnSearchChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao arquivar: {ex.Message}";
+        }
+    }
+
+    private async Task UnarchiveConversationAsync(string id)
+    {
+        try
+        {
+            await Client.SetChatConversationArchivedAsync(id, archived: false);
+            if (_conversationId == id)
+            {
+                _archived = false;
+            }
+
+            await OnSearchChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao restaurar: {ex.Message}";
+        }
+    }
+
     private async Task OnProviderChangedAsync()
     {
         _models = [];
@@ -524,7 +660,7 @@
     {
         try
         {
-            _conversations = await Client.GetChatConversationsAsync(_search);
+            _conversations = await Client.GetChatConversationsAsync(_search, _showArchived);
         }
         catch (Exception)
         {
@@ -548,6 +684,9 @@
                 new CreateChatConversationRequest(_providerId, _model, Agent: AgentContext));
             _conversationId = conversation.Id;
             _conversationTitle = conversation.Title;
+            _archived = false;
+            _runId = null;
+            _streamCts?.Cancel();
             _messages.Clear();
             _streaming = null;
             _reasoning = null;
@@ -592,6 +731,7 @@
     {
         _conversationId = detail.Conversation.Id;
         _conversationTitle = detail.Conversation.Title;
+        _archived = detail.Conversation.ArchivedAt is not null;
         // SPEC-20261004 RF-003: the open conversation's stored binding becomes
         // "applied" — the parameters-set PATCH must not treat it as a change.
         _appliedAgentContext = detail.Conversation.Agent;
@@ -609,6 +749,18 @@
         if (_models.Contains(detail.Conversation.Model))
         {
             _model = detail.Conversation.Model;
+        }
+
+        // RF-003: opening a conversation with a live run re-attaches to it —
+        // "continue from where it stopped" even after a tab close/reopen.
+        if (detail.ActiveRun is { } active && !active.Id.Equals(_runId, StringComparison.Ordinal))
+        {
+            AttachRun(detail.Conversation.Id, active.Id);
+        }
+        else if (detail.ActiveRun is null)
+        {
+            _running = false;
+            _runId = null;
         }
     }
 
@@ -685,7 +837,7 @@
 
     /// <summary>Palette opens while the composer is a single "/token".</summary>
     private bool SlashOpen =>
-        _composer.Length > 0 && _composer[0] == '/' && !_composer.Contains(' ', StringComparison.Ordinal) && !_running;
+        _composer.Length > 0 && _composer[0] == '/' && !_composer.Contains(' ', StringComparison.Ordinal) && !_archived;
 
     private string SlashFilter => SlashOpen ? _composer[1..] : string.Empty;
 
@@ -705,7 +857,7 @@
             return;
         }
 
-        if (e.Key == "Enter" && !e.ShiftKey && !_running)
+        if (e.Key == "Enter" && !e.ShiftKey)
         {
             _slashPreventDefault = true;
             await SendAsync();
@@ -879,19 +1031,103 @@
 
         _error = null;
         _composer = string.Empty;
-        _messages.Add(new ChatMessageDto(
-            Id: Guid.NewGuid().ToString("N"), Role: "user", Content: content,
-            ToolCallsJson: null, ToolCallId: null, ToolName: null, Refused: false,
-            ImagePath: null, ImageUrl: null, TokensIn: null, TokensOut: null, Model: null,
-            CreatedAt: DateTime.UtcNow));
-        _running = true;
-        _streaming = string.Empty;
-        _reasoning = string.Empty;
+        try
+        {
+            var run = await Client.EnqueueChatMessageAsync(conversationId, content);
+            // RF-002/RF-003: the optimistic bubble is unnecessary — chat.sync
+            // arrives within a frame carrying the persisted user message.
+            AttachRun(conversationId, run.Id);
+            await OnSearchChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha no envio: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// RF-003: subscribes to a run — chat.sync replays state, the tail follows.
+    /// Detached task: closing a tab/conv cancels only this local stream; the
+    /// run itself keeps going on the server and the next open re-attaches.
+    /// </summary>
+    private void AttachRun(string conversationId, string runId)
+    {
+        _streamCts?.Cancel();
+        _streamCts?.Dispose();
         var streamCts = new CancellationTokenSource();
         _streamCts = streamCts;
-        await ScrollToEndAsync();
+        _running = true;
+        _runId = runId;
+        _streaming = string.Empty;
+        _reasoning = string.Empty;
+        _ = Task.Run(() => ReadRunStreamAsync(conversationId, runId, streamCts), CancellationToken.None);
+        _ = ScrollToEndAsync();
+    }
 
-        await StreamAssistantReplyAsync(conversationId, content, streamCts);
+    private async Task ReadRunStreamAsync(string conversationId, string runId, CancellationTokenSource streamCts)
+    {
+        try
+        {
+            using var response = await Client.OpenChatRunStreamAsync(conversationId, runId, streamCts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"Falha ao anexar ao run ({(int)response.StatusCode}).";
+                return;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(streamCts.Token);
+            using var reader = new StreamReader(stream);
+            string? eventName = null;
+            while (await reader.ReadLineAsync(streamCts.Token) is { } line)
+            {
+                if (line.StartsWith("event:", StringComparison.Ordinal))
+                {
+                    eventName = line["event:".Length..].Trim();
+                    continue;
+                }
+
+                if (!line.StartsWith("data:", StringComparison.Ordinal) || eventName is null)
+                {
+                    continue;
+                }
+
+                var data = line["data:".Length..].Trim();
+                await InvokeAsync(() => HandleSseEventAsync(eventName, data));
+                eventName = null;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stop pressed / conversation switch — the run continues server-side.
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha no stream: {ex.Message}";
+        }
+        finally
+        {
+            await InvokeAsync(async () =>
+            {
+                _running = false;
+                _runId = null;
+                _streaming = null;
+                _statusPhase = null;
+                _statusLabel = null;
+                if (ReferenceEquals(_streamCts, streamCts))
+                {
+                    _streamCts = null;
+                }
+
+                // Reload picks up the persisted tail; a still-live run (queued
+                // follow-up that just started) re-attaches seamlessly.
+                var detail = await ReloadConversationAsync();
+                if (detail?.ActiveRun is { } next && _conversationId == conversationId)
+                {
+                    AttachRun(conversationId, next.Id);
+                }
+            });
+            streamCts.Dispose();
+        }
     }
 
     /// <summary>Creates the conversation when missing; null → nothing to send.</summary>
@@ -978,64 +1214,25 @@
         }
     }
 
-    private async Task StreamAssistantReplyAsync(string conversationId, string content, CancellationTokenSource streamCts)
-    {
-        using var streamCtsGuard = streamCts;
-        try
-        {
-            using var response = await Client.SendChatMessageAsync(conversationId, content, streamCts.Token);
-            if (!response.IsSuccessStatusCode)
-            {
-                _error = $"Falha no envio ({(int)response.StatusCode}).";
-                _running = false;
-                _streaming = null;
-                return;
-            }
-
-            await using var stream = await response.Content.ReadAsStreamAsync(streamCts.Token);
-            using var reader = new StreamReader(stream);
-            string? eventName = null;
-            while (await reader.ReadLineAsync(streamCts.Token) is { } line)
-            {
-                if (line.StartsWith("event:", StringComparison.Ordinal))
-                {
-                    eventName = line["event:".Length..].Trim();
-                    continue;
-                }
-
-                if (!line.StartsWith("data:", StringComparison.Ordinal) || eventName is null)
-                {
-                    continue;
-                }
-
-                var data = line["data:".Length..].Trim();
-                await HandleSseEventAsync(eventName, data);
-                eventName = null;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Stop pressed — partial content stays on screen.
-        }
-        catch (Exception ex)
-        {
-            _error = $"Falha no stream: {ex.Message}";
-        }
-        finally
-        {
-            _running = false;
-            _streaming = null;
-            _statusPhase = null;
-            _statusLabel = null;
-            _streamCts = null;
-            await ReloadConversationAsync();
-        }
-    }
-
     private async Task HandleSseEventAsync(string eventName, string data)
     {
         switch (eventName)
         {
+            // RF-003: full durable state — persisted messages + the in-flight
+            // checkpoint; seq already deduped server-side.
+            case "chat.sync":
+                var sync = JsonSerializer.Deserialize<ChatRunSyncDto>(data, SseJson);
+                if (sync is not null)
+                {
+                    _messages.Clear();
+                    _messages.AddRange(sync.Messages);
+                    _streaming = sync.Partial;
+                    _reasoning = sync.PartialReasoning;
+                    _running = sync.Run.Status is "queued" or "running";
+                }
+
+                await ScrollToEndAsync();
+                break;
             case "chat.delta":
                 var delta = JsonSerializer.Deserialize<JsonElement>(data);
                 _streaming += delta.TryGetProperty("content", out var c) ? c.GetString() ?? string.Empty : string.Empty;
@@ -1065,17 +1262,35 @@
                 await ScrollToEndAsync();
                 break;
             case "chat.done":
+                var done = JsonSerializer.Deserialize<JsonElement>(data);
+                if (done.TryGetProperty("run", out var runEl)
+                    && runEl.TryGetProperty("status", out var st))
+                {
+                    switch (st.GetString())
+                    {
+                        case "failed":
+                            _error = runEl.TryGetProperty("error", out var err)
+                                ? err.GetString() : "Run falhou.";
+                            break;
+                        case "interrupted":
+                            _notice = "Run interrompido (servidor reiniciou) — envie uma nova mensagem para continuar.";
+                            break;
+                    }
+                }
+
                 _statusPhase = null;
                 _statusLabel = null;
                 break;
         }
     }
 
-    private async Task ReloadConversationAsync()
+    private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);
+
+    private async Task<ChatConversationDetailDto?> ReloadConversationAsync()
     {
         if (_conversationId is null)
         {
-            return;
+            return null;
         }
 
         try
@@ -1083,17 +1298,20 @@
             var detail = await Client.GetChatConversationAsync(_conversationId);
             if (detail is null)
             {
-                return;
+                return null;
             }
 
             _messages.Clear();
             _messages.AddRange(detail.Messages);
             _conversationTitle = detail.Conversation.Title;
+            _archived = detail.Conversation.ArchivedAt is not null;
             await OnSearchChangedAsync();
+            return detail;
         }
         catch (Exception)
         {
             // Reload is best-effort — the streamed content stays visible.
+            return null;
         }
     }
 

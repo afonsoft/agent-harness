@@ -93,8 +93,11 @@ public class ChatEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Dado_ProviderInacessivel_Quando_EnviarMensagem_Entao_StreamComErroNoDone()
+    public async Task Dado_ProviderInacessivel_Quando_EnviarMensagem_Entao_202EAttachStreamComDone()
     {
+        // SPEC-20261005 RF-002/RF-003: send enfileira (202 + run); o attach
+        // stream devolve chat.sync e termina com chat.done trazendo o run
+        // failed (provider inacessível falha dentro do dispatcher, não no POST).
         var client = await ApiClientAsync();
         var provider = await CreateProviderAsync(client);
         var create = await client.PostAsJsonAsync("/api/local/chat/conversations", new
@@ -105,16 +108,132 @@ public class ChatEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
         var id = ((await create.Content.ReadFromJsonAsync<JsonObject>())!["conversation"] as JsonObject)!["id"]!
             .GetValue<string>();
 
-        var response = await client.PostAsJsonAsync($"/api/local/chat/conversations/{id}/messages", new
+        var enqueue = await client.PostAsJsonAsync($"/api/local/chat/conversations/{id}/messages", new
         {
             content = "olá",
         });
 
-        // O stream abre 200 e termina com chat.done carregando o erro do provider (RF-005).
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var body = await response.Content.ReadAsStringAsync();
+        enqueue.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var run = (await enqueue.Content.ReadFromJsonAsync<JsonObject>())!["run"]!.AsObject();
+        var runId = run["id"]!.GetValue<string>();
+        run["status"]!.GetValue<string>().ShouldBe("queued");
+
+        // O run falha no dispatcher (provider recusa a conexão) — poll o
+        // detail até a linha terminal aparecer como lastRun.
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        JsonObject? lastRun = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            var detail = await (await client.GetAsync($"/api/local/chat/conversations/{id}"))
+                .Content.ReadFromJsonAsync<JsonObject>();
+            lastRun = detail!["lastRun"] as JsonObject;
+            if (lastRun is not null)
+            {
+                break;
+            }
+
+            await Task.Delay(250);
+        }
+
+        lastRun.ShouldNotBeNull("o dispatcher deve terminalizar o run sem request ativa");
+        lastRun["status"]!.GetValue<string>().ShouldBe("failed");
+        lastRun["error"]!.GetValue<string>().ShouldContain("refused");
+
+        // Late attach: run terminal — o stream replaya chat.sync e fecha com
+        // chat.done já carregando a linha final (SPEC-20261005 RF-003).
+        var attach = await client.GetAsync(
+            $"/api/local/chat/conversations/{id}/runs/{runId}/stream",
+            HttpCompletionOption.ResponseHeadersRead);
+        attach.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await attach.Content.ReadAsStringAsync();
+        body.ShouldContain("event: chat.sync");
         body.ShouldContain("event: chat.done");
-        body.Contains("error", StringComparison.Ordinal).ShouldBeTrue("provider inacessível deve terminar o stream com erro no chat.done");
+        body.ShouldContain("\"status\":\"failed\"");
+    }
+
+    [Fact]
+    public async Task Dado_Conversa_Quando_ArquivarListarRestaurarDeletar_Entao_CicloDeArquivo()
+    {
+        // RF-006: arquivar é view flag — sai da lista ativa, abre read-only,
+        // restaura e aceita delete permanente só na aba arquivadas.
+        var client = await ApiClientAsync();
+        var provider = await CreateProviderAsync(client);
+        var create = await client.PostAsJsonAsync("/api/local/chat/conversations", new
+        {
+            providerId = provider["id"]!.GetValue<Guid>(),
+            model = "m1",
+        });
+        var id = ((await create.Content.ReadFromJsonAsync<JsonObject>())!["conversation"] as JsonObject)!["id"]!
+            .GetValue<string>();
+
+        var archive = await client.PostAsync($"/api/local/chat/conversations/{id}/archive", content: null);
+        archive.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var active = await (await client.GetAsync("/api/local/chat/conversations"))
+            .Content.ReadFromJsonAsync<JsonObject>();
+        active!["conversations"]!.AsArray().Any(c => c?["id"]?.GetValue<string>() == id)
+            .ShouldBeFalse("arquivada sai da lista ativa");
+
+        var archived = await (await client.GetAsync("/api/local/chat/conversations?archived=true"))
+            .Content.ReadFromJsonAsync<JsonObject>();
+        var row = archived!["conversations"]!.AsArray()
+            .Single(c => c?["id"]?.GetValue<string>() == id)!;
+        row["archivedAt"].ShouldNotBeNull();
+
+        var enqueue = await client.PostAsJsonAsync($"/api/local/chat/conversations/{id}/messages", new
+        {
+            content = "olá",
+        });
+        enqueue.StatusCode.ShouldBe(HttpStatusCode.Conflict,
+            "arquivada não aceita novo turno até restaurar");
+
+        var unarchive = await client.PostAsync($"/api/local/chat/conversations/{id}/unarchive", content: null);
+        unarchive.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var delete = await client.DeleteAsync($"/api/local/chat/conversations/{id}");
+        delete.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Dado_RunAtiva_Quando_Detalhar_Entao_ActiveRunNoDetail()
+    {
+        var client = await ApiClientAsync();
+        var provider = await CreateProviderAsync(client);
+        var create = await client.PostAsJsonAsync("/api/local/chat/conversations", new
+        {
+            providerId = provider["id"]!.GetValue<Guid>(),
+            model = "m1",
+        });
+        var id = ((await create.Content.ReadFromJsonAsync<JsonObject>())!["conversation"] as JsonObject)!["id"]!
+            .GetValue<string>();
+        var enqueue = await client.PostAsJsonAsync($"/api/local/chat/conversations/{id}/messages", new
+        {
+            content = "olá",
+        });
+        enqueue.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var run = (await enqueue.Content.ReadFromJsonAsync<JsonObject>())!["run"]!.AsObject();
+
+        // Poll o detail até o dispatcher sinalizar o run (ativo ou terminal).
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        JsonObject? detail = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            detail = await (await client.GetAsync($"/api/local/chat/conversations/{id}"))
+                .Content.ReadFromJsonAsync<JsonObject>();
+            if (detail?["activeRun"] is not null || detail?["lastRun"] is not null)
+            {
+                break;
+            }
+
+            await Task.Delay(150);
+        }
+
+        detail.ShouldNotBeNull();
+        var surfaced = detail["activeRun"] ?? detail["lastRun"];
+        surfaced.ShouldNotBeNull("o run deve aparecer como ativo ou terminal no detail");
+        surfaced!["id"]!.GetValue<string>().ShouldBe(run["id"]!.GetValue<string>());
+
+        var stop = await client.PostAsync($"/api/local/chat/conversations/{id}/stop", content: null);
+        stop.StatusCode.ShouldBeOneOf(HttpStatusCode.Accepted, HttpStatusCode.Conflict);
     }
 
     [Fact]

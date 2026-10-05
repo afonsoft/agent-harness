@@ -131,6 +131,17 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Capabilities:Disabled", "[]", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateJsonStringArray),
+        // SPEC-20261005-chat-background-resume RF-002: detached chat runs —
+        // global concurrency cap, checkpoint cadence, run-row retention.
+        new("Taskboard:Chat:Runs:MaxConcurrent", "4", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: "HARNESS_CHAT_RUNS_MAX_CONCURRENT", Validate: ValidatePositiveInt),
+        new("Taskboard:Chat:Runs:CheckpointMs", "750", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt),
+        new("Taskboard:Chat:Runs:RetentionDays", "30", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt),
         // SPEC-20261004-redis-hybrid-cache RF-002: HybridCache L1+L2 — DI wiring
         // only happens at boot, so all four keys require restart. The generic
         // HARNESS__* env mapper already covers them (no dedicated EnvAlias).
@@ -381,6 +392,11 @@ public sealed class RuntimeConfigurationService
         int.TryParse(value, out var n) && n is >= 1 and <= 64
             ? null
             : "Value must be an integer between 1 and 64.";
+
+    private static string? ValidateNonNegativeInt(string value) =>
+        int.TryParse(value, out var n) && n is >= 0 and <= 1_000_000
+            ? null
+            : "Value must be an integer between 0 and 1000000.";
 
     private static string? ValidateSearchBackend(string value) =>
         value is "none" or "searxng" or "tavily" or "brave"

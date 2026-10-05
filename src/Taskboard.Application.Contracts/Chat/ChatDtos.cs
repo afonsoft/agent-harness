@@ -40,7 +40,10 @@ public sealed record ChatConversationDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     string? Preview,
-    ChatAgentContext? Agent = null);
+    ChatAgentContext? Agent = null,
+    // SPEC-20261005-chat-background-resume: soft-delete flag + live-run badge.
+    DateTime? ArchivedAt = null,
+    string? ActiveRunStatus = null);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -59,7 +62,41 @@ public sealed record ChatMessageDto(
 
 public sealed record ChatConversationDetailDto(
     ChatConversationDto Conversation,
-    IReadOnlyList<ChatMessageDto> Messages);
+    IReadOnlyList<ChatMessageDto> Messages,
+    // SPEC-20261005-chat-background-resume RF-004: live run to attach to +
+    // latest finished run (interrupted/failed notice).
+    ChatRunDto? ActiveRun = null,
+    ChatRunDto? LastRun = null);
+
+/// <summary>
+/// A provider-chat run (SPEC-20261005-chat-background-resume RF-004) —
+/// returned by the enqueue endpoint, embedded in conversation details and in
+/// the attach stream's <c>chat.sync</c>/<c>chat.done</c> payloads.
+/// </summary>
+public sealed record ChatRunDto(
+    string Id,
+    string ConversationId,
+    string Status,
+    string TriggerMessageId,
+    string? Error,
+    int? TokensIn,
+    int? TokensOut,
+    DateTime CreatedAt,
+    DateTime? StartedAt,
+    DateTime? FinishedAt);
+
+/// <summary>
+/// The <c>chat.sync</c> payload of the attach stream (RF-003): durable state
+/// (persisted messages + in-flight checkpoint) followed by live events whose
+/// sequence exceeds <see cref="LastEventSeq"/> — replay is idempotent without
+/// a Last-Event-ID cursor.
+/// </summary>
+public sealed record ChatRunSyncDto(
+    IReadOnlyList<ChatMessageDto> Messages,
+    ChatRunDto Run,
+    string? Partial,
+    string? PartialReasoning,
+    long LastEventSeq);
 
 public sealed record CreateChatConversationRequest(
     Guid ProviderId,
@@ -68,6 +105,9 @@ public sealed record CreateChatConversationRequest(
     ChatAgentContext? Agent = null);
 
 public sealed record SendChatMessageRequest(string Content);
+
+/// <summary>202 body of <c>POST /conversations/{id}/messages</c> — the queued run.</summary>
+public sealed record EnqueueChatMessageResponse(ChatRunDto Run);
 
 public sealed record PatchChatConversationRequest(
     string? Title = null,

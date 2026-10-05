@@ -1036,12 +1036,13 @@ public sealed class TaskboardClient
         return body!.Models;
     }
 
-    public async Task<IReadOnlyList<ChatConversationDto>> GetChatConversationsAsync(string? query = null, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ChatConversationDto>> GetChatConversationsAsync(
+        string? query = null, bool archived = false, CancellationToken cancellationToken = default)
     {
-        var url = "api/local/chat/conversations";
+        var url = "api/local/chat/conversations?archived=" + (archived ? "true" : "false");
         if (!string.IsNullOrWhiteSpace(query))
         {
-            url += $"?q={Uri.EscapeDataString(query)}";
+            url += $"&q={Uri.EscapeDataString(query)}";
         }
 
         var body = await _httpClient.GetFromJsonAsync<ChatConversationListResponse>(url, cancellationToken);
@@ -1098,17 +1099,39 @@ public sealed class TaskboardClient
         response.EnsureSuccessStatusCode();
     }
 
-    /// <summary>Opens the SSE stream of a chat turn — the caller reads <see cref="HttpResponseMessage.Content"/> incrementally.</summary>
-    public async Task<HttpResponseMessage> SendChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// SPEC-20261005-chat-background-resume RF-002: queues a durable chat run
+    /// (202 + run row) — the server executes it detached from this call.
+    /// </summary>
+    public async Task<ChatRunDto> EnqueueChatMessageAsync(string id, string content, CancellationToken cancellationToken = default)
     {
-        // ResponseHeadersRead: the request content is fully sent before the
-        // returned response is handed out — safe to dispose the request here.
-        using var request = new HttpRequestMessage(HttpMethod.Post,
-            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages")
-        {
-            Content = JsonContent.Create(new SendChatMessageRequest(content)),
-        };
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages",
+            new SendChatMessageRequest(content), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<EnqueueChatMessageResponse>(cancellationToken: cancellationToken);
+        return body!.Run;
+    }
+
+    /// <summary>RF-003: opens the attach stream of a chat run — chat.sync then live events.</summary>
+    public async Task<HttpResponseMessage> OpenChatRunStreamAsync(
+        string conversationId, string runId, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/runs/{Uri.EscapeDataString(runId)}/stream");
         return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+    }
+
+    /// <summary>RF-006: archive/unarchive — archived conversations leave the active list.</summary>
+    public async Task<ChatConversationDto?> SetChatConversationArchivedAsync(
+        string id, bool archived, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/{(archived ? "archive" : "unarchive")}",
+            content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body?.Conversation;
     }
 
     public async Task StopChatAsync(string id, CancellationToken cancellationToken = default)

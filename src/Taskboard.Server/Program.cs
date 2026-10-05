@@ -627,6 +627,13 @@ void RegisterWorkspaceAndChatServices()
     // requests' scoped ChatService instances.
     builder.Services.AddSingleton<ChatRunCoordinator>();
     builder.Services.AddScoped<ChatService>();
+    // SPEC-20261005-chat-background-resume RF-002/RF-003: queue + broadcaster +
+    // detached dispatcher — a chat run outlives the browser tab.
+    builder.Services.AddSingleton<ChatRunQueue>();
+    builder.Services.AddSingleton<ChatRunBroadcaster>();
+    builder.Services.AddScoped<IChatRunExecutor>(sp => sp.GetRequiredService<ChatService>());
+    builder.Services.AddHostedService<ChatRunDispatcherService>();
+    builder.Services.AddHostedService<ChatRunRetentionService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
     builder.Services.AddSingleton<IMcpClientManager>(sp =>
         new ChatMcpClientManager(
@@ -809,6 +816,14 @@ void RegisterJobsAndPipelines()
             DefaultIntervalSeconds: 21600,
             MinIntervalSeconds: 3600));
     }
+
+    // SPEC-20261005-chat-background-resume RF-001: retention for finished ChatRun rows.
+    builder.Services.AddSingleton(new JobDefinition(
+        ChatRunRetentionService.JobKey,
+        "Chat run retention",
+        "Purges finished ChatRun rows past the retention window.",
+        DefaultIntervalSeconds: 21600,
+        MinIntervalSeconds: 3600));
 
     // SPEC-20260919-ade-multi-agent-orchestration: DAG de agentes especializados
     // sobre worktree compartilhado do run.
@@ -2448,8 +2463,8 @@ void MapSettingsAndChatEndpoints()
         }
     });
 
-    chat.MapGet("conversations", async (string? q, ChatService chatService, CancellationToken ct) =>
-        Results.Ok(new { conversations = await chatService.ListConversationsAsync(q, ct) }));
+    chat.MapGet("conversations", async (string? q, bool? archived, ChatService chatService, CancellationToken ct) =>
+        Results.Ok(new { conversations = await chatService.ListConversationsAsync(q, archived ?? false, ct) }));
 
     // SPEC-20261001-chat-capability-registry FR-004: capability catalog for the
     // Settings → Chat tab — tools/MCP/skills/delegation with effective toggles.
@@ -2479,16 +2494,30 @@ void MapSettingsAndChatEndpoints()
             ? Results.Ok(new { conversation })
             : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
 
+    // SPEC-20261005-chat-background-resume RF-006: archive = view flag —
+    // archived conversations hide behind ?archived=true and reopen read-only.
+    chat.MapPost("conversations/{id}/archive", async (string id, ChatService chatService, CancellationToken ct) =>
+        await chatService.SetConversationArchivedAsync(id, archived: true, ct) is { } conversation
+            ? Results.Ok(new { conversation })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapPost("conversations/{id}/unarchive", async (string id, ChatService chatService, CancellationToken ct) =>
+        await chatService.SetConversationArchivedAsync(id, archived: false, ct) is { } conversation
+            ? Results.Ok(new { conversation })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
     chat.MapDelete("conversations/{id}", async (string id, ChatService chatService, CancellationToken ct) =>
         await chatService.DeleteConversationAsync(id, ct)
             ? Results.NoContent()
             : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
 
+    // SPEC-20261005-chat-background-resume RF-002: send now only persists the
+    // user message and queues a durable ChatRun — 202 + run id; the detached
+    // dispatcher executes it regardless of this request's lifetime.
     chat.MapPost("conversations/{id}/messages", async (
         string id,
         SendChatMessageRequest request,
         ChatService chatService,
-        HttpContext http,
         CancellationToken ct) =>
     {
         if (string.IsNullOrWhiteSpace(request.Content))
@@ -2496,46 +2525,93 @@ void MapSettingsAndChatEndpoints()
             return Results.BadRequest(new { error = new { code = ErrValidation, message = "Content is required." } });
         }
 
-        IAsyncEnumerable<ChatStreamEvent> stream;
         try
         {
-            stream = await chatService.SendMessageAsync(id, request.Content, ct);
+            var run = await chatService.EnqueueMessageAsync(id, request.Content, ct);
+            return Results.Accepted(value: new EnqueueChatMessageResponse(run));
+        }
+        catch (ChatArchivedException ex)
+        {
+            return Results.Conflict(new { error = new { code = "CONVERSATION_ARCHIVED", message = ex.Message } });
         }
         catch (ChatValidationException ex)
         {
             return Results.NotFound(new { error = new { code = ErrConversationNotFound, message = ex.Message } });
         }
+    });
+
+    // RF-003: attach stream — chat.sync replays durable state (persisted
+    // messages + in-flight checkpoint) then live events with seq > lastEventSeq.
+    chat.MapGet("conversations/{id}/runs/{runId}/stream", async (
+        string id,
+        string runId,
+        ChatService chatService,
+        ChatRunBroadcaster broadcaster,
+        HttpContext http,
+        CancellationToken ct) =>
+    {
+        // Subscribe BEFORE snapshot: events between the two calls land on the
+        // channel (seq > sync.lastEventSeq); events before it are inside the
+        // checkpoint — no gap, no duplicates.
+        var reader = broadcaster.Subscribe(runId);
+        var snapshot = await chatService.GetRunSnapshotAsync(id, runId, ct);
+        if (snapshot is null)
+        {
+            return Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Run '{runId}' not found." } });
+        }
 
         http.Response.Headers.ContentType = "text/event-stream";
         http.Response.Headers.CacheControl = "no-cache";
+        await WriteChatEventAsync(http.Response, "chat.sync", snapshot, ct);
+
         try
         {
-            await foreach (var chatEvent in stream.WithCancellation(ct))
+            await foreach (var envelope in reader.ReadAllAsync(ct))
             {
-                var (name, payload) = chatEvent switch
+                if (envelope.Seq <= snapshot.LastEventSeq)
                 {
-                    ChatDeltaEvent e => ("chat.delta", (object)new { content = e.Content }),
-                    ChatReasoningEvent e => ("chat.reasoning", (object)new { content = e.Content }),
+                    continue;
+                }
+
+                var (name, payload) = envelope.Event switch
+                {
+                    ChatDeltaEvent e => ("chat.delta", (object?)new { content = e.Content }),
+                    ChatReasoningEvent e => ("chat.reasoning", (object?)new { content = e.Content }),
                     ChatToolCallEvent e => ("chat.tool_call", new { name = e.Name, arguments = e.ArgumentsJson }),
                     ChatToolResultEvent e => ("chat.tool_result", new { name = e.Name, result = e.ResultJson, refused = e.Refused, refusalReason = e.RefusalReason }),
                     ChatStatusEvent e => ("chat.status", new { phase = e.Phase, label = e.Label }),
-                    ChatDoneEvent e => ("chat.done", new { tokensIn = e.TokensIn, tokensOut = e.TokensOut, finishReason = e.FinishReason, error = e.Error }),
-                    _ => ("chat.done", new { }),
+                    // ChatDoneEvent arrives below with the fresh terminal row;
+                    // ChatPersistedEvent is internal plumbing — not on the wire.
+                    _ => (null, null),
                 };
-                await http.Response.WriteAsync($"event: {name}\n", ct);
-                await http.Response.WriteAsync($"data: {JsonSerializer.Serialize(payload, ApiJsonOptions.Default)}\n\n", ct);
+                if (name is null)
+                {
+                    continue;
+                }
+
+                await WriteChatEventAsync(http.Response, name, payload, ct);
             }
         }
         catch (OperationCanceledException)
         {
-            // Client disconnected or stop requested — the partial stream is already flushed.
+            // Client disconnected mid-run — the run keeps going regardless.
+        }
+
+        // Terminal state travels in done — a run that crashed without emitting
+        // done still closes the stream with its final row.
+        var finalRun = await chatService.GetRunAsync(id, runId, CancellationToken.None);
+        if (finalRun is not null)
+        {
+            await WriteChatEventAsync(http.Response, "chat.done", new { run = finalRun }, CancellationToken.None);
         }
 
         return Results.Empty;
     });
 
-    chat.MapPost("conversations/{id}/stop", (string id, ChatService chatService) =>
-        chatService.Stop(id) ? Results.Accepted(value: new { stopped = true }) : Results.Conflict(new { stopped = false }));
+    chat.MapPost("conversations/{id}/stop", async (string id, ChatService chatService, CancellationToken ct) =>
+        await chatService.StopAsync(id, ct)
+            ? Results.Accepted(value: new { stopped = true })
+            : Results.Conflict(new { stopped = false }));
 
     chat.MapGet("images/{fileName}", (string fileName, ChatImageStore imageStore) =>
     {
@@ -2544,6 +2620,13 @@ void MapSettingsAndChatEndpoints()
             ? Results.NotFound(new { error = new { code = "IMAGE_NOT_FOUND", message = $"Image '{fileName}' not found." } })
             : Results.File(full, "image/png");
     });
+
+    static async Task WriteChatEventAsync(
+        HttpResponse response, string name, object? payload, CancellationToken ct)
+    {
+        await response.WriteAsync($"event: {name}\n", ct);
+        await response.WriteAsync($"data: {JsonSerializer.Serialize(payload, ApiJsonOptions.Default)}\n\n", ct);
+    }
 }
 
 void MapConfigAndJobsEndpoints()
