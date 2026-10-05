@@ -212,7 +212,7 @@
     align-items: center;
     gap: .25rem;
     min-width: 0;
-    overflow: hidden;
+    /* RF-005: no clipping — the pick panel is absolutely positioned inside. */
 }
 
 .provider-pick {
@@ -252,6 +252,108 @@
 .provider-pick-select:disabled {
     opacity: .5;
     cursor: default;
+}
+
+/* RF-005: single provider/model pill — dropdown opens upward from the
+   composer footer; providers stage is skipped when only one is registered. */
+.provider-pick-root {
+    position: relative;
+    display: inline-flex;
+}
+
+.provider-pick-btn {
+    border: 0;
+    background: transparent;
+    font: inherit;
+}
+
+.provider-pick-label {
+    font-size: .8rem;
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.provider-pick-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+}
+
+.provider-pick-panel {
+    position: absolute;
+    bottom: calc(100% + .35rem);
+    left: 0;
+    z-index: 101;
+    min-width: 12rem;
+    max-width: 18rem;
+    max-height: 16rem;
+    overflow-y: auto;
+    padding: .3rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-body-bg);
+    box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .18);
+}
+
+.provider-pick-panel-title {
+    padding: .2rem .55rem;
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--bs-secondary-color);
+}
+
+.provider-pick-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    width: 100%;
+    padding: .35rem .55rem;
+    border: 0;
+    border-radius: .35rem;
+    background: transparent;
+    color: var(--bs-body-color);
+    font: inherit;
+    font-size: .83rem;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.provider-pick-item:hover {
+    background: var(--bs-secondary-bg);
+}
+
+.provider-pick-item.active {
+    color: var(--bs-primary);
+    font-weight: 600;
+}
+
+.provider-pick-item.off {
+    opacity: .55;
+}
+
+.provider-pick-hint {
+    font-size: .7rem;
+    color: var(--bs-secondary-color);
+    flex: 0 0 auto;
+}
+
+.provider-pick-empty {
+    padding: .4rem .55rem;
+    font-size: .8rem;
+    color: var(--bs-secondary-color);
+}
+
+.provider-chat-composer-picks {
+    flex-wrap: wrap;
+    row-gap: .15rem;
 }
 
 .provider-chat-composer-actions {

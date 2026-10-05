@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.Swagger;
@@ -589,6 +590,14 @@ void RegisterWorkspaceAndChatServices()
     // B-01: shared run registry — /stop must reach runs started by other
     // requests' scoped ChatService instances.
     builder.Services.AddSingleton<ChatRunCoordinator>();
+    // SPEC-20261004-provider-pick-hybridcache RF-002: shared L1 cache for the
+    // chat/agent catalogs; Redis becomes L2 when Taskboard:Cache:Redis is set
+    // (IDistributedCache is picked up automatically by HybridCache).
+    builder.Services.AddHybridCache();
+    if (builder.Configuration["Taskboard:Cache:Redis"] is { Length: > 0 } redis)
+    {
+        builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redis);
+    }
     builder.Services.AddScoped<ChatService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
     builder.Services.AddSingleton<IMcpClientManager>(sp =>
@@ -3224,9 +3233,16 @@ void MapOperationsEndpoints()
 
     // SPEC-20260928-ai-code-generic-cli RF-002: CRUD for user-declared agent CLIs.
     // "resolved" is computed per-request (PATH lookup is ~ms).
-    api.MapGet("agents/custom", async (IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+    // SPEC-20261004-provider-pick-hybridcache RF-003: defs list is
+    // HybridCache'd 30s — the per-def Resolved PATH probe stays inline.
+    api.MapGet("agents/custom", async (IAgentCliDefinitionRepository defs, HybridCache cache, CancellationToken ct) =>
     {
-        var list = await defs.ListAsync(ct);
+        var list = await cache.GetOrCreateAsync(
+            "agent-custom-defs",
+            async inner => await defs.ListAsync(inner),
+            new HybridCacheEntryOptions { Expiration = TimeSpan.FromSeconds(30) },
+            ["agent-defs"],
+            ct);
         return Results.Ok(list.Select(d => d with
         {
             Resolved = PathSearch.FindExecutable(d.Executable) is not null,
@@ -3257,7 +3273,7 @@ void MapOperationsEndpoints()
     })
         .RequireAuthorization();
 
-    api.MapPost("agents/custom", async (UpsertAgentCliDefinitionRequest request, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+    api.MapPost("agents/custom", async (UpsertAgentCliDefinitionRequest request, IAgentCliDefinitionRepository defs, HybridCache cache, CancellationToken ct) =>
     {
         if (await defs.DisplayNameExistsAsync(request.DisplayName ?? string.Empty, ct))
         {
@@ -3267,6 +3283,7 @@ void MapOperationsEndpoints()
         try
         {
             var def = await defs.AddAsync(request, ct);
+            await cache.RemoveByTagAsync("agent-defs", ct);
             return Results.Created($"/api/agents/custom/{def.Id}", def with
             {
                 Resolved = PathSearch.FindExecutable(def.Executable) is not null,
@@ -3279,7 +3296,7 @@ void MapOperationsEndpoints()
     })
         .RequireAuthorization();
 
-    api.MapPut("agents/custom/{id}", async (string id, UpsertAgentCliDefinitionRequest request, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
+    api.MapPut("agents/custom/{id}", async (string id, UpsertAgentCliDefinitionRequest request, IAgentCliDefinitionRepository defs, HybridCache cache, CancellationToken ct) =>
     {
         var existing = await defs.GetAsync(id, ct);
         if (existing is null)
@@ -3297,6 +3314,10 @@ void MapOperationsEndpoints()
         try
         {
             var def = await defs.UpdateAsync(id, request, ct);
+            if (def is not null)
+            {
+                await cache.RemoveByTagAsync("agent-defs", ct);
+            }
             return def is null
                 ? Results.NotFound(new { error = customCliNotFound })
                 : Results.Ok(def with
@@ -3311,10 +3332,17 @@ void MapOperationsEndpoints()
     })
         .RequireAuthorization();
 
-    api.MapDelete("agents/custom/{id}", async (string id, IAgentCliDefinitionRepository defs, CancellationToken ct) =>
-        await defs.DeleteAsync(id, ct)
+    api.MapDelete("agents/custom/{id}", async (string id, IAgentCliDefinitionRepository defs, HybridCache cache, CancellationToken ct) =>
+    {
+        var deleted = await defs.DeleteAsync(id, ct);
+        if (deleted)
+        {
+            await cache.RemoveByTagAsync("agent-defs", ct);
+        }
+        return deleted
             ? Results.NoContent()
-            : Results.NotFound(new { error = customCliNotFound }))
+            : Results.NotFound(new { error = customCliNotFound });
+    })
         .RequireAuthorization();
 
     // SPEC-20260928-ai-code-generic-cli RF-004: running containers + per-container

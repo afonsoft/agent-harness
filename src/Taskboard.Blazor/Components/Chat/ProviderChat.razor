@@ -184,29 +184,55 @@
                               @onkeydown:preventDefault="_slashPreventDefault"></textarea>
                     <div class="provider-chat-composer-footer">
                         <div class="provider-chat-composer-picks">
-                            <label class="provider-pick" title="Provider">
-                                <Icon Name="IconName.Cloud" />
-                                <select class="provider-pick-select" @bind="_providerId" @bind:after="OnProviderChangedAsync" aria-label="Provider">
-                                    <option value="">provider</option>
-                                    @foreach (var provider in _providers)
-                                    {
-                                        <option value="@provider.Id" selected="@(provider.Id == _providerId)">@provider.Name</option>
-                                    }
-                                </select>
-                            </label>
-                            <label class="provider-pick" title="Model">
-                                <Icon Name="IconName.Cpu" />
-                                <select class="provider-pick-select" @bind="_model" @bind:after="OnModelChangedAsync" disabled="@(_models.Count == 0)" aria-label="Model">
-                                    @if (_models.Count == 0)
-                                    {
-                                        <option value="">no models</option>
-                                    }
-                                    @foreach (var model in _models)
-                                    {
-                                        <option value="@model" selected="@(model == _model)">@model</option>
-                                    }
-                                </select>
-                            </label>
+                            @AgentTools
+                            <div class="provider-pick-root">
+                                <button type="button" class="provider-pick provider-pick-btn"
+                                        title="Provider/model" aria-label="Provider and model"
+                                        @onclick="TogglePickMenu">
+                                    <Icon Name="IconName.Cpu" />
+                                    <span class="provider-pick-label">@(string.IsNullOrEmpty(_model) ? "model" : _model)</span>
+                                </button>
+                                @if (_pickMenuOpen)
+                                {
+                                    <div class="provider-pick-backdrop" @onclick="ClosePickMenu"></div>
+                                    <div class="provider-pick-panel" role="menu">
+                                        @if (_pickProviders)
+                                        {
+                                            <div class="provider-pick-panel-title">provider</div>
+                                            @foreach (var provider in _providers)
+                                            {
+                                                <button type="button" role="menuitem"
+                                                        class="provider-pick-item @(provider.Id == _providerId ? "active" : string.Empty) @(provider.Enabled ? string.Empty : "off")"
+                                                        @onclick="() => PickProviderAsync(provider.Id)">
+                                                    @provider.Name
+                                                    @if (!provider.Enabled)
+                                                    {
+                                                        <span class="provider-pick-hint">disabled</span>
+                                                    }
+                                                    else if (!provider.HasApiKey)
+                                                    {
+                                                        <span class="provider-pick-hint">no key</span>
+                                                    }
+                                                </button>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <div class="provider-pick-panel-title">@CurrentProviderName — model</div>
+                                            @if (_models.Count == 0)
+                                            {
+                                                <div class="provider-pick-empty">no models</div>
+                                            }
+                                            @foreach (var model in _models)
+                                            {
+                                                <button type="button" role="menuitem"
+                                                        class="provider-pick-item @(model == _model ? "active" : string.Empty)"
+                                                        @onclick="() => PickModelAsync(model)">@model</button>
+                                            }
+                                        }
+                                    </div>
+                                }
+                            </div>
                         </div>
                         <div class="provider-chat-composer-actions">
                             @if (_running)
@@ -245,8 +271,48 @@
     private string? _conversationTitle;
     private readonly List<ChatMessageDto> _messages = [];
 
+    // RF-005: single pill — dropdown providers (skipped when only one)
+    // then the model list; the pill shows just the model name.
+    private bool _pickMenuOpen;
+    private bool _pickProviders;
+
+    private string? CurrentProviderName =>
+        _providers.FirstOrDefault(p => p.Id == _providerId)?.Name;
+
+    private void TogglePickMenu()
+    {
+        _pickMenuOpen = !_pickMenuOpen;
+        if (_pickMenuOpen)
+        {
+            _pickProviders = _providers.Count > 1;
+        }
+    }
+
+    private void ClosePickMenu() => _pickMenuOpen = false;
+
+    private async Task PickProviderAsync(Guid id)
+    {
+        _providerId = id;
+        await OnProviderChangedAsync();
+        _pickProviders = false;
+    }
+
+    private async Task PickModelAsync(string model)
+    {
+        _model = model;
+        _pickMenuOpen = false;
+        await OnModelChangedAsync();
+    }
+
     /// <summary>Host switch request (/agent builtin) — AiChat flips to agent mode, carrying the current conversation id.</summary>
     [Parameter] public EventCallback<string?> OnSwitchToAgent { get; set; }
+
+    /// <summary>
+    /// SPEC-20261004-provider-pick-hybridcache RF-005: agent-bar controls
+    /// (view/CLI/docker/workspace/repo/model) rendered INSIDE the composer
+    /// footer — AiChat owns the state and handlers, this slot owns the spot.
+    /// </summary>
+    [Parameter] public RenderFragment? AgentTools { get; set; }
 
     /// <summary>
     /// SPEC-20261003-ai-code-agent-chat: Agent-mode binding — when set, the
@@ -324,9 +390,11 @@
             }
 
             await RefreshCliSlashItemsAsync();
-            if (_providers.Count > 0)
+            // SPEC-20261004 RF-001: default to a usable provider — the catalog
+            // is alphabetical, so [0] can be disabled or keyless.
+            if (Taskboard.Application.Contracts.Chat.ChatProviderPick.PreferAvailable(_providers) is { } pick)
             {
-                _providerId = _providers[0].Id;
+                _providerId = pick.Id;
                 await OnProviderChangedAsync();
             }
 

@@ -2,7 +2,9 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Taskboard.Application.Chat;
 using Taskboard.Application.Contracts.Chat;
@@ -70,8 +72,13 @@ public sealed class ChatServiceTests : IDisposable
             new FakeSkillDiscovery(),
             workspace ?? new FakeWorkspaceResolver(),
             configuration,
-            coordinator);
+            coordinator,
+            NewHybridCache());
     }
+
+    private static HybridCache NewHybridCache() =>
+        new ServiceCollection().AddHybridCache().Services.BuildServiceProvider()
+            .GetRequiredService<HybridCache>();
 
     private HttpClient TrackHttp(HttpMessageHandler handler)
     {
@@ -462,6 +469,73 @@ public sealed class ChatServiceTests : IDisposable
             string source, string name, string relativePath, CancellationToken cancellationToken = default) =>
             Task.FromResult(new Taskboard.Application.Contracts.Skills.SkillFileResult(
                 Taskboard.Application.Contracts.Skills.SkillFileError.NotFound, null, null));
+    }
+
+    // SPEC-20261004-provider-pick-hybridcache RF-002: catálogo em HybridCache —
+    // lista de providers e modelos por provider com invalidação nos writes.
+
+    [Fact]
+    public async Task Dado_ModelosJaListados_Quando_ListarDeNovo_Entao_ServidoDoCacheSemHttp()
+    {
+        var handler = new ModelsHandler();
+        var service = NewService(handler, new ChatRunCoordinator());
+
+        var first = await service.ListModelsAsync(_provider.Id);
+        var second = await service.ListModelsAsync(_provider.Id);
+
+        first.Models.ShouldBe(["m1", "m2"]);
+        second.Models.ShouldBe(first.Models);
+        handler.Calls.ShouldBe(1, "a segunda chamada devia sair do cache");
+        second.Cached.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_InsertDiretoNoContext_Quando_ListarProviders_Entao_ServeCacheInvalidadoPorWrite()
+    {
+        var first = await _service.ListProvidersAsync();
+        first.Count.ShouldBe(1);
+
+        // Escrita por fora do service não invalida — o cache segue servindo.
+        _context.ChatProviders.Add(ChatProvider.Create("sneaky", "http://other.test", "sk"));
+        _context.SaveChanges();
+        (await _service.ListProvidersAsync()).Count.ShouldBe(1);
+
+        // Write via service invalida o catálogo.
+        await _service.UpdateProviderAsync(_provider.Id, new ChatProviderUpsertRequest("renamed", "http://provider.test"));
+        var fresh = await _service.ListProvidersAsync();
+        fresh.Select(p => p.Name).ShouldBe(["renamed", "sneaky"]);
+    }
+
+    [Fact]
+    public async Task Dado_ProviderDeletado_Quando_ListarModels_Entao_CacheDoModeloInvalidado()
+    {
+        var handler = new ModelsHandler();
+        var service = NewService(handler, new ChatRunCoordinator());
+        await service.ListModelsAsync(_provider.Id);
+
+        // Update de qualquer provider derruba a tag de modelos.
+        await service.UpdateProviderAsync(_provider.Id, new ChatProviderUpsertRequest("fake", "http://provider.test"));
+        await service.ListModelsAsync(_provider.Id);
+
+        handler.Calls.ShouldBe(2, "update do provider devia invalidar o cache de modelos");
+    }
+
+    private sealed class ModelsHandler : HttpMessageHandler
+    {
+        private int _calls;
+
+        public int Calls => _calls;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"data":[{"id":"m1"},{"id":"m2"}]}""",
+                    Encoding.UTF8, "application/json"),
+            });
+        }
     }
 
     /// <summary>Provider fake: 1ª chamada devolve tool_calls, 2ª devolve a resposta final.</summary>

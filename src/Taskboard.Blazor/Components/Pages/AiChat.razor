@@ -107,10 +107,8 @@ else
                               AgentContext="CurrentAgentContext"
                               SeedConversationId="@_seedConversationId"
                               OnConversationAgentLoaded="OnConversationAgentLoaded"
-                              OnSwitchToAgent="SwitchToAgentMode" />
-            </div>
-            <div class="card-footer p-2">
-                <div class="ai-chat-toolbar small">
+                              OnSwitchToAgent="SwitchToAgentMode">
+                    <AgentTools>
                     <label class="ai-chat-ctl"
                            title="Structured agent chat or a raw CLI terminal (PTY) thread">
                         <Icon Name="IconName.Terminal" />
@@ -180,7 +178,8 @@ else
                             <a href="/settings" class="alert-link">Settings → Agents</a>
                         </span>
                     }
-                </div>
+                    </AgentTools>
+                </ProviderChat>
             </div>
         }
         else
