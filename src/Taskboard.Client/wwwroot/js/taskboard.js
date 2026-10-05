@@ -427,6 +427,39 @@ window.taskboardChat = {
         area.remove();
     },
 
+    // SPEC-20261005-chat-attachments-feedback RF-001: the paperclip proxies
+    // a click into the hidden <input type=file> Blazor's InputFile renders.
+    pickFile: function (inputId) {
+        var el = document.getElementById(inputId);
+        if (el) {
+            el.click();
+        }
+    },
+
+    // RF-003: clipboard files (screenshot paste etc.) flow into the same
+    // hidden input — InputFile picks them up through the dispatched change.
+    hookPaste: function (textareaId, fileInputId) {
+        var area = document.getElementById(textareaId);
+        var input = document.getElementById(fileInputId);
+        if (!area || !input || area._attachPasteBound) {
+            return;
+        }
+        area._attachPasteBound = true;
+        area.addEventListener('paste', function (e) {
+            var files = e.clipboardData && e.clipboardData.files;
+            if (!files || files.length === 0) {
+                return;
+            }
+            var dt = new DataTransfer();
+            for (var i = 0; i < files.length; i++) {
+                dt.items.add(files[i]);
+            }
+            input.files = dt.files;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            e.preventDefault();
+        });
+    },
+
     // SPEC-20261005-chat-plan-mode RF-004: export the reviewed plan as a
     // .md download (Blob URL — no server round-trip).
     download: function (filename, text, mime) {

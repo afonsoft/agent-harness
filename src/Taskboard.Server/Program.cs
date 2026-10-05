@@ -537,6 +537,13 @@ void RegisterWorkspaceAndChatServices()
     // spill under ~/.agent-harness/spill/{runId}/ — shared by the wire
     // compaction path and read_file's spill:// handler.
     builder.Services.AddSingleton<ISpillStore>(new ChatSpillStore(environment.GetDataDir()));
+    // SPEC-20261005-chat-attachments-feedback RF-001/RNF-004: staged+bound
+    // upload bytes under ~/.agent-harness/attachments/{id}.{ext}.
+    builder.Services.AddSingleton(new ChatAttachmentStore(environment.GetDataDir()));
+    // RF-007: file-tool mutations feed the run's deliverables card.
+    builder.Services.AddSingleton<IChatFileEditTracker>(new ChatFileEditTracker());
+    builder.Services.AddSingleton<IChatWorkspaceDiffService>(sp => new GitWorkspaceDiffService(
+        sp.GetRequiredService<IGitCommandRunner>()));
     builder.Services.AddSingleton<GenerateImageTool>(sp => new GenerateImageTool(
         sp.GetRequiredService<OpenAiCompatibleClient>(),
         sp.GetRequiredService<ChatImageStore>()));
@@ -553,9 +560,14 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<ISecretRedactor>()),
             new ReadFileTool(
                 sp.GetRequiredService<ISecretRedactor>(),
-                sp.GetRequiredService<ISpillStore>()),
-            new WriteFileTool(),
-            new EditFileTool(),
+                sp.GetRequiredService<ISpillStore>(),
+                sp.GetRequiredService<ChatAttachmentStore>()),
+            new WriteFileTool(sp.GetRequiredService<IChatFileEditTracker>()),
+            new EditFileTool(sp.GetRequiredService<IChatFileEditTracker>()),
+            // SPEC-20261005-chat-attachments-feedback RF-003/RF-007: attach://
+            // image reads (image_url wire parts) + declared deliverables.
+            new ReadImageTool(sp.GetRequiredService<ChatAttachmentStore>()),
+            new PresentTool(sp.GetRequiredService<IChatFileEditTracker>()),
             new ListDirTool(),
             new FindFilesTool(),
             new SearchFilesTool(sp.GetRequiredService<ISecretRedactor>()),
@@ -2503,8 +2515,8 @@ void MapSettingsAndChatEndpoints()
         }
     });
 
-    chat.MapGet("conversations", async (string? q, bool? archived, ChatService chatService, CancellationToken ct) =>
-        Results.Ok(new { conversations = await chatService.ListConversationsAsync(q, archived ?? false, ct) }));
+    chat.MapGet("conversations", async (string? q, bool? archived, bool? hasNegativeFeedback, ChatService chatService, CancellationToken ct) =>
+        Results.Ok(new { conversations = await chatService.ListConversationsAsync(q, archived ?? false, ct, hasNegativeFeedback ?? false) }));
 
     // SPEC-20261001-chat-capability-registry FR-004: capability catalog for the
     // Settings → Chat tab — tools/MCP/skills/delegation with effective toggles.
@@ -2572,13 +2584,13 @@ void MapSettingsAndChatEndpoints()
             // to the normal queued send.
             if (request.Steer)
             {
-                if (await chatService.EnqueueSteerAsync(id, request.Content, ct) is { } steered)
+                if (await chatService.EnqueueSteerAsync(id, request.Content, ct, request.AttachmentIds) is { } steered)
                 {
                     return Results.Accepted(value: new EnqueueChatMessageResponse(steered.Run, Steered: true, steered.SteerId));
                 }
             }
 
-            var run = await chatService.EnqueueMessageAsync(id, request.Content, ct);
+            var run = await chatService.EnqueueMessageAsync(id, request.Content, ct, request.AttachmentIds);
             return Results.Accepted(value: new EnqueueChatMessageResponse(run));
         }
         catch (ChatArchivedException ex)
@@ -2588,6 +2600,10 @@ void MapSettingsAndChatEndpoints()
         catch (ChatSteerConflictException ex)
         {
             return Results.Conflict(new { error = new { code = "STEER_CONFLICT", message = ex.Message } });
+        }
+        catch (ChatConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "CHAT_CONFLICT", message = ex.Message } });
         }
         catch (ChatValidationException ex)
         {
@@ -2714,6 +2730,12 @@ void MapSettingsAndChatEndpoints()
                         decidedBy = e.DecidedBy,
                         kind = e.Kind,
                     }),
+                    // SPEC-20261005-chat-attachments-feedback RF-007: the
+                    // run's deliverables card — persisted rows replay on load.
+                    ChatDeliverablesEvent e => ("chat.deliverables", new
+                    {
+                        deliverables = e.Deliverables,
+                    }),
                     // ChatDoneEvent arrives below with the fresh terminal row;
                     // ChatPersistedEvent is internal plumbing — not on the wire.
                     _ => (null, null),
@@ -2837,6 +2859,113 @@ void MapSettingsAndChatEndpoints()
         {
             return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
         }
+    });
+
+    // ---- SPEC-20261005-chat-attachments-feedback: attachments ----
+
+    // RF-001: stage an upload — sniffed MIME (RNF-002), cap + allowlist from
+    // Taskboard:Chat:Attachments:*; bound on the next send (RF-002).
+    chat.MapPost("conversations/{id}/attachments", async (
+        string id,
+        HttpRequest request,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        var form = await request.ReadFormAsync(ct);
+        var file = form.Files.GetFile("file");
+        if (file is null || file.Length == 0)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = "file is required." } });
+        }
+
+        await using var stream = file.OpenReadStream();
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, ct);
+        try
+        {
+            var attachment = await chatService.UploadAttachmentAsync(
+                id, file.FileName, buffer.ToArray(), ct);
+            return Results.Created(
+                $"/api/local/chat/conversations/{id}/attachments/{attachment.Id}/download",
+                new { attachment });
+        }
+        catch (ChatArchivedException ex)
+        {
+            return Results.Conflict(new { error = new { code = "CONVERSATION_ARCHIVED", message = ex.Message } });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    }).DisableAntiforgery();
+
+    chat.MapGet("conversations/{id}/attachments/{attachmentId}/download", async (
+        string id,
+        string attachmentId,
+        ChatService chatService,
+        CancellationToken ct) =>
+        await chatService.GetAttachmentAsync(id, attachmentId, ct) is { } found
+            ? Results.File(found.FullPath, found.Attachment.ContentType, found.Attachment.FileName)
+            : Results.NotFound(new { error = new { code = "ATTACHMENT_NOT_FOUND", message = $"Attachment '{attachmentId}' not found." } }));
+
+    // RF-001: staged rows only — a bound attachment is transcript history.
+    chat.MapDelete("conversations/{id}/attachments/{attachmentId}", async (
+        string id,
+        string attachmentId,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            await chatService.DeleteAttachmentAsync(id, attachmentId, ct);
+            return Results.NoContent();
+        }
+        catch (ChatConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "ATTACHMENT_BOUND", message = ex.Message } });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.NotFound(new { error = new { code = "ATTACHMENT_NOT_FOUND", message = ex.Message } });
+        }
+    });
+
+    // ---- SPEC-20261005-chat-attachments-feedback: message feedback (log-only) ----
+
+    // RF-005: 👍/👎 + category/note upsert — Version is CAS (0 on create).
+    chat.MapPut("messages/{id}/feedback", async (
+        string id,
+        PutChatMessageFeedbackRequest request,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var feedback = await chatService.PutMessageFeedbackAsync(
+                id, request.Rating, request.Category, request.Note, request.Version, ct);
+            return Results.Ok(new { feedback });
+        }
+        catch (ChatConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "FEEDBACK_CONFLICT", message = ex.Message } });
+        }
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    chat.MapDelete("messages/{id}/feedback", async (
+        string id,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        await chatService.DeleteMessageFeedbackAsync(id, ct);
+        return Results.NoContent();
     });
 
     chat.MapGet("images/{fileName}", (string fileName, ChatImageStore imageStore) =>

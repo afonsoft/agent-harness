@@ -6,13 +6,24 @@ using System.Text.Json;
 
 namespace Taskboard.Application.Contracts.Chat;
 
-/// <summary>OpenAI wire message (chat completions) — role/content/tool_calls/tool_call_id.</summary>
+/// <summary>
+/// OpenAI wire message (chat completions) — role/content/tool_calls/
+/// tool_call_id. When <see cref="ImageUrls"/> is present the wire content
+/// becomes a parts array <c>[{text}, {image_url}, …]</c>
+/// (SPEC-20261005-chat-attachments-feedback — attach:// images reach the
+/// model through read_image results and user-message attachment parts).
+/// </summary>
 public sealed record OpenAiChatMessage(
     string Role,
     string? Content = null,
     IReadOnlyList<OpenAiToolCall>? ToolCalls = null,
     string? ToolCallId = null,
-    string? Name = null);
+    string? Name = null,
+    /// <summary>
+    /// Data-URL/URL images appended as <c>image_url</c> parts after the text
+    /// part. Only set when the model is expected to accept content parts.
+    /// </summary>
+    IReadOnlyList<string>? ImageUrls = null);
 
 public sealed record OpenAiToolCall(string Id, string Name, string ArgumentsJson);
 
@@ -255,7 +266,16 @@ public sealed class OpenAiCompatibleClient(HttpClient http)
         }
 
         wire["role"] = message.Role;
-        wire["content"] = message.Content;
+        wire["content"] = message.ImageUrls is { Count: > 0 } images
+            ? new List<Dictionary<string, object?>>
+            {
+                new() { ["type"] = "text", ["text"] = message.Content ?? string.Empty },
+            }.Concat(images.Select(url => new Dictionary<string, object?>
+            {
+                ["type"] = "image_url",
+                ["image_url"] = new Dictionary<string, object?> { ["url"] = url },
+            })).ToList()
+            : message.Content;
         if (message.ToolCalls is { Count: > 0 })
         {
             wire["tool_calls"] = message.ToolCalls.Select(tc => new Dictionary<string, object?>

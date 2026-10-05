@@ -14,7 +14,7 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// <c>replace_all</c>) instead of rewriting the whole file. Path-jailed like
 /// <see cref="WriteFileTool"/>.
 /// </summary>
-public sealed class EditFileTool() : IChatTool
+public sealed class EditFileTool(IChatFileEditTracker? editTracker = null) : IChatTool
 {
     public string Name => "edit_file";
     public string Description =>
@@ -67,7 +67,18 @@ public sealed class EditFileTool() : IChatTool
                 ? content.Replace(oldText, newText, StringComparison.Ordinal)
                 : content.Remove(content.IndexOf(oldText, StringComparison.Ordinal), oldText.Length)
                     .Insert(content.IndexOf(oldText, StringComparison.Ordinal), newText);
-            await File.WriteAllTextAsync(full, updated, cancellationToken).ConfigureAwait(false);
+
+            // RF-007: register the mutation for the run's deliverables card.
+            if (editTracker is not null && context.RunId is not null && context.ConversationId is not null)
+            {
+                editTracker.BeforeEdit(context.RunId, context.ConversationId, path, content);
+                await File.WriteAllTextAsync(full, updated, cancellationToken).ConfigureAwait(false);
+                editTracker.AfterEdit(context.RunId, context.ConversationId, path, updated);
+            }
+            else
+            {
+                await File.WriteAllTextAsync(full, updated, cancellationToken).ConfigureAwait(false);
+            }
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
                 path,

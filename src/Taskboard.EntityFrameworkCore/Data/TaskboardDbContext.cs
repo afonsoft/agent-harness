@@ -44,6 +44,9 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ChatRun> ChatRuns => Set<ChatRun>();
     public DbSet<ChatApproval> ChatApprovals => Set<ChatApproval>();
     public DbSet<ChatSteer> ChatSteers => Set<ChatSteer>();
+    public DbSet<ChatAttachment> ChatAttachments => Set<ChatAttachment>();
+    public DbSet<ChatMessageFeedback> ChatMessageFeedbacks => Set<ChatMessageFeedback>();
+    public DbSet<ChatRunDeliverable> ChatRunDeliverables => Set<ChatRunDeliverable>();
     public DbSet<ChatPushSubscription> ChatPushSubscriptions => Set<ChatPushSubscription>();
     public DbSet<DelegationTask> DelegationTasks => Set<DelegationTask>();
     public DbSet<AgentMailboxMessage> AgentMailboxMessages => Set<AgentMailboxMessage>();

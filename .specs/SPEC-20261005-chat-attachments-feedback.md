@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261008-chat-attachments` |
-| Status | `Approved` — aprovado por afonsoft (2026-10-05) |
+| Status | `Implemented` — entregue na branch `feat/devin-20261008-chat-attachments` |
 | Depends on | SPEC-20261005-chat-background-resume |
 | Reference | COMPARISON-20261005-deepseek-harness §1/#10–#12 (`attachment`/`file-upload`/`read_image`, `feedback/message-*`, `present` + `workspace-changes`) |
 

@@ -79,8 +79,34 @@ public sealed class ChatRunRetentionService : ManagedJobService
             _logger.LogInformation("Chat spills: swept {Count} orphan run dirs", swept);
         }
 
-        return stale.Count > 0 || swept > 0
-            ? $"purged {stale.Count} rows past {days}d, swept {swept} orphan spill dirs"
+        // SPEC-20261005-chat-attachments-feedback RF-001: staged uploads older
+        // than 24h are orphans — the send that would bind them never came.
+        var attachments = scope.ServiceProvider.GetService<IRepository<ChatAttachment>>();
+        var attachmentStore = scope.ServiceProvider.GetService<ChatAttachmentStore>();
+        var attachmentsSwept = 0;
+        if (attachments is not null && attachmentStore is not null)
+        {
+            var orphanCutoff = DateTime.UtcNow.AddHours(-24);
+            var orphans = await attachments.Query
+                .Where(a => a.MessageId == null && a.CreatedAt < orphanCutoff)
+                .Take(500)
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var orphan in orphans)
+            {
+                attachmentStore.Delete(orphan.StoragePath);
+                await attachments.DeleteAsync(orphan, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (orphans.Count > 0)
+            {
+                await attachments.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                attachmentsSwept = orphans.Count;
+                _logger.LogInformation("Chat attachments: swept {Count} staged orphans", orphans.Count);
+            }
+        }
+
+        return stale.Count > 0 || swept > 0 || attachmentsSwept > 0
+            ? $"purged {stale.Count} rows past {days}d, swept {swept} orphan spill dirs, {attachmentsSwept} staged attachments"
             : null;
     }
 }

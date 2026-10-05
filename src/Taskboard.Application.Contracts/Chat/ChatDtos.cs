@@ -71,7 +71,12 @@ public sealed record ChatMessageDto(
     DateTime CreatedAt,
     // SPEC-20261005-chat-context-management RF-004: "normal" | "summary" —
     // the UI labels summaries distinctly (never as user text).
-    string Kind = "normal");
+    string Kind = "normal",
+    // SPEC-20261005-chat-attachments-feedback RF-004: bound attachments —
+    // images render inline, other types as download chips.
+    IReadOnlyList<ChatAttachmentDto>? Attachments = null,
+    // RF-005: persisted 👍/👎 — assistant messages only.
+    ChatFeedbackDto? Feedback = null);
 
 public sealed record ChatConversationDetailDto(
     ChatConversationDto Conversation,
@@ -82,7 +87,10 @@ public sealed record ChatConversationDetailDto(
     ChatRunDto? LastRun = null,
     // SPEC-20261005-chat-tool-approval RF-007: unresolved approvals replayed
     // into the pending card — survives a browser-closed run.
-    IReadOnlyList<ChatApprovalDto>? PendingApprovals = null);
+    IReadOnlyList<ChatApprovalDto>? PendingApprovals = null,
+    // SPEC-20261005-chat-attachments-feedback RF-007: deliverables card of
+    // <see cref="LastRun"/> when it completed.
+    IReadOnlyList<ChatDeliverableDto>? LastRunDeliverables = null);
 
 /// <summary>
 /// A provider-chat run (SPEC-20261005-chat-background-resume RF-004) —
@@ -130,7 +138,45 @@ public sealed record SendChatMessageRequest(
     /// message lands in the steer inbox (claimed at the next tool-result
     /// boundary) instead of queueing a new run. No-op when nothing runs.
     /// </summary>
-    bool Steer = false);
+    bool Steer = false,
+    /// <summary>
+    /// SPEC-20261005-chat-attachments-feedback RF-002: staged attachment ids
+    /// bound to this message on send (cap <c>Chat:Attachments:MaxPerMessage</c>).
+    /// </summary>
+    IReadOnlyList<string>? AttachmentIds = null);
+
+/// <summary>
+/// A staged/bound attachment (SPEC-20261005-chat-attachments-feedback RF-001).
+/// </summary>
+public sealed record ChatAttachmentDto(
+    string Id, string FileName, string ContentType, long ByteSize, string DownloadUrl);
+
+/// <summary>
+/// Log-only per-message feedback (RF-005/RNF-003) — never on the wire.
+/// <see cref="Version"/> is the CAS token of the PUT endpoint.
+/// </summary>
+public sealed record ChatFeedbackDto(
+    string Rating, string? Category, string? Note, long Version, DateTime UpdatedAt);
+
+/// <summary>Body of <c>PUT /api/local/chat/messages/{id}/feedback</c> (RF-005).</summary>
+public sealed record PutChatMessageFeedbackRequest(
+    string Rating, string? Category = null, string? Note = null, long Version = 0);
+
+/// <summary>
+/// One file of a completed run's deliverables card (RF-007) — measured
+/// (tool-edit/git) or declared by the model (<c>present</c>).
+/// </summary>
+public sealed record ChatDeliverableDto(
+    string Path, int? AddedLines, int? RemovedLines, string Source, string? Summary = null);
+
+/// <summary>Where a deliverable row came from (RF-007). Wire contract —
+/// Integrations and Application both emit these values.</summary>
+public static class ChatDeliverableSources
+{
+    public const string ToolEdit = "tool-edit";
+    public const string Git = "git";
+    public const string Present = "present";
+}
 
 /// <summary>Body of <c>POST /api/local/chat/conversations/{id}/fork</c> (RF-002).</summary>
 public sealed record ForkChatConversationRequest(string MessageId);

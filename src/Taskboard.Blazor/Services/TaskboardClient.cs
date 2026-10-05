@@ -1132,12 +1132,19 @@ public sealed class TaskboardClient
     }
 
     public async Task<IReadOnlyList<ChatConversationDto>> GetChatConversationsAsync(
-        string? query = null, bool archived = false, CancellationToken cancellationToken = default)
+        string? query = null, bool archived = false, bool hasNegativeFeedback = false,
+        CancellationToken cancellationToken = default)
     {
         var url = "api/local/chat/conversations?archived=" + (archived ? "true" : "false");
         if (!string.IsNullOrWhiteSpace(query))
         {
             url += $"&q={Uri.EscapeDataString(query)}";
+        }
+
+        // SPEC-20261005-chat-attachments-feedback RF-006: 👎 filter.
+        if (hasNegativeFeedback)
+        {
+            url += "&hasNegativeFeedback=true";
         }
 
         var body = await _httpClient.GetFromJsonAsync<ChatConversationListResponse>(url, cancellationToken);
@@ -1284,14 +1291,70 @@ public sealed class TaskboardClient
     /// queued send when no run is active).
     /// </summary>
     public async Task<(ChatRunDto Run, bool Steered, string? SteerId)> EnqueueChatMessageAsync(
-        string id, string content, bool steer = false, CancellationToken cancellationToken = default)
+        string id, string content, bool steer = false,
+        IReadOnlyList<string>? attachmentIds = null,
+        CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages",
-            new SendChatMessageRequest(content, steer), cancellationToken);
+            new SendChatMessageRequest(content, steer, attachmentIds), cancellationToken);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<EnqueueChatMessageResponse>(cancellationToken: cancellationToken);
         return (body!.Run, body.Steered, body.SteerId);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-attachments-feedback RF-001: stages an upload —
+    /// the row stays unbound until a message send references its id.
+    /// </summary>
+    public async Task<ChatAttachmentDto?> UploadChatAttachmentAsync(
+        string id, string fileName, string contentType, Stream content,
+        CancellationToken cancellationToken = default)
+    {
+        using var form = new MultipartFormDataContent();
+        var fileContent = new StreamContent(content);
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(
+            string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType);
+        form.Add(fileContent, "file", fileName);
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/attachments", form, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ChatAttachmentDto>(cancellationToken: cancellationToken);
+    }
+
+    /// <summary>RF-001: removes a still-staged attachment (bound rows 409).</summary>
+    public async Task<bool> DeleteChatAttachmentAsync(
+        string id, string attachmentId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/attachments/{Uri.EscapeDataString(attachmentId)}",
+            cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>
+    /// RF-005: rates an assistant message — 409 returns the current row for
+    /// the client to re-offer. Version is the row's CAS token.
+    /// </summary>
+    public async Task<(ChatFeedbackDto? Feedback, bool Conflict)> PutChatFeedbackAsync(
+        string id, string messageId, PutChatMessageFeedbackRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages/{Uri.EscapeDataString(messageId)}/feedback",
+            request, cancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<ChatFeedbackDto>(cancellationToken: cancellationToken);
+        return (body, response.StatusCode == System.Net.HttpStatusCode.Conflict);
+    }
+
+    /// <summary>RF-005: clears the rating on a message (204).</summary>
+    public async Task DeleteChatFeedbackAsync(
+        string id, string messageId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages/{Uri.EscapeDataString(messageId)}/feedback",
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
     }
 
     /// <summary>
