@@ -731,7 +731,10 @@
                                     <tbody>
                                         @foreach (var server in _chatMcpServers)
                                         {
-                                            <tr @key="server.Name">
+                                            @* merged de config + ~/.agents + RAG —
+                                               o mesmo nome pode vir de origens
+                                               diferentes. *@
+                                            <tr @key="ChatMcpServerKey(server)">
                                                 <td class="small font-monospace">@server.Name</td>
                                                 <td class="small">@server.Transport</td>
                                                 <td class="small">@server.ToolCount</td>
@@ -810,7 +813,10 @@
                                         <div class="d-flex flex-wrap gap-1">
                                             @foreach (var server in agent.Servers)
                                             {
-                                                <span class="badge text-bg-light border d-inline-flex align-items-center gap-1" @key="server.Name">
+                                                @* entries merged de múltiplos
+                                                   arquivos do agente — nome pode
+                                                   repetir. *@
+                                                <span class="badge text-bg-light border d-inline-flex align-items-center gap-1" @key="AgentMcpServerKey(server)">
                                                     @server.Name <span class="text-body-secondary">@server.Transport</span>
                                                     @if (agent.Writable)
                                                     {
@@ -898,7 +904,11 @@
                             <div class="d-flex flex-wrap gap-1">
                                 @foreach (var skill in _installedSkills)
                                 {
-                                    <span class="badge text-bg-light border" title="@skill.Description" @key="skill.Name">@skill.Name</span>
+                                    @* O mesmo skill name aparece em várias homes
+                                       (agents/claude/devin/…) e até duplicado
+                                       dentro da mesma fonte — a key precisa ser
+                                       o Path, que é único por instalação. *@
+                                    <span class="badge text-bg-light border" title="@skill.Source — @skill.Description" @key="skill.Path">@skill.Name</span>
                                 }
                             </div>
                         }
@@ -2694,6 +2704,12 @@
     }
 
     private static string SkillRowKey(SkillSearchResultDto result) => result.Repository + "@" + result.Name;
+
+    // merged de config + ~/.agents + RAG — o mesmo nome pode vir de origens
+    // diferentes; keys por Name sozinho quebram o render (dup key crash).
+    private static string ChatMcpServerKey(ChatMcpServerStatus server) => server.Name + "@" + server.Origin;
+
+    private static string AgentMcpServerKey(AgentMcpServerEntryDto server) => server.Name + "@" + server.Transport + "@" + server.Detail;
 
     private async Task InstallOneSkillAsync(SkillSearchResultDto result)
     {

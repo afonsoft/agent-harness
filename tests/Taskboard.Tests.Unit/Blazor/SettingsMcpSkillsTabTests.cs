@@ -88,4 +88,21 @@ public class SettingsMcpSkillsTabTests
         var removeFullscreen = src.IndexOf("Fullscreen=\"ModalFullscreen.SmallDown\"", removeModal);
         removeFullscreen.ShouldBeGreaterThan(0, "modal Remove MCP deve ser fullscreen em telas pequenas");
     }
+
+    [Fact]
+    public void Dado_Settings_Quando_LeFonte_Entao_KeysUnicasEmListasComDupNames()
+    {
+        // O mesmo skill/MCP name aparece em várias fontes (agents/claude/…)
+        // e até duplicado na mesma fonte — @key por Name quebra o render
+        // ("same key value"), matando o circuito Blazor inteiro (inclusive
+        // a aba Configuration, que renderiza os outros panes no DOM).
+        var src = SettingsSource();
+
+        src.ShouldContain("@key=\"skill.Path\"");
+        src.ShouldNotContain("@key=\"skill.Name\"");
+        src.ShouldContain("@key=\"ChatMcpServerKey(server)\"");
+        src.ShouldContain("@key=\"AgentMcpServerKey(server)\"");
+        src.ShouldContain("server.Name + \"@\" + server.Origin");
+        src.ShouldContain("server.Name + \"@\" + server.Transport + \"@\" + server.Detail");
+    }
 }
