@@ -3,6 +3,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject ILocaleService L
+@inject ChatNotificationsService ChatNotifications
 
 <Toasts class="p-3" AutoHide="true" Delay="4000" Placement="ToastsPlacement.TopRight" />
 
@@ -106,6 +107,10 @@
         {
             // JS interop not available (e.g. prerender); sidebar stays expanded.
         }
+
+        // SPEC-20261005 RF-008: chat run-completion fan-out (toast + browser
+        // notify). Hub offline degrades silenciosamente — nunca quebra a UI.
+        _ = ChatNotifications.EnsureStartedAsync();
     }
 
     /// <summary>True while the desktop icon rail is active (SPEC-20260918-sidebar-icon-rail).</summary>

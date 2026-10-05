@@ -142,6 +142,19 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Runs:RetentionDays", "30", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateNonNegativeInt),
+        // SPEC-20261005 RF-008: run-completion notifications — in-app toast,
+        // Notification API (opt-in, triggers requestPermission) e o master
+        // switch de Web Push (Fase 3). Per-browser override mora em
+        // localStorage["harness.chat.notify.*"] no client.
+        new("Taskboard:Chat:Notify:Done:InApp", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean),
+        new("Taskboard:Chat:Notify:Done:Browser", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean),
+        new("Taskboard:Chat:Notify:Done:Push", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean),
         // SPEC-20261004-redis-hybrid-cache RF-002: HybridCache L1+L2 — DI wiring
         // only happens at boot, so all four keys require restart. The generic
         // HARNESS__* env mapper already covers them (no dedicated EnvAlias).

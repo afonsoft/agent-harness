@@ -242,6 +242,8 @@ app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
 app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
 // SPEC-20260919-ade-cockpit-hitl §5: stream de eventos estruturados por run.
 app.MapHub<HarnessCockpitHub>("/harness-cockpit-hub").RequireAuthorization();
+// SPEC-20261005-chat-background-resume RF-008: run.completed broadcast.
+app.MapHub<ChatRunHub>("/chat-run-hub").RequireAuthorization();
 
 // SPEC-20260917-vscode-web-workspace RF-006: /vscode mount handling lives in
 // middleware (not an endpoint) because endpoint routing ignores the trailing
@@ -632,6 +634,9 @@ void RegisterWorkspaceAndChatServices()
     builder.Services.AddSingleton<ChatRunQueue>();
     builder.Services.AddSingleton<ChatRunBroadcaster>();
     builder.Services.AddScoped<IChatRunExecutor>(sp => sp.GetRequiredService<ChatService>());
+    // SPEC-20261005 RF-008: run-completion fan-out over SignalR — scoped like
+    // the executor (the dispatcher resolves it inside each run's scope).
+    builder.Services.AddScoped<IChatRunNotifier, SignalRChatRunNotifier>();
     builder.Services.AddHostedService<ChatRunDispatcherService>();
     builder.Services.AddHostedService<ChatRunRetentionService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
