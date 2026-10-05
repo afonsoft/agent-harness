@@ -23,6 +23,18 @@ public class AiChatSourceGuardTests
         return Path.Join(dir.FullName, "src", "Taskboard.Blazor", "Components", "Pages", "AiChat.razor");
     }
 
+    private static string ProviderChatRazorPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Join(dir.FullName, "Taskboard.sln")))
+        {
+            dir = dir.Parent;
+        }
+
+        dir.ShouldNotBeNull("não foi possível localizar a raiz do repo (Taskboard.sln)");
+        return Path.Join(dir.FullName, "src", "Taskboard.Blazor", "Components", "Chat", "ProviderChat.razor");
+    }
+
     [Fact]
     public void Dado_AiChatRazor_Quando_LeFonte_Entao_RailOverlayPresente()
     {
@@ -243,7 +255,6 @@ public class AiChatSourceGuardTests
         occurrences.ShouldBeGreaterThanOrEqualTo(2,
             "setAiChatLastAgent deve ser chamado tanto no auto-select do init quanto em OnCfgCliChanged");
     }
-
     [Fact]
     public void Dado_AiChatRazor_Quando_LeFonte_Entao_ChatModeTemBotoesWorkspaceRepo()
     {
@@ -261,5 +272,17 @@ public class AiChatSourceGuardTests
         chatPane.ShouldContain("OnConversationAgentLoaded=\"OnConversationAgentLoaded\"");
         chatPane.ShouldContain("ShowWorkspaceModalAsync");
         chatPane.ShouldContain("ShowRepoModalAsync");
+    }
+
+    [Fact]
+    public void Dado_ProviderChatRazor_Quando_LeFonte_Entao_BadguaSchedule()
+    {
+        // SPEC-20261005-chat-jobs-schedule-search — mensagem entregue pelo
+        // dispatcher (Kind="schedule") deve badjar como "schedule" (assim
+        // como "steer"), não renderizar como bubble de user comum.
+        var source = File.ReadAllText(ProviderChatRazorPath());
+
+        source.ShouldContain("message.Kind == \"schedule\"");
+        source.ShouldContain(">schedule</span>");
     }
 }
