@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Taskboard.Chat;
 using Taskboard.Domain.Entities.Chat;
 using Taskboard.EntityFrameworkCore.ValueConverters;
 using Taskboard.ValueObjects;
@@ -127,6 +128,10 @@ public sealed class ChatRunConfiguration : IEntityTypeConfiguration<ChatRun>
             .HasMaxLength(1024);
         builder.Property(r => r.TokensIn);
         builder.Property(r => r.TokensOut);
+        // SPEC-20261005-chat-context-management RF-007: meter + compaction stats.
+        builder.Property(r => r.ContextTokensLimit);
+        builder.Property(r => r.CompactionCount)
+            .HasDefaultValue(0);
         builder.Property(r => r.CreatedAt);
         builder.Property(r => r.StartedAt);
         builder.Property(r => r.FinishedAt);
@@ -298,6 +303,14 @@ public sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMess
         builder.Property(m => m.TokensIn);
         builder.Property(m => m.TokensOut);
         builder.Property(m => m.Model)
+            .HasMaxLength(128);
+        // SPEC-20261005-chat-context-management RF-004: "normal" | "summary" +
+        // the stored-message bound a summary supersedes on the wire.
+        builder.Property(m => m.Kind)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasDefaultValue(ChatMessageKinds.Normal);
+        builder.Property(m => m.SupersedesUntilMessageId)
             .HasMaxLength(128);
         builder.Property(m => m.CreatedAt);
 

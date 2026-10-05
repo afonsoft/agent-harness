@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Taskboard.Application.Contracts.Chat;
 using Taskboard.Domain.Entities.Chat;
 using Taskboard.Repositories;
 using Taskboard.ValueObjects;
@@ -19,17 +20,20 @@ public sealed class ChatRunRetentionService : ManagedJobService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
+    private readonly ISpillStore _spillStore;
     private readonly ILogger<ChatRunRetentionService> _logger;
 
     public ChatRunRetentionService(
         IServiceScopeFactory scopeFactory,
         IConfiguration configuration,
+        ISpillStore spillStore,
         JobRegistry registry,
         ILogger<ChatRunRetentionService> logger)
         : base(registry, JobKey, logger)
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
+        _spillStore = spillStore;
         _logger = logger;
     }
 
@@ -50,6 +54,9 @@ public sealed class ChatRunRetentionService : ManagedJobService
         foreach (var run in stale)
         {
             await repository.DeleteAsync(run, cancellationToken).ConfigureAwait(false);
+            // SPEC-20261005-chat-context-management RF-008: the run's spilled
+            // outputs go with the row.
+            _spillStore.DeleteRunDir(run.Id.Value);
         }
 
         if (stale.Count > 0)
@@ -59,6 +66,21 @@ public sealed class ChatRunRetentionService : ManagedJobService
                 "Chat runs: purged {Count} rows past {Days}d retention", stale.Count, days);
         }
 
-        return stale.Count > 0 ? $"purged {stale.Count} rows past {days}d" : null;
+        // RF-008: orphan sweep — spill dirs whose run row vanished by other
+        // means (manual delete, DB reset). Runs at every job tick including
+        // the boot-time tick the managed-job service performs on start.
+        var alive = (await repository.Query
+            .Select(r => r.Id.Value)
+            .ToListAsync(cancellationToken).ConfigureAwait(false))
+            .ToHashSet(StringComparer.Ordinal);
+        var swept = _spillStore.SweepOrphans(alive);
+        if (swept > 0)
+        {
+            _logger.LogInformation("Chat spills: swept {Count} orphan run dirs", swept);
+        }
+
+        return stale.Count > 0 || swept > 0
+            ? $"purged {stale.Count} rows past {days}d, swept {swept} orphan spill dirs"
+            : null;
     }
 }

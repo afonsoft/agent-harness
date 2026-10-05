@@ -7,15 +7,19 @@ using Taskboard.Integrations.Harness.Security;
 namespace Taskboard.Integrations.Chat.Tools;
 
 /// <summary>Reads a file inside the workspace — path-jailed (RF-006).</summary>
-public sealed class ReadFileTool(ISecretRedactor redactor) : IChatTool
+public sealed class ReadFileTool(ISecretRedactor redactor, ISpillStore? spillStore = null) : IChatTool
 {
     public string Name => "read_file";
     public string Description =>
         "Read a text file inside the workspace (path-jailed). Large files can be paged "
-        + "with offset/limit (characters) instead of reading the whole file at once.";
+        + "with offset/limit (characters) instead of reading the whole file at once. "
+        + "A path of the form spill://{id} reads a spilled tool output persisted by "
+        + "context compaction (paged with offset/limit too).";
     public string ParametersJson => """
-        {"type":"object","properties":{"path":{"type":"string","description":"Relative path inside the workspace"},"offset":{"type":"integer","description":"Character offset to start reading at (default 0)"},"limit":{"type":"integer","description":"Max characters to return (default 16000)"}},"required":["path"]}
+        {"type":"object","properties":{"path":{"type":"string","description":"Relative path inside the workspace, or spill://{id} for a spilled tool output"},"offset":{"type":"integer","description":"Character offset to start reading at (default 0)"},"limit":{"type":"integer","description":"Max characters to return (default 16000)"}},"required":["path"]}
         """;
+
+    private const string SpillScheme = "spill://";
 
     public async Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
@@ -27,6 +31,25 @@ public sealed class ReadFileTool(ISecretRedactor redactor) : IChatTool
         var limit = arguments.TryGetProperty("limit", out var l) && l.TryGetInt32(out var lv) && lv > 0
             ? Math.Min(lv, ShellExecTool.MaxOutputChars)
             : ShellExecTool.MaxOutputChars;
+        // SPEC-20261005-chat-context-management RF-006: spill:// pointers page
+        // the persisted tool output without touching the workspace jail.
+        if (path.StartsWith(SpillScheme, StringComparison.OrdinalIgnoreCase))
+        {
+            var spillId = path[SpillScheme.Length..];
+            var spill = spillStore?.Read(spillId, offset, limit);
+            return spill is null
+                ? new ChatToolResult(JsonSerializer.Serialize(
+                    new { error = $"spill '{spillId}' not found or expired" }), Refused: false, $"spill '{spillId}' not found")
+                : new ChatToolResult(JsonSerializer.Serialize(new
+                {
+                    path,
+                    totalChars = spill.Value.TotalChars,
+                    offset,
+                    truncated = offset + spill.Value.Content.Length < spill.Value.TotalChars,
+                    content = redactor.Redact(spill.Value.Content) ?? string.Empty,
+                }));
+        }
+
         try
         {
             var full = PathJailValidator.Validate(path, context.WorkspacePath);

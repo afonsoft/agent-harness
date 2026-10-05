@@ -1,4 +1,5 @@
 using Taskboard;
+using Taskboard.Chat;
 using Taskboard.ValueObjects;
 
 namespace Taskboard.Domain.Entities.Chat;
@@ -26,6 +27,14 @@ public sealed class ChatMessage : Entity<ChatMessageId>
     public int? TokensIn { get; private set; }
     public int? TokensOut { get; private set; }
     public string? Model { get; private set; }
+    /// <summary>
+    /// SPEC-20261005-chat-context-management RF-004: "normal" | "summary" —
+    /// summary rows persist a compaction result and supersede older rows on
+    /// the provider wire (history itself is never rewritten).
+    /// </summary>
+    public string Kind { get; private set; } = ChatMessageKinds.Normal;
+    /// <summary>Id of the last stored message this summary supersedes on the wire.</summary>
+    public string? SupersedesUntilMessageId { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
     private ChatMessage()
@@ -86,6 +95,26 @@ public sealed class ChatMessage : Entity<ChatMessageId>
     public static ChatMessage CreateSystemNote(
         ChatConversationId conversationId, string content, DateTime? now = null) =>
         new(ChatMessageId.NewGuid(), conversationId, ChatMessageRole.System, content, now ?? DateTime.UtcNow);
+
+    /// <summary>
+    /// SPEC-20261005-chat-context-management RF-004: persisted compaction
+    /// summary — supersedes stored messages up to
+    /// <paramref name="supersedesUntilMessageId"/> on the wire while the full
+    /// history stays in the table for the UI (RNF-001).
+    /// </summary>
+    public static ChatMessage CreateSummary(
+        ChatConversationId conversationId, string content,
+        string supersedesUntilMessageId, DateTime? now = null)
+    {
+        var message = new ChatMessage(
+            ChatMessageId.NewGuid(), conversationId, ChatMessageRole.System,
+            content, now ?? DateTime.UtcNow)
+        {
+            Kind = ChatMessageKinds.Summary,
+            SupersedesUntilMessageId = supersedesUntilMessageId,
+        };
+        return message;
+    }
 
     public void AttachImage(string imagePath, DateTime now)
     {

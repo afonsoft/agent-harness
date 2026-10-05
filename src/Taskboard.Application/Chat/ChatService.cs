@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading.Channels;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Contracts.Workspace;
+using Taskboard.Chat;
 using Taskboard.Domain.Entities.Chat;
 using Taskboard.Repositories;
 using Taskboard.ValueObjects;
@@ -55,6 +57,15 @@ public sealed record ChatApprovalDecidedEvent(
     string ApprovalId, string Status, string? Decision, string DecidedBy,
     string Kind = "tool-call") : ChatStreamEvent;
 
+/// <summary>
+/// SPEC-20261005-chat-context-management RF-007: wire-token estimate + the
+/// effective budget, emitted after each pre-call estimation — SSE
+/// <c>chat.pressure</c> + <c>run.pressure</c> hub event (header meter, sidebar
+/// badge).
+/// </summary>
+public sealed record ChatPressureEvent(
+    int EstimatedTokens, int Limit, bool Compacted) : ChatStreamEvent;
+
 /// <summary>Request-level validation failure surfaced as 400.</summary>
 public sealed class ChatValidationException(string message) : Exception(message);
 
@@ -87,7 +98,8 @@ public sealed class ChatService(
     ChatApprovalCoordinator approvalCoordinator,
     IEnumerable<IChatRunNotifier> notifiers,
     ILogger<ChatService> logger,
-    TimeProvider? clock = null) : IChatRunExecutor
+    TimeProvider? clock = null,
+    ISpillStore? spillStore = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -580,6 +592,15 @@ public sealed class ChatService(
 
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
+            // SPEC-20261005-chat-context-management RF-002: pressure check
+            // before EACH provider call — prune (+summarize) the wire when it
+            // crosses the effective budget; wire-only, history never mutates.
+            await foreach (var ev in MaybeCompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+                .ConfigureAwait(false))
+            {
+                yield return ev;
+            }
+
             // B-02: deltas are yielded as they arrive — subscribers see live
             // progress instead of a burst after the provider finishes.
             var stream = new StreamOutcome();
@@ -591,8 +612,31 @@ public sealed class ChatService(
             }
 
             UpdateState(stream, state);
+            // RF-001 anchor: the provider's own prompt_tokens replaces the
+            // heuristic baseline; later estimates = anchor + delta growth.
+            if (stream.Usage?.PromptTokens is > 0)
+            {
+                state.AnchorTokens = stream.Usage.PromptTokens.Value;
+                state.AnchorCount = wire.Count;
+            }
+
             if (stream.ProviderError is not null)
             {
+                // RF-005: context_length_exceeded mid-run → force compaction
+                // and retry the same step once; a second failure surfaces.
+                if (!state.OverflowRetried && IsContextLengthError(stream.ProviderError))
+                {
+                    state.OverflowRetried = true;
+                    state.Error = null;
+                    await foreach (var ev in ForceCompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+                        .ConfigureAwait(false))
+                    {
+                        yield return ev;
+                    }
+
+                    continue;
+                }
+
                 break;
             }
 
@@ -616,7 +660,7 @@ public sealed class ChatService(
                 break;
             }
 
-            await foreach (var ev in RunToolCallsAsync(run, toolCalls, provider, toolSet, conversation, wire, stoppingToken, ct)
+            await foreach (var ev in RunToolCallsAsync(run, toolCalls, provider, toolSet, conversation, wire, state, stoppingToken, ct)
                 .ConfigureAwait(false))
             {
                 yield return ev;
@@ -648,6 +692,21 @@ public sealed class ChatService(
         public int? TokensOut { get; set; }
 
         public string? Error { get; set; }
+
+        /// <summary>RF-007: compaction passes performed in this run.</summary>
+        public int Compactions { get; set; }
+
+        /// <summary>RF-001: provider-reported prompt_tokens at <see cref="AnchorCount"/> wire entries.</summary>
+        public int? AnchorTokens { get; set; }
+
+        /// <summary>RF-001: wire length the anchor covered.</summary>
+        public int AnchorCount { get; set; }
+
+        /// <summary>RF-005: overflow retry is a single shot.</summary>
+        public bool OverflowRetried { get; set; }
+
+        /// <summary>RF-006: deterministic spill id sequence per run.</summary>
+        public int SpillSeq { get; set; }
     }
 
     private static void UpdateState(StreamOutcome stream, TurnState state)
@@ -885,6 +944,7 @@ public sealed class ChatService(
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
+        TurnState state,
         CancellationToken stoppingToken,
         [EnumeratorCancellation] CancellationToken ct)
     {
@@ -952,7 +1012,10 @@ public sealed class ChatService(
 
             await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
             await messages.SaveChangesAsync(ct).ConfigureAwait(false);
-            wire.Add(new OpenAiChatMessage("tool", resultJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
+            // RF-006: oversized results spill to disk — the wire keeps a capped
+            // head + spill:// pointer (persisted history stays whole, RNF-001).
+            var wireResult = SpillToolResult(run, resultJson, state);
+            wire.Add(new OpenAiChatMessage("tool", wireResult, ToolCallId: toolCall.Id, Name: toolCall.Name));
         }
     }
 
@@ -970,6 +1033,331 @@ public sealed class ChatService(
             return null;
         }
     }
+
+    // ---- SPEC-20261005-chat-context-management: pressure, prune, spill, summarize ----
+
+    /// <summary>
+    /// RF-002/RF-007: estimate wire pressure, run the compaction pipeline when
+    /// it crosses the effective budget, then emit <c>chat.pressure</c> (SSE +
+    /// <c>run.pressure</c> hub fan-out for the sidebar badge).
+    /// </summary>
+    private async IAsyncEnumerable<ChatStreamEvent> MaybeCompactWireAsync(
+        ChatRun run,
+        ChatProvider provider,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        TurnState state,
+        CancellationToken stoppingToken,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (!ChatContextBudget.Enabled(configuration))
+        {
+            yield break;
+        }
+
+        var limit = ChatContextBudget.CompactLimit(configuration);
+        var compacted = false;
+        if (EstimatePressure(wire, state) >= limit)
+        {
+            compacted = await CompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+                .ConfigureAwait(false);
+            if (compacted)
+            {
+                state.Compactions++;
+                run.RecordContextStats(limit, state.Compactions);
+            }
+        }
+
+        var estimate = EstimatePressure(wire, state);
+        foreach (var notifier in notifiers)
+        {
+            // run.pressure hub fan-out (sidebar badge) — notifiers tolerate no-op.
+            await notifier.RunPressureAsync(
+                run.Id.Value, conversation.Id.Value, estimate, limit, compacted, ct).ConfigureAwait(false);
+        }
+
+        yield return new ChatPressureEvent(estimate, limit, compacted);
+    }
+
+    /// <summary>RF-005: compaction forced by context_length_exceeded.</summary>
+    private async IAsyncEnumerable<ChatStreamEvent> ForceCompactWireAsync(
+        ChatRun run,
+        ChatProvider provider,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        TurnState state,
+        CancellationToken stoppingToken,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (!ChatContextBudget.Enabled(configuration))
+        {
+            yield break;
+        }
+
+        if (await CompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+            .ConfigureAwait(false))
+        {
+            var limit = ChatContextBudget.CompactLimit(configuration);
+            state.Compactions++;
+            run.RecordContextStats(limit, state.Compactions);
+            yield return new ChatPressureEvent(EstimatePressure(wire, state), limit, Compacted: true);
+        }
+    }
+
+    private int EstimatePressure(List<OpenAiChatMessage> wire, TurnState state) =>
+        state.AnchorTokens is { } anchor
+            ? TokenPressureEstimator.AnchoredEstimate(wire, anchor, state.AnchorCount)
+            : TokenPressureEstimator.EstimateTokens(wire);
+
+    /// <summary>RF-003 prune → RF-004 summarize when still over (RNF-002 safe).</summary>
+    private async Task<bool> CompactWireAsync(
+        ChatRun run,
+        ChatProvider provider,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        TurnState state,
+        CancellationToken stoppingToken,
+        CancellationToken ct)
+    {
+        var pruned = PruneWire(run, wire, state);
+        var summarized = false;
+        if (EstimatePressure(wire, state) >= ChatContextBudget.CompactLimit(configuration))
+        {
+            summarized = await SummarizePrefixAsync(
+                provider, conversation, wire, toolSet, run.TriggerMessageId, stoppingToken, ct)
+                .ConfigureAwait(false);
+        }
+
+        return pruned > 0 || summarized;
+    }
+
+    /// <summary>
+    /// RF-003: tool-result wire entries older than the last KeepRecentTurns
+    /// user turns spill (when large) or collapse to a tombstone — wire-only
+    /// (RNF-001); wire[0] (system prompt) is never touched.
+    /// </summary>
+    private int PruneWire(ChatRun run, List<OpenAiChatMessage> wire, TurnState state)
+    {
+        var keepRecent = ChatContextBudget.KeepRecentTurns(configuration);
+        var cutoff = 0;
+        var users = 0;
+        for (var i = wire.Count - 1; i >= 0; i--)
+        {
+            if (wire[i].Role == "user" && ++users == keepRecent)
+            {
+                cutoff = i;
+                break;
+            }
+        }
+
+        var pruned = 0;
+        for (var i = 1; i < cutoff; i++)
+        {
+            if (wire[i].Role != "tool")
+            {
+                continue;
+            }
+
+            var content = wire[i].Content ?? string.Empty;
+            wire[i] = wire[i] with
+            {
+                Content = Encoding.UTF8.GetByteCount(content) > ChatContextBudget.SpillBytes(configuration)
+                    && spillStore is not null
+                        ? SpillToolResult(run, content, state)
+                        : ChatContextBudget.PrunedTombstone,
+            };
+            pruned++;
+        }
+
+        return pruned;
+    }
+
+    /// <summary>RF-006: spill an oversized result to disk → head + pointer.</summary>
+    private string SpillToolResult(ChatRun run, string content, TurnState state)
+    {
+        if (spillStore is null
+            || Encoding.UTF8.GetByteCount(content) <= ChatContextBudget.SpillBytes(configuration))
+        {
+            return content;
+        }
+
+        var spillId = spillStore.Save(run.Id.Value, ++state.SpillSeq, content);
+        var headChars = Math.Min(ChatContextBudget.SpillHeadBytes(configuration), content.Length);
+        return $"{content[..headChars]}\n[… {content.Length} chars truncated — full output saved at spill://{spillId}; page it back with read_file path=\"spill://{spillId}\" + offset/limit]";
+    }
+
+    /// <summary>
+    /// RF-004: condense stored history up to the (KeepRecentTurns)-th latest
+    /// user turn into a persisted summary row, then rebuild the wire under the
+    /// new bound. RNF-002: provider failures fall back to prune-only.
+    /// </summary>
+    private async Task<bool> SummarizePrefixAsync(
+        ChatProvider provider,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatMessageId? triggerMessageId,
+        CancellationToken stoppingToken,
+        CancellationToken ct)
+    {
+        var keepRecent = ChatContextBudget.KeepRecentTurns(configuration);
+        var rows = await messages.Query
+            .Where(m => m.ConversationId == conversation.Id)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var users = 0;
+        var boundIndex = -1;
+        for (var i = rows.Count - 1; i >= 0; i--)
+        {
+            if (rows[i].Role == ChatMessageRole.User && ++users >= keepRecent)
+            {
+                boundIndex = i - 1;
+                break;
+            }
+        }
+
+        if (boundIndex < 0)
+        {
+            return false;
+        }
+
+        // Summaries chain: the prefix starts right after the latest summary's
+        // bound so later compactions only cover the turns added since.
+        var latestSummary = rows.LastOrDefault(m => m.Kind == ChatMessageKinds.Summary);
+        var prefixStart = 0;
+        if (latestSummary?.SupersedesUntilMessageId is { } prevBound)
+        {
+            var prevIndex = rows.FindIndex(m => m.Id.Value == prevBound);
+            if (prevIndex >= 0)
+            {
+                prefixStart = prevIndex + 1;
+            }
+        }
+
+        if (prefixStart > boundIndex)
+        {
+            return false; // nothing new to condense
+        }
+
+        var prefix = rows.GetRange(prefixStart, boundIndex - prefixStart + 1)
+            .Where(m => m.Role != ChatMessageRole.System)
+            .ToList();
+        if (prefix.Count == 0)
+        {
+            return false;
+        }
+
+        var prefixText = new StringBuilder();
+        foreach (var m in prefix)
+        {
+            prefixText.Append('[').Append(m.Role.Value).Append("] ")
+                .AppendLine(InlineToolCallMarkup.StripBlocks(m.Content));
+        }
+
+        string? summaryText;
+        try
+        {
+            summaryText = await SummarizeAsync(provider, conversation, prefixText.ToString(), ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ChatProviderException ex)
+        {
+            // RNF-002: a summarization failure never kills the run.
+            logger.LogWarning(ex, "Chat context summarization failed — prune-only fallback.");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(summaryText))
+        {
+            return false;
+        }
+
+        var summary = ChatMessage.CreateSummary(
+            conversation.Id,
+            $"{ChatContextBudget.CompactedNote}\n\n{summaryText.Trim()}",
+            rows[boundIndex].Id.Value, UtcNow);
+        await messages.AddAsync(summary, ct).ConfigureAwait(false);
+        await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // RNF-001: rebuild the wire under the new bound — history stays whole.
+        var rebuilt = await BuildTranscriptAsync(conversation, toolSet, triggerMessageId, ct)
+            .ConfigureAwait(false);
+        wire.Clear();
+        wire.AddRange(rebuilt);
+        return true;
+    }
+
+    /// <summary>RF-004: one non-tool provider call producing the summary text.</summary>
+    private async Task<string?> SummarizeAsync(
+        ChatProvider provider, ChatConversation conversation, string prefixText, CancellationToken ct)
+    {
+        var requestMessages = new List<OpenAiChatMessage>
+        {
+            new("system", ChatContextBudget.SummaryPrompt(configuration)),
+            new("user", prefixText),
+        };
+        var sb = new StringBuilder();
+        await foreach (var ev in client.StreamChatAsync(
+            provider.BaseUrl, provider.ApiKey, conversation.Model,
+            requestMessages, tools: null,
+            maxTokens: ChatContextBudget.SummaryMaxTokens(configuration), ct)
+            .ConfigureAwait(false))
+        {
+            if (ev.ContentDelta is { Length: > 0 } delta)
+            {
+                sb.Append(delta);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>RF-005: provider context-overflow errors worth one compaction retry.</summary>
+    private static bool IsContextLengthError(ChatProviderException error) =>
+        error.StatusCode == 413
+        || error.Message.Contains("context_length_exceeded", StringComparison.OrdinalIgnoreCase)
+        || error.Message.Contains("context length", StringComparison.OrdinalIgnoreCase)
+        || error.Message.Contains("maximum context", StringComparison.OrdinalIgnoreCase)
+        || error.Message.Contains("token limit", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// P2 `/compact`: manual compaction — condenses stored history into a
+    /// summary row reusable by later runs (no live wire required).
+    /// </summary>
+    public async Task<ChatConversationDto?> CompactConversationAsync(string id, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        var provider = await providers.GetAsync(conversation.ProviderId, ct).ConfigureAwait(false);
+        if (provider is null)
+        {
+            throw new ChatValidationException("The conversation's provider no longer exists.");
+        }
+
+        var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
+        var wire = new List<OpenAiChatMessage>();
+        var state = new TurnState();
+        if (!await SummarizePrefixAsync(provider, conversation, wire, toolSet, null, ct, ct).ConfigureAwait(false))
+        {
+            throw new ChatValidationException("Nothing to compact — history already fits the budget.");
+        }
+
+        return ToDto(conversation, preview: null);
+    }
+
+
 
     // ---- SPEC-20261005-chat-tool-approval: the approval gate (RF-002..RF-005) ----
 
@@ -1569,8 +1957,25 @@ public sealed class ChatService(
             new("system", SystemPrompt(
                 toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false), planMode)),
         };
-        foreach (var message in rows)
+
+        // SPEC-20261005-chat-context-management RF-004/RNF-001: the latest
+        // persisted summary supersedes the rows up to its bound on the wire;
+        // the stored history itself is never rewritten.
+        var latestSummary = rows.LastOrDefault(m => m.Kind == ChatMessageKinds.Summary);
+        var supersededUntilIndex = -1;
+        if (latestSummary?.SupersedesUntilMessageId is { } boundId)
         {
+            supersededUntilIndex = rows.FindIndex(m => m.Id.Value == boundId);
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var message = rows[i];
+            if (i <= supersededUntilIndex)
+            {
+                continue; // condensed into the summary row below
+            }
+
             if (trigger is not null
                 && message.Role == ChatMessageRole.User
                 && message.CreatedAt > trigger.CreatedAt)
@@ -1581,7 +1986,14 @@ public sealed class ChatService(
             var role = message.Role.Value;
             if (role == "system")
             {
-                continue; // audit notes (RNF-003) are UI rows — never on the wire.
+                // Summary rows DO ride the wire (they are the compaction
+                // payload); other system notes stay UI-only (RNF-003).
+                if (message.Kind == ChatMessageKinds.Summary)
+                {
+                    wire.Add(new OpenAiChatMessage("system", message.Content));
+                }
+
+                continue;
             }
 
             if (role == "user")
@@ -1728,7 +2140,9 @@ public sealed class ChatService(
         run.TokensOut,
         run.CreatedAt,
         run.StartedAt,
-        run.FinishedAt);
+        run.FinishedAt,
+        run.ContextTokensLimit,
+        run.CompactionCount);
 
     private static ChatApprovalDto ToDto(ChatApproval approval) => new(
         approval.Id.Value,
@@ -1780,6 +2194,7 @@ public sealed class ChatService(
         message.TokensIn,
         message.TokensOut,
         message.Model,
-        message.CreatedAt);
+        message.CreatedAt,
+        message.Kind);
 
 }

@@ -52,7 +52,7 @@ public sealed class ChatServiceTests : IDisposable
         _service = NewService(new FakeProviderHandler(), _coordinator);
     }
 
-    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null, Dictionary<string, string?>? extraConfig = null, IEnumerable<IChatTool>? extraTools = null)
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null, Dictionary<string, string?>? extraConfig = null, IEnumerable<IChatTool>? extraTools = null, ISpillStore? spillStore = null)
     {
         context ??= _context;
         var configValues = new Dictionary<string, string?>
@@ -103,7 +103,8 @@ public sealed class ChatServiceTests : IDisposable
             new EfCoreRepository<ChatApproval>(context),
             _approvalCoordinator,
             _notifiers,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<ChatService>.Instance);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ChatService>.Instance,
+            spillStore: spillStore);
     }
 
     /// <summary>DbContext separado no mesmo SQLite — o "outro scope" do /stop.</summary>
@@ -462,6 +463,9 @@ public sealed class ChatServiceTests : IDisposable
         var stream = service.ExecuteAsync(entity, runCts, CancellationToken.None);
         await using var enumerator = stream.GetAsyncEnumerator();
 
+        (await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10))).ShouldBeTrue();
+        // RF-007 (context-management): a pressão sai antes da 1ª chamada ao provider.
+        enumerator.Current.ShouldBeOfType<ChatPressureEvent>();
         (await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10))).ShouldBeTrue();
         enumerator.Current.ShouldBeOfType<ChatDeltaEvent>().Content.ShouldBe("parte-1");
         handler.ReleaseSecond.TrySetResult();
@@ -1196,6 +1200,275 @@ public sealed class ChatServiceTests : IDisposable
                     Encoding.UTF8, "application/json"),
             });
         }
+    }
+
+    // ---- Context management (SPEC-20261005-chat-context-management) ----
+
+    /// <summary>Provider fake que grava os bodies e decide a resposta por call-index.</summary>
+    private sealed class ScriptedProviderHandler(Func<int, (string Body, HttpStatusCode Status)> respond) : HttpMessageHandler
+    {
+        private int _calls;
+
+        public List<string> Bodies { get; } = [];
+
+        public int Calls => _calls;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var (body, status) = respond(Interlocked.Increment(ref _calls));
+            return new HttpResponseMessage(status)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            };
+        }
+    }
+
+    private static string OkSse(string content = "ok") =>
+        """
+        data: {"choices":[{"delta":{"content":"@C@"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}
+        data: [DONE]
+        """.Replace("@C@", content, StringComparison.Ordinal);
+
+    /// <summary>Tool que devolve um resultado gigante (força o spill do RF-006).</summary>
+    private sealed class BigResultTool : IChatTool
+    {
+        public string Name => "big_tool";
+        public string Description => "big";
+        public string ParametersJson => """{"type":"object","properties":{}}""";
+
+        public Task<ChatToolResult> ExecuteAsync(
+            JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
+            Task.FromResult(new ChatToolResult(
+                JsonSerializer.Serialize(new { output = new string('x', 40_000) })));
+    }
+
+    /// <summary>Semeia N turnos user+tool-result com marcador reconhecível.</summary>
+    private async Task SeedHistoryAsync(string conversationId, int turns, string marker)
+    {
+        var convId = ChatConversationId.From(conversationId);
+        var t0 = DateTime.UtcNow.AddMinutes(-turns);
+        for (var i = 0; i < turns; i++)
+        {
+            _context.ChatMessages.Add(ChatMessage.CreateUser(
+                convId, $"pedido-{i}-{marker}", t0.AddSeconds(i * 10)));
+            _context.ChatMessages.Add(ChatMessage.CreateTool(
+                convId, $"call_{i}", "echo_tool",
+                $$"""{"output":"{{marker}}-resultado-{{i}}-{{new string('x', 300)}}"}""",
+                false, t0.AddSeconds(i * 10 + 1)));
+        }
+
+        await _context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Dado_HistoricoAcimaDoLimite_Quando_Enviar_Entao_PodaResultadosAntigos()
+    {
+        var handler = new ScriptedProviderHandler(_ => (OkSse(), HttpStatusCode.OK));
+        var service = NewService(handler, new ChatRunCoordinator(), extraConfig: new()
+        {
+            ["Taskboard:Chat:Context:CompactAtTokens"] = "400",
+            ["Taskboard:Chat:Context:KeepRecentTurns"] = "2",
+        });
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await SeedHistoryAsync(conversation.Id, 5, "velho");
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
+
+        // RF-003: wire carrega tombstone nos resultados antigos; o último turno fica inteiro.
+        handler.Bodies.ShouldNotBeEmpty();
+        var request = handler.Bodies[0];
+        request.ShouldContain("earlier tool output pruned");
+        request.ShouldNotContain("velho-resultado-0-");
+        request.ShouldNotContain("velho-resultado-3-");
+        request.ShouldContain("velho-resultado-4-");
+
+        // RF-007: evento do medidor + stats na run.
+        events.OfType<ChatPressureEvent>().ShouldNotBeEmpty();
+        var run = await _context.ChatRuns.OrderBy(r => r.CreatedAt).LastAsync();
+        run.CompactionCount.ShouldBeGreaterThanOrEqualTo(1);
+        run.ContextTokensLimit.ShouldBe(400);
+
+        // RNF-001: o histórico persistido NUNCA é alterado.
+        _context.ChatMessages.Count(m => m.Content.Contains("velho-resultado-0-")).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Dado_ResultadoGigante_Quando_Podado_Entao_SpillComPonteiro()
+    {
+        var spillDir = Path.Join(Path.GetTempPath(), $"tb-spill-{Guid.NewGuid()}");
+        var store = new Taskboard.Integrations.Chat.ChatSpillStore(spillDir);
+        var handler = new ScriptedProviderHandler(_ => (OkSse(), HttpStatusCode.OK));
+        var service = NewService(handler, new ChatRunCoordinator(), extraConfig: new()
+        {
+            ["Taskboard:Chat:Context:CompactAtTokens"] = "400",
+            ["Taskboard:Chat:Context:KeepRecentTurns"] = "1",
+            ["Taskboard:Chat:Context:SpillBytes"] = "1000",
+            ["Taskboard:Chat:Context:SpillHeadBytes"] = "100",
+        }, spillStore: store);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        // 2 turnos antigos com resultado grande → os dois viram spill (não tombstone).
+        var convId = ChatConversationId.From(conversation.Id);
+        var t0 = DateTime.UtcNow.AddMinutes(-5);
+        for (var i = 0; i < 2; i++)
+        {
+            _context.ChatMessages.Add(ChatMessage.CreateUser(convId, $"u{i}", t0.AddSeconds(i * 10)));
+            _context.ChatMessages.Add(ChatMessage.CreateTool(
+                convId, $"call_{i}", "echo_tool",
+                $$"""{"output":"big-{{i}}-{{new string('y', 5000)}}"}""",
+                false, t0.AddSeconds(i * 10 + 1)));
+        }
+
+        await _context.SaveChangesAsync();
+
+        await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
+
+        var request = handler.Bodies[0];
+        request.ShouldContain("spill://");
+        request.ShouldContain("big-0-");
+        request.ShouldNotContain(new string('y', 5000));
+        Directory.Exists(Path.Join(spillDir, "spill")).ShouldBeTrue();
+        Directory.GetFiles(Path.Join(spillDir, "spill"), "*", SearchOption.AllDirectories)
+            .ShouldNotBeEmpty("RF-006: arquivo de spill escrito");
+    }
+
+    [Fact]
+    public async Task Dado_ResumoPersistido_Quando_ProximaRun_Entao_WireUsaResumoESaltaAntigos()
+    {
+        var handler = new ScriptedProviderHandler(_ => (OkSse("RESUMO"), HttpStatusCode.OK));
+        var service = NewService(handler, new ChatRunCoordinator(), extraConfig: new()
+        {
+            // limite mínimo → prune + summarize a cada turno.
+            ["Taskboard:Chat:Context:CompactAtTokens"] = "1",
+            ["Taskboard:Chat:Context:KeepRecentTurns"] = "2",
+        });
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await SeedHistoryAsync(conversation.Id, 5, "velho");
+
+        await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
+
+        _context.ChatMessages.Any(m => m.Kind == "summary")
+            .ShouldBeTrue("RF-004: resumo persistido como system+summary");
+
+        await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "mais");
+
+        var request = handler.Bodies[^1];
+        request.ShouldContain("context compacted");
+        // RNF-001: a wire salta o prefixo coberto pelo resumo.
+        request.ShouldNotContain("velho-resultado-0-");
+    }
+
+    [Fact]
+    public async Task Dado_ContextLengthExceeded_Quando_ProviderRetorna_Entao_RetentaUmaVez()
+    {
+        var handler = new ScriptedProviderHandler(call => call == 1
+            ? ("""{"error":{"message":"context_length_exceeded"}}""", HttpStatusCode.BadRequest)
+            : (OkSse("ok-depois"), HttpStatusCode.OK));
+        var service = NewService(handler, new ChatRunCoordinator());
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(),
+            (await service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1"))).Id,
+            "oi");
+
+        handler.Calls.ShouldBe(2, "RF-005: um retry após context_length_exceeded");
+        events.OfType<ChatDeltaEvent>().Any(d => d.Content.Contains("ok-depois")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_ContextLengthExceededPersistente_Quando_Retenta_Entao_Falha()
+    {
+        var handler = new ScriptedProviderHandler(_ =>
+            ("""{"error":{"message":"context_length_exceeded"}}""", HttpStatusCode.BadRequest));
+        var service = NewService(handler, new ChatRunCoordinator());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
+
+        handler.Calls.ShouldBe(2, "RF-005: retry único — a segunda falha encerra");
+        var done = events.OfType<ChatDoneEvent>().LastOrDefault();
+        done.ShouldNotBeNull();
+        done.Error.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_SpillGuardado_Quando_ReadFileComSpillUri_Entao_LePaginado()
+    {
+        var dir = Path.Join(Path.GetTempPath(), $"tb-spill-{Guid.NewGuid()}");
+        var store = new Taskboard.Integrations.Chat.ChatSpillStore(dir);
+        var content = string.Concat(Enumerable.Range(0, 2000).Select(i => $"{i % 10}"));
+        var spillId = store.Save("run-1", 1, content);
+
+        var tool = new Taskboard.Integrations.Chat.Tools.ReadFileTool(
+            new Taskboard.Integrations.Harness.Security.SecretScrubber(), store);
+        var args = JsonDocument.Parse(
+            $$"""{"path":"spill://{{spillId}}","offset":100,"limit":50}""").RootElement;
+        var context = new ChatToolContext(
+            WorkspacePath: dir, ProviderId: Guid.NewGuid(), ProviderBaseUrl: "http://x",
+            ProviderApiKey: "k", ImageModel: "", SearchBackend: "none",
+            SearchUrl: "", SearchApiKey: "");
+
+        var result = await tool.ExecuteAsync(args, context, CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(result.Json);
+        doc.RootElement.GetProperty("totalChars").GetInt32().ShouldBe(2000);
+        doc.RootElement.GetProperty("truncated").GetBoolean().ShouldBeTrue();
+        doc.RootElement.GetProperty("content").GetString().ShouldBe(content.Substring(100, 50));
+    }
+
+    [Fact]
+    public async Task Dado_SpillUriInvalida_Quando_ReadFile_Entao_ErroSemTraversal()
+    {
+        var dir = Path.Join(Path.GetTempPath(), $"tb-spill-{Guid.NewGuid()}");
+        var store = new Taskboard.Integrations.Chat.ChatSpillStore(dir);
+        var tool = new Taskboard.Integrations.Chat.Tools.ReadFileTool(
+            new Taskboard.Integrations.Harness.Security.SecretScrubber(), store);
+        var context = new ChatToolContext(
+            WorkspacePath: dir, ProviderId: Guid.NewGuid(), ProviderBaseUrl: "http://x",
+            ProviderApiKey: "k", ImageModel: "", SearchBackend: "none",
+            SearchUrl: "", SearchApiKey: "");
+
+        var bad = await tool.ExecuteAsync(
+            JsonDocument.Parse("""{"path":"spill://../etc/passwd"}""").RootElement, context, CancellationToken.None);
+        bad.Json.ShouldContain("not found");
+
+        // RNF-003: id com separador nunca resolve um arquivo fora do spill dir.
+        var traversal = await tool.ExecuteAsync(
+            JsonDocument.Parse("""{"path":"spill://a-../../x"}""").RootElement, context, CancellationToken.None);
+        traversal.Json.ShouldContain("not found");
+    }
+
+    [Fact]
+    public void Dado_SpillStore_Quando_SweepOrphans_Entao_RemoveApenasRunsMortas()
+    {
+        var dir = Path.Join(Path.GetTempPath(), $"tb-spill-{Guid.NewGuid()}");
+        var store = new Taskboard.Integrations.Chat.ChatSpillStore(dir);
+        store.Save("alive", 1, "x");
+        store.Save("dead-1", 1, "x");
+        store.Save("dead-2", 1, "x");
+
+        var swept = store.SweepOrphans(new HashSet<string> { "alive" });
+
+        swept.ShouldBe(2);
+        Directory.Exists(Path.Join(dir, "spill", "alive")).ShouldBeTrue();
+        Directory.Exists(Path.Join(dir, "spill", "dead-1")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Dado_SpillStore_Quando_DeleteRunDir_Entao_RemoveDiretorio()
+    {
+        var dir = Path.Join(Path.GetTempPath(), $"tb-spill-{Guid.NewGuid()}");
+        var store = new Taskboard.Integrations.Chat.ChatSpillStore(dir);
+        var id = store.Save("run-x", 1, "x");
+
+        store.DeleteRunDir("run-x");
+
+        store.Read(id).ShouldBeNull();
+        Directory.Exists(Path.Join(dir, "spill", "run-x")).ShouldBeFalse();
     }
 
     /// <summary>Provider fake: 1ª chamada devolve tool_calls, 2ª devolve a resposta final.</summary>
