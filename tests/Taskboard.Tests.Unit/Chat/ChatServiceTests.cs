@@ -1185,6 +1185,30 @@ public sealed class ChatServiceTests : IDisposable
         handler.Calls.ShouldBe(2, "update do provider devia invalidar o cache de modelos");
     }
 
+    [Fact]
+    public async Task Dado_ProviderDeletadoForaDoService_Quando_CriarConversa_Entao_SnapshotServidoAteInvalidacaoPorTag()
+    {
+        // Outro DbContext no mesmo SQLite — sem identity-map aliasing do EF:
+        // a leitura no service é DB de verdade, só o snapshot L1 pode salvar.
+        var service = NewService(new FakeProviderHandler(), _coordinator, context: NewSecondContext());
+        (await service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1")))
+            .ProviderName.ShouldBe("fake");
+
+        // Delete por fora do service não invalida — o snapshot segue servindo.
+        _context.ChatProviders.Where(p => p.Id == _provider.Id).ExecuteDelete();
+        (await service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1")))
+            .ProviderName.ShouldBe("fake");
+
+        // Write via service em outro provider derruba a tag → próxima leitura
+        // refaz a query e enxerga a deleção.
+        var other = ChatProvider.Create("other", "http://other.test", "sk");
+        _context.ChatProviders.Add(other);
+        _context.SaveChanges();
+        await service.UpdateProviderAsync(other.Id, new ChatProviderUpsertRequest("other2", "http://other.test"));
+        await Should.ThrowAsync<ChatValidationException>(
+            async () => await service.CreateConversationAsync(new CreateChatConversationRequest(_provider.Id, "m1")));
+    }
+
     private sealed class ModelsHandler : HttpMessageHandler
     {
         private int _calls;

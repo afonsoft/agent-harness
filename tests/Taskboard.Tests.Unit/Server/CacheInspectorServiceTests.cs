@@ -1,7 +1,10 @@
+using System.Net;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Shouldly;
+using StackExchange.Redis;
 using Taskboard.Server.Services;
 using Xunit;
 
@@ -163,5 +166,42 @@ public class CacheInspectorServiceTests
         stats.DefaultExpirationSeconds.ShouldBe(600);
         // TTL local é clampado ao default quando maior que ele.
         stats.LocalCacheExpirationSeconds.ShouldBe(60);
+    }
+
+    [Fact]
+    public async Task Dado_RedisComMultiplexer_Quando_DoisGetStats_Entao_ProbeSoUmaVez()
+    {
+        // O probe (PING+SCAN) é reaproveitado por 5s — chamadas repetidas da
+        // tela não pagam RTTs de Redis a cada refresh.
+        var db = Substitute.For<IDatabase>();
+        db.PingAsync(Arg.Any<CommandFlags>()).Returns(TimeSpan.FromMilliseconds(1));
+        var server = Substitute.For<IServer>();
+        server.IsConnected.Returns(true);
+        server.Keys(
+                Arg.Any<int>(), Arg.Any<RedisValue>(), Arg.Any<int>(),
+                Arg.Any<long>(), Arg.Any<int>(), Arg.Any<CommandFlags>())
+            .Returns(Enumerable.Empty<RedisKey>());
+        var mux = Substitute.For<IConnectionMultiplexer>();
+        mux.GetDatabase(Arg.Any<int>(), Arg.Any<object?>()).Returns(db);
+        mux.GetEndPoints(Arg.Any<bool>()).Returns(new EndPoint[] { new IPEndPoint(IPAddress.Loopback, 6379) });
+        mux.GetServer(Arg.Any<EndPoint>(), Arg.Any<object?>()).Returns(server);
+
+        var inspector = new CacheInspectorService(
+            new ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Taskboard:Cache:Redis:ConnectionString"] = "localhost:6379",
+                }).Build(),
+            new CacheKeyRegistry(),
+            NullLogger<CacheInspectorService>.Instance,
+            mux);
+
+        var first = await inspector.GetStatsAsync();
+        var second = await inspector.GetStatsAsync();
+
+        first.RedisConnected.ShouldBeTrue();
+        second.RedisConnected.ShouldBeTrue();
+        second.ServerKeys.ShouldBe(0);
+        await db.Received(1).PingAsync(Arg.Any<CommandFlags>());
     }
 }

@@ -23,6 +23,20 @@ public sealed class CacheInspectorService(
     private static readonly TimeSpan ScanDeadline = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RedisPingTimeout = TimeSpan.FromSeconds(2);
 
+    /// <summary>Reuse window for the PING+SCAN probe — every
+    /// /api/configuration call would otherwise pay several Redis RTTs.
+    /// Seconds-scale staleness is invisible on an admin panel.</summary>
+    private static readonly TimeSpan ProbeMinInterval = TimeSpan.FromSeconds(5);
+    private RedisProbe? _lastProbe;
+
+    private sealed record RedisProbe(
+        DateTimeOffset At,
+        bool Connected,
+        long? ServerKeys,
+        bool Partial,
+        string? Error,
+        IReadOnlyList<string> Names);
+
     public async Task<CacheStatsDto> GetStatsAsync(CancellationToken cancellationToken = default)
     {
         var conn = configuration["Taskboard:Cache:Redis:ConnectionString"];
@@ -59,9 +73,17 @@ public sealed class CacheInspectorService(
 
         if (redisConfigured && redis is not null)
         {
+            var probe = await ProbeRedisCachedAsync(redis, instanceName ?? string.Empty, cancellationToken)
+                .ConfigureAwait(false);
             (redisConnected, serverKeys, serverKeysPartial, statsError) =
-                await ProbeRedisAsync(redis, instanceName ?? string.Empty, keys, cancellationToken)
-                    .ConfigureAwait(false);
+                (probe.Connected, probe.ServerKeys, probe.Partial, probe.Error);
+            foreach (var name in probe.Names)
+            {
+                if (!keys.ContainsKey(name))
+                {
+                    keys[name] = new CacheKeyItemDto(name, null, DateTimeOffset.MinValue, "redis");
+                }
+            }
         }
 
         return new CacheStatsDto(
@@ -77,12 +99,30 @@ public sealed class CacheInspectorService(
             keys.Values.OrderBy(k => k.Key, StringComparer.Ordinal).ToList());
     }
 
-    private async Task<(bool Connected, long? ServerKeys, bool Partial, string? Error)> ProbeRedisAsync(
+    /// <summary>Runs <see cref="ProbeRedisAsync"/> at most once per
+    /// <see cref="ProbeMinInterval"/> — in between, the last probe snapshot is
+    /// replayed (the registry side of the response stays per-call fresh).</summary>
+    private async Task<RedisProbe> ProbeRedisCachedAsync(
+        IConnectionMultiplexer multiplexer, string instanceName, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var last = _lastProbe;
+        if (last is not null && now - last.At < ProbeMinInterval)
+        {
+            return last;
+        }
+
+        var probe = await ProbeRedisAsync(multiplexer, instanceName, cancellationToken).ConfigureAwait(false);
+        _lastProbe = probe;
+        return probe;
+    }
+
+    private async Task<RedisProbe> ProbeRedisAsync(
         IConnectionMultiplexer multiplexer,
         string instanceName,
-        Dictionary<string, CacheKeyItemDto> keys,
         CancellationToken cancellationToken)
     {
+        var now = DateTimeOffset.UtcNow;
         // Connectivity is judged by PING alone — SCAN failures degrade the
         // key list, never flip the badge to disconnected.
         bool connected;
@@ -104,12 +144,12 @@ public sealed class CacheInspectorService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "redis ping failed");
-            return (false, null, false, null);
+            return new RedisProbe(now, false, null, false, null, []);
         }
 
         if (!connected)
         {
-            return (false, null, false, null);
+            return new RedisProbe(now, false, null, false, null, []);
         }
 
         try
@@ -119,23 +159,20 @@ public sealed class CacheInspectorService(
                 .FirstOrDefault(s => s.IsConnected);
             if (server is null)
             {
-                return (true, null, false, "no connected server endpoint");
+                return new RedisProbe(now, true, null, false, "no connected server endpoint", []);
             }
 
             // Bounded SCAN (never KEYS *) — cap both page size, total count
             // and wall clock so a stalled scan can't pin the endpoint.
             var count = 0L;
             var partial = false;
+            var names = new List<string>();
             var deadline = Stopwatch.StartNew();
             var pattern = string.IsNullOrEmpty(instanceName) ? "*" : instanceName + "*";
             foreach (var key in server.Keys(pattern: pattern, pageSize: ScanPageSize))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var name = key.ToString();
-                if (!keys.ContainsKey(name))
-                {
-                    keys[name] = new CacheKeyItemDto(name, null, DateTimeOffset.MinValue, "redis");
-                }
+                names.Add(key.ToString());
 
                 if (++count >= ScanMaxKeys || deadline.Elapsed >= ScanDeadline)
                 {
@@ -144,7 +181,7 @@ public sealed class CacheInspectorService(
                 }
             }
 
-            return (true, count, partial, null);
+            return new RedisProbe(now, true, count, partial, null, names);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -153,7 +190,7 @@ public sealed class CacheInspectorService(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "redis stats scan failed — connectivity ok, keys degraded");
-            return (true, null, false, TrimError(ex));
+            return new RedisProbe(now, true, null, false, TrimError(ex), []);
         }
     }
 
