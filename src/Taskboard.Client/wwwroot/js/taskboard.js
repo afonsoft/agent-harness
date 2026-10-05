@@ -155,6 +155,131 @@ window.taskboard = {
 // approval gates — permission is requested lazily on the first cockpit visit;
 // every failure path degrades to the in-app toast/modal silently.
 window.taskboardNotify = {
+    // SPEC-20261005 RF-008: current Notification.permission ('default',
+    // 'granted', 'denied' ou 'unsupported').
+    permission: function () {
+        return ('Notification' in window) ? Notification.permission : 'unsupported';
+    },
+
+    // 'visible' | 'hidden' — browser notify só dispara com a aba fora de foco.
+    isHidden: function () {
+        return document.hidden === true;
+    },
+
+    // Per-browser override de notificações do chat (harness.chat.notify.*).
+    // Lê 'true'/'false'; devolve null quando o key não existe ou storage está
+    // indisponível — nesse caso o default global (config catalog) vale.
+    getChatPref: function (name) {
+        try {
+            var v = localStorage.getItem('harness.chat.notify.' + name);
+            return (v === 'true' || v === 'false') ? v : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    setChatPref: function (name, value) {
+        try {
+            if (value === null || value === undefined) {
+                localStorage.removeItem('harness.chat.notify.' + name);
+            } else {
+                localStorage.setItem('harness.chat.notify.' + name, value ? 'true' : 'false');
+            }
+        } catch (e) { /* storage indisponível — default global segue */ }
+    },
+
+    // ---- SPEC-20261005 RF-009: Web Push (browser-fully-closed delivery) ----
+
+    _vapidB64ToBytes: function (b64) {
+        var pad = '='.repeat((4 - (b64.length % 4)) % 4);
+        var raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+        var out = new Uint8Array(raw.length);
+        for (var i = 0; i < raw.length; i++) {
+            out[i] = raw.charCodeAt(i);
+        }
+        return out;
+    },
+
+    // Registers push-sw.js on demand and returns the registration (or null
+    // when service workers are unsupported).
+    _pushRegistration: async function () {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            return null;
+        }
+        try {
+            return await navigator.serviceWorker.register('/push-sw.js');
+        } catch (e) {
+            return null;
+        }
+    },
+
+    isPushSubscribed: async function () {
+        try {
+            if (!('serviceWorker' in navigator)) {
+                return null;
+            }
+            var reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
+            var sub = reg ? await reg.pushManager.getSubscription() : null;
+            return sub ? sub.endpoint : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    // Subscribes and stores the endpoint server-side. Returns
+    // { subscribed: true, endpoint } | { error }.
+    subscribePush: async function (vapidPublicKey, apiUrl) {
+        try {
+            var permission = await this.ensurePermission();
+            if (permission !== 'granted') {
+                return { error: 'permission ' + permission };
+            }
+            var reg = await this._pushRegistration();
+            if (!reg) {
+                return { error: 'service worker unsupported' };
+            }
+            var sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: this._vapidB64ToBytes(vapidPublicKey)
+            });
+            var json = sub.toJSON();
+            json.userAgent = navigator.userAgent;
+            var res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(json)
+            });
+            if (!res.ok) {
+                return { error: 'server rejected (' + res.status + ')' };
+            }
+            return { subscribed: true, endpoint: sub.endpoint };
+        } catch (e) {
+            return { error: String(e) };
+        }
+    },
+
+    // Unsubscribes and removes the server row.
+    unsubscribePush: async function (apiUrl) {
+        try {
+            if (!('serviceWorker' in navigator)) {
+                return { unsubscribed: true };
+            }
+            var reg = await navigator.serviceWorker.getRegistration('/push-sw.js');
+            var sub = reg ? await reg.pushManager.getSubscription() : null;
+            if (sub) {
+                await fetch(apiUrl + '?endpoint=' + encodeURIComponent(sub.endpoint), {
+                    method: 'DELETE',
+                    credentials: 'same-origin'
+                });
+                await sub.unsubscribe();
+            }
+            return { unsubscribed: true };
+        } catch (e) {
+            return { error: String(e) };
+        }
+    },
+
     ensurePermission: async function () {
         try {
             if (!('Notification' in window)) {
@@ -171,12 +296,12 @@ window.taskboardNotify = {
     },
 
     // Returns true when a notification was actually shown.
-    notify: function (title, body, url) {
+    notify: function (title, body, url, tag) {
         try {
             if (!('Notification' in window) || Notification.permission !== 'granted') {
                 return false;
             }
-            var n = new Notification(title, { body: body || '', tag: 'harness-approval' });
+            var n = new Notification(title, { body: body || '', tag: tag || 'harness-approval' });
             n.onclick = function () {
                 try {
                     window.focus();

@@ -5,6 +5,8 @@
 @inject NavigationManager Navigation
 @inject ToastService ToastService
 @inject IGitHubService GitHubService
+@inject IJSRuntime JS
+@inject ChatNotificationsService ChatNotifications
 @implements IDisposable
 
 <PageTitle>Settings - Harness</PageTitle>
@@ -859,6 +861,32 @@
                                 </div>
                             </div>
                         }
+
+                        @* SPEC-20261005 RF-008: per-browser overrides win over
+                           the global defaults above without touching shared
+                           config — localStorage["harness.chat.notify.*"]. *@
+                        <div class="setting-row">
+                            <div>
+                                <div class="fw-medium">Chat notifications — this browser</div>
+                                <div class="small text-body-secondary">Override on this device only (default = use the global toggles above).</div>
+                            </div>
+                            <div class="d-flex gap-2 align-items-center small">
+                                @foreach (var (pref, label) in NotifyBrowserPrefs)
+                                {
+                                    <label class="d-flex flex-column align-items-center text-body-secondary" @key="pref">
+                                        @label
+                                        <select class="form-select form-select-sm"
+                                                value="@GetNotifyBrowserOverride(pref)"
+                                                @onchange="e => SetNotifyBrowserOverrideAsync(pref, e.Value?.ToString())"
+                                                aria-label="Browser override for @label">
+                                            <option value="">default</option>
+                                            <option value="on">on</option>
+                                            <option value="off">off</option>
+                                        </select>
+                                    </label>
+                                }
+                            </div>
+                        </div>
                     }
                 </div>
 
@@ -1155,6 +1183,14 @@
             "Interactive agent prompts on the AI Code page (send, queue, retry, cancel)."),
         new("Taskboard:Terminal:Enabled", "Terminal",
             "Web terminal access to the installed agent CLIs."),
+        // SPEC-20261005 RF-008: global defaults for run-completion
+        // notifications; per-browser overrides live in localStorage below.
+        new("Taskboard:Chat:Notify:Done:InApp", "Chat notifications — in-app",
+            "Toast when a chat turn finishes (while you are on another page)."),
+        new("Taskboard:Chat:Notify:Done:Browser", "Chat notifications — browser",
+            "Desktop Notification API when a turn finishes with the tab hidden. Opt-in asks for browser permission."),
+        new("Taskboard:Chat:Notify:Done:Push", "Chat notifications — web push",
+            "Web Push delivery even with the browser fully closed (service-worker push; subscribes this browser when on)."),
     ];
 
     private const string SkillsRepositoryKey = "Taskboard:Skills:Repository";
@@ -1214,11 +1250,63 @@
         if (tab is not null && SettingsTabs.Any(t => t.Id == tab))
         {
             _activeTab = tab;
+        }
+
+        _ = LoadNotifyBrowserOverridesAsync();
+    }
+
+    // ---- SPEC-20261005 RF-008: per-browser notify overrides ----
+
+    private static readonly (string Pref, string Label)[] NotifyBrowserPrefs =
+    [
+        new("inapp", "in-app"),
+        new("browser", "browser"),
+        new("push", "push"),
+    ];
+
+    private readonly Dictionary<string, string?> _notifyBrowserOverrides = new(StringComparer.Ordinal);
+
+    private async Task LoadNotifyBrowserOverridesAsync()
+    {
+        try
+        {
+            foreach (var (pref, _) in NotifyBrowserPrefs)
+            {
+                _notifyBrowserOverrides[pref] =
+                    await JS.InvokeAsync<string?>("taskboardNotify.getChatPref", pref);
+            }
+
             StateHasChanged();
             if (_activeTab == "mcp-skills")
             {
                 _ = LoadMcpSkillsTabAsync();
             }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS indisponível — os selects ficam no "default".
+        }
+    }
+
+    private string GetNotifyBrowserOverride(string pref) =>
+        _notifyBrowserOverrides.TryGetValue(pref, out var v) ? v ?? "" : "";
+
+    private async Task SetNotifyBrowserOverrideAsync(string pref, string? selected)
+    {
+        var normalized = selected == "on" ? "true" : selected == "off" ? "false" : null;
+        _notifyBrowserOverrides[pref] = normalized;
+        await JS.InvokeVoidAsync("taskboardNotify.setChatPref", pref, normalized);
+
+        if (pref == "browser" && normalized == "true")
+        {
+            await ChatNotifications.EnsureBrowserPermissionAsync();
+        }
+
+        // SPEC-20261005 RF-009: per-browser push pref — subscribe/unsubscribe
+        // this browser to match the resolved preference.
+        if (pref == "push")
+        {
+            _ = ChatNotifications.SyncPushAsync();
         }
     }
 
@@ -2113,6 +2201,13 @@
         else
         {
             await ToastService.NotifyAsync(new(ToastType.Success, $"{key} {(enabled ? "enabled" : "disabled")}"));
+        }
+
+        // SPEC-20261005 RF-009: subscribe/unsubscribe this browser right away
+        // when the push toggle flips (SyncPushAsync reads the resolved pref).
+        if (key == "Taskboard:Chat:Notify:Done:Push")
+        {
+            _ = ChatNotifications.SyncPushAsync();
         }
 
         await LoadConfigurationAsync();

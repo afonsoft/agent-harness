@@ -36,10 +36,12 @@ public class SettingsFeaturesTests
         var generalPane = src.IndexOf("aria-label=\"General\"", StringComparison.Ordinal);
         var features = src.IndexOf("form-section-title\">Features", StringComparison.Ordinal);
         var configPane = src.IndexOf("aria-label=\"Configuration\"", StringComparison.Ordinal);
+        var connections = src.IndexOf("form-section-title\">Connections", StringComparison.Ordinal);
 
         generalPane.ShouldBeGreaterThan(0, "aba General deve existir no Settings");
         features.ShouldBeGreaterThan(generalPane, "Features deve estar na aba General");
         configPane.ShouldBeGreaterThan(features, "a aba Configuration deve vir depois da seção Features");
+        connections.ShouldBeGreaterThan(configPane, "Connections é a primeira seção da aba Configuration (ex-Configuration, SPEC-20261010)");
     }
 
     [Fact]

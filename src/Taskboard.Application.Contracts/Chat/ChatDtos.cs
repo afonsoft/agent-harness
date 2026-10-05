@@ -106,6 +106,16 @@ public sealed record CreateChatConversationRequest(
 
 public sealed record SendChatMessageRequest(string Content);
 
+/// <summary>SPEC-20261005 RF-009: body of <c>POST /api/local/push/subscriptions</c>
+/// — mirrors the browser PushSubscription JSON ({endpoint, keys:{p256dh, auth}}).
+/// </summary>
+public sealed record PushSubscriptionRequest(
+    string Endpoint,
+    PushSubscriptionKeysRequest? Keys,
+    string? UserAgent = null);
+
+public sealed record PushSubscriptionKeysRequest(string P256dh, string Auth);
+
 /// <summary>202 body of <c>POST /conversations/{id}/messages</c> — the queued run.</summary>
 public sealed record EnqueueChatMessageResponse(ChatRunDto Run);
 

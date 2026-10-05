@@ -149,6 +149,31 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Runs:RetentionDays", "30", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: null),
+        // SPEC-20261005 RF-008: run-completion notifications — in-app toast,
+        // Notification API (opt-in, triggers requestPermission) e o master
+        // switch de Web Push (Fase 3). Per-browser override mora em
+        // localStorage["harness.chat.notify.*"] no client.
+        new("Taskboard:Chat:Notify:Done:InApp", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
+        new("Taskboard:Chat:Notify:Done:Browser", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
+        new("Taskboard:Chat:Notify:Done:Push", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
+        // SPEC-20261005 RF-009: VAPID identity for Web Push. Empty keys are
+        // auto-generated once by VapidKeyService on first subscribe and
+        // persisted here (private key stays masked like every secret).
+        new("Taskboard:Push:Vapid:PublicKey", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateVapidKey, Group: "Chat", ManagedIn: null),
+        new("Taskboard:Push:Vapid:PrivateKey", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateVapidKey, Group: "Chat", ManagedIn: null),
+        new("Taskboard:Push:Vapid:Subject", "mailto:admin@localhost", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateVapidSubject, Group: "Chat", ManagedIn: null),
         // SPEC-20261004-redis-hybrid-cache RF-002: HybridCache L1+L2 — DI wiring
         // only happens at boot, so all four keys require restart. The generic
         // HARNESS__* env mapper already covers them (no dedicated EnvAlias).
@@ -366,6 +391,7 @@ public sealed class RuntimeConfigurationService
         key.Contains("Password", StringComparison.OrdinalIgnoreCase)
         || key.Contains("Token", StringComparison.OrdinalIgnoreCase)
         || key.Contains("ApiKey", StringComparison.OrdinalIgnoreCase)
+        || key.Contains("PrivateKey", StringComparison.OrdinalIgnoreCase)
         || key.Contains("ConnectionString", StringComparison.OrdinalIgnoreCase);
 
     private static string? Mask(string? value)
@@ -404,6 +430,28 @@ public sealed class RuntimeConfigurationService
         return Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.Scheme is "http" or HttpsScheme
             ? null
             : "RAG URL must be an absolute http(s) URL, or empty to disable.";
+    }
+
+    private static string? ValidateVapidKey(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return null; // empty = auto-generate on first subscribe
+        }
+
+        return trimmed.All(c => c is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or '-' or '_')
+            ? null
+            : "VAPID keys must be base64url-encoded (A-Z a-z 0-9 - _), or empty to auto-generate.";
+    }
+
+    private static string? ValidateVapidSubject(string value)
+    {
+        var trimmed = value.Trim();
+        return trimmed.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+            || (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.Scheme is HttpsScheme)
+            ? null
+            : "VAPID subject must be a mailto: address or an absolute https URL.";
     }
 
     private static string? ValidateBoolean(string value) =>

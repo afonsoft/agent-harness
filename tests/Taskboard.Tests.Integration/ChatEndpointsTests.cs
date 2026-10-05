@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.AspNetCore.Http.Connections;
 using Shouldly;
 using Xunit;
 
@@ -152,6 +155,46 @@ public class ChatEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Dado_RunFalhado_Quando_Terminaliza_Entao_HubPublicaRunCompleted()
+    {
+        // SPEC-20261005 RF-008: o notifier registra SignalRChatRunNotifier no
+        // escopo do run — ao terminalizar, /chat-run-hub emite run.completed
+        // com o status e o conversationId (o toast/desktop-notify do client).
+        var client = await ApiClientAsync();
+        var provider = await CreateProviderAsync(client);
+        var create = await client.PostAsJsonAsync("/api/local/chat/conversations", new
+        {
+            providerId = provider["id"]!.GetValue<Guid>(),
+            model = "m1",
+        });
+        var id = ((await create.Content.ReadFromJsonAsync<JsonObject>())!["conversation"] as JsonObject)!["id"]!
+            .GetValue<string>();
+
+        await using var hub = new HubConnectionBuilder()
+            .WithUrl("http://localhost/chat-run-hub", options =>
+            {
+                options.Transports = HttpTransportType.LongPolling;
+                options.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
+                options.Headers["X-Api-Key"] = TaskboardWebApplicationFactory.TestApiKey;
+            })
+            .Build();
+        var received = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hub.On<JsonObject>("run.completed", payload => received.TrySetResult(payload));
+        await hub.StartAsync();
+        hub.State.ShouldBe(HubConnectionState.Connected);
+
+        await client.PostAsJsonAsync($"/api/local/chat/conversations/{id}/messages", new
+        {
+            content = "olá",
+        });
+
+        var payload = await received.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        payload["conversationId"]!.GetValue<string>().ShouldBe(id);
+        payload["status"]!.GetValue<string>().ShouldBe("failed");
+        payload["error"]!.GetValue<string>().ShouldContain("refused");
+    }
+
+    [Fact]
     public async Task Dado_Conversa_Quando_ArquivarListarRestaurarDeletar_Entao_CicloDeArquivo()
     {
         // RF-006: arquivar é view flag — sai da lista ativa, abre read-only,
@@ -257,5 +300,82 @@ public class ChatEndpointsTests : IClassFixture<TaskboardWebApplicationFactory>
         });
         create.EnsureSuccessStatusCode();
         return (await create.Content.ReadFromJsonAsync<JsonObject>())!["provider"]!.AsObject();
+    }
+
+    // ---- SPEC-20261005 RF-009: Web Push subscription endpoints ----
+
+    [Fact]
+    public async Task Dado_VapidPublic_Quando_Get_Entao_GeraChavePersistenteBase64Url()
+    {
+        var client = await ApiClientAsync();
+
+        var first = await client.GetAsync("/api/local/push/vapid-public");
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var key = (await first.Content.ReadFromJsonAsync<JsonObject>())!["publicKey"]!.GetValue<string>();
+        key.ShouldNotBeNullOrEmpty();
+        key.ShouldMatch("^[A-Za-z0-9_-]+$");
+
+        // A chave persiste — segunda leitura devolve a mesma.
+        var second = await client.GetAsync("/api/local/push/vapid-public");
+        (await second.Content.ReadFromJsonAsync<JsonObject>())!["publicKey"]!.GetValue<string>()
+            .ShouldBe(key);
+    }
+
+    [Fact]
+    public async Task Dado_SubscriptionValida_Quando_Post_Entao_UpsertPorEndpoint()
+    {
+        var client = await ApiClientAsync();
+        var endpoint = $"https://push.example/sub/{Guid.NewGuid():N}";
+
+        var post = await client.PostAsJsonAsync("/api/local/push/subscriptions", new
+        {
+            endpoint,
+            keys = new { p256dh = "p256dh-abc", auth = "auth-xyz" },
+            userAgent = "itest",
+        });
+        post.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Re-post no mesmo endpoint é upsert, não segunda linha — DELETE
+        // posterior remove de uma vez só.
+        var repost = await client.PostAsJsonAsync("/api/local/push/subscriptions", new
+        {
+            endpoint,
+            keys = new { p256dh = "p256dh-rotated", auth = "auth-rotated" },
+        });
+        repost.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var delete = await client.DeleteAsync(
+            $"/api/local/push/subscriptions?endpoint={Uri.EscapeDataString(endpoint)}");
+        delete.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var deleteAgain = await client.DeleteAsync(
+            $"/api/local/push/subscriptions?endpoint={Uri.EscapeDataString(endpoint)}");
+        deleteAgain.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Dado_SubscriptionIncompleta_Quando_Post_Entao_Retorna400()
+    {
+        var client = await ApiClientAsync();
+
+        var post = await client.PostAsJsonAsync("/api/local/push/subscriptions", new
+        {
+            endpoint = $"https://push.example/sub/{Guid.NewGuid():N}",
+            keys = new { p256dh = "", auth = "" },
+        });
+        post.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_PushEndpoints_Quando_SemAuth_Entao_Retorna401()
+    {
+        var client = _factory.CreateClient();
+
+        (await client.GetAsync("/api/local/push/vapid-public"))
+            .StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await client.PostAsJsonAsync("/api/local/push/subscriptions", new { endpoint = "x" }))
+            .StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await client.DeleteAsync("/api/local/push/subscriptions?endpoint=x"))
+            .StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 }

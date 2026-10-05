@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Chat;
@@ -307,6 +308,14 @@ public sealed class TaskboardClient
             $"/api/configuration/{Uri.EscapeDataString(key)}",
             cancellationToken);
         return response.IsSuccessStatusCode ? null : await ReadErrorMessageAsync(response, cancellationToken);
+    }
+
+    /// <summary>SPEC-20261005 RF-009: VAPID public key for pushManager.subscribe
+    /// (GET /api/local/push/vapid-public — generates the pair on first call).</summary>
+    public async Task<string?> GetPushVapidPublicKeyAsync(CancellationToken cancellationToken = default)
+    {
+        var body = await _httpClient.GetFromJsonAsync<JsonObject>("/api/local/push/vapid-public", cancellationToken);
+        return body?["publicKey"]?.GetValue<string>();
     }
 
     /// <summary>Lista os jobs gerenciados com estado, schedule efetivo e log recente (SPEC-20260929-jobs-dashboard).</summary>

@@ -42,6 +42,7 @@ using Taskboard.Application.Contracts.Specs;
 using Taskboard.Application.Specs;
 using Taskboard.Domain.Agents;
 using Taskboard.Domain.Entities;
+using Taskboard.Domain.Entities.Chat;
 using Taskboard.Domain.Entities.CliMetrics;
 using Taskboard.Domain.Entities.Harness;
 using Taskboard.Domain.Issues;
@@ -242,6 +243,8 @@ app.MapHub<AgentLogHub>("/agent-log-hub").RequireAuthorization();
 app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
 // SPEC-20260919-ade-cockpit-hitl §5: stream de eventos estruturados por run.
 app.MapHub<HarnessCockpitHub>("/harness-cockpit-hub").RequireAuthorization();
+// SPEC-20261005-chat-background-resume RF-008: run.completed broadcast.
+app.MapHub<ChatRunHub>("/chat-run-hub").RequireAuthorization();
 
 // SPEC-20260917-vscode-web-workspace RF-006: /vscode mount handling lives in
 // middleware (not an endpoint) because endpoint routing ignores the trailing
@@ -632,6 +635,17 @@ void RegisterWorkspaceAndChatServices()
     builder.Services.AddSingleton<ChatRunQueue>();
     builder.Services.AddSingleton<ChatRunBroadcaster>();
     builder.Services.AddScoped<IChatRunExecutor>(sp => sp.GetRequiredService<ChatService>());
+    // SPEC-20261005 RF-008/RF-009: run-completion fan-out — SignalR toast +
+    // Web Push. Scoped like the executor; the dispatcher resolves every
+    // registered notifier inside each run's scope.
+    builder.Services.AddScoped<IChatRunNotifier, SignalRChatRunNotifier>();
+    builder.Services.AddScoped<IChatRunNotifier, WebPushChatRunNotifier>();
+    builder.Services.AddScoped<VapidKeyService>();
+    builder.Services.AddScoped<IWebPushSender, WebPushSender>();
+    builder.Services.AddHttpClient("webpush", static client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
     builder.Services.AddHostedService<ChatRunDispatcherService>();
     builder.Services.AddHostedService<ChatRunRetentionService>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
@@ -2632,6 +2646,72 @@ void MapSettingsAndChatEndpoints()
         return full is null
             ? Results.NotFound(new { error = new { code = "IMAGE_NOT_FOUND", message = $"Image '{fileName}' not found." } })
             : Results.File(full, "image/png");
+    });
+
+    // ---- SPEC-20261005-chat-background-resume RF-009: Web Push subscriptions ----
+
+    var push = api.MapGroup("local/push").RequireAuthorization();
+
+    // VAPID public key for pushManager.subscribe — generates + persists the
+    // pair on first call when the catalog keys are empty.
+    push.MapGet("vapid-public", async (VapidKeyService vapidKeys, CancellationToken ct) =>
+    {
+        var keys = await vapidKeys.GetOrCreateAsync(ct);
+        return Results.Ok(new { publicKey = keys.PublicKey });
+    });
+
+    // Upsert by endpoint: a re-subscribe from the same browser rotates keys in
+    // place instead of creating a second row.
+    push.MapPost("subscriptions", async (
+        PushSubscriptionRequest request,
+        IRepository<ChatPushSubscription> subscriptions,
+        CancellationToken ct) =>
+    {
+        if (string.IsNullOrWhiteSpace(request.Endpoint)
+            || string.IsNullOrWhiteSpace(request.Keys?.P256dh)
+            || string.IsNullOrWhiteSpace(request.Keys?.Auth))
+        {
+            return Results.BadRequest(new
+            {
+                error = new { code = "VALIDATION", message = "endpoint, keys.p256dh and keys.auth are required." }
+            });
+        }
+
+        var existing = await subscriptions.Query
+            .FirstOrDefaultAsync(s => s.Endpoint == request.Endpoint, ct);
+        if (existing is not null)
+        {
+            existing.RotateKeys(request.Keys.P256dh, request.Keys.Auth, request.UserAgent);
+            await subscriptions.UpdateAsync(existing, ct);
+        }
+        else
+        {
+            var subscription = ChatPushSubscription.Create(
+                ChatPushSubscriptionId.NewGuid(),
+                request.Endpoint, request.Keys.P256dh, request.Keys.Auth,
+                request.UserAgent);
+            await subscriptions.AddAsync(subscription, ct);
+        }
+
+        await subscriptions.SaveChangesAsync(ct);
+        return Results.Ok(new { subscribed = true });
+    });
+
+    push.MapDelete("subscriptions", async (
+        string endpoint,
+        IRepository<ChatPushSubscription> subscriptions,
+        CancellationToken ct) =>
+    {
+        var existing = await subscriptions.Query
+            .FirstOrDefaultAsync(s => s.Endpoint == endpoint, ct);
+        if (existing is null)
+        {
+            return Results.NotFound(new { subscribed = false });
+        }
+
+        await subscriptions.DeleteAsync(existing, ct);
+        await subscriptions.SaveChangesAsync(ct);
+        return Results.Ok(new { subscribed = false });
     });
 
     static async Task WriteChatEventAsync(

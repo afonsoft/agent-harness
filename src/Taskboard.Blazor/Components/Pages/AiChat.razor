@@ -94,7 +94,8 @@ else
             @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode —
                replaces the agent-CLI UI with the open-webui-like layout. *@
             <div class="card-body p-2">
-                <ProviderChat @ref="_providerChat" OnSwitchToAgent="SwitchToAgentMode">
+                <ProviderChat @ref="_providerChat" SeedConversationId="@_seedConversationId"
+                              OnSwitchToAgent="SwitchToAgentMode">
                     <HistoryExtra>@LegacyThreadsSection</HistoryExtra>
                 </ProviderChat>
             </div>
@@ -1455,9 +1456,19 @@ else
         }
     }
 
+    /// <summary>Deep-link: /ai-chat?c={conversationId} — notification clicks
+    /// (RF-008) land here and the chat opens the finished conversation.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "c")] public string? DeepLinkConversation { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         _dotNetRef = DotNetObjectReference.Create(this);
+        if (!string.IsNullOrWhiteSpace(DeepLinkConversation))
+        {
+            _cfgMode = "provider";
+            _seedConversationId = DeepLinkConversation;
+        }
         try
         {
             _threads = await Client.GetAiChatThreadsAsync();
