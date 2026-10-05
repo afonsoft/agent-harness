@@ -186,6 +186,12 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
 
+        public Task RemoveLabelsFromIssueAsync(
+            string repositoryFullName, int issueNumber,
+            IReadOnlyCollection<string> labels,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
         public Task<Taskboard.GitHub.IssueDto> UpdateIssueAsync(
             string repositoryFullName, int issueNumber, string? title, string? body,
             CancellationToken cancellationToken = default) =>

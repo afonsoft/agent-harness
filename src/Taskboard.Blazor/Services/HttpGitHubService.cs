@@ -100,6 +100,22 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         response.EnsureSuccessStatusCode();
     }
 
+    public async Task RemoveLabelsFromIssueAsync(
+        string repositoryFullName,
+        int issueNumber,
+        IReadOnlyCollection<string> labels,
+        CancellationToken cancellationToken = default)
+    {
+        var (owner, repo) = SplitFullName(repositoryFullName);
+        foreach (var label in labels)
+        {
+            var response = await http.DeleteAsync(
+                $"/api/github/repos/{owner}/{repo}/issues/{issueNumber}/labels/{Uri.EscapeDataString(label)}",
+                cancellationToken);
+            response.EnsureSuccessStatusCode();
+        }
+    }
+
     public async Task<IssueDto> UpdateIssueAsync(
         string repositoryFullName,
         int issueNumber,
