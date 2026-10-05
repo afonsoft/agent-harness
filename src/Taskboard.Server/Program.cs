@@ -603,6 +603,9 @@ void RegisterWorkspaceAndChatServices()
             new AgentDecideTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointsTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261005-chat-plan-mode RF-003: plan review — the approval
+            // gate intercepts the call; the tool only confirms approval.
+            new ExitPlanModeTool(),
             // SPEC-20261001-chat-skills-slash-commands FR-001: global skill loader.
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
             // SPEC-20261004-chat-board-tools: board card lifecycle — a card IS a
@@ -2618,6 +2621,7 @@ void MapSettingsAndChatEndpoints()
                         toolCallId = e.ToolCallId,
                         toolName = e.ToolName,
                         argsPreview = e.ArgumentsPreview,
+                        kind = e.Kind,
                     }),
                     ChatApprovalDecidedEvent e => ("approval.decided", new
                     {
@@ -2625,6 +2629,7 @@ void MapSettingsAndChatEndpoints()
                         status = e.Status,
                         decision = e.Decision,
                         decidedBy = e.DecidedBy,
+                        kind = e.Kind,
                     }),
                     // ChatDoneEvent arrives below with the fresh terminal row;
                     // ChatPersistedEvent is internal plumbing — not on the wire.
@@ -2697,6 +2702,28 @@ void MapSettingsAndChatEndpoints()
         {
             var approvals = await chatService.ListApprovalsAsync(id, status, ct);
             return Results.Ok(new { approvals });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    // SPEC-20261005-chat-plan-mode RF-001: toggles plan mode — idempotent;
+    // on→off also cancels a pending plan review (the suspended call unblocks
+    // fail-closed).
+    chat.MapPost("conversations/{id}/plan-mode", async (
+        string id,
+        SetChatPlanModeRequest request,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var conversation = await chatService.SetPlanModeAsync(id, request.Active, ct);
+            return conversation is null
+                ? Results.NotFound(new { error = new { code = "NOT_FOUND", message = $"Conversation '{id}' not found." } })
+                : Results.Ok(new { conversation });
         }
         catch (ArgumentException ex)
         {

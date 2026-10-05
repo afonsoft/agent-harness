@@ -49,6 +49,13 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
     /// </summary>
     public string? AllowedToolsJson { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261005-chat-plan-mode RF-001: <c>on</c> while the conversation
+    /// plans (mutating tools denied, <c>exit_plan_mode</c> asks for review),
+    /// <c>off</c> in normal execution. Editable mid-run.
+    /// </summary>
+    public string PlanMode { get; private set; } = ChatPlanModes.Off;
+
     private ChatConversation()
     {
     }
@@ -149,6 +156,24 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
         PermissionPreset = preset;
         AllowedToolsJson = null;
         UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-plan-mode RF-001: toggles plan mode — idempotent,
+    /// returns true when the value actually flipped (the caller writes the
+    /// audit note + cancels pending plan reviews on on→off).
+    /// </summary>
+    public bool SetPlanMode(bool on, DateTime now)
+    {
+        var target = on ? ChatPlanModes.On : ChatPlanModes.Off;
+        if (PlanMode == target)
+        {
+            return false;
+        }
+
+        PlanMode = target;
+        UpdatedAt = now;
+        return true;
     }
 
     /// <summary>RF-004: adds a tool to the per-conversation allowed-list (idempotent).</summary>

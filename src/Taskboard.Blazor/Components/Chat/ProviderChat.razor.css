@@ -616,3 +616,44 @@
         max-width: 100%;
     }
 }
+
+/* SPEC-20261005-chat-plan-mode RF-004/RF-005: plan chip + review card. */
+.provider-plan-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .1rem .5rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 1rem;
+    font-size: .75rem;
+    background: transparent;
+    color: var(--bs-body-color);
+}
+
+.provider-plan-chip.on {
+    border-color: var(--bs-primary);
+    color: var(--bs-primary);
+    font-weight: 600;
+}
+
+.provider-plan-dot {
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: var(--bs-warning);
+    animation: provider-plan-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes provider-plan-pulse {
+    50% { opacity: .25; }
+}
+
+.provider-plan-card .provider-plan-body {
+    max-height: 22rem;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    padding: .5rem .75rem;
+    margin-top: .35rem;
+    font-size: .85rem;
+}

@@ -14,6 +14,13 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
     /// <summary>Max length of <see cref="ArgumentsPreview"/> — args JSON truncated.</summary>
     public const int ArgumentsPreviewMaxLength = 2000;
 
+    /// <summary>
+    /// Max length of <see cref="ArgumentsPreview"/> on a
+    /// <see cref="ChatApprovalKind.PlanReview"/> row — the plan markdown must
+    /// survive intact for review/export (RF-003/P2).
+    /// </summary>
+    public const int PlanPreviewMaxLength = 16000;
+
     public ChatRunId RunId { get; private set; } = default!;
 
     public ChatConversationId ConversationId { get; private set; } = default!;
@@ -25,6 +32,13 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
 
     /// <summary>Arguments JSON capped at <see cref="ArgumentsPreviewMaxLength"/> chars.</summary>
     public string ArgumentsPreview { get; private set; } = default!;
+
+    /// <summary>
+    /// What this approval gates (SPEC-20261005-chat-plan-mode RF-003) —
+    /// <c>tool-call</c> or <c>plan-review</c>. The decide endpoint serves both;
+    /// the UI renders the matching card.
+    /// </summary>
+    public ChatApprovalKind Kind { get; private set; } = ChatApprovalKind.ToolCall;
 
     public ChatApprovalStatus Status { get; private set; } = ChatApprovalStatus.Pending;
 
@@ -48,7 +62,8 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
         string toolCallId,
         string toolName,
         string argumentsPreview,
-        DateTime requestedAt)
+        DateTime requestedAt,
+        ChatApprovalKind kind)
         : base(id)
     {
         RunId = runId;
@@ -57,6 +72,7 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
         ToolName = toolName;
         ArgumentsPreview = argumentsPreview;
         RequestedAt = requestedAt;
+        Kind = kind;
     }
 
     public static ChatApproval Create(
@@ -66,15 +82,20 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
         string toolCallId,
         string toolName,
         string? argumentsJson,
-        DateTime? now = null)
+        DateTime? now = null,
+        ChatApprovalKind? kind = null)
     {
+        var resolvedKind = kind ?? ChatApprovalKind.ToolCall;
         var preview = string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson;
-        if (preview.Length > ArgumentsPreviewMaxLength)
+        var cap = resolvedKind == ChatApprovalKind.PlanReview
+            ? PlanPreviewMaxLength
+            : ArgumentsPreviewMaxLength;
+        if (preview.Length > cap)
         {
-            preview = preview[..ArgumentsPreviewMaxLength];
+            preview = preview[..cap];
         }
 
-        return new ChatApproval(id, runId, conversationId, toolCallId, toolName, preview, now ?? DateTime.UtcNow);
+        return new ChatApproval(id, runId, conversationId, toolCallId, toolName, preview, now ?? DateTime.UtcNow, resolvedKind);
     }
 
     /// <summary>

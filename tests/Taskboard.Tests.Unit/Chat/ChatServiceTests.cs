@@ -52,7 +52,7 @@ public sealed class ChatServiceTests : IDisposable
         _service = NewService(new FakeProviderHandler(), _coordinator);
     }
 
-    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null, Dictionary<string, string?>? extraConfig = null)
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null, Dictionary<string, string?>? extraConfig = null, IEnumerable<IChatTool>? extraTools = null)
     {
         context ??= _context;
         var configValues = new Dictionary<string, string?>
@@ -78,6 +78,13 @@ public sealed class ChatServiceTests : IDisposable
         if (extraTool is not null)
         {
             tools[extraTool.Name] = extraTool;
+        }
+        if (extraTools is not null)
+        {
+            foreach (var t in extraTools)
+            {
+                tools[t.Name] = t;
+            }
         }
         return new ChatService(
             new EfCoreRepository<ChatProvider>(context),
@@ -677,6 +684,190 @@ public sealed class ChatServiceTests : IDisposable
         NewService(new MutatingProviderHandler(), coordinator ?? new ChatRunCoordinator(),
             extraTool: tool ?? new FakeWriteTool(), extraConfig: extraConfig);
 
+    // ---- Plan mode (SPEC-20261005-chat-plan-mode) ----
+
+    /// <summary>Tool set do plan mode: exit_plan_mode + write_file (mutante) + echo_tool.</summary>
+    private ChatService NewPlanService(
+        HttpMessageHandler handler,
+        ChatRunCoordinator? coordinator = null,
+        FakeWriteTool? tool = null,
+        Dictionary<string, string?>? extraConfig = null) =>
+        NewService(handler, coordinator ?? new ChatRunCoordinator(),
+            extraTool: tool ?? new FakeWriteTool(),
+            extraTools: [new Taskboard.Integrations.Chat.Tools.ExitPlanModeTool()],
+            extraConfig: extraConfig);
+
+    [Fact]
+    public async Task Dado_PlanModeOn_Quando_ToolMutanteChamada_Entao_RecusaSemApproval()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewPlanService(new MutatingProviderHandler(), tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        (await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None))
+            .ShouldNotBeNull();
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(0, "tool mutante não executa em plan mode");
+        _context.ChatApprovals.Count(a => a.ConversationId == ChatConversationId.From(conversation.Id))
+            .ShouldBe(0, "a recusa de plan mode não cria approval");
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.Refused.ShouldBeTrue();
+        result.ResultJson.ShouldContain("Plan mode is active");
+    }
+
+    [Fact]
+    public async Task Dado_ExitPlanMode_Quando_PlanoSemTituloMarkdown_Entao_ErroSemReview()
+    {
+        var service = NewPlanService(
+            new PlanReviewProviderHandler("exit_plan_mode", """{"plan":"plano sem titulo"}"""));
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "planeje");
+
+        _context.ChatApprovals.Count(a => a.ConversationId == ChatConversationId.From(conversation.Id))
+            .ShouldBe(0, "plano inválido não cria review");
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.ResultJson.ShouldContain("must be markdown starting with");
+        result.Refused.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_ExitPlanMode_Quando_PlanoExcedeLimite_Entao_ErroSemReview()
+    {
+        // Sem \n: escaping SSE→JSON viraria newline literal e inválida o inner JSON antes do check de tamanho.
+        var oversizedPlan = $"{{\"plan\":\"# T{new string('x', ChatApproval.PlanPreviewMaxLength)}\"}}";
+        var service = NewPlanService(
+            new PlanReviewProviderHandler("exit_plan_mode", oversizedPlan));
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "planeje");
+
+        _context.ChatApprovals.Count(a => a.ConversationId == ChatConversationId.From(conversation.Id))
+            .ShouldBe(0);
+        events.OfType<ChatToolResultEvent>().Single().ResultJson
+            .ShouldContain("exceeds");
+    }
+
+    [Fact]
+    public async Task Dado_ReviewRejeitada_Quando_Feedback_Entao_ContinuaEmPlanMode()
+    {
+        var service = NewPlanService(
+            new PlanReviewProviderHandler("exit_plan_mode", """{"plan":"# Plano\\n- passo 1"}"""));
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "planeje");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+        approval.Kind.ShouldBe(ChatApprovalKind.PlanReview);
+        approval.ArgumentsPreview.ShouldContain("# Plano");
+
+        var decided = await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("deny", "faltou detalhe"), CancellationToken.None);
+        decided!.Status.ShouldBe("rejected");
+
+        var events = await runTask;
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.Refused.ShouldBeFalse("rejeição de plano não é refusal — o modelo revisa");
+        result.ResultJson.ShouldContain("approved");
+        result.ResultJson.ShouldContain("faltou detalhe");
+
+        var detail = await service.GetConversationAsync(conversation.Id, CancellationToken.None);
+        detail!.Conversation.PlanMode.ShouldBe("on", "plano rejeitado mantém plan mode");
+    }
+
+    [Fact]
+    public async Task Dado_ReviewAprovada_Quando_ExitPlanMode_Entao_SaiDePlanModeComNotas()
+    {
+        var service = NewPlanService(
+            new PlanReviewProviderHandler("exit_plan_mode", """{"plan":"# Plano\\n- passo 1"}"""));
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "planeje");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+
+        await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("allow"), CancellationToken.None);
+
+        var events = await runTask;
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.ResultJson.ShouldContain("\"approved\":true");
+
+        var detail = await service.GetConversationAsync(conversation.Id, CancellationToken.None);
+        detail!.Conversation.PlanMode.ShouldBe("off");
+        detail.Messages.ShouldContain(m => m.Role == "system"
+            && m.Content.Contains("plan mode off", StringComparison.Ordinal));
+        detail.Messages.ShouldContain(m => m.Role == "system"
+            && m.Content.Contains("Plan review allowed-once", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Dado_ReviewPendente_Quando_DesativaPlanMode_Entao_CancelaReview()
+    {
+        var service = NewPlanService(
+            new PlanReviewProviderHandler("exit_plan_mode", """{"plan":"# Plano"}"""));
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "planeje");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+
+        var updated = await service.SetPlanModeAsync(conversation.Id, false, CancellationToken.None);
+        updated!.PlanMode.ShouldBe("off");
+
+        var events = await runTask;
+        var stored = await _context.ChatApprovals.AsNoTracking()
+            .SingleAsync(a => a.Id == approval.Id);
+        stored.Status.ShouldBe(ChatApprovalStatus.Cancelled);
+        events.OfType<ChatToolResultEvent>().Single().ResultJson.ShouldContain("approved");
+    }
+
+    [Fact]
+    public async Task Dado_ReviewExpirada_Quando_Timeout_Entao_ContinuaEmPlanModeFailClosed()
+    {
+        var service = NewPlanService(
+            new PlanReviewProviderHandler("exit_plan_mode", """{"plan":"# Plano"}"""),
+            extraConfig: new Dictionary<string, string?>
+            {
+                ["Taskboard:Chat:Approval:TimeoutSeconds"] = "1",
+            });
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "planeje");
+
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.ResultJson.ShouldContain("timed out");
+        var detail = await service.GetConversationAsync(conversation.Id, CancellationToken.None);
+        detail!.Conversation.PlanMode.ShouldBe("on", "review expirada é fail-closed");
+    }
+
+    [Fact]
+    public async Task Dado_PlanModeOn_Quando_TurnoNormal_Entao_PromptContemSecaoPlano()
+    {
+        var handler = new PlanReviewProviderHandler("echo_tool", """{"text":"oi"}""");
+        var service = NewPlanService(handler);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "leiame");
+
+        handler.Bodies.ShouldNotBeEmpty();
+        handler.Bodies[0].ShouldContain("Plan mode is active");
+    }
+
+
     [Fact]
     public async Task Dado_PresetAsk_Quando_ToolMutanteAprovada_Entao_ExecutaEGeraAuditoria()
     {
@@ -1019,6 +1210,35 @@ public sealed class ChatServiceTests : IDisposable
             var body = call == 1
                 ? Sse("""data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"echo_tool","arguments":"{\"text\":\"rode\"}"}}]}}]}""")
                 : Sse("""data: {"choices":[{"delta":{"content":"pronto"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}""");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            };
+        }
+
+        private static string Sse(string line) => $"{line}\ndata: [DONE]\n";
+    }
+
+    /// <summary>
+    /// Provider fake: 1ª chamada emite o tool call configurado (exit_plan_mode,
+    /// echo_tool, ...) e registra os bodies; as demais respondem "done".
+    /// </summary>
+    private sealed class PlanReviewProviderHandler(string toolName, string argumentsJson) : HttpMessageHandler
+    {
+        private int _calls;
+
+        public List<string> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var call = Interlocked.Increment(ref _calls);
+            var escapedArgs = argumentsJson.Replace("\"", "\\\"", StringComparison.Ordinal);
+            var body = call == 1
+                ? Sse("""data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_plan","function":{"name":"@NAME@","arguments":"@ARGS@"}}]}}]}"""
+                    .Replace("@NAME@", toolName, StringComparison.Ordinal)
+                    .Replace("@ARGS@", escapedArgs, StringComparison.Ordinal))
+                : Sse("""data: {"choices":[{"delta":{"content":"done"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""");
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),

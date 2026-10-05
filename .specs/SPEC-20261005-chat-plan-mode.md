@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261006-chat-plan-mode` |
-| Status | `Approved` — aprovado por afonsoft (2026-10-05) |
+| Status | `Implemented` — entregue na branch `feat/devin-20261006-chat-plan-mode` |
 | Depends on | SPEC-20261005-chat-tool-approval (enforcement gate, approval cards) |
 | Reference | COMPARISON-20261005-deepseek-harness §1/#2; `dsh-plan-mode` (`plan:policy` section, `exit_plan_mode`, `/plan` command) |
 

@@ -47,7 +47,9 @@ public sealed record ChatConversationDto(
     // (SPEC-20261005-chat-tool-approval RF-007).
     string? ActiveRunStatus = null,
     // SPEC-20261005-chat-tool-approval RF-006: chat|ask|full.
-    string? PermissionPreset = null);
+    string? PermissionPreset = null,
+    // SPEC-20261005-chat-plan-mode RF-001: on|off.
+    string? PlanMode = null);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -141,7 +143,9 @@ public sealed record ChatApprovalDto(
     DateTime RequestedAt,
     DateTime? DecidedAt,
     string? Decision,
-    string? DecidedBy);
+    string? DecidedBy,
+    // SPEC-20261005-chat-plan-mode RF-003: tool-call | plan-review.
+    string Kind = "tool-call");
 
 /// <summary>Body of <c>POST /api/local/chat/approvals/{id}/decide</c> (RF-003/RF-004).</summary>
 public sealed record DecideChatApprovalRequest(
@@ -150,6 +154,9 @@ public sealed record DecideChatApprovalRequest(
     string? Reason = null,
     /// <summary>RF-004: add the tool to the conversation allowed-list (allow only).</summary>
     bool RememberTool = false);
+
+/// <summary>Body of <c>POST /api/local/chat/conversations/{id}/plan-mode</c> (RF-001).</summary>
+public sealed record SetChatPlanModeRequest(bool Active);
 
 public sealed record PatchChatConversationRequest(
     string? Title = null,

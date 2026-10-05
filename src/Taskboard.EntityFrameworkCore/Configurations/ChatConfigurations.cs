@@ -72,6 +72,12 @@ public sealed class ChatConversationConfiguration : IEntityTypeConfiguration<Cha
             .HasMaxLength(16);
         builder.Property(c => c.AllowedToolsJson);
 
+        // SPEC-20261005-chat-plan-mode RF-001: on|off.
+        builder.Property(c => c.PlanMode)
+            .IsRequired()
+            .HasMaxLength(8)
+            .HasDefaultValue(ChatPlanModes.Off);
+
         builder.Property(c => c.Version)
             .IsConcurrencyToken();
 
@@ -175,7 +181,14 @@ public sealed class ChatApprovalConfiguration : IEntityTypeConfiguration<ChatApp
 
         builder.Property(a => a.ArgumentsPreview)
             .IsRequired()
-            .HasMaxLength(ChatApproval.ArgumentsPreviewMaxLength);
+            .HasMaxLength(ChatApproval.PlanPreviewMaxLength);
+
+        // SPEC-20261005-chat-plan-mode RF-003: tool-call | plan-review.
+        builder.Property(a => a.Kind)
+            .IsRequired()
+            .HasMaxLength(16)
+            .HasDefaultValue(ChatApprovalKind.ToolCall)
+            .HasConversion(new StringValueObjectConverter<ChatApprovalKind>());
 
         builder.Property(a => a.Status)
             .IsRequired()
@@ -195,7 +208,8 @@ public sealed class ChatApprovalConfiguration : IEntityTypeConfiguration<ChatApp
         builder.Property(a => a.Version)
             .IsConcurrencyToken();
 
-        // Re-attach replay + sidebar badge scan (RF-007).
+        // Re-attach replay + sidebar badge scan (RF-007) + pending
+        // plan-review lookup when plan mode flips off mid-review.
         builder.HasIndex(a => new { a.ConversationId, a.Status });
         builder.HasIndex(a => a.RunId);
 
