@@ -95,8 +95,26 @@ else
                replaces the agent-CLI UI with the open-webui-like layout. *@
             <div class="card-body p-2">
                 <ProviderChat @ref="_providerChat" SeedConversationId="@_seedConversationId"
+                              AgentContext="CurrentAgentContext"
+                              OnConversationAgentLoaded="OnConversationAgentLoaded"
                               OnSwitchToAgent="SwitchToAgentMode">
                     <HistoryExtra>@LegacyThreadsSection</HistoryExtra>
+                    <AgentTools>
+                    @* Mesmos botões workspace/repo do modo Agent — o contexto
+                       persiste na conversa (PATCH) e alimenta as tools. *@
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                            title="Workspace — base folder for chat tools and delegated runs (default ~/repos)"
+                            @onclick="ShowWorkspaceModalAsync">
+                        <Icon Name="IconName.Folder2Open" />
+                        <span class="ms-1">@WorkspaceLabel</span>
+                    </button>
+                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                            title="Repository (optional — resolves to ~/repos/<name>)"
+                            @onclick="ShowRepoModalAsync">
+                        <Icon Name="IconName.Folder" />
+                        <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : _cfgRepo)</span>
+                    </button>
+                    </AgentTools>
                 </ProviderChat>
             </div>
         }
