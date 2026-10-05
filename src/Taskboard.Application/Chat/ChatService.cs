@@ -132,6 +132,7 @@ public sealed class ChatService(
     internal static readonly TimeSpan ProviderModelsTtl = TimeSpan.FromMinutes(5);
 
     private static string ProviderModelsKey(Guid providerId) => $"chat-provider-models-{providerId}";
+    private static string ProviderKey(Guid providerId) => $"chat-provider-{providerId}";
 
     // ---- Providers (RF-001/RF-002) ----
 
@@ -226,6 +227,7 @@ public sealed class ChatService(
     {
         await cache.RemoveByTagAsync(ProvidersCacheTag, ct).ConfigureAwait(false);
         await cache.RemoveAsync(ProviderModelsKey(providerId), ct).ConfigureAwait(false);
+        await cache.RemoveAsync(ProviderKey(providerId), ct).ConfigureAwait(false);
     }
 
     // ---- Conversations (RF-004) ----
@@ -573,7 +575,7 @@ public sealed class ChatService(
             throw new ChatArchivedException($"Conversation '{conversationId}' is archived.");
         }
 
-        if (await providers.GetAsync(conversation.ProviderId, ct).ConfigureAwait(false) is null)
+        if (await GetProviderSnapshotAsync(conversation.ProviderId, ct).ConfigureAwait(false) is null)
         {
             throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
         }
@@ -612,7 +614,7 @@ public sealed class ChatService(
             throw new ChatArchivedException($"Conversation '{conversationId}' is archived.");
         }
 
-        if (await providers.GetAsync(conversation.ProviderId, ct).ConfigureAwait(false) is null)
+        if (await GetProviderSnapshotAsync(conversation.ProviderId, ct).ConfigureAwait(false) is null)
         {
             throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
         }
@@ -1254,7 +1256,7 @@ public sealed class ChatService(
     {
         var conversation = await conversations.GetAsync(run.ConversationId, stoppingToken).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Conversation '{run.ConversationId.Value}' not found.");
-        var provider = await providers.GetAsync(conversation.ProviderId, stoppingToken).ConfigureAwait(false)
+        var provider = await GetProviderSnapshotAsync(conversation.ProviderId, stoppingToken).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
 
         // Shutdown also cancels the stream — TryMoveNextAsync tells a host
@@ -1612,7 +1614,7 @@ public sealed class ChatService(
     // yielded immediately and a keepalive ChatStatusEvent("streaming") is
     // emitted when the provider goes quiet, so the SSE connection never idles.
     private sealed record ConsumeContext(
-        ChatProvider Provider,
+        ChatProviderSnapshot Provider,
         ChatConversation Conversation,
         List<OpenAiChatMessage> Wire,
         List<OpenAiToolDefinition> ToolDefs,
@@ -1710,7 +1712,7 @@ public sealed class ChatService(
     private async IAsyncEnumerable<ChatStreamEvent> RunToolCallsAsync(
         ChatRun run,
         List<OpenAiToolCall> toolCalls,
-        ChatProvider provider,
+        ChatProviderSnapshot provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
@@ -1820,7 +1822,7 @@ public sealed class ChatService(
     /// </summary>
     private async IAsyncEnumerable<ChatStreamEvent> MaybeCompactWireAsync(
         ChatRun run,
-        ChatProvider provider,
+        ChatProviderSnapshot provider,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
@@ -1860,7 +1862,7 @@ public sealed class ChatService(
     /// <summary>RF-005: compaction forced by context_length_exceeded.</summary>
     private async IAsyncEnumerable<ChatStreamEvent> ForceCompactWireAsync(
         ChatRun run,
-        ChatProvider provider,
+        ChatProviderSnapshot provider,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
@@ -1891,7 +1893,7 @@ public sealed class ChatService(
     /// <summary>RF-003 prune → RF-004 summarize when still over (RNF-002 safe).</summary>
     private async Task<bool> CompactWireAsync(
         ChatRun run,
-        ChatProvider provider,
+        ChatProviderSnapshot provider,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
@@ -1972,7 +1974,7 @@ public sealed class ChatService(
     /// new bound. RNF-002: provider failures fall back to prune-only.
     /// </summary>
     private async Task<bool> SummarizePrefixAsync(
-        ChatProvider provider,
+        ChatProviderSnapshot provider,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
@@ -2075,7 +2077,7 @@ public sealed class ChatService(
 
     /// <summary>RF-004: one non-tool provider call producing the summary text.</summary>
     private async Task<string?> SummarizeAsync(
-        ChatProvider provider, ChatConversation conversation, string prefixText, CancellationToken ct)
+        ChatProviderSnapshot provider, ChatConversation conversation, string prefixText, CancellationToken ct)
     {
         var requestMessages = new List<OpenAiChatMessage>
         {
@@ -2118,7 +2120,7 @@ public sealed class ChatService(
             return null;
         }
 
-        var provider = await providers.GetAsync(conversation.ProviderId, ct).ConfigureAwait(false);
+        var provider = await GetProviderSnapshotAsync(conversation.ProviderId, ct).ConfigureAwait(false);
         if (provider is null)
         {
             throw new ChatValidationException("The conversation's provider no longer exists.");
@@ -2649,7 +2651,7 @@ public sealed class ChatService(
     }
 
     private async Task<(string Json, bool Refused, string? Reason, IReadOnlyList<string>? ImageUrls)> ExecuteToolAsync(
-        OpenAiToolCall toolCall, ChatProvider provider,
+        OpenAiToolCall toolCall, ChatProviderSnapshot provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
         ChatRun run,
@@ -2934,11 +2936,40 @@ public sealed class ChatService(
         return bool.TryParse(raw, out var value) ? value : defaultValue;
     }
 
-    private async Task<ChatProvider> RequireProviderAsync(Guid providerId, CancellationToken ct)
+    private async Task<ChatProviderSnapshot> RequireProviderAsync(Guid providerId, CancellationToken ct)
     {
-        var provider = await providers.GetAsync(providerId, ct).ConfigureAwait(false);
+        var provider = await GetProviderSnapshotAsync(providerId, ct).ConfigureAwait(false);
         return provider ?? throw new ChatValidationException($"Provider '{providerId}' not found.");
     }
+
+    // Per-id snapshot for hot paths (run ticks, model lists, enqueue checks)
+    // that would otherwise hit the DB per call. L1-only via
+    // DisableDistributedCache — the snapshot carries ApiKey and must never
+    // reach a shared L2. Tagged ProvidersCacheTag so every provider
+    // mutation's existing tag invalidation covers it.
+    private async Task<ChatProviderSnapshot?> GetProviderSnapshotAsync(Guid providerId, CancellationToken ct)
+    {
+        return await cache.GetOrCreateAsync(
+            ProviderKey(providerId),
+            // AsNoTracking: the snapshot is a pure read model — a tracked
+            // entity would also pin stale values inside this context.
+            async inner => ToSnapshot(await providers.Query
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == providerId, inner)
+                .ConfigureAwait(false)),
+            new HybridCacheEntryOptions
+            {
+                Expiration = ProvidersTtl,
+                Flags = HybridCacheEntryFlags.DisableDistributedCache,
+            },
+            [ProvidersCacheTag],
+            ct).ConfigureAwait(false);
+    }
+
+    private static ChatProviderSnapshot? ToSnapshot(ChatProvider? provider) =>
+        provider is null
+            ? null
+            : new ChatProviderSnapshot(provider.Id, provider.Name, provider.BaseUrl, provider.ApiKey, provider.Enabled);
 
     private static ChatProviderDto ToDto(ChatProvider provider) => new(
         provider.Id,
@@ -3085,3 +3116,10 @@ public sealed class ChatService(
             feedbackByMessage.GetValueOrDefault(m.Id.Value))).ToList();
     }
 }
+
+/// <summary>Serializable per-id provider snapshot cached in HybridCache L1
+/// (SPEC cache-flow audit): the entity itself can't ride the cache (no
+/// parameterless ctor, and L1 clones via the serializer anyway). L1-only via
+/// DisableDistributedCache — carries <c>ApiKey</c>, must never reach a shared
+/// L2.</summary>
+internal sealed record ChatProviderSnapshot(Guid Id, string Name, string BaseUrl, string ApiKey, bool Enabled);

@@ -3383,40 +3383,63 @@ void MapConfigAndJobsEndpoints()
 
 void MapSkillsAndAuthEndpoints()
 {
-    api.MapGet(SkillsSegment, async (ISkillDiscoveryService skills, CancellationToken ct) =>
+    // Filesystem-backed reads — every request otherwise walks the agent dirs
+    // and parses every SKILL.md. L1-only via DisableDistributedCache: disk
+    // state is host-local, a shared L2 would serve one replica's scan to
+    // another. Mutations (install/sync) evict by tag.
+    var skillsCacheOptions = new HybridCacheEntryOptions
     {
-        var result = await skills.DiscoverAsync(ct);
+        Expiration = TimeSpan.FromSeconds(60),
+        Flags = HybridCacheEntryFlags.DisableDistributedCache,
+    };
+
+    api.MapGet(SkillsSegment, async (ISkillDiscoveryService skills, HybridCache cache, CancellationToken ct) =>
+    {
+        var result = await cache.GetOrCreateAsync("skills:list",
+            async inner => await skills.DiscoverAsync(inner),
+            skillsCacheOptions, [SkillsCacheTag], ct);
         return Results.Ok(new { skills = result });
     });
 
-    api.MapGet("skills/{source}/{name}", async (string source, string name, ISkillDiscoveryService skills, CancellationToken ct) =>
+    api.MapGet("skills/{source}/{name}", async (string source, string name, ISkillDiscoveryService skills, HybridCache cache, CancellationToken ct) =>
     {
-        var result = await skills.GetDetailAsync(source, name, ct);
+        var result = await cache.GetOrCreateAsync($"skills:detail:{source}/{name}",
+            async inner => await skills.GetDetailAsync(source, name, inner),
+            skillsCacheOptions, [SkillsCacheTag], ct);
         return result is null ? Results.NotFound() : Results.Ok(new { skill = result });
     });
 
     // SPEC-20261004-cli-slash-commands RF-002: slash palette data — commands
     // and skills discovered under the selected CLI's home dirs.
-    api.MapGet("cli-commands", async (string? cli, ICliCommandDiscoveryService commands, CancellationToken ct) =>
+    api.MapGet("cli-commands", async (string? cli, ICliCommandDiscoveryService commands, HybridCache cache, CancellationToken ct) =>
     {
         if (string.IsNullOrWhiteSpace(cli))
         {
             return Results.BadRequest(new { error = new { code = "CLI_REQUIRED", message = "Query param 'cli' is required." } });
         }
 
-        return Results.Ok(new { commands = await commands.ListAsync(cli, ct) });
+        return Results.Ok(new
+        {
+            commands = await cache.GetOrCreateAsync($"cli-commands:{cli}",
+                async inner => await commands.ListAsync(cli, inner),
+                skillsCacheOptions, [SkillsCacheTag], ct)
+        });
     });
 
     // {**name}: commands nest by directory ("ops/deploy").
-    api.MapGet("cli-commands/{cli}/{**name}", async (string cli, string name, ICliCommandDiscoveryService commands, CancellationToken ct) =>
+    api.MapGet("cli-commands/{cli}/{**name}", async (string cli, string name, ICliCommandDiscoveryService commands, HybridCache cache, CancellationToken ct) =>
     {
-        var result = await commands.GetAsync(cli, name, ct);
+        var result = await cache.GetOrCreateAsync($"cli-commands:{cli}/{name}",
+            async inner => await commands.GetAsync(cli, name, inner),
+            skillsCacheOptions, [SkillsCacheTag], ct);
         return result is null ? Results.NotFound() : Results.Ok(new { command = result });
     });
 
-    api.MapGet("skills/{source}/{name}/files/{**path}", async (string source, string name, string path, ISkillDiscoveryService skills, CancellationToken ct) =>
+    api.MapGet("skills/{source}/{name}/files/{**path}", async (string source, string name, string path, ISkillDiscoveryService skills, HybridCache cache, CancellationToken ct) =>
     {
-        var result = await skills.GetFileAsync(source, name, path, ct);
+        var result = await cache.GetOrCreateAsync($"skills:file:{source}/{name}/{path}",
+            async inner => await skills.GetFileAsync(source, name, path, inner),
+            skillsCacheOptions, [SkillsCacheTag], ct);
         return result.Error switch
         {
             SkillFileError.None => Results.Ok(new { path = result.RelativePath, content = result.Content }),
@@ -3832,7 +3855,7 @@ void MapAgentsEndpoints()
     // SPEC-20261010-agents-page-tabs RF-004: `take` (default 30, clamp 1..200)
     // + `cli` validated against [a-z0-9-] (scanner keys are lowercase slugs).
     agents.MapGet("sessions", async (
-        string? cli, int? take, IAgentSessionScanner scanner, CancellationToken ct) =>
+        string? cli, int? take, IAgentSessionScanner scanner, HybridCache cache, CancellationToken ct) =>
     {
         if (cli is { Length: > 0 } &&
             (cli.Length > 32 || !cli.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')))
@@ -3841,7 +3864,21 @@ void MapAgentsEndpoints()
         }
 
         var takePerCli = Math.Clamp(take ?? 30, 1, 200);
-        return Results.Ok(new { sessions = await scanner.ScanAsync(cli, takePerCli, ct) });
+        // 10s L1-only: the scanner walks every CLI's session dirs per request
+        // and session state changes constantly — a short TTL trades a few
+        // seconds of staleness for skipping the filesystem walk. Host-local
+        // disk → never the shared L2.
+        var sessions = await cache.GetOrCreateAsync(
+            $"agent-sessions:{cli ?? "all"}:{takePerCli}",
+            async inner => await scanner.ScanAsync(cli, takePerCli, inner),
+            new HybridCacheEntryOptions
+            {
+                Expiration = TimeSpan.FromSeconds(10),
+                Flags = HybridCacheEntryFlags.DisableDistributedCache,
+            },
+            tags: null,
+            ct);
+        return Results.Ok(new { sessions });
     });
 
     agents.MapPost("executions", async (
@@ -4057,10 +4094,12 @@ void MapOperationsEndpoints()
     api.MapPost("skills/sync", async (
         ISkillsSyncService sync,
         IServiceScopeFactory scopeFactory,
+        HybridCache cache,
         CancellationToken ct) =>
     {
         var agents = await EnabledAgentResolver.ResolveAsync(scopeFactory, ct);
         sync.RequestSync(agents);
+        await cache.RemoveByTagAsync(SkillsCacheTag, ct);
         return Results.Json(sync.GetStatus(), statusCode: StatusCodes.Status202Accepted);
     }).RequireAuthorization();
 
@@ -4068,9 +4107,10 @@ void MapOperationsEndpoints()
         Results.Ok(installer.GetStatus()))
         .RequireAuthorization();
 
-    api.MapPost("skills/install", (ISkillsInstallerService installer) =>
+    api.MapPost("skills/install", async (ISkillsInstallerService installer, HybridCache cache, CancellationToken ct) =>
     {
         installer.RequestInstall();
+        await cache.RemoveByTagAsync(SkillsCacheTag, ct);
         return Results.Json(installer.GetStatus(), statusCode: StatusCodes.Status202Accepted);
     }).RequireAuthorization();
 
@@ -4090,6 +4130,7 @@ void MapOperationsEndpoints()
     api.MapPost("skills/install-repo", async (
         SkillRepoInstallRequest request,
         ISkillsInstallerService installer,
+        HybridCache cache,
         CancellationToken ct) =>
     {
         var repository = request?.Repository;
@@ -4099,6 +4140,7 @@ void MapOperationsEndpoints()
         }
 
         var status = await installer.InstallAsync(repository, ct);
+        await cache.RemoveByTagAsync(SkillsCacheTag, ct);
         return Results.Json(status, statusCode: StatusCodes.Status202Accepted);
     }).RequireAuthorization();
 
@@ -4127,6 +4169,7 @@ void MapOperationsEndpoints()
     api.MapPost("skills/install-one", async (
         SkillInstallRequest request,
         ISkillsInstallerService installer,
+        HybridCache cache,
         CancellationToken ct) =>
     {
         if (request is null || !SkillInputValidation.IsValidRepository(request.Repository))
@@ -4143,6 +4186,7 @@ void MapOperationsEndpoints()
         try
         {
             var step = await installer.InstallSkillAsync(request.Repository, request.Skill, ct);
+            await cache.RemoveByTagAsync(SkillsCacheTag, ct);
             return step.State == SkillsInstallStepState.Failed
                 ? Results.Json(step, statusCode: StatusCodes.Status502BadGateway)
                 : Results.Json(step, statusCode: StatusCodes.Status202Accepted);
@@ -4736,6 +4780,10 @@ public partial class Program
     private const string JobsEnabledKey = ChatFeatureFlags.JobsEnabledKey;
     private const string ScheduleEnabledKey = ChatFeatureFlags.ScheduleEnabledKey;
     private const string SearchEnabledKey = ChatFeatureFlags.SearchEnabledKey;
+
+    // HybridCache tag evicted on every skills install/sync so the cached
+    // list/detail/command reads reflect the new disk state.
+    private const string SkillsCacheTag = "skills";
 
     private static bool ChatFeatureEnabled(IConfiguration configuration, string key) =>
         ChatFeatureFlags.IsEnabled(configuration, key);
