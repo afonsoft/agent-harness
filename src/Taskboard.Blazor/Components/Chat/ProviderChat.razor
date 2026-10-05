@@ -142,6 +142,20 @@
                         <option value="full">Full</option>
                     </select>
                 </div>
+                @* SPEC-20261005-chat-plan-mode RF-005: header chip mirroring
+                   PlanMode — a pending review flashes the dot. *@
+                <button type="button"
+                        class="provider-plan-chip @(_planMode == "on" ? "on" : string.Empty)"
+                        title="Plan mode — o modelo planeja (read-only) e apresenta um plano antes de executar"
+                        aria-pressed="@(_planMode == "on" ? "true" : "false")"
+                        @onclick="() => TogglePlanModeAsync()">
+                    <Icon Name="IconName.ListTask" />
+                    <span>plan: @_planMode</span>
+                    @if (_pendingApprovals.Any(a => a.Kind == "plan-review"))
+                    {
+                        <span class="provider-plan-dot" aria-label="Plano aguardando revisão"></span>
+                    }
+                </button>
             }
             @if (_conversationTitle is { Length: > 0 })
             {
@@ -237,6 +251,56 @@
                live via approval.asked / approval.decided SSE. *@
             @foreach (var approval in _pendingApprovals)
             {
+                @if (approval.Kind == "plan-review")
+                {
+                    @* SPEC-20261005-chat-plan-mode RF-004: plan review card —
+                       rendered markdown + approve/revise-with-feedback; the
+                       pending row replays on re-attach like approvals. *@
+                    <div class="provider-chat-bubble assistant provider-approval-card provider-plan-card" @key="approval.Id">
+                        <div class="provider-approval-head">
+                            <Icon Name="IconName.ListTask" />
+                            <span class="fw-semibold">Plan review — aprovar para executar?</span>
+                        </div>
+                        <div class="provider-plan-body ai-chat-md">
+                            @((MarkupString)MarkdownRenderer.ToSafeHtml(approval.ArgumentsPreview))
+                        </div>
+                        <div class="provider-approval-actions d-flex gap-2 mt-2 align-items-center">
+                            <button type="button" class="btn btn-sm btn-success"
+                                    @onclick="() => ApprovePlanAsync(approval)">
+                                Approve plan
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-warning"
+                                    @onclick="() => ToggleDenyReason(approval.Id)">
+                                Revise
+                            </button>
+                            <div class="ms-auto d-flex gap-1">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        title="Copiar plano em markdown"
+                                        @onclick="() => CopyPlanAsync(approval)">
+                                    @(_copiedId == approval.Id ? "✓" : "copy")
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        title="Baixar plano como .md"
+                                        @onclick="() => DownloadPlanAsync(approval)">
+                                    <Icon Name="IconName.Download" />
+                                </button>
+                            </div>
+                        </div>
+                        @if (_denyReasonFor == approval.Id)
+                        {
+                            <div class="d-flex gap-2 mt-2">
+                                <input type="text" class="form-control form-control-sm" placeholder="Feedback para revisão (opcional)"
+                                       aria-label="Feedback do plano" @bind="_denyReason" />
+                                <button type="button" class="btn btn-sm btn-warning"
+                                        @onclick="() => RevisePlanAsync(approval)">
+                                    Send feedback
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
                 <div class="provider-chat-bubble assistant provider-approval-card" @key="approval.Id">
                     <div class="provider-approval-head">
                         <Icon Name="IconName.ShieldLock" />
@@ -272,6 +336,7 @@
                         </div>
                     }
                 </div>
+                }
             }
             @if (_running && string.IsNullOrEmpty(_streaming))
             {
@@ -513,6 +578,7 @@
     // SPEC-20261005-chat-tool-approval: pending approval cards + preset chip.
     private readonly List<ChatApprovalDto> _pendingApprovals = [];
     private string _permissionPreset = "ask";
+    private string _planMode = "off";
     private string? _denyReasonFor;
     private string? _denyReason;
 
@@ -764,6 +830,7 @@
             _reasoning = null;
             _pendingApprovals.Clear();
             _permissionPreset = conversation.PermissionPreset ?? "ask";
+            _planMode = conversation.PlanMode ?? "off";
             _denyReasonFor = null;
             await OnSearchChangedAsync();
         }
@@ -824,6 +891,7 @@
         }
 
         _permissionPreset = detail.Conversation.PermissionPreset ?? "ask";
+        _planMode = detail.Conversation.PlanMode ?? "off";
         _denyReasonFor = null;
         if (_providerId != detail.Conversation.ProviderId)
         {
@@ -876,6 +944,7 @@
         new("new", "Nova conversa", "builtin"),
         new("agent", "Delegar/ir para Agent mode", "builtin"),
         new("tools", "Abrir tools/capabilities em Settings", "builtin"),
+        new("plan", "Plan mode on (ou '/plan off' para sair)", "builtin"),
         new("clear", "Limpar o composer", "builtin"),
         new("help", "Listar comandos", "builtin"),
     ];
@@ -990,7 +1059,7 @@
     }
 
     /// <summary>Builtin slash commands — true when the turn was consumed locally.</summary>
-    private async Task<bool> TryRunBuiltinAsync(string command)
+    private async Task<bool> TryRunBuiltinAsync(string command, string rest)
     {
         switch (command.ToLowerInvariant())
         {
@@ -1010,8 +1079,14 @@
                 Navigation.NavigateTo("/settings");
                 return true;
             case "help":
-                _notice = "Comandos: /new, /agent, /tools, /clear, /help — /&lt;command&gt; injeta um comando da CLI selecionada, /&lt;skill&gt; injeta uma skill global.";
+                _notice = "Comandos: /new, /agent, /tools, /clear, /plan [off], /help — /&lt;command&gt; injeta um comando da CLI selecionada, /&lt;skill&gt; injeta uma skill global.";
                 _composer = string.Empty;
+                return true;
+            case "plan":
+                // SPEC-20261005-chat-plan-mode RF-005: /plan toggles; /plan off
+                // exits. Mid-run safe — the gate applies it next tool call.
+                _composer = string.Empty;
+                await TogglePlanModeAsync(!string.Equals(rest.Trim(), "off", StringComparison.OrdinalIgnoreCase));
                 return true;
             default:
                 return false;
@@ -1239,7 +1314,7 @@
         var command = (space < 0 ? content : content[..space]).TrimStart('/');
         var rest = space < 0 ? string.Empty : content[(space + 1)..];
 
-        if (await TryRunBuiltinAsync(command))
+        if (await TryRunBuiltinAsync(command, rest))
         {
             return (true, content);
         }
@@ -1353,7 +1428,8 @@
                     asked.TryGetProperty("toolCallId", out var tcid) ? tcid.GetString() ?? string.Empty : string.Empty,
                     asked.TryGetProperty("toolName", out var tname) ? tname.GetString() ?? string.Empty : string.Empty,
                     asked.TryGetProperty("argsPreview", out var aprv) ? aprv.GetString() ?? "{}" : "{}",
-                    "pending", DateTime.UtcNow, null, null, null);
+                    "pending", DateTime.UtcNow, null, null, null,
+                    asked.TryGetProperty("kind", out var knd) ? knd.GetString() ?? "tool-call" : "tool-call");
                 _pendingApprovals.RemoveAll(a => a.Id == dto.Id);
                 _pendingApprovals.Add(dto);
                 _statusPhase = "waiting-approval";
@@ -1368,6 +1444,14 @@
                 if (decidedId is not null)
                 {
                     _pendingApprovals.RemoveAll(a => a.Id == decidedId);
+                }
+
+                // RF-003: an approved plan review flips the chip off; a
+                // cancelled one (mode turned off) keeps it consistent too.
+                if (decided.TryGetProperty("kind", out var dk) && dk.GetString() == "plan-review"
+                    && decided.TryGetProperty("status", out var dst))
+                {
+                    _planMode = dst.GetString() is "allowed-once" or "cancelled" ? "off" : "on";
                 }
 
                 if (_denyReasonFor == decidedId)
@@ -1441,6 +1525,7 @@
             }
 
             _permissionPreset = detail.Conversation.PermissionPreset ?? _permissionPreset;
+            _planMode = detail.Conversation.PlanMode ?? _planMode;
             await OnSearchChangedAsync();
             return detail;
         }
@@ -1511,6 +1596,72 @@
 
     private Task DenyApprovalAsync(ChatApprovalDto approval) =>
         DecideApprovalAsync(approval, "deny", reason: _denyReason, rememberTool: false);
+
+    // ---- Plan mode (SPEC-20261005-chat-plan-mode RF-001/RF-004/RF-005) ----
+
+    private Task ApprovePlanAsync(ChatApprovalDto approval) =>
+        DecideApprovalAsync(approval, "allow", reason: null);
+
+    private Task RevisePlanAsync(ChatApprovalDto approval) =>
+        DecideApprovalAsync(approval, "deny", reason: _denyReason);
+
+    private async Task DownloadPlanAsync(ChatApprovalDto approval)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "taskboardChat.download", "plan.md", approval.ArgumentsPreview, "text/markdown");
+        }
+        catch (JSException)
+        {
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, "Não foi possível baixar o plano."));
+        }
+    }
+
+    private async Task CopyPlanAsync(ChatApprovalDto approval)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardChat.copy", approval.ArgumentsPreview);
+            _copiedId = approval.Id;
+            StateHasChanged();
+            _ = Task.Delay(1600).ContinueWith(_ =>
+            {
+                _copiedId = null;
+                InvokeAsync(StateHasChanged);
+            });
+        }
+        catch (JSException)
+        {
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, "Não foi possível copiar."));
+        }
+    }
+
+    private async Task TogglePlanModeAsync(bool? active = null)
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        var target = active ?? _planMode != "on";
+        try
+        {
+            var updated = await Client.SetChatPlanModeAsync(_conversationId, target);
+            _planMode = updated?.PlanMode ?? (target ? "on" : "off");
+            _notice = _planMode == "on"
+                ? "Plan mode ativo — o modelo planeja e apresenta um plano antes de executar."
+                : null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _error = $"Falha ao trocar plan mode: {ex.Message}";
+        }
+        catch (TaskCanceledException ex)
+        {
+            _error = $"Falha ao trocar plan mode: {ex.Message}";
+        }
+    }
 
     private async Task DecideApprovalAsync(
         ChatApprovalDto approval, string outcome, string? reason = null, bool rememberTool = false)

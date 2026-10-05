@@ -68,6 +68,8 @@ public class RuntimeConfigurationServiceTests
             "Taskboard:Chat:Approval:Preset",
             "Taskboard:Chat:Approval:TimeoutSeconds",
             "Taskboard:Chat:Notify:Approval:Push",
+            "Taskboard:Chat:PlanMode:Default",
+            "Taskboard:Chat:PlanMode:Section",
             "Taskboard:Push:Vapid:PublicKey",
             "Taskboard:Push:Vapid:PrivateKey",
             "Taskboard:Push:Vapid:Subject",

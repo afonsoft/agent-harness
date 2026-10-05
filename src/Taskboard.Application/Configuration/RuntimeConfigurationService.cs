@@ -179,6 +179,14 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Notify:Approval:Push", "false", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
+        // SPEC-20261005-chat-plan-mode RF-001/RNF-003: new-conversation default
+        // and the plan:policy prompt section (free text — empty = built-in).
+        new("Taskboard:Chat:PlanMode:Default", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:PlanMode:Section", null, Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: null, Group: "Chat", ManagedIn: "/settings?tab=chat"),
         // SPEC-20261005 RF-009: VAPID identity for Web Push. Empty keys are
         // auto-generated once by VapidKeyService on first subscribe and
         // persisted here (private key stays masked like every secret).

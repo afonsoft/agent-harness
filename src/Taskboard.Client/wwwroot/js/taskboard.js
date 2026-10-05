@@ -425,6 +425,20 @@ window.taskboardChat = {
         area.select();
         document.execCommand('copy'); // NOSONAR javascript:S1874 — único fallback fora de secure context
         area.remove();
+    },
+
+    // SPEC-20261005-chat-plan-mode RF-004: export the reviewed plan as a
+    // .md download (Blob URL — no server round-trip).
+    download: function (filename, text, mime) {
+        var blob = new Blob([text], { type: mime || 'text/markdown' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     }
 };
 

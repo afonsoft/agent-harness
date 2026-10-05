@@ -47,11 +47,13 @@ public sealed record ChatPersistedEvent : ChatStreamEvent;
 /// call on a persisted <see cref="ChatApproval"/> — SSE <c>approval.asked</c>.
 /// </summary>
 public sealed record ChatApprovalAskedEvent(
-    string ApprovalId, string ToolCallId, string ToolName, string ArgumentsPreview) : ChatStreamEvent;
+    string ApprovalId, string ToolCallId, string ToolName, string ArgumentsPreview,
+    string Kind = "tool-call") : ChatStreamEvent;
 
 /// <summary>RF-003/RF-005: the pending approval resolved — SSE <c>approval.decided</c>.</summary>
 public sealed record ChatApprovalDecidedEvent(
-    string ApprovalId, string Status, string? Decision, string DecidedBy) : ChatStreamEvent;
+    string ApprovalId, string Status, string? Decision, string DecidedBy,
+    string Kind = "tool-call") : ChatStreamEvent;
 
 /// <summary>Request-level validation failure surfaced as 400.</summary>
 public sealed class ChatValidationException(string message) : Exception(message);
@@ -217,6 +219,9 @@ public sealed class ChatService(
         // RF-006: new conversations inherit the global default preset
         // (Taskboard:Chat:Approval:Preset — "ask" when unset/invalid).
         conversation.SetPermissionPreset(ChatApprovalPolicy.DefaultPreset(configuration), UtcNow);
+        // RF-001/P2: Taskboard:Chat:PlanMode:Default starts new
+        // conversations in plan mode when enabled (off when unset).
+        conversation.SetPlanMode(ChatPlanMode.DefaultOn(configuration), UtcNow);
         if (request.Agent is not null)
         {
             // SPEC-20261004 RF-002: the workspace path is confined to $HOME —
@@ -900,10 +905,11 @@ public sealed class ChatService(
             {
                 var deniedJson = gateJson.Value.ResultJson!;
                 var deniedReason = gateJson.Value.RefusalReason;
+                var deniedRefused = gateJson.Value.Refused;
                 yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
-                yield return new ChatToolResultEvent(toolCall.Name, deniedJson, Refused: true, deniedReason);
+                yield return new ChatToolResultEvent(toolCall.Name, deniedJson, deniedRefused, deniedReason);
                 var deniedMessage = ChatMessage.CreateTool(
-                    conversation.Id, toolCall.Id, toolCall.Name, deniedJson, refused: true, UtcNow);
+                    conversation.Id, toolCall.Id, toolCall.Name, deniedJson, refused: deniedRefused, UtcNow);
                 await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
                 await messages.SaveChangesAsync(ct).ConfigureAwait(false);
                 wire.Add(new OpenAiChatMessage("tool", deniedJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
@@ -975,8 +981,10 @@ public sealed class ChatService(
     /// user rejection). <c>approval.asked</c>/<c>approval.decided</c> publish
     /// straight onto the broadcaster so waiting attached streams see the card
     /// immediately — the iterator only yields the tool result afterwards.
+    /// <c>Refused=false</c> marks a synthetic result that is not a refusal
+    /// (a rejected plan review — the model revises, nothing was denied).
     /// </summary>
-    private async Task<(string? ResultJson, string? RefusalReason, bool Abort)?> ApplyApprovalGateAsync(
+    private async Task<(string? ResultJson, string? RefusalReason, bool Abort, bool Refused)?> ApplyApprovalGateAsync(
         ChatRun run,
         ChatConversation conversation,
         IReadOnlyDictionary<string, IChatTool> toolSet,
@@ -994,13 +1002,38 @@ public sealed class ChatService(
         var fresh = await conversations.Query
             .AsNoTracking()
             .Where(c => c.Id == conversation.Id)
-            .Select(c => new { c.PermissionPreset, c.AllowedToolsJson })
+            .Select(c => new { c.PermissionPreset, c.AllowedToolsJson, c.PlanMode })
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
         var preset = fresh?.PermissionPreset ?? conversation.PermissionPreset;
         var allowedTools = AllowedToolsOf(fresh?.AllowedToolsJson ?? conversation.AllowedToolsJson);
+        var planMode = fresh?.PlanMode ?? conversation.PlanMode;
+
+        // SPEC-20261005-chat-plan-mode RF-003: exit_plan_mode always asks —
+        // a plan review is a semantic gate orthogonal to the tool preset
+        // (open question #1). The call validates its plan argument first:
+        // malformed plans fail the tool call without opening a review.
+        if (string.Equals(toolCall.Name, ChatPlanMode.ToolName, StringComparison.Ordinal))
+        {
+            if (ValidatePlanArgument(toolCall.ArgumentsJson) is { } invalid)
+            {
+                return (JsonSerializer.Serialize(new { error = invalid }), "invalid plan", false, false);
+            }
+
+            return await AskAsync(run, conversation, toolCall, ChatApprovalKind.PlanReview, ct, stoppingToken)
+                .ConfigureAwait(false);
+        }
 
         var mutating = tool.RequiresConfirmation
             || ChatCapabilityRules.MutatingTools.Contains(toolCall.Name);
+
+        // RF-002/RNF-001: plan mode is law — mutating calls are refused
+        // regardless of the preset (enforcement at the gate, not the prompt).
+        if (planMode == ChatPlanModes.On && mutating)
+        {
+            return (JsonSerializer.Serialize(new { error = ChatPlanMode.MutatingDenial }),
+                "denied by plan mode", false, true);
+        }
+
         var decision = ChatApprovalPolicy.Resolve(
             configuration, preset, allowedTools, toolCall.Name, mutating);
 
@@ -1012,18 +1045,72 @@ public sealed class ChatService(
                 return (JsonSerializer.Serialize(new
                 {
                     error = $"Tool call blocked: '{toolCall.Name}' is denied by the conversation permission preset ({preset}).",
-                }), "denied by permission policy", false);
+                }), "denied by permission policy", false, true);
         }
 
-        // ---- ask: persist, announce, suspend ----
+        return await AskAsync(run, conversation, toolCall, ChatApprovalKind.ToolCall, ct, stoppingToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The <c>exit_plan_mode</c> plan argument: non-empty markdown starting
+    /// with '#' and within <see cref="ChatApproval.PlanPreviewMaxLength"/> so
+    /// the persisted review row holds the whole plan (RF-003).
+    /// </summary>
+    private static string? ValidatePlanArgument(string? argumentsJson)
+    {
+        string? plan;
+        try
+        {
+            plan = JsonSerializer.Deserialize<JsonElement>(
+                    string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson)
+                .TryGetProperty("plan", out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return "exit_plan_mode requires a valid 'plan' markdown argument.";
+        }
+
+        if (string.IsNullOrWhiteSpace(plan))
+        {
+            return "exit_plan_mode requires a non-empty 'plan' markdown argument.";
+        }
+
+        if (!plan.TrimStart().StartsWith('#'))
+        {
+            return "exit_plan_mode rejected: the plan must be markdown starting with a '#' title.";
+        }
+
+        if (plan.Length > ChatApproval.PlanPreviewMaxLength)
+        {
+            return $"exit_plan_mode rejected: the plan exceeds {ChatApproval.PlanPreviewMaxLength} chars — shorten it.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The ask path shared by tool-call and plan-review approvals (RF-002):
+    /// persist → broadcast <c>approval.asked</c> + notifier fan-out → suspend
+    /// on the coordinator → resolve allow/deny/timeout/cancel.
+    /// </summary>
+    private async Task<(string? ResultJson, string? RefusalReason, bool Abort, bool Refused)?> AskAsync(
+        ChatRun run, ChatConversation conversation, OpenAiToolCall toolCall,
+        ChatApprovalKind kind, CancellationToken ct, CancellationToken stoppingToken)
+    {
         var approval = ChatApproval.Create(
             ChatApprovalId.NewGuid(), run.Id, conversation.Id,
-            toolCall.Id, toolCall.Name, toolCall.ArgumentsJson, UtcNow);
+            toolCall.Id, toolCall.Name,
+            kind == ChatApprovalKind.PlanReview ? ExtractPlan(toolCall.ArgumentsJson) : toolCall.ArgumentsJson,
+            UtcNow, kind);
+
         await approvalRepository.AddAsync(approval, ct).ConfigureAwait(false);
         await approvalRepository.SaveChangesAsync(ct).ConfigureAwait(false);
 
         broadcaster.Publish(run.Id.Value, new ChatApprovalAskedEvent(
-            approval.Id.Value, toolCall.Id, toolCall.Name, approval.ArgumentsPreview));
+            approval.Id.Value, toolCall.Id, toolCall.Name, approval.ArgumentsPreview, approval.Kind.Value));
 
         // RF-002: run.approval fan-out — same seam as run.completed; a closed
         // tab still learns the run needs a human. Best-effort per notifier.
@@ -1063,10 +1150,22 @@ public sealed class ChatService(
                     .Where(a => a.Id == approval.Id)
                     .Select(a => a.Decision)
                     .FirstOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
+
+                // plan-review: the denial carries reviewer feedback — the
+                // model revises in plan mode (RF-003), no refusal chip.
+                if (kind == ChatApprovalKind.PlanReview)
+                {
+                    return (JsonSerializer.Serialize(new
+                    {
+                        approved = false,
+                        feedback = DenialFeedback(denied),
+                    }), "plan review rejected", false, false);
+                }
+
                 return (JsonSerializer.Serialize(new
                 {
                     error = $"Tool call denied by the user{SuffixReason(denied)}",
-                }), "denied by user", false);
+                }), "denied by user", false, true);
             }
 
             // timeout or cancellation — distinguish by the run token.
@@ -1079,18 +1178,54 @@ public sealed class ChatService(
                 }
                 // user stop: unwind the tool loop cleanly (Abort) — the run
                 // ends through the normal stopped-by-user terminal path.
-                return (null, null, true);
+                return (null, null, true, false);
             }
 
             await ExpireApprovalAsync(approval, stoppingToken).ConfigureAwait(false);
+            if (kind == ChatApprovalKind.PlanReview)
+            {
+                // RNF-002 fail-closed: no answerer → stays in plan mode.
+                return (JsonSerializer.Serialize(new
+                {
+                    approved = false,
+                    feedback = "Plan review timed out — still in plan mode.",
+                }), "approval unavailable", false, false);
+            }
+
             return (JsonSerializer.Serialize(new
             {
                 error = $"Tool call '{toolCall.Name}' could not run: approval request timed out (fail-closed).",
-            }), "approval unavailable", false);
+            }), "approval unavailable", false, true);
         }
         finally
         {
             approvalCoordinator.Unregister(approval.Id.Value);
+        }
+    }
+
+    /// <summary>The 'deny: <feedback>' payload → reviewer feedback text.</summary>
+    private static string DenialFeedback(string? decision)
+    {
+        const string deny = "deny:";
+        return decision is not null && decision.StartsWith(deny, StringComparison.Ordinal)
+            ? decision[deny.Length..].Trim()
+            : decision ?? "rejected";
+    }
+
+    /// <summary>The <c>plan</c> argument of an exit_plan_mode call — the review row stores it raw.</summary>
+    private static string ExtractPlan(string? argumentsJson)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(
+                    string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson)
+                .TryGetProperty("plan", out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetString() ?? string.Empty
+                : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
         }
     }
 
@@ -1191,15 +1326,21 @@ public sealed class ChatService(
             approvalCoordinator.Resolve(approval.Id.Value, v);
         }
         broadcaster.Publish(approval.RunId.Value, new ChatApprovalDecidedEvent(
-            approval.Id.Value, approval.Status.Value, approval.Decision, approval.DecidedBy!.Value));
+            approval.Id.Value, approval.Status.Value, approval.Decision,
+            approval.DecidedBy!.Value, approval.Kind.Value));
     }
 
     /// <summary>RNF-003: every decision lands in the transcript as a system note row.</summary>
     private ChatMessage BuildApprovalNote(ChatApproval approval)
-        => ChatMessage.CreateSystemNote(
-            approval.ConversationId,
-            $"Tool approval {approval.Status.Value}: {approval.ToolName} ({approval.Decision}) — {approval.DecidedBy?.Value}.",
-            UtcNow);
+        => approval.Kind == ChatApprovalKind.PlanReview
+            ? ChatMessage.CreateSystemNote(
+                approval.ConversationId,
+                $"Plan review {approval.Status.Value}: {approval.Decision} — {approval.DecidedBy?.Value}.",
+                UtcNow)
+            : ChatMessage.CreateSystemNote(
+                approval.ConversationId,
+                $"Tool approval {approval.Status.Value}: {approval.ToolName} ({approval.Decision}) — {approval.DecidedBy?.Value}.",
+                UtcNow);
 
     /// <summary>
     /// RF-003: answers a pending approval — atomic (pending → decided only),
@@ -1234,10 +1375,25 @@ public sealed class ChatService(
                 $"Approval '{id}' is no longer pending (status: '{approval.Status.Value}').");
         }
 
-        if (allow && request.RememberTool)
+        var isPlanReview = approval.Kind == ChatApprovalKind.PlanReview;
+        ChatConversation? conversation = null;
+        if (allow && request.RememberTool && !isPlanReview)
         {
-            var conversation = await conversations.GetAsync(approval.ConversationId, ct).ConfigureAwait(false);
+            conversation = await conversations.GetAsync(approval.ConversationId, ct).ConfigureAwait(false);
             conversation?.AllowTool(approval.ToolName, UtcNow);
+        }
+
+        // RF-003: an approved plan review exits plan mode — the flip + the
+        // 'plan mode off' note ride the same atomic flush as the decision.
+        if (isPlanReview && allow)
+        {
+            conversation ??= await conversations.GetAsync(approval.ConversationId, ct).ConfigureAwait(false);
+            if (conversation?.SetPlanMode(false, UtcNow) == true)
+            {
+                await messages.AddAsync(
+                    ChatMessage.CreateSystemNote(conversation.Id, "plan mode off", UtcNow),
+                    ct).ConfigureAwait(false);
+            }
         }
 
         // The audit note joins the same flush — it can never persist without
@@ -1258,8 +1414,54 @@ public sealed class ChatService(
             approval.Id.Value,
             allow ? ChatApprovalVerdict.Allowed : ChatApprovalVerdict.Denied);
         broadcaster.Publish(approval.RunId.Value, new ChatApprovalDecidedEvent(
-            approval.Id.Value, approval.Status.Value, approval.Decision, approval.DecidedBy!.Value));
+            approval.Id.Value, approval.Status.Value, approval.Decision,
+            approval.DecidedBy!.Value, approval.Kind.Value));
         return ToDto(approval);
+    }
+
+    /// <summary>
+    /// SPEC-20261005-chat-plan-mode RF-001: toggles plan mode mid-conversation
+    /// — idempotent; writes the audit note and, on <c>on→off</c>, cancels any
+    /// pending plan review (marked <c>cancelled</c>, auto-cancel audit) so the
+    /// suspended <c>exit_plan_mode</c> call unblocks fail-closed.
+    /// </summary>
+    public async Task<ChatConversationDto?> SetPlanModeAsync(
+        string id, bool active, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        if (!conversation.SetPlanMode(active, UtcNow))
+        {
+            return ToDto(conversation, null);
+        }
+
+        await messages.AddAsync(
+            ChatMessage.CreateSystemNote(
+                conversation.Id, $"plan mode {(active ? "on" : "off")}", UtcNow),
+            ct).ConfigureAwait(false);
+
+        // on→off: a dangling review must not park the run — cancel it and
+        // resolve the waiter Denied (the tool sees approved:false).
+        if (!active)
+        {
+            var pendingReviews = await approvalRepository.Query
+                .Where(a => a.ConversationId == conversation.Id
+                    && a.Status == ChatApprovalStatus.Pending
+                    && a.Kind == ChatApprovalKind.PlanReview)
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var review in pendingReviews)
+            {
+                await TransitionApprovalAsync(review, a => a.Cancel(UtcNow), ChatApprovalVerdict.Denied)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(conversation, null);
     }
 
     /// <summary>RF-007: approvals of a conversation (re-attach replay) — optional status filter.</summary>
@@ -1353,9 +1555,19 @@ public sealed class ChatService(
             .ToListAsync(ct).ConfigureAwait(false);
 
         var trigger = triggerMessageId is null ? null : rows.FirstOrDefault(m => m.Id == triggerMessageId);
+
+        // RF-002: the plan:policy section keys off the live value — a toggle
+        // flipped while the run sat queued still lands on this transcript.
+        var planMode = await conversations.Query
+            .AsNoTracking()
+            .Where(c => c.Id == conversation.Id)
+            .Select(c => c.PlanMode)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false)
+            ?? conversation.PlanMode;
         var wire = new List<OpenAiChatMessage>
         {
-            new("system", SystemPrompt(toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false))),
+            new("system", SystemPrompt(
+                toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false), planMode)),
         };
         foreach (var message in rows)
         {
@@ -1392,17 +1604,22 @@ public sealed class ChatService(
         return wire;
     }
 
-    private string SystemPrompt(IReadOnlyDictionary<string, IChatTool> toolSet, string skillCatalog)
+    private string SystemPrompt(
+        IReadOnlyDictionary<string, IChatTool> toolSet, string skillCatalog, string? planMode = null)
     {
         var workdir = workspace.ResolveCardWorkdir(null, out _);
         var toolNames = string.Join(", ", toolSet.Keys.Order());
+        // RNF-003: the section text is config-owned (Taskboard:Chat:PlanMode:Section).
+        var planSection = planMode == ChatPlanModes.On
+            ? $"\n{ChatPlanMode.Section(configuration)}"
+            : string.Empty;
         return $"""
             You are the Harness Chat assistant running on the operator's host server.
             Current date: {UtcNow:yyyy-MM-dd}. Workspace directory: {workdir}.
             You can call tools to act on the host: {toolNames}. Commands and file access are
             confined to the workspace by a security gateway — dangerous operations are refused.
             Prefer tools when they answer the request; keep answers concise and use markdown.
-            {skillCatalog}
+            {skillCatalog}{planSection}
             """;
     }
 
@@ -1524,7 +1741,8 @@ public sealed class ChatService(
         approval.RequestedAt,
         approval.DecidedAt,
         approval.Decision,
-        approval.DecidedBy?.Value);
+        approval.DecidedBy?.Value,
+        approval.Kind.Value);
 
     private static ChatConversationDto ToDto(
         ChatConversation conversation, string? preview, string? activeRunStatus = null) => new(
@@ -1544,7 +1762,8 @@ public sealed class ChatService(
                 conversation.WorkspacePath, conversation.AgentModel),
         conversation.ArchivedAt,
         activeRunStatus,
-        conversation.PermissionPreset);
+        conversation.PermissionPreset,
+        conversation.PlanMode);
 
     private static ChatMessageDto ToDto(ChatMessage message) => new(
         message.Id.Value,

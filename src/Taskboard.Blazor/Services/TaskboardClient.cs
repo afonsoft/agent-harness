@@ -1231,6 +1231,21 @@ public sealed class TaskboardClient
         return body?.Approval;
     }
 
+    /// <summary>
+    /// SPEC-20261005-chat-plan-mode RF-001: toggles plan mode — mid-run safe;
+    /// on→off also cancels a pending plan review.
+    /// </summary>
+    public async Task<ChatConversationDto?> SetChatPlanModeAsync(
+        string id, bool active, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/plan-mode",
+            new SetChatPlanModeRequest(active), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body?.Conversation;
+    }
+
     /// <summary>RF-007: approvals of a conversation — "pending" replays the unresolved card.</summary>
     public async Task<IReadOnlyList<ChatApprovalDto>> GetChatApprovalsAsync(
         string conversationId, string? status = null, CancellationToken cancellationToken = default)
