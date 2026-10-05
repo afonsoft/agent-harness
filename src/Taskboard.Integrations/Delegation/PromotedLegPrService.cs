@@ -48,8 +48,11 @@ public sealed class PromotedLegPrService : IPromotedLegPrService
                 "worktree session has no branch to use as PR head");
         }
 
+        // `git config remote.origin.url` reads the STORED URL — `remote get-url`
+        // resolves url.insteadOf rewrites, which turn github.com clones into the
+        // Devin proxy host and would break slug resolution on those machines.
         var remote = await _git.RunAsync(
-            repoPath, ["remote", "get-url", "origin"], GitTimeout, cancellationToken);
+            repoPath, ["config", "remote.origin.url"], GitTimeout, cancellationToken);
         var slug = remote.ExitCode == 0 ? GitRemoteSlug.TryParse(remote.StandardOutput) : null;
         if (slug is null)
         {

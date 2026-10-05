@@ -39,7 +39,7 @@ public class PromotedLegPrServiceTests
     private static IGitCommandRunner Git(string remoteUrl = "https://github.com/af/repo.git", string? originHead = "origin/main")
     {
         var git = Substitute.For<IGitCommandRunner>();
-        git.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "remote", "get-url", "origin" })),
+        git.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.SequenceEqual(new[] { "config", "remote.origin.url" })),
                 Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
             .Returns(new GitCommandResult(0, remoteUrl, string.Empty, false));
         git.RunAsync(Arg.Any<string>(), Arg.Is<IReadOnlyList<string>>(a => a.Count > 0 && a[0] == "symbolic-ref"),
