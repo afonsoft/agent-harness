@@ -564,6 +564,263 @@
                     }
                 </div>
                 </div>
+
+                @* SPEC-20261010-mcp-skills-hub RF-006: dedicated tab —
+                   AI Code MCP tools (config ∪ ~/.agents ∪ rag), per-CLI MCP
+                   installs, skills repo/search/install. *@
+                <div class="tab-pane" role="tabpanel" aria-label="MCP/Skills" hidden="@(_activeTab != "mcp-skills")">
+
+                    <div class="form-section">
+                        <h2 class="form-section-title">AI Code MCP tools</h2>
+                        <p class="small text-body-secondary">
+                            Servers the AI Code chat may call — merged from configuration,
+                            <code>~/.agents</code> (<code>mcp.json</code>, <code>mcp_config.json</code>,
+                            <code>mcps/**/*.json</code>) and the provisioned RAG server.
+                        </p>
+
+                        @{ var mcpEnabledKey = "Taskboard:Chat:Mcp:Enabled"; var mcpEnabledEntry = FeatureEntry(mcpEnabledKey); }
+                        <div class="setting-row">
+                            <div>
+                                <div class="fw-medium">Enable MCP tools</div>
+                                <div class="small text-body-secondary">Exposes every healthy server below as <code>mcp_*</code> chat tools.</div>
+                                @if (mcpEnabledEntry is not null)
+                                {
+                                    <div class="mt-1"><span class="badge @GetSourceBadgeClass(mcpEnabledEntry.Source)">@mcpEnabledEntry.Source</span></div>
+                                }
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input type="checkbox" role="switch" class="form-check-input"
+                                       checked="@(mcpEnabledEntry is not null && IsFeatureEnabled(mcpEnabledEntry))"
+                                       @onchange="e => ToggleFeatureAsync(mcpEnabledKey, (bool)e.Value!)"
+                                       aria-label="Enable MCP tools" />
+                            </div>
+                        </div>
+
+                        @{ var mcpGlobalKey = "Taskboard:Chat:Mcp:IncludeGlobalAgents"; var mcpGlobalEntry = FeatureEntry(mcpGlobalKey); }
+                        <div class="setting-row">
+                            <div>
+                                <div class="fw-medium">Include ~/.agents servers</div>
+                                <div class="small text-body-secondary">Merges the global agents-skills MCP files into AI Code.</div>
+                                @if (mcpGlobalEntry is not null)
+                                {
+                                    <div class="mt-1"><span class="badge @GetSourceBadgeClass(mcpGlobalEntry.Source)">@mcpGlobalEntry.Source</span></div>
+                                }
+                            </div>
+                            <div class="form-check form-switch mb-0">
+                                <input type="checkbox" role="switch" class="form-check-input"
+                                       checked="@(mcpGlobalEntry is not null && IsFeatureEnabled(mcpGlobalEntry))"
+                                       @onchange="e => ToggleFeatureAsync(mcpGlobalKey, (bool)e.Value!)"
+                                       aria-label="Include global agents MCPs" />
+                            </div>
+                        </div>
+
+                        @{ var mcpTimeoutEntry = FeatureEntry("Taskboard:Chat:Mcp:CallTimeoutSeconds"); }
+                        <div class="setting-row">
+                            <div>
+                                <div class="fw-medium">Tool call timeout (s)</div>
+                                <div class="small text-body-secondary">Per-call timeout, clamped to 5–300.</div>
+                                @if (mcpTimeoutEntry is not null)
+                                {
+                                    <div class="mt-1"><span class="badge @GetSourceBadgeClass(mcpTimeoutEntry.Source)">@mcpTimeoutEntry.Source</span></div>
+                                }
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <input type="number" class="form-control form-control-sm" style="width:6rem" min="5" max="300"
+                                       @bind="_chatMcpTimeout" aria-label="Tool call timeout" />
+                                <button type="button" class="btn btn-sm btn-outline-primary" @onclick="SaveChatMcpTimeoutAsync">Save</button>
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center justify-content-between mt-3 mb-2">
+                            <h3 class="h6 fw-semibold mb-0">Merged servers</h3>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="LoadChatMcpServersAsync">Refresh</button>
+                        </div>
+                        @if (_chatMcpServers.Count == 0)
+                        {
+                            <p class="small text-body-secondary mb-0">No MCP servers — add one below or drop a file under <code>~/.agents</code>.</p>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>Name</th><th>Transport</th><th>Tools</th><th>Origin</th><th>Status</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var server in _chatMcpServers)
+                                        {
+                                            <tr @key="server.Name">
+                                                <td class="small font-monospace">@server.Name</td>
+                                                <td class="small">@server.Transport</td>
+                                                <td class="small">@server.ToolCount</td>
+                                                <td><span class="badge @McpOriginBadgeClass(server.Origin)">@server.Origin</span></td>
+                                                <td class="small">
+                                                    @if (server.Healthy)
+                                                    {
+                                                        <span class="text-success">healthy</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-danger" title="@server.Error">@(server.Error is { Length: > 60 } e ? e[..60] + "…" : server.Error ?? "down")</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        <details class="mt-2">
+                            <summary class="small text-body-secondary" role="button">Advanced — edit servers JSON</summary>
+                            <textarea class="form-control font-monospace mt-2" rows="4" @bind="_chatMcpServersJson"
+                                      aria-label="MCP servers JSON" spellcheck="false"></textarea>
+                            <div class="d-flex gap-2 mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary" @onclick="SaveChatMcpServersJsonAsync">Save JSON</button>
+                            </div>
+                        </details>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <h2 class="form-section-title mb-0">Agent CLI MCPs</h2>
+                            <button type="button" class="btn btn-sm btn-primary" @onclick="OpenMcpAddModalAsync">Add MCP</button>
+                        </div>
+                        <p class="small text-body-secondary mt-1">
+                            MCP entries written into each CLI's user-scope config. CLI-managed formats (Antigravity,
+                            Cline, Continue) are read-only here.
+                        </p>
+                        @if (_agentMcpError is not null)
+                        {
+                            <div class="alert alert-warning py-2 small">@_agentMcpError</div>
+                        }
+                        @if (_mcpApplyResults is { Count: > 0 })
+                        {
+                            <div class="mb-2">
+                                @foreach (var result in _mcpApplyResults)
+                                {
+                                    <span class="badge @GetMcpBadgeClass(result) me-1" title="@result.Error">@result.Agent — @result.State</span>
+                                }
+                            </div>
+                        }
+                        @if (_agentMcpInventory.Count == 0)
+                        {
+                            <p class="small text-body-secondary mb-0">No agent CLIs detected.</p>
+                        }
+                        else
+                        {
+                            @foreach (var agent in _agentMcpInventory)
+                            {
+                                <div class="border rounded p-2 mb-2" @key="agent.Agent">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <span class="fw-semibold small">@agent.Agent</span>
+                                        <span class="badge @(agent.Writable ? "text-bg-success" : "text-bg-secondary")">
+                                            @(agent.Writable ? "writable" : "read-only")
+                                        </span>
+                                    </div>
+                                    <div class="small text-body-secondary font-monospace text-truncate mb-1" title="@agent.ConfigPath">@agent.ConfigPath</div>
+                                    @if (agent.Servers.Count == 0)
+                                    {
+                                        <span class="small text-body-secondary">no MCP servers</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @foreach (var server in agent.Servers)
+                                            {
+                                                <span class="badge text-bg-light border d-inline-flex align-items-center gap-1" @key="server.Name">
+                                                    @server.Name <span class="text-body-secondary">@server.Transport</span>
+                                                    @if (agent.Writable)
+                                                    {
+                                                        <button type="button" class="btn-close" style="font-size:.55rem"
+                                                                aria-label="Remove @server.Name from @agent.Agent"
+                                                                @onclick="() => OpenMcpRemoveModalAsync(agent.Agent, server.Name)"></button>
+                                                    }
+                                                </span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+
+                    <div class="form-section">
+                        <h2 class="form-section-title">Skills</h2>
+                        <p class="small text-body-secondary">
+                            Installs run <code>npx skills add</code> globally — the configured repository is
+                            <code>@_skillsRepo</code>.
+                        </p>
+
+                        <div class="row g-2 align-items-end mb-3">
+                            <div class="col-12 col-md-7">
+                                <label class="form-label small mb-1" for="skills-repo-install">Install repository</label>
+                                <input id="skills-repo-install" type="text" class="form-control form-control-sm font-monospace"
+                                       @bind="_skillsRepoInstall" placeholder="owner/repo or git URL" spellcheck="false" />
+                            </div>
+                            <div class="col-auto">
+                                <button type="button" class="btn btn-sm btn-primary" disabled="@_skillsBusy"
+                                        @onclick="InstallSkillsRepoAsync">Install repo</button>
+                            </div>
+                        </div>
+                        @if (_skillsRepoError is not null)
+                        {
+                            <div class="alert alert-warning py-2 small">@_skillsRepoError</div>
+                        }
+
+                        <div class="row g-2 align-items-end mb-2">
+                            <div class="col-12 col-md-7">
+                                <label class="form-label small mb-1" for="skills-search">Search skills.sh</label>
+                                <input id="skills-search" type="search" class="form-control form-control-sm"
+                                       @bind="_skillsQuery" placeholder="e.g. review, test, docs" />
+                            </div>
+                            <div class="col-auto">
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_skillsBusy"
+                                        @onclick="SearchSkillsAsync">Search</button>
+                            </div>
+                        </div>
+                        @if (_skillsSearchError is not null)
+                        {
+                            <div class="alert alert-warning py-2 small">@_skillsSearchError</div>
+                        }
+                        @if (_skillResults.Count > 0)
+                        {
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead><tr><th>Skill</th><th>Repository</th><th>Description</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var result in _skillResults)
+                                        {
+                                            <tr @key="SkillRowKey(result)">
+                                                <td class="small font-monospace">@result.Name</td>
+                                                <td class="small font-monospace">@result.Repository</td>
+                                                <td class="small text-body-secondary">@result.Description</td>
+                                                <td class="text-nowrap">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary" disabled="@_skillsBusy"
+                                                            @onclick="() => InstallOneSkillAsync(result)">Install</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        <h3 class="h6 fw-semibold mt-3 mb-2">Installed (@_installedSkills.Count)</h3>
+                        @if (_installedSkills.Count == 0)
+                        {
+                            <p class="small text-body-secondary mb-0">No skills installed yet.</p>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-1">
+                                @foreach (var skill in _installedSkills)
+                                {
+                                    <span class="badge text-bg-light border" title="@skill.Description" @key="skill.Name">@skill.Name</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+
                 <div class="tab-pane" role="tabpanel" aria-label="General" hidden="@(_activeTab != "general")">
                 <div class="form-section">
                     <h2 class="form-section-title">Features</h2>
@@ -749,6 +1006,79 @@
     }
 </div>
 
+@* SPEC-20261010-mcp-skills-hub RF-006: add/remove MCP modals. *@
+<Modal @ref="_mcpAddModal" Title="Add MCP server to agent CLIs" Size="ModalSize.Large"
+       Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true">
+    <BodyTemplate>
+        <div class="mb-3">
+            <label class="form-label small" for="mcp-add-name">Name</label>
+            <input id="mcp-add-name" type="text" class="form-control form-control-sm font-monospace"
+                   @bind="_mcpAddName" placeholder="e.g. filesystem" maxlength="64" spellcheck="false" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label small" for="mcp-add-transport">Transport</label>
+            <select id="mcp-add-transport" class="form-select form-select-sm" @bind="_mcpAddTransport">
+                <option value="http">HTTP (url)</option>
+                <option value="stdio">stdio (command)</option>
+            </select>
+        </div>
+        @if (_mcpAddTransport == "http")
+        {
+            <div class="mb-3">
+                <label class="form-label small" for="mcp-add-url">URL</label>
+                <input id="mcp-add-url" type="url" class="form-control form-control-sm font-monospace"
+                       @bind="_mcpAddUrl" placeholder="https://mcp.example.com/mcp" spellcheck="false" />
+            </div>
+        }
+        else
+        {
+            <div class="mb-2">
+                <label class="form-label small" for="mcp-add-command">Command</label>
+                <input id="mcp-add-command" type="text" class="form-control form-control-sm font-monospace"
+                       @bind="_mcpAddCommand" placeholder="npx" spellcheck="false" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label small" for="mcp-add-args">Args (space separated)</label>
+                <input id="mcp-add-args" type="text" class="form-control form-control-sm font-monospace"
+                       @bind="_mcpAddArgs" placeholder="-y @@modelcontextprotocol/server-filesystem /path" spellcheck="false" />
+            </div>
+        }
+        <fieldset class="mb-2">
+            <legend class="form-label small">Apply to agents</legend>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var agent in _agentMcpInventory.Where(a => a.Writable))
+                {
+                    <div class="form-check" @key="agent.Agent">
+                        <input class="form-check-input" type="checkbox" id="mcp-agent-@agent.Agent"
+                               checked="@_mcpAddAgents.Contains(agent.Agent)"
+                               @onchange="e => ToggleMcpAddAgent(agent.Agent, (bool)e.Value!)" />
+                        <label class="form-check-label small" for="mcp-agent-@agent.Agent">@agent.Agent</label>
+                    </div>
+                }
+            </div>
+        </fieldset>
+        @if (_mcpAddError is not null)
+        {
+            <div class="alert alert-warning py-2 small mb-0">@_mcpAddError</div>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseMcpAddModalAsync">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" disabled="@_mcpBusy" @onclick="InstallAgentMcpAsync">Install</button>
+    </FooterTemplate>
+</Modal>
+
+<Modal @ref="_mcpRemoveModal" Title="Remove MCP server" Size="ModalSize.Small"
+       Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
+    <BodyTemplate>
+        <p class="small mb-0">Remove <code>@_removeServerName</code> from <strong>@_removeAgent</strong>'s config?</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseMcpRemoveModalAsync">Cancel</button>
+        <button type="button" class="btn btn-sm btn-danger" disabled="@_mcpBusy" @onclick="RemoveAgentMcpAsync">Remove</button>
+    </FooterTemplate>
+</Modal>
+
 @code {
     private bool _isLoading = true;
     private string? _errorMessage;
@@ -866,6 +1196,7 @@
         ("integrations", "Integrations"),
         ("agents", "Agents"),
         ("chat", "Chat"),
+        ("mcp-skills", "MCP/Skills"),
         ("security", "Security"),
     ];
 
@@ -884,6 +1215,10 @@
         {
             _activeTab = tab;
             StateHasChanged();
+            if (_activeTab == "mcp-skills")
+            {
+                _ = LoadMcpSkillsTabAsync();
+            }
         }
     }
 
@@ -906,6 +1241,10 @@
     {
         _activeTab = id;
         Navigation.NavigateTo($"/settings?tab={id}", replace: true);
+        if (id == "mcp-skills")
+        {
+            _ = LoadMcpSkillsTabAsync();
+        }
     }
 
     /// <summary>WAI-ARIA tabs keyboard model: ←/→ cycle, Home/End jump.</summary>
@@ -1856,6 +2195,296 @@
         catch (HttpRequestException ex)
         {
             await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save settings: {ex.Message}"));
+        }
+    }
+
+    // ---- MCP/Skills tab (SPEC-20261010-mcp-skills-hub RF-006) ----
+
+    private IReadOnlyList<ChatMcpServerStatus> _chatMcpServers = [];
+    private IReadOnlyList<AgentMcpInventoryDto> _agentMcpInventory = [];
+    private IReadOnlyList<McpAgentResult>? _mcpApplyResults;
+    private string? _agentMcpError;
+    private bool _mcpTabLoaded;
+    private string _chatMcpTimeout = "30";
+    private string _chatMcpServersJson = "[]";
+    private bool _mcpBusy;
+
+    private Modal _mcpAddModal = default!;
+    private Modal _mcpRemoveModal = default!;
+    private string _mcpAddName = string.Empty;
+    private string _mcpAddTransport = "http";
+    private string _mcpAddUrl = string.Empty;
+    private string _mcpAddCommand = string.Empty;
+    private string _mcpAddArgs = string.Empty;
+    private readonly HashSet<AgentType> _mcpAddAgents = [];
+    private string? _mcpAddError;
+    private AgentType? _removeAgent;
+    private string? _removeServerName;
+
+    private IReadOnlyList<SkillDto> _installedSkills = [];
+    private string _skillsQuery = string.Empty;
+    private IReadOnlyList<SkillSearchResultDto> _skillResults = [];
+    private string? _skillsSearchError;
+    private string _skillsRepoInstall = string.Empty;
+
+    /// <summary>Lazy first-load of the tab's data (chat servers, per-agent inventory, skills).</summary>
+    private async Task LoadMcpSkillsTabAsync()
+    {
+        if (_mcpTabLoaded)
+        {
+            return;
+        }
+
+        _mcpTabLoaded = true;
+        try
+        {
+            _chatMcpServers = await Client.GetChatMcpServersAsync();
+            _agentMcpInventory = await Client.GetAgentMcpInventoryAsync();
+            _installedSkills = await Client.GetSkillsAsync();
+            _chatMcpTimeout = FeatureEntry("Taskboard:Chat:Mcp:CallTimeoutSeconds")?.EffectiveValue ?? "30";
+            _chatMcpServersJson = FeatureEntry("Taskboard:Chat:Mcp:Servers")?.EffectiveValue ?? "[]";
+            if (string.IsNullOrWhiteSpace(_skillsRepoInstall))
+            {
+                _skillsRepoInstall = _skillsRepo;
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _agentMcpError = $"Failed to load MCP data: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadChatMcpServersAsync()
+    {
+        _chatMcpServers = await Client.GetChatMcpServersAsync();
+    }
+
+    private async Task SaveChatMcpTimeoutAsync()
+    {
+        var error = await Client.SetConfigurationValueAsync(
+            "Taskboard:Chat:Mcp:CallTimeoutSeconds", _chatMcpTimeout.Trim());
+        await ToastService.NotifyAsync(error is not null
+            ? new(ToastType.Danger, $"Failed to save timeout: {error}")
+            : new(ToastType.Success, "MCP call timeout saved"));
+        await LoadConfigurationAsync();
+    }
+
+    private async Task SaveChatMcpServersJsonAsync()
+    {
+        var error = await Client.SetConfigurationValueAsync(
+            "Taskboard:Chat:Mcp:Servers", _chatMcpServersJson);
+        if (error is not null)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to save servers: {error}"));
+            return;
+        }
+
+        await ToastService.NotifyAsync(new(ToastType.Success, "MCP servers saved"));
+        await LoadConfigurationAsync();
+        await LoadChatMcpServersAsync();
+    }
+
+    private async Task OpenMcpAddModalAsync()
+    {
+        _mcpAddError = null;
+        _agentMcpInventory = await Client.GetAgentMcpInventoryAsync();
+        await _mcpAddModal.ShowAsync();
+    }
+
+    private async Task CloseMcpAddModalAsync() => await _mcpAddModal.HideAsync();
+
+    private void ToggleMcpAddAgent(AgentType agent, bool enabled)
+    {
+        if (enabled)
+        {
+            _mcpAddAgents.Add(agent);
+        }
+        else
+        {
+            _mcpAddAgents.Remove(agent);
+        }
+    }
+
+    private async Task InstallAgentMcpAsync()
+    {
+        _mcpAddError = null;
+        if (string.IsNullOrWhiteSpace(_mcpAddName))
+        {
+            _mcpAddError = "Name is required.";
+            return;
+        }
+
+        var isHttp = _mcpAddTransport == "http";
+        if (isHttp ? string.IsNullOrWhiteSpace(_mcpAddUrl) : string.IsNullOrWhiteSpace(_mcpAddCommand))
+        {
+            _mcpAddError = isHttp ? "URL is required." : "Command is required.";
+            return;
+        }
+
+        if (_mcpAddAgents.Count == 0)
+        {
+            _mcpAddError = "Select at least one agent.";
+            return;
+        }
+
+        _mcpBusy = true;
+        try
+        {
+            var args = isHttp
+                ? null
+                : _mcpAddArgs.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var (results, error) = await Client.InstallAgentMcpAsync(new AgentMcpInstallRequest(
+                _mcpAddName.Trim(),
+                Url: isHttp ? _mcpAddUrl.Trim() : null,
+                Command: isHttp ? null : _mcpAddCommand.Trim(),
+                Args: args,
+                Headers: null,
+                Env: null,
+                Agents: _mcpAddAgents.ToList()));
+            if (error is not null)
+            {
+                _mcpAddError = error;
+                return;
+            }
+
+            _mcpApplyResults = results;
+            _mcpAddName = _mcpAddUrl = _mcpAddCommand = _mcpAddArgs = string.Empty;
+            await _mcpAddModal.HideAsync();
+            _agentMcpInventory = await Client.GetAgentMcpInventoryAsync();
+            await LoadChatMcpServersAsync();
+        }
+        finally
+        {
+            _mcpBusy = false;
+        }
+    }
+
+    private async Task OpenMcpRemoveModalAsync(AgentType agent, string serverName)
+    {
+        _removeAgent = agent;
+        _removeServerName = serverName;
+        await _mcpRemoveModal.ShowAsync();
+    }
+
+    private async Task CloseMcpRemoveModalAsync() => await _mcpRemoveModal.HideAsync();
+
+    private async Task RemoveAgentMcpAsync()
+    {
+        if (_removeAgent is null || string.IsNullOrWhiteSpace(_removeServerName))
+        {
+            return;
+        }
+
+        _mcpBusy = true;
+        try
+        {
+            var (results, error) = await Client.RemoveAgentMcpAsync(
+                new AgentMcpRemoveRequest(_removeServerName, [_removeAgent.Value]));
+            if (error is not null)
+            {
+                _agentMcpError = error;
+            }
+            else
+            {
+                _mcpApplyResults = results;
+            }
+
+            await _mcpRemoveModal.HideAsync();
+            _agentMcpInventory = await Client.GetAgentMcpInventoryAsync();
+        }
+        finally
+        {
+            _mcpBusy = false;
+        }
+    }
+
+    private static string McpOriginBadgeClass(string? origin) => origin switch
+    {
+        "agents-global" => "text-bg-primary",
+        "rag" => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+
+    private async Task InstallSkillsRepoAsync()
+    {
+        _skillsRepoError = null;
+        _skillsBusy = true;
+        try
+        {
+            var (status, error) = await Client.InstallSkillsRepositoryAsync(
+                string.IsNullOrWhiteSpace(_skillsRepoInstall) ? null : _skillsRepoInstall.Trim());
+            if (error is not null)
+            {
+                _skillsRepoError = error;
+                return;
+            }
+
+            await ToastService.NotifyAsync(new(ToastType.Success, "Skills install started"));
+        }
+        finally
+        {
+            _skillsBusy = false;
+        }
+    }
+
+    private async Task SearchSkillsAsync()
+    {
+        _skillsSearchError = null;
+        _skillResults = [];
+        if (string.IsNullOrWhiteSpace(_skillsQuery))
+        {
+            _skillsSearchError = "Type a search query.";
+            return;
+        }
+
+        _skillsBusy = true;
+        try
+        {
+            _skillResults = await Client.SearchSkillsAsync(_skillsQuery.Trim());
+            if (_skillResults.Count == 0)
+            {
+                _skillsSearchError = "No results — search requires npx available on the server.";
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _skillsSearchError = $"Search failed: {ex.Message}";
+        }
+        finally
+        {
+            _skillsBusy = false;
+        }
+    }
+
+    private static string SkillRowKey(SkillSearchResultDto result) => result.Repository + "@" + result.Name;
+
+    private async Task InstallOneSkillAsync(SkillSearchResultDto result)
+    {
+        _skillsSearchError = null;
+        if (string.IsNullOrWhiteSpace(result.Repository))
+        {
+            _skillsSearchError = "This row has no repository — install it manually.";
+            return;
+        }
+
+        _skillsBusy = true;
+        try
+        {
+            var (step, error) = await Client.InstallSkillAsync(result.Repository, result.Skill);
+            if (error is not null || step?.State == SkillsInstallStepState.Failed)
+            {
+                _skillsSearchError = error ?? step?.Message ?? "Install failed.";
+                return;
+            }
+
+            await ToastService.NotifyAsync(new(ToastType.Success, $"{result.Name} installed"));
+            _installedSkills = await Client.GetSkillsAsync();
+        }
+        finally
+        {
+            _skillsBusy = false;
         }
     }
 }

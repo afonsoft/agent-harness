@@ -27,6 +27,7 @@ public sealed class ChatMcpClientManager : IMcpClientManager
     internal const string EnabledKey = "Taskboard:Chat:Mcp:Enabled";
     internal const string ServersKey = "Taskboard:Chat:Mcp:Servers";
     internal const string CallTimeoutKey = "Taskboard:Chat:Mcp:CallTimeoutSeconds";
+    internal const string IncludeGlobalAgentsKey = "Taskboard:Chat:Mcp:IncludeGlobalAgents";
     internal const int DefaultCallTimeoutSeconds = 30;
     internal const int ConnectTimeoutSeconds = 10;
     internal const int MaxOutputChars = 32 * 1024;
@@ -50,31 +51,52 @@ public sealed class ChatMcpClientManager : IMcpClientManager
     private bool _disposed;
 
     private readonly Func<ChatMcpServerSpec, IClientTransport>? _transportFactory;
+    private readonly Func<GlobalAgentsMcpLoad> _globalLoader;
 
     public ChatMcpClientManager(
         IConfiguration configuration,
         ILoggerFactory loggerFactory,
-        ISecretRedactor? redactor = null)
-        : this(configuration, loggerFactory, redactor, transportFactory: null)
+        ISecretRedactor? redactor = null,
+        string? homeDirectory = null)
+        : this(
+            configuration,
+            loggerFactory,
+            redactor,
+            transportFactory: null,
+            globalLoader: new GlobalAgentsMcpLoader(
+                Path.Join(
+                    homeDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".agents"),
+                loggerFactory.CreateLogger<GlobalAgentsMcpLoader>()).Load)
     {
     }
 
-    /// <summary>Test seam — injects an in-memory transport instead of stdio/http.</summary>
+    /// <summary>Test seam — injects an in-memory transport instead of stdio/http,
+    /// plus a stand-in for the ~/.agents scan.</summary>
     internal ChatMcpClientManager(
         IConfiguration configuration,
         ILoggerFactory loggerFactory,
         ISecretRedactor? redactor,
-        Func<ChatMcpServerSpec, IClientTransport>? transportFactory)
+        Func<ChatMcpServerSpec, IClientTransport>? transportFactory,
+        Func<GlobalAgentsMcpLoad>? globalLoader = null)
     {
         _configuration = configuration;
         _loggerFactory = loggerFactory;
         _redactor = redactor;
         _transportFactory = transportFactory;
+        _globalLoader = globalLoader ?? (() => GlobalAgentsMcpLoad.Empty);
         _logger = loggerFactory.CreateLogger<ChatMcpClientManager>();
     }
 
     private bool Enabled =>
         bool.TryParse(_configuration[EnabledKey], out var enabled) && enabled;
+
+    /// <summary>
+    /// <c>Taskboard:Chat:Mcp:IncludeGlobalAgents</c> — default on; still gated
+    /// by <see cref="Enabled"/> (SPEC-20261010-mcp-skills-hub RF-002).
+    /// </summary>
+    private bool IncludeGlobalAgents =>
+        !bool.TryParse(_configuration[IncludeGlobalAgentsKey], out var include) || include;
 
     private TimeSpan CallTimeout
     {
@@ -104,9 +126,18 @@ public sealed class ChatMcpClientManager : IMcpClientManager
     /// configured RAG server (<c>Taskboard:Rag:Url</c>) so the chat reuses the
     /// same MCP definition provisioned into the agent CLIs.
     /// </summary>
-    internal IReadOnlyList<ChatMcpServerSpec> LoadSpecs()
+    internal IReadOnlyList<ChatMcpServerSpec> LoadSpecs() => LoadSpecSet().Specs;
+
+    /// <summary>
+    /// Merged server set — <b>config &gt; ~/.agents &gt; rag</b>, first name
+    /// wins (SPEC-20261010-mcp-skills-hub RF-002). The returned fingerprint
+    /// covers the serialized specs AND the ~/.agents file contents+mtimes, so
+    /// the hot-reload poll path picks up edits without a FileSystemWatcher.
+    /// </summary>
+    private (IReadOnlyList<ChatMcpServerSpec> Specs, string Fingerprint) LoadSpecSet()
     {
         var specs = new List<ChatMcpServerSpec>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var raw = _configuration[ServersKey];
         if (!string.IsNullOrWhiteSpace(raw))
@@ -117,7 +148,13 @@ public sealed class ChatMcpClientManager : IMcpClientManager
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (parsed is not null)
                 {
-                    specs.AddRange(parsed.Where(s => !string.IsNullOrWhiteSpace(s.Name)));
+                    foreach (var spec in parsed.Where(s => !string.IsNullOrWhiteSpace(s.Name)))
+                    {
+                        if (names.Add(spec.Name))
+                        {
+                            specs.Add(spec with { Origin = "config" });
+                        }
+                    }
                 }
             }
             catch (JsonException ex)
@@ -126,26 +163,36 @@ public sealed class ChatMcpClientManager : IMcpClientManager
             }
         }
 
+        var globalLoad = IncludeGlobalAgents ? _globalLoader() : GlobalAgentsMcpLoad.Empty;
+        foreach (var spec in globalLoad.Specs)
+        {
+            if (names.Add(spec.Name))
+            {
+                specs.Add(spec);
+            }
+        }
+
         var ragUrl = _configuration["Taskboard:Rag:Url"];
-        if (!string.IsNullOrWhiteSpace(ragUrl)
-            && specs.All(s => !string.Equals(s.Name, _configuration["Taskboard:Rag:ServerName"] ?? "knowledge", StringComparison.OrdinalIgnoreCase)))
+        var ragName = _configuration["Taskboard:Rag:ServerName"] ?? "knowledge";
+        if (!string.IsNullOrWhiteSpace(ragUrl) && names.Add(ragName))
         {
             var ragApiKey = _configuration["Taskboard:Rag:ApiKey"];
             specs.Add(new ChatMcpServerSpec(
-                _configuration["Taskboard:Rag:ServerName"] ?? "knowledge",
+                ragName,
                 Url: ragUrl,
                 Headers: string.IsNullOrWhiteSpace(ragApiKey)
                     ? null
-                    : new Dictionary<string, string> { ["Authorization"] = $"Bearer {ragApiKey}" }));
+                    : new Dictionary<string, string> { ["Authorization"] = $"Bearer {ragApiKey}" },
+                Origin: "rag"));
         }
 
-        return specs;
+        return (specs, ComputeSpecsFingerprint(specs) + "|" + globalLoad.Fingerprint);
     }
 
     private async Task EnsureConnectedAsync(CancellationToken cancellationToken)
     {
-        var fingerprint = ComputeSpecsFingerprint(LoadSpecs());
-        if (_connectAttempted && string.Equals(fingerprint, _specsFingerprint, StringComparison.Ordinal))
+        var specSet = LoadSpecSet();
+        if (_connectAttempted && string.Equals(specSet.Fingerprint, _specsFingerprint, StringComparison.Ordinal))
         {
             return;
         }
@@ -153,8 +200,8 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         await _connectGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            fingerprint = ComputeSpecsFingerprint(LoadSpecs());
-            if (_connectAttempted && string.Equals(fingerprint, _specsFingerprint, StringComparison.Ordinal))
+            specSet = LoadSpecSet();
+            if (_connectAttempted && string.Equals(specSet.Fingerprint, _specsFingerprint, StringComparison.Ordinal))
             {
                 return;
             }
@@ -167,9 +214,8 @@ public sealed class ChatMcpClientManager : IMcpClientManager
             }
 
             _connectAttempted = true;
-            _specsFingerprint = fingerprint;
-            var specs = LoadSpecs();
-            var tasks = specs.Select(spec => ConnectServerAsync(spec, cancellationToken));
+            _specsFingerprint = specSet.Fingerprint;
+            var tasks = specSet.Specs.Select(spec => ConnectServerAsync(spec, cancellationToken));
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
         finally
@@ -183,7 +229,7 @@ public sealed class ChatMcpClientManager : IMcpClientManager
     private static string ComputeSpecsFingerprint(IReadOnlyList<ChatMcpServerSpec> specs) =>
         JsonSerializer.Serialize(specs
             .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(s => new { s.Name, s.Command, s.Url, s.Args, s.Env, s.Headers }));
+            .Select(s => new { s.Name, s.Command, s.Url, s.Args, s.Env, s.Headers, s.Origin }));
 
     private async Task DisconnectAllAsync()
     {
@@ -231,12 +277,14 @@ public sealed class ChatMcpClientManager : IMcpClientManager
             {
                 _tools = _tools.Concat(adapters).ToList();
             }
-            _statuses[spec.Name] = new ChatMcpServerStatus(spec.Name, transportKind, true, adapters.Count, null);
+            _statuses[spec.Name] = new ChatMcpServerStatus(
+                spec.Name, transportKind, true, adapters.Count, null, spec.Origin);
             _logger.LogInformation("MCP server {Server} connected — {Count} tools", spec.Name, adapters.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _statuses[spec.Name] = new ChatMcpServerStatus(spec.Name, transportKind, false, 0, ex.Message);
+            _statuses[spec.Name] = new ChatMcpServerStatus(
+                spec.Name, transportKind, false, 0, ex.Message, spec.Origin);
             _logger.LogWarning(ex, "MCP server {Server} connect failed", spec.Name);
         }
     }
@@ -377,7 +425,7 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         catch (Exception ex)
         {
             var current = _statuses.GetValueOrDefault(server)
-                ?? new ChatMcpServerStatus(server, "unknown", false, 0, null);
+                ?? new ChatMcpServerStatus(server, "unknown", false, 0, null, "config");
             _statuses[server] = current with { Healthy = false, Error = ex.Message };
             if (!retried)
             {

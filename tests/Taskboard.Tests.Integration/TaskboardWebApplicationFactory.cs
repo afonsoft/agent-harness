@@ -34,6 +34,14 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
     public string WorkspaceRoot { get; protected set; } = string.Empty;
 
     /// <summary>
+    /// Optional fixed <c>Taskboard:HomeDir</c> — set before the first
+    /// <see cref="WebApplicationFactory{T}.CreateClient"/> call so tests can
+    /// assert against files the server writes under the user home
+    /// (SPEC-20261010-mcp-skills-hub: <c>~/.claude.json</c>, <c>~/.agents</c>).
+    /// </summary>
+    public string? HomeDirOverride { get; set; }
+
+    /// <summary>
     /// Enables the Web CLI Agent feature flag for subclass factories (queue/
     /// retry endpoints return 404 otherwise). Off by default — most suites do
     /// not exercise agent endpoints; the production default is on
@@ -84,7 +92,7 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         // Empty home → cli-metrics locator resolves nothing (Missing), so the
         // startup sync never reads real agent databases on the test host.
         // The dir must exist — TerminalSessionManager uses it as the PTY cwd.
-        var homeDir = Path.Combine(dataDir, "home");
+        var homeDir = HomeDirOverride ?? Path.Combine(dataDir, "home");
         Directory.CreateDirectory(homeDir);
         builder.UseSetting("Taskboard:HomeDir", homeDir);
         // Assistant runs keep the MockLlmProvider echo path in tests —
