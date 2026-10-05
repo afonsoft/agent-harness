@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261010-agents-page-tabs` |
+| Status | `Done` — entregue via [PR #495](https://github.com/afonsoft/agent-harness/pull/495) (merged 2026-10-05) |
 | Depends on | SPEC-20260930-settings-tabs (tab pattern), SPEC-20261006-agent-dashboard-sessions-checkpoints |
 
 ## 1. Executive Summary

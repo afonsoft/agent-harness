@@ -1,6 +1,6 @@
 # SPEC-20261009 — Delegation coordinator, promote winner, issue→DAG, event feed
 
-Status: Draft → Implemented
+Status: `Done` — entregue via [PR #472](https://github.com/afonsoft/agent-harness/pull/472) (merged 2026-10-04)
 Owner: devin
 Parent: SPEC-20261005 (DAG/mailbox), SPEC-20261006 (dashboard/sessions/checkpoints), SPEC-20261007 (reply/compare/status)
 

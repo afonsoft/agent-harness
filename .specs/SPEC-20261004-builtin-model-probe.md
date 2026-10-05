@@ -1,5 +1,7 @@
 # SPEC-20261004 — Model probe unificado nos builtins
 
+- **Status**: `Done` — entregue via [PR #479](https://github.com/afonsoft/agent-harness/pull/479) (merged 2026-10-04)
+
 ## Contexto
 
 Dois mecanismos de probe de modelos coexistiam sem compartilhar declarações:

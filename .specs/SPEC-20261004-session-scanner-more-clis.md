@@ -1,5 +1,7 @@
 # SPEC-20261004-session-scanner-more-clis — Session history for gemini/agy/devin
 
+- **Status**: `Done` — entregue via [PR #480](https://github.com/afonsoft/agent-harness/pull/480) (merged 2026-10-05)
+
 ## Context
 
 `AgentSessionScanner` (SPEC-20261006 RF-002/RF-003) lists resumable on-disk CLI

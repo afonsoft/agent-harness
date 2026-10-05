@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+`Done` — entregue via [PR #464](https://github.com/afonsoft/agent-harness/pull/464) (merged 2026-10-04)
 
 ## Contexto
 

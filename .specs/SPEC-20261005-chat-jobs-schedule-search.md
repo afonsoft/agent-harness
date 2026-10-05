@@ -11,6 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/devin-20261009-chat-jobs-schedule-search` |
+| Status | `Approved` — aprovado por afonsoft (2026-10-05) |
 | Depends on | SPEC-20261005-chat-background-resume (dispatcher); ManagedJob infra |
 | Reference | COMPARISON-20261005-deepseek-harness §1/#7–#9 (`run_in_background` + `job_*`, `schedule_*`, `session-query`) |
 

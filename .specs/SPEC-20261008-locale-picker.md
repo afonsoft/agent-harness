@@ -1,6 +1,6 @@
 # SPEC-20261008 — Locale picker (pt-BR/en/es) + string normalization
 
-- Status: In progress
+- Status: `Done` — entregue via [PR #470](https://github.com/afonsoft/agent-harness/pull/470) (merged 2026-10-04)
 - Author: devin (requested by afonsoft: "crie combo de tradução na parte
   superior direito. Revise as traduções.")
 - Base: `main` (P1–P3 + #460/#461/#467/#468 merged)

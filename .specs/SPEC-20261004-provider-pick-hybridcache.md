@@ -1,6 +1,6 @@
 # SPEC-20261004 — AI Code: provider auto-select + HybridCache catalog
 
-Status: Approved (requested inline by afonsoft)
+Status: `Done` — entregue via [PR #484](https://github.com/afonsoft/agent-harness/pull/484) (merged 2026-10-05)
 Scope: `ai-chat` provider chat UX + server-side catalog caching
 
 ## Problem
