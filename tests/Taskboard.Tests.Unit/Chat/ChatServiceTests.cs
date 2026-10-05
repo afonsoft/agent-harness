@@ -925,7 +925,7 @@ public sealed class ChatServiceTests : IDisposable
         result.ResultJson.ShouldContain("denied by the user");
         result.ResultJson.ShouldContain("not allowed");
 
-        var row = await _context.ChatApprovals.SingleAsync(a => a.Id == approval.Id);
+        var row = await _context.ChatApprovals.AsNoTracking().SingleAsync(a => a.Id == approval.Id);
         row.DecidedBy.ShouldBe(ChatApprovalDecidedBy.Ui);
     }
 
@@ -1055,7 +1055,7 @@ public sealed class ChatServiceTests : IDisposable
         result.ResultJson.ShouldContain("timed out");
         result.RefusalReason.ShouldBe("approval unavailable");
 
-        var row = await _context.ChatApprovals.SingleAsync();
+        var row = await _context.ChatApprovals.AsNoTracking().SingleAsync();
         row.Status.ShouldBe(ChatApprovalStatus.Unavailable);
         row.DecidedBy.ShouldBe(ChatApprovalDecidedBy.AutoTimeout);
     }
@@ -1101,7 +1101,7 @@ public sealed class ChatServiceTests : IDisposable
         var events = await runTask.WaitAsync(TimeSpan.FromSeconds(10));
         events.OfType<ChatDoneEvent>().Single().Error.ShouldBe("stopped by user");
 
-        var row = await _context.ChatApprovals.SingleAsync(a => a.Id == approval.Id);
+        var row = await _context.ChatApprovals.AsNoTracking().SingleAsync(a => a.Id == approval.Id);
         row.Status.ShouldBe(ChatApprovalStatus.Cancelled);
         row.DecidedBy.ShouldBe(ChatApprovalDecidedBy.AutoCancel);
         tool.Executions.ShouldBe(0);
