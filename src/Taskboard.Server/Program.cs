@@ -629,6 +629,9 @@ void RegisterWorkspaceAndChatServices()
     // B-01: shared run registry — /stop must reach runs started by other
     // requests' scoped ChatService instances.
     builder.Services.AddSingleton<ChatRunCoordinator>();
+    // SPEC-20261005-chat-tool-approval RF-003: decide (any scope) must wake the
+    // suspended call — shared TCS registry like the run coordinator.
+    builder.Services.AddSingleton<ChatApprovalCoordinator>();
     builder.Services.AddScoped<ChatService>();
     // SPEC-20261005-chat-background-resume RF-002/RF-003: queue + broadcaster +
     // detached dispatcher — a chat run outlives the browser tab.
@@ -2607,6 +2610,22 @@ void MapSettingsAndChatEndpoints()
                     ChatToolCallEvent e => ("chat.tool_call", new { name = e.Name, arguments = e.ArgumentsJson }),
                     ChatToolResultEvent e => ("chat.tool_result", new { name = e.Name, result = e.ResultJson, refused = e.Refused, refusalReason = e.RefusalReason }),
                     ChatStatusEvent e => ("chat.status", new { phase = e.Phase, label = e.Label }),
+                    // SPEC-20261005-chat-tool-approval RF-002/RF-003: pending
+                    // card + resolve on every attached stream.
+                    ChatApprovalAskedEvent e => ("approval.asked", new
+                    {
+                        approvalId = e.ApprovalId,
+                        toolCallId = e.ToolCallId,
+                        toolName = e.ToolName,
+                        argsPreview = e.ArgumentsPreview,
+                    }),
+                    ChatApprovalDecidedEvent e => ("approval.decided", new
+                    {
+                        approvalId = e.ApprovalId,
+                        status = e.Status,
+                        decision = e.Decision,
+                        decidedBy = e.DecidedBy,
+                    }),
                     // ChatDoneEvent arrives below with the fresh terminal row;
                     // ChatPersistedEvent is internal plumbing — not on the wire.
                     _ => (null, null),
@@ -2639,6 +2658,51 @@ void MapSettingsAndChatEndpoints()
         await chatService.StopAsync(id, ct)
             ? Results.Accepted(value: new { stopped = true })
             : Results.Conflict(new { stopped = false }));
+
+    // SPEC-20261005-chat-tool-approval RF-003: answers a pending approval —
+    // atomic pending → decided (409 on race); broadcasts approval.decided and
+    // resumes the suspended call in whatever scope hosts the run.
+    chat.MapPost("approvals/{id}/decide", async (
+        string id,
+        DecideChatApprovalRequest request,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var approval = await chatService.DecideApprovalAsync(id, request, ct);
+            return approval is null
+                ? Results.NotFound(new { error = new { code = "APPROVAL_NOT_FOUND", message = $"Approval '{id}' not found." } })
+                : Results.Ok(new { approval });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+        catch (ChatApprovalConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "APPROVAL_DECIDED", message = ex.Message } });
+        }
+    });
+
+    // RF-007: approvals of a conversation — ?status=pending feeds the
+    // re-attach replay of the unresolved card.
+    chat.MapGet("conversations/{id}/approvals", async (
+        string id,
+        string? status,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var approvals = await chatService.ListApprovalsAsync(id, status, ct);
+            return Results.Ok(new { approvals });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
 
     chat.MapGet("images/{fileName}", (string fileName, ChatImageStore imageStore) =>
     {

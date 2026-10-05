@@ -24,15 +24,38 @@ public sealed class WebPushChatRunNotifier(
 {
     internal const string PushToggleKey = "Taskboard:Chat:Notify:Done:Push";
 
-    public async Task RunCompletedAsync(ChatRun run, CancellationToken ct = default)
+    /// <summary>SPEC-20261005-chat-tool-approval open-Q3/P2: opt-in push when a run parks on an approval.</summary>
+    internal const string ApprovalPushToggleKey = "Taskboard:Chat:Notify:Approval:Push";
+
+    public async Task ApprovalAskedAsync(
+        ChatRun run, string approvalId, string toolName, CancellationToken ct = default)
     {
-        if (!configuration.GetEffectiveBool(PushToggleKey))
+        if (!configuration.GetEffectiveBool(ApprovalPushToggleKey))
         {
             return;
         }
 
-        var subs = await subscriptions.ListAsync(ct).ConfigureAwait(false);
-        if (subs.Count == 0)
+        var conversation = await conversations
+            .GetAsync(run.ConversationId, ct)
+            .ConfigureAwait(false);
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            runId = run.Id.Value,
+            conversationId = run.ConversationId.Value,
+            approvalId,
+            toolName,
+            title = conversation?.Title,
+            status = "waiting-approval",
+            url = $"/ai-chat?c={Uri.EscapeDataString(run.ConversationId.Value)}",
+        });
+
+        await SendToAllAsync(payload, ct).ConfigureAwait(false);
+    }
+
+    public async Task RunCompletedAsync(ChatRun run, CancellationToken ct = default)
+    {
+        if (!configuration.GetEffectiveBool(PushToggleKey))
         {
             return;
         }
@@ -50,6 +73,17 @@ public sealed class WebPushChatRunNotifier(
             error = run.Error,
             url = $"/ai-chat?c={Uri.EscapeDataString(run.ConversationId.Value)}",
         });
+
+        await SendToAllAsync(payload, ct).ConfigureAwait(false);
+    }
+
+    private async Task SendToAllAsync(string payload, CancellationToken ct)
+    {
+        var subs = await subscriptions.ListAsync(ct).ConfigureAwait(false);
+        if (subs.Count == 0)
+        {
+            return;
+        }
 
         foreach (var sub in subs)
         {

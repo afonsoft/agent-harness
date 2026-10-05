@@ -32,6 +32,8 @@ public sealed class ChatServiceTests : IDisposable
     private readonly ChatRunBroadcaster _broadcaster = new();
     private readonly ChatRunQueue _runQueue = new();
     private readonly ChatRunCoordinator _coordinator = new();
+    private readonly ChatApprovalCoordinator _approvalCoordinator = new();
+    private readonly List<IChatRunNotifier> _notifiers = [];
     private readonly List<TaskboardDbContext> _extraContexts = [];
 
     public ChatServiceTests()
@@ -50,15 +52,24 @@ public sealed class ChatServiceTests : IDisposable
         _service = NewService(new FakeProviderHandler(), _coordinator);
     }
 
-    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null)
+    private ChatService NewService(HttpMessageHandler handler, ChatRunCoordinator coordinator, IChatTool? extraTool = null, IWorkspacePathResolver? workspace = null, TaskboardDbContext? context = null, Dictionary<string, string?>? extraConfig = null)
     {
         context ??= _context;
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
+        var configValues = new Dictionary<string, string?>
+        {
+            ["Taskboard:Chat:Tools:Enabled"] = "true",
+            ["Taskboard:Chat:MaxToolIterations"] = "4",
+        };
+        if (extraConfig is not null)
+        {
+            foreach (var kv in extraConfig)
             {
-                ["Taskboard:Chat:Tools:Enabled"] = "true",
-                ["Taskboard:Chat:MaxToolIterations"] = "4",
-            })
+                configValues[kv.Key] = kv.Value;
+            }
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(configValues)
             .Build();
         var tools = new Dictionary<string, IChatTool>(StringComparer.Ordinal)
         {
@@ -81,7 +92,11 @@ public sealed class ChatServiceTests : IDisposable
             NewHybridCache(),
             new EfCoreRepository<ChatRun>(context),
             _runQueue,
-            _broadcaster);
+            _broadcaster,
+            new EfCoreRepository<ChatApproval>(context),
+            _approvalCoordinator,
+            _notifiers,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ChatService>.Instance);
     }
 
     /// <summary>DbContext separado no mesmo SQLite — o "outro scope" do /stop.</summary>
@@ -593,6 +608,307 @@ public sealed class ChatServiceTests : IDisposable
             JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
             Task.FromResult(new ChatToolResult(
                 JsonSerializer.Serialize(new { output = $"echo:{arguments.GetProperty("text").GetString()}" })));
+    }
+
+    // ---- SPEC-20261005-chat-tool-approval ----
+
+    /// <summary>Tool mutante fake — RequiresConfirmation + nome no MutatingTools.</summary>
+    private sealed class FakeWriteTool : IChatTool
+    {
+        public string Name => "write_file";
+        public string Description => "write";
+        public string ParametersJson => """{"type":"object","properties":{"path":{"type":"string"}}}""";
+        public bool RequiresConfirmation => true;
+        public int Executions { get; private set; }
+
+        public Task<ChatToolResult> ExecuteAsync(
+            JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
+        {
+            Executions++;
+            return Task.FromResult(new ChatToolResult(
+                JsonSerializer.Serialize(new { written = true })));
+        }
+    }
+
+    /// <summary>Provider fake: chamadas ímpares emitem write_file, pares respondem "done".</summary>
+    private sealed class MutatingProviderHandler : HttpMessageHandler
+    {
+        private int _calls;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            var call = Interlocked.Increment(ref _calls);
+            var body = call % 2 == 1
+                ? Sse("""data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_w","function":{"name":"write_file","arguments":"{\"path\":\"/tmp/x\"}"}}]}}]}""")
+                : Sse("""data: {"choices":[{"delta":{"content":"done"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            };
+        }
+
+        private static string Sse(string line) => $"{line}\ndata: [DONE]\n";
+    }
+
+    /// <summary>Espera a linha ChatApproval pending aparecer (o gate suspendeu a tool).</summary>
+    private async Task<ChatApproval> WaitForPendingApprovalAsync(string conversationId)
+    {
+        for (var i = 0; i < 400; i++)
+        {
+            var pending = await _context.ChatApprovals
+                .Where(a => a.ConversationId == ChatConversationId.From(conversationId))
+                .ToListAsync();
+            if (pending.FirstOrDefault(a => a.Status == ChatApprovalStatus.Pending) is { } found)
+            {
+                return found;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("nenhuma ChatApproval pending em 10s");
+    }
+
+    private ChatService NewApprovalService(
+        Dictionary<string, string?>? extraConfig = null,
+        FakeWriteTool? tool = null,
+        ChatRunCoordinator? coordinator = null) =>
+        NewService(new MutatingProviderHandler(), coordinator ?? new ChatRunCoordinator(),
+            extraTool: tool ?? new FakeWriteTool(), extraConfig: extraConfig);
+
+    [Fact]
+    public async Task Dado_PresetAsk_Quando_ToolMutanteAprovada_Entao_ExecutaEGeraAuditoria()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        conversation.PermissionPreset.ShouldBe("ask", "preset default global é ask (RF-006)");
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+        approval.ToolName.ShouldBe("write_file");
+        approval.Status.ShouldBe(ChatApprovalStatus.Pending);
+
+        var decided = await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("allow"), CancellationToken.None);
+        decided.ShouldNotBeNull();
+        decided.Status.ShouldBe("allowed-once");
+
+        var events = await runTask;
+        tool.Executions.ShouldBe(1);
+        events.OfType<ChatToolResultEvent>().Single().ResultJson.ShouldContain("written");
+
+        // RNF-003: decisão auditável como system note no transcript.
+        var detail = await service.GetConversationAsync(conversation.Id);
+        detail!.Messages.ShouldContain(m => m.Role == "system"
+            && m.Content.Contains("allowed-once", StringComparison.Ordinal));
+        detail.PendingApprovals.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_PresetAsk_Quando_NegarComMotivo_Entao_ToolResultRefused()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+
+        var decided = await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("deny", "not allowed"), CancellationToken.None);
+        decided!.Status.ShouldBe("rejected");
+
+        var events = await runTask;
+        tool.Executions.ShouldBe(0);
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.Refused.ShouldBeTrue();
+        result.ResultJson.ShouldContain("denied by the user");
+        result.ResultJson.ShouldContain("not allowed");
+
+        var row = await _context.ChatApprovals.SingleAsync(a => a.Id == approval.Id);
+        row.DecidedBy.ShouldBe(ChatApprovalDecidedBy.Ui);
+    }
+
+    [Fact]
+    public async Task Dado_PresetChat_Quando_ToolMutante_Entao_RecusaPreExecucaoSemApproval()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "chat"), CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(0);
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.Refused.ShouldBeTrue();
+        result.ResultJson.ShouldContain("permission preset");
+        result.RefusalReason.ShouldBe("denied by permission policy");
+        _context.ChatApprovals.ShouldBeEmpty("preset chat recusa sem criar approval — não há o que decidir (RF-006)");
+    }
+
+    [Fact]
+    public async Task Dado_PresetFull_Quando_ToolMutante_Entao_ExecutaDireto()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "full"), CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(1);
+        events.OfType<ChatToolResultEvent>().Single().ResultJson.ShouldContain("written");
+        _context.ChatApprovals.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_ToolPolicyNever_Quando_PresetFull_Entao_RecusaMesmoAssim()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(
+            extraConfig: new Dictionary<string, string?>
+            {
+                ["Taskboard:Chat:Approval:ToolPolicy:write_file"] = "never",
+            },
+            tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "full"), CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(0);
+        events.OfType<ChatToolResultEvent>().Single().Refused.ShouldBeTrue(
+            "per-tool never vence o preset full (RF-008 ordem §3)");
+    }
+
+    [Fact]
+    public async Task Dado_RememberTool_Quando_Aprovar_Entao_ProximaChamadaNaoPede()
+    {
+        var tool = new FakeWriteTool();
+        var coordinator = new ChatRunCoordinator();
+        var service = NewApprovalService(tool: tool, coordinator: coordinator);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var runTask = RunTurnAsync(service, coordinator, conversation.Id, "escreva");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+        await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("allow", RememberTool: true), CancellationToken.None);
+        await runTask;
+
+        tool.Executions.ShouldBe(1);
+        var entity = await _context.ChatConversations.SingleAsync(c => c.Id == ChatConversationId.From(conversation.Id));
+        entity.AllowedTools().ShouldContain("write_file");
+
+        // Segunda chamada à mesma tool: sem approval — allowed-list resolve.
+        var events = await RunTurnAsync(service, coordinator, conversation.Id, "escreva de novo");
+        tool.Executions.ShouldBe(2);
+        _context.ChatApprovals.Count().ShouldBe(1, "a segunda chamada não gerou approval novo");
+    }
+
+    [Fact]
+    public async Task Dado_ApprovalJaDecidida_Quando_DecidirDeNovo_Entao_409()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+
+        await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("allow"), CancellationToken.None);
+
+        await Should.ThrowAsync<ChatApprovalConflictException>(
+            () => service.DecideApprovalAsync(
+                approval.Id.Value, new DecideChatApprovalRequest("deny"), CancellationToken.None));
+
+        await runTask;
+    }
+
+    [Fact]
+    public async Task Dado_TimeoutEsgotado_Quando_NinguemDecide_Entao_UnavailableEDenied()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(
+            extraConfig: new Dictionary<string, string?>
+            {
+                ["Taskboard:Chat:Approval:TimeoutSeconds"] = "1",
+            },
+            tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(0);
+        var result = events.OfType<ChatToolResultEvent>().Single();
+        result.Refused.ShouldBeTrue();
+        result.ResultJson.ShouldContain("timed out");
+        result.RefusalReason.ShouldBe("approval unavailable");
+
+        var row = await _context.ChatApprovals.SingleAsync();
+        row.Status.ShouldBe(ChatApprovalStatus.Unavailable);
+        row.DecidedBy.ShouldBe(ChatApprovalDecidedBy.AutoTimeout);
+    }
+
+    [Fact]
+    public async Task Dado_GateDesabilitado_Quando_ToolMutante_Entao_ExecutaSemPedir()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(
+            extraConfig: new Dictionary<string, string?>
+            {
+                ["Taskboard:Chat:Approval:Enabled"] = "false",
+            },
+            tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(1);
+        events.OfType<ChatToolResultEvent>().Single().ResultJson.ShouldContain("written");
+        _context.ChatApprovals.ShouldBeEmpty("RNF-004: Enabled=false = zero gate");
+    }
+
+    [Fact]
+    public async Task Dado_StopComApprovalPendente_Quando_Parar_Entao_ApprovalCancelada()
+    {
+        var tool = new FakeWriteTool();
+        var coordinator = new ChatRunCoordinator();
+        var service = NewApprovalService(tool: tool, coordinator: coordinator);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var runTask = RunTurnAsync(service, coordinator, conversation.Id, "escreva");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+
+        // Stop vem de OUTRO scope (outro DbContext) — igual ao endpoint real.
+        var stopService = NewService(
+            new MutatingProviderHandler(), coordinator,
+            extraTool: new FakeWriteTool(), context: NewSecondContext());
+        (await stopService.StopAsync(conversation.Id, CancellationToken.None)).ShouldBeTrue();
+
+        var events = await runTask.WaitAsync(TimeSpan.FromSeconds(10));
+        events.OfType<ChatDoneEvent>().Single().Error.ShouldBe("stopped by user");
+
+        var row = await _context.ChatApprovals.SingleAsync(a => a.Id == approval.Id);
+        row.Status.ShouldBe(ChatApprovalStatus.Cancelled);
+        row.DecidedBy.ShouldBe(ChatApprovalDecidedBy.AutoCancel);
+        tool.Executions.ShouldBe(0);
     }
 
     private sealed class FakeWorkspaceResolver : IWorkspacePathResolver

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Contracts.Workspace;
@@ -41,11 +42,25 @@ public sealed record ChatDoneEvent(int? TokensIn, int? TokensOut, string? Finish
 /// </summary>
 public sealed record ChatPersistedEvent : ChatStreamEvent;
 
+/// <summary>
+/// SPEC-20261005-chat-tool-approval RF-002: the loop parked a mutating tool
+/// call on a persisted <see cref="ChatApproval"/> — SSE <c>approval.asked</c>.
+/// </summary>
+public sealed record ChatApprovalAskedEvent(
+    string ApprovalId, string ToolCallId, string ToolName, string ArgumentsPreview) : ChatStreamEvent;
+
+/// <summary>RF-003/RF-005: the pending approval resolved — SSE <c>approval.decided</c>.</summary>
+public sealed record ChatApprovalDecidedEvent(
+    string ApprovalId, string Status, string? Decision, string DecidedBy) : ChatStreamEvent;
+
 /// <summary>Request-level validation failure surfaced as 400.</summary>
 public sealed class ChatValidationException(string message) : Exception(message);
 
 /// <summary>Send attempted on an archived conversation — surfaced as 409.</summary>
 public sealed class ChatArchivedException(string message) : Exception(message);
+
+/// <summary>Decide attempted on an approval that already left pending — surfaced as 409 (RF-003).</summary>
+public sealed class ChatApprovalConflictException(string message) : Exception(message);
 
 /// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
@@ -66,6 +81,10 @@ public sealed class ChatService(
     IRepository<ChatRun> runRepository,
     ChatRunQueue runQueue,
     ChatRunBroadcaster broadcaster,
+    IRepository<ChatApproval> approvalRepository,
+    ChatApprovalCoordinator approvalCoordinator,
+    IEnumerable<IChatRunNotifier> notifiers,
+    ILogger<ChatService> logger,
     TimeProvider? clock = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -195,6 +214,9 @@ public sealed class ChatService(
 
         var conversation = ChatConversation.Create(
             ChatConversationId.NewGuid(), provider.Id, provider.Name, request.Model, request.Title, UtcNow);
+        // RF-006: new conversations inherit the global default preset
+        // (Taskboard:Chat:Approval:Preset — "ask" when unset/invalid).
+        conversation.SetPermissionPreset(ChatApprovalPolicy.DefaultPreset(configuration), UtcNow);
         if (request.Agent is not null)
         {
             // SPEC-20261004 RF-002: the workspace path is confined to $HOME —
@@ -259,6 +281,24 @@ public sealed class ChatService(
                     : ChatRunStatus.Queued.Value,
                 StringComparer.Ordinal);
 
+        // SPEC-20261005-chat-tool-approval RF-007: a run parked on a pending
+        // approval gets a distinct badge — it is stuck until a human decides.
+        if (activeRuns.Count > 0)
+        {
+            var activeRunIds = activeRuns.Select(r => r.Id.Value).ToHashSet(StringComparer.Ordinal);
+            var pendingApprovals = await approvalRepository.Query
+                .Where(a => a.Status == ChatApprovalStatus.Pending)
+                .Select(a => new { a.RunId, a.ConversationId })
+                .ToListAsync(ct).ConfigureAwait(false);
+            foreach (var approval in pendingApprovals)
+            {
+                if (activeRunIds.Contains(approval.RunId.Value))
+                {
+                    activeByConversation[approval.ConversationId.Value] = "waiting-approval";
+                }
+            }
+        }
+
         return rows.Select(c => ToDto(
             c,
             previewByConversation.GetValueOrDefault(c.Id.Value),
@@ -292,10 +332,18 @@ public sealed class ChatService(
             .FirstOrDefault();
         var last = runRows.FirstOrDefault(r => r.Status.IsTerminal);
 
+        // RF-007: pending approvals replay into the card — live SSE is not
+        // required (a browser-closed run still surfaces the question).
+        var pendingApprovals = await approvalRepository.Query
+            .Where(a => a.ConversationId == conversation.Id && a.Status == ChatApprovalStatus.Pending)
+            .OrderBy(a => a.RequestedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
         return new ChatConversationDetailDto(
             ToDto(conversation, null), rows.Select(ToDto).ToList(),
             active is null ? null : ToDto(active),
-            last is null ? null : ToDto(last));
+            last is null ? null : ToDto(last),
+            pendingApprovals.Select(ToDto).ToList());
     }
 
     public async Task<ChatConversationDto?> PatchConversationAsync(
@@ -323,6 +371,24 @@ public sealed class ChatService(
             conversation.SetAgentContext(
                 request.Agent.AgentCli, request.Agent.RepositoryFullName,
                 workspace.NormalizeWorkspacePath(request.Agent.WorkspacePath), request.Agent.AgentModel);
+        }
+
+        // SPEC-20261005-chat-tool-approval RF-006: preset editable mid-run —
+        // takes effect on the next tool call; switching clears the
+        // allowed-list and leaves an audit note in the transcript.
+        if (!string.IsNullOrWhiteSpace(request.PermissionPreset))
+        {
+            var previous = conversation.PermissionPreset;
+            conversation.SetPermissionPreset(request.PermissionPreset, UtcNow);
+            if (conversation.PermissionPreset != previous)
+            {
+                await messages.AddAsync(
+                    ChatMessage.CreateSystemNote(
+                        conversation.Id,
+                        $"Permission preset changed: {previous} → {conversation.PermissionPreset}.",
+                        UtcNow),
+                    ct).ConfigureAwait(false);
+            }
         }
 
         await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -434,6 +500,18 @@ public sealed class ChatService(
             stopped = true;
         }
 
+        // SPEC-20261005-chat-tool-approval RF-005 auto-cancel: pending
+        // approvals of this conversation resolve cancelled so a suspended
+        // call unwinds instead of waiting out the timeout.
+        var pendingApprovals = await approvalRepository.Query
+            .Where(a => a.ConversationId == conversation && a.Status == ChatApprovalStatus.Pending)
+            .ToListAsync(ct).ConfigureAwait(false);
+        foreach (var approval in pendingApprovals)
+        {
+            await TransitionApprovalAsync(
+                approval, a => a.Cancel(UtcNow), ChatApprovalVerdict.Denied).ConfigureAwait(false);
+        }
+
         return stopped;
     }
 
@@ -536,10 +614,19 @@ public sealed class ChatService(
                 break;
             }
 
-            await foreach (var ev in RunToolCallsAsync(toolCalls, provider, toolSet, conversation, wire, ct)
+            await foreach (var ev in RunToolCallsAsync(run, toolCalls, provider, toolSet, conversation, wire, stoppingToken, ct)
                 .ConfigureAwait(false))
             {
                 yield return ev;
+            }
+
+            if (runCts.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
+            {
+                // User stop while a tool call was executing or suspended on an
+                // approval — the tool loop broke out early (the gate already
+                // auto-cancelled the pending row); end the turn as stopped.
+                state.Error = "stopped by user";
+                break;
             }
 
             conversation.Touch(UtcNow);
@@ -790,15 +877,42 @@ public sealed class ChatService(
     }
 
     private async IAsyncEnumerable<ChatStreamEvent> RunToolCallsAsync(
+        ChatRun run,
         List<OpenAiToolCall> toolCalls,
         ChatProvider provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
+        CancellationToken stoppingToken,
         [EnumeratorCancellation] CancellationToken ct)
     {
         foreach (var toolCall in toolCalls)
         {
+            // SPEC-20261005-chat-tool-approval RF-002: the gate resolves the
+            // per-call policy BEFORE execution — ask parks on a persisted
+            // ChatApproval, deny becomes a synthetic refusal, allow falls
+            // through to the normal path.
+            var gateJson = await ApplyApprovalGateAsync(run, conversation, toolSet, toolCall, ct, stoppingToken)
+                .ConfigureAwait(false);
+            if (gateJson is { Abort: true })
+            {
+                yield break;
+            }
+
+            if (gateJson is not null)
+            {
+                var deniedJson = gateJson.Value.ResultJson!;
+                var deniedReason = gateJson.Value.RefusalReason;
+                yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
+                yield return new ChatToolResultEvent(toolCall.Name, deniedJson, Refused: true, deniedReason);
+                var deniedMessage = ChatMessage.CreateTool(
+                    conversation.Id, toolCall.Id, toolCall.Name, deniedJson, refused: true, UtcNow);
+                await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
+                await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+                wire.Add(new OpenAiChatMessage("tool", deniedJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
+                continue;
+            }
+
             // FR-003: live status — the "running" event reaches the client
             // before the (possibly long) tool call completes; tool-reported
             // activity is drained from a channel while it executes.
@@ -852,6 +966,312 @@ public sealed class ChatService(
         {
             return null;
         }
+    }
+
+    // ---- SPEC-20261005-chat-tool-approval: the approval gate (RF-002..RF-005) ----
+
+    /// <summary>
+    /// Resolves the per-call policy and runs the ask path. Returns
+    /// <c>null</c> when the call may execute, or the synthetic
+    /// <c>(resultJson, refusalReason)</c> of a denied call (preset
+    /// <c>chat</c>/<c>never</c> override, timeout <c>unavailable</c>, or a
+    /// user rejection). <c>approval.asked</c>/<c>approval.decided</c> publish
+    /// straight onto the broadcaster so waiting attached streams see the card
+    /// immediately — the iterator only yields the tool result afterwards.
+    /// </summary>
+    private async Task<(string? ResultJson, string? RefusalReason, bool Abort)?> ApplyApprovalGateAsync(
+        ChatRun run,
+        ChatConversation conversation,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        OpenAiToolCall toolCall,
+        CancellationToken ct,
+        CancellationToken stoppingToken)
+    {
+        if (!toolSet.TryGetValue(toolCall.Name, out var tool))
+        {
+            return null; // unknown tool — the executor reports it refused.
+        }
+
+        // RF-006: mid-run preset/allowed-list changes take effect on the next
+        // call — reload the two columns instead of trusting the tracked row.
+        var fresh = await conversations.Query
+            .AsNoTracking()
+            .Where(c => c.Id == conversation.Id)
+            .Select(c => new { c.PermissionPreset, c.AllowedToolsJson })
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        var preset = fresh?.PermissionPreset ?? conversation.PermissionPreset;
+        var allowedTools = AllowedToolsOf(fresh?.AllowedToolsJson ?? conversation.AllowedToolsJson);
+
+        var mutating = tool.RequiresConfirmation
+            || ChatCapabilityRules.MutatingTools.Contains(toolCall.Name);
+        var decision = ChatApprovalPolicy.Resolve(
+            configuration, preset, allowedTools, toolCall.Name, mutating);
+
+        switch (decision)
+        {
+            case ChatApprovalDecision.Allow:
+                return null;
+            case ChatApprovalDecision.Deny:
+                return (JsonSerializer.Serialize(new
+                {
+                    error = $"Tool call blocked: '{toolCall.Name}' is denied by the conversation permission preset ({preset}).",
+                }), "denied by permission policy", false);
+        }
+
+        // ---- ask: persist, announce, suspend ----
+        var approval = ChatApproval.Create(
+            ChatApprovalId.NewGuid(), run.Id, conversation.Id,
+            toolCall.Id, toolCall.Name, toolCall.ArgumentsJson, UtcNow);
+        await approvalRepository.AddAsync(approval, ct).ConfigureAwait(false);
+        await approvalRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        broadcaster.Publish(run.Id.Value, new ChatApprovalAskedEvent(
+            approval.Id.Value, toolCall.Id, toolCall.Name, approval.ArgumentsPreview));
+
+        // RF-002: run.approval fan-out — same seam as run.completed; a closed
+        // tab still learns the run needs a human. Best-effort per notifier.
+        foreach (var notifier in notifiers)
+        {
+            try
+            {
+                await notifier.ApprovalAskedAsync(run, approval.Id.Value, toolCall.Name, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "chat approval {ApprovalId} notify failed", approval.Id.Value);
+            }
+        }
+
+        var wait = approvalCoordinator.Register(approval.Id.Value);
+        try
+        {
+            var timeoutSeconds = ChatApprovalPolicy.TimeoutSeconds(configuration);
+            var timeout = timeoutSeconds > 0
+                ? Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), ct)
+                : Task.Delay(Timeout.Infinite, ct);
+            var completed = await Task.WhenAny(wait.Task, timeout).ConfigureAwait(false);
+
+            if (completed == wait.Task)
+            {
+                // The decide endpoint already persisted the row and published
+                // approval.decided — only the verdict is needed here.
+                var verdict = await wait.Task.ConfigureAwait(false);
+                if (verdict == ChatApprovalVerdict.Allowed)
+                {
+                    return null; // allowed-once — execute exactly this call.
+                }
+
+                var denied = await approvalRepository.Query
+                    .AsNoTracking()
+                    .Where(a => a.Id == approval.Id)
+                    .Select(a => a.Decision)
+                    .FirstOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
+                return (JsonSerializer.Serialize(new
+                {
+                    error = $"Tool call denied by the user{SuffixReason(denied)}",
+                }), "denied by user", false);
+            }
+
+            // timeout or cancellation — distinguish by the run token.
+            if (ct.IsCancellationRequested)
+            {
+                await CancelApprovalAsync(approval, stoppingToken).ConfigureAwait(false);
+                if (stoppingToken.IsCancellationRequested)
+                {
+                    ct.ThrowIfCancellationRequested(); // host interrupt — propagate
+                }
+                // user stop: unwind the tool loop cleanly (Abort) — the run
+                // ends through the normal stopped-by-user terminal path.
+                return (null, null, true);
+            }
+
+            await ExpireApprovalAsync(approval, stoppingToken).ConfigureAwait(false);
+            return (JsonSerializer.Serialize(new
+            {
+                error = $"Tool call '{toolCall.Name}' could not run: approval request timed out (fail-closed).",
+            }), "approval unavailable", false);
+        }
+        finally
+        {
+            approvalCoordinator.Unregister(approval.Id.Value);
+        }
+    }
+
+    private static IReadOnlySet<string> AllowedToolsOf(string? allowedToolsJson)
+    {
+        if (string.IsNullOrWhiteSpace(allowedToolsJson))
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<string>>(allowedToolsJson);
+            return list is null
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(list, StringComparer.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
+
+    private static string SuffixReason(string? decision)
+    {
+        const string deny = "deny:";
+        return decision is not null && decision.StartsWith(deny, StringComparison.Ordinal)
+            ? $": {decision[deny.Length..].Trim()}"
+            : ".";
+    }
+
+    /// <summary>auto-cancel: run stopped/shutdown while the approval was pending (RF-005).</summary>
+    private async Task CancelApprovalAsync(ChatApproval approval, CancellationToken persistCt)
+    {
+        // Another decider (ui/timeout/stop endpoint) may have landed first in a
+        // different scope — re-check the stored status so only the pending row
+        // transitions (and audits) once.
+        var stored = await approvalRepository.Query
+            .AsNoTracking()
+            .Where(a => a.Id == approval.Id)
+            .Select(a => a.Status)
+            .FirstOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
+        if (stored is null || !stored.IsPending)
+        {
+            return;
+        }
+
+        await TransitionApprovalAsync(approval, a => a.Cancel(UtcNow), null).ConfigureAwait(false);
+    }
+
+    /// <summary>auto-timeout: no answerer inside the window → unavailable (fail-closed, RNF-002).</summary>
+    private async Task ExpireApprovalAsync(ChatApproval approval, CancellationToken persistCt)
+    {
+        var stored = await approvalRepository.Query
+            .AsNoTracking()
+            .Where(a => a.Id == approval.Id)
+            .Select(a => a.Status)
+            .FirstOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
+        if (stored is null || !stored.IsPending)
+        {
+            return;
+        }
+
+        await TransitionApprovalAsync(approval, a => a.Expire(UtcNow), null).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Single atomic transition for a pending approval: mutate + audit note +
+    /// one SaveChanges (so the note can never persist without the decision).
+    /// A racing decider in another scope wins the Version race — on
+    /// <see cref="DbUpdateConcurrencyException"/> this decider backs off
+    /// silently: the winner already wrote row + note + broadcast.
+    /// </summary>
+    /// <param name="verdict">Resolved into the suspended gate, or null when the
+    /// caller is the gate itself (its wait already ended).</param>
+    private async Task TransitionApprovalAsync(
+        ChatApproval approval, Action<ChatApproval> decide, ChatApprovalVerdict? verdict)
+    {
+        decide(approval);
+        await messages.AddAsync(BuildApprovalNote(approval), CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await approvalRepository.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return;
+        }
+
+        if (verdict is { } v)
+        {
+            approvalCoordinator.Resolve(approval.Id.Value, v);
+        }
+        broadcaster.Publish(approval.RunId.Value, new ChatApprovalDecidedEvent(
+            approval.Id.Value, approval.Status.Value, approval.Decision, approval.DecidedBy!.Value));
+    }
+
+    /// <summary>RNF-003: every decision lands in the transcript as a system note row.</summary>
+    private ChatMessage BuildApprovalNote(ChatApproval approval)
+        => ChatMessage.CreateSystemNote(
+            approval.ConversationId,
+            $"Tool approval {approval.Status.Value}: {approval.ToolName} ({approval.Decision}) — {approval.DecidedBy?.Value}.",
+            UtcNow);
+
+    /// <summary>
+    /// RF-003: answers a pending approval — atomic (pending → decided only),
+    /// remembered tools join the conversation allowed-list (RF-004). The
+    /// <c>approval.decided</c> broadcast resolves the card on every attached
+    /// stream and the coordinator wakes the suspended call.
+    /// </summary>
+    public async Task<ChatApprovalDto?> DecideApprovalAsync(
+        string id, DecideChatApprovalRequest request, CancellationToken ct = default)
+    {
+        var approval = await approvalRepository.GetAsync(ChatApprovalId.From(id), ct).ConfigureAwait(false);
+        if (approval is null)
+        {
+            return null;
+        }
+
+        var outcome = request.Outcome?.Trim().ToLowerInvariant();
+        if (outcome is not ("allow" or "deny"))
+        {
+            throw new ChatValidationException("Outcome must be 'allow' or 'deny'.");
+        }
+
+        var allow = outcome == "allow";
+        try
+        {
+            approval.DecideFromUi(allow, request.Reason, UtcNow);
+        }
+        catch (DomainException)
+        {
+            // Already decided (timeout, stop, or a racing answer) — 409.
+            throw new ChatApprovalConflictException(
+                $"Approval '{id}' is no longer pending (status: '{approval.Status.Value}').");
+        }
+
+        if (allow && request.RememberTool)
+        {
+            var conversation = await conversations.GetAsync(approval.ConversationId, ct).ConfigureAwait(false);
+            conversation?.AllowTool(approval.ToolName, UtcNow);
+        }
+
+        // The audit note joins the same flush — it can never persist without
+        // the decision (RNF-003).
+        await messages.AddAsync(BuildApprovalNote(approval), ct).ConfigureAwait(false);
+        try
+        {
+            await approvalRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A racing decide/timeout landed first — still 409 (RF-003).
+            throw new ChatApprovalConflictException(
+                $"Approval '{id}' was decided concurrently (status: '{approval.Status.Value}').");
+        }
+
+        approvalCoordinator.Resolve(
+            approval.Id.Value,
+            allow ? ChatApprovalVerdict.Allowed : ChatApprovalVerdict.Denied);
+        broadcaster.Publish(approval.RunId.Value, new ChatApprovalDecidedEvent(
+            approval.Id.Value, approval.Status.Value, approval.Decision, approval.DecidedBy!.Value));
+        return ToDto(approval);
+    }
+
+    /// <summary>RF-007: approvals of a conversation (re-attach replay) — optional status filter.</summary>
+    public async Task<IReadOnlyList<ChatApprovalDto>> ListApprovalsAsync(
+        string conversationId, string? status, CancellationToken ct = default)
+    {
+        var id = ChatConversationId.From(conversationId);
+        var query = approvalRepository.Query
+            .Where(a => a.ConversationId == id)
+            .OrderByDescending(a => a.RequestedAt);
+        var rows = string.IsNullOrWhiteSpace(status)
+            ? await query.Take(100).ToListAsync(ct).ConfigureAwait(false)
+            : await query.Where(a => a.Status == ChatApprovalStatus.From(status))
+                .Take(100).ToListAsync(ct).ConfigureAwait(false);
+        return rows.Select(ToDto).ToList();
     }
 
     private async Task<(string Json, bool Refused, string? Reason)> ExecuteToolAsync(
@@ -944,6 +1364,11 @@ public sealed class ChatService(
             }
 
             var role = message.Role.Value;
+            if (role == "system")
+            {
+                continue; // audit notes (RNF-003) are UI rows — never on the wire.
+            }
+
             if (role == "user")
             {
                 wire.Add(new OpenAiChatMessage("user", message.Content));
@@ -1085,6 +1510,19 @@ public sealed class ChatService(
         run.StartedAt,
         run.FinishedAt);
 
+    private static ChatApprovalDto ToDto(ChatApproval approval) => new(
+        approval.Id.Value,
+        approval.RunId.Value,
+        approval.ConversationId.Value,
+        approval.ToolCallId,
+        approval.ToolName,
+        approval.ArgumentsPreview,
+        approval.Status.Value,
+        approval.RequestedAt,
+        approval.DecidedAt,
+        approval.Decision,
+        approval.DecidedBy?.Value);
+
     private static ChatConversationDto ToDto(
         ChatConversation conversation, string? preview, string? activeRunStatus = null) => new(
         conversation.Id.Value,
@@ -1102,7 +1540,8 @@ public sealed class ChatService(
                 conversation.AgentCli, conversation.RepositoryFullName,
                 conversation.WorkspacePath, conversation.AgentModel),
         conversation.ArchivedAt,
-        activeRunStatus);
+        activeRunStatus,
+        conversation.PermissionPreset);
 
     private static ChatMessageDto ToDto(ChatMessage message) => new(
         message.Id.Value,

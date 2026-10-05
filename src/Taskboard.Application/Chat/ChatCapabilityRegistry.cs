@@ -18,10 +18,7 @@ public sealed class ChatCapabilityRegistry(
     IMcpClientManager? mcp = null) : IChatCapabilityRegistry
 {
     /// <summary>Tools that mutate or execute — flagged for the Settings hint.</summary>
-    private static readonly ISet<string> MutatingTools = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "shell_exec", "write_file", "edit_file", "run_tests", "run_cli", "code_interpreter", "run_agent", "memory", "todo",
-    };
+    private static ISet<string> MutatingTools => ChatCapabilityRules.MutatingTools;
 
     public async Task<IReadOnlyList<ChatCapability>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -37,7 +34,8 @@ public sealed class ChatCapabilityRegistry(
                 tool.Description,
                 IsCapabilityEnabled(tool.CapabilityId),
                 tool.RequiresConfirmation || MutatingTools.Contains(tool.Name),
-                tool.Origin));
+                tool.Origin,
+                ApprovalPolicy: ToolPolicy(tool.Name)));
         }
 
         if (IsMasterOn(ChatCapabilityKind.Skill))
@@ -110,6 +108,13 @@ public sealed class ChatCapabilityRegistry(
         {
             return [];
         }
+    }
+
+    /// <summary>RF-008: per-tool policy override — null when unset.</summary>
+    private string? ToolPolicy(string toolName)
+    {
+        var raw = configuration[$"{ChatApprovalPolicy.ToolPolicyPrefix}{toolName}"];
+        return raw is "ask" or "never" or "allow" ? raw : null;
     }
 
     public bool IsCapabilityEnabled(string capabilityId) =>

@@ -162,6 +162,23 @@ public sealed class RuntimeConfigurationService
         new("Taskboard:Chat:Notify:Done:Push", "false", Editable: true, RequiresRestart: false,
             ReadOnlyReason: null,
             EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
+        // SPEC-20261005-chat-tool-approval RF-004/RF-008: permission policy —
+        // global gate switch, default preset, wait timeout and the opt-in
+        // approval push. Per-tool overrides live under
+        // Taskboard:Chat:Approval:ToolPolicy:{toolName} (not in the catalog —
+        // keyed by tool name like Capabilities:Disabled rows).
+        new("Taskboard:Chat:Approval:Enabled", "true", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Approval:Preset", "ask", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidatePermissionPreset, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Approval:TimeoutSeconds", "120", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateNonNegativeInt, Group: "Chat", ManagedIn: "/settings?tab=chat"),
+        new("Taskboard:Chat:Notify:Approval:Push", "false", Editable: true, RequiresRestart: false,
+            ReadOnlyReason: null,
+            EnvAlias: null, Validate: ValidateBoolean, Group: "Chat", ManagedIn: null),
         // SPEC-20261005 RF-009: VAPID identity for Web Push. Empty keys are
         // auto-generated once by VapidKeyService on first subscribe and
         // persisted here (private key stays masked like every secret).
@@ -335,8 +352,25 @@ public sealed class RuntimeConfigurationService
         return bool.TryParse(value, out var parsed) ? parsed : fallback;
     }
 
-    private static CatalogEntry? FindEntry(string key) =>
-        Catalog.FirstOrDefault(e => e.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+    private static CatalogEntry? FindEntry(string key)
+    {
+        var entry = Catalog.FirstOrDefault(e => e.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (entry is not null)
+        {
+            return entry;
+        }
+
+        // SPEC-20261005-chat-tool-approval RF-008: per-tool overrides —
+        // Taskboard:Chat:Approval:ToolPolicy:{toolName} = ask|never|allow.
+        // Arbitrary tool names can't live in the static catalog, so the
+        // prefix mints an editable synthetic entry with an enum validator.
+        const string prefix = "Taskboard:Chat:Approval:ToolPolicy:";
+        return key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && key.Length > prefix.Length
+            ? new CatalogEntry(key, null, Editable: true, RequiresRestart: false,
+                ReadOnlyReason: null, EnvAlias: null,
+                Validate: ValidateToolPolicy, Group: "Chat", ManagedIn: "/settings?tab=chat")
+            : null;
+    }
 
     private bool HasDatabaseOverride(string key) =>
         _configuration is IConfigurationRoot root
@@ -484,6 +518,16 @@ public sealed class RuntimeConfigurationService
         value is "auto" or "chat" or "agent"
             ? null
             : "Default mode must be one of: auto, chat, agent.";
+
+    private static string? ValidatePermissionPreset(string value) =>
+        Taskboard.ValueObjects.ChatPermissionPresets.IsValid(value)
+            ? null
+            : "Permission preset must be one of: chat, ask, full.";
+
+    private static string? ValidateToolPolicy(string value) =>
+        value is "ask" or "never" or "allow"
+            ? null
+            : "Tool policy must be one of: ask, never, allow.";
 
     private static string? ValidateJsonStringArray(string value)
     {

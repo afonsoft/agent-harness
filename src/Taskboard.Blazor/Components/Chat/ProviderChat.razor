@@ -48,7 +48,11 @@
                             <span class="d-block text-truncate">@conversation.Title</span>
                             <span class="d-block text-truncate text-body-secondary small">
                                 @conversation.Model
-                                @if (conversation.ActiveRunStatus is "running" or "queued")
+                                @if (conversation.ActiveRunStatus is "waiting-approval")
+                                {
+                                    <span class="badge text-bg-info ms-1" title="Aguardando aprovação de tool">approval?</span>
+                                }
+                                else if (conversation.ActiveRunStatus is "running" or "queued")
                                 {
                                     <span class="provider-chat-run-dot" title="Run em andamento"></span>
                                 }
@@ -93,7 +97,11 @@
                                 title="@conversation.Title"
                                 @onclick="() => OpenConversationAsync(conversation.Id)">
                             <Icon Name="IconName.ChatDots" />
-                            @if (conversation.ActiveRunStatus is "running" or "queued")
+                            @if (conversation.ActiveRunStatus is "waiting-approval")
+                            {
+                                <span class="provider-chat-run-dot approval" title="Aguardando aprovação de tool"></span>
+                            }
+                            else if (conversation.ActiveRunStatus is "running" or "queued")
                             {
                                 <span class="provider-chat-run-dot" title="Run em andamento"></span>
                             }
@@ -117,6 +125,23 @@
             @if (_archived)
             {
                 <span class="badge text-bg-secondary">arquivada</span>
+            }
+            @* SPEC-20261005-chat-tool-approval RF-006: per-conversation
+               permission preset — chat (read-only) / ask / full. Editable
+               mid-run; takes effect on the next tool call. *@
+            @if (_conversationId is not null && !_archived)
+            {
+                <div class="provider-preset-chip" title="Permission preset — política de aprovação de tools">
+                    <Icon Name="IconName.ShieldLock" />
+                    <select class="form-select form-select-sm provider-preset-select"
+                            aria-label="Permission preset"
+                            value="@_permissionPreset"
+                            @onchange="ChangePresetAsync">
+                        <option value="chat">Chat</option>
+                        <option value="ask">Ask</option>
+                        <option value="full">Full</option>
+                    </select>
+                </div>
             }
             @if (_conversationTitle is { Length: > 0 })
             {
@@ -205,6 +230,47 @@
                         </summary>
                         <pre class="provider-reasoning-text mb-0">@_reasoning</pre>
                     </details>
+                </div>
+            }
+            @* SPEC-20261005-chat-tool-approval RF-002/RF-007: pending approval
+               cards — replayed from ChatApproval rows on open/attach and kept
+               live via approval.asked / approval.decided SSE. *@
+            @foreach (var approval in _pendingApprovals)
+            {
+                <div class="provider-chat-bubble assistant provider-approval-card" @key="approval.Id">
+                    <div class="provider-approval-head">
+                        <Icon Name="IconName.ShieldLock" />
+                        <span class="fw-semibold">Approve <code>@approval.ToolName</code>?</span>
+                    </div>
+                    <details class="provider-approval-args">
+                        <summary class="small text-body-secondary">arguments</summary>
+                        <pre class="chat-mini-terminal small mb-0"><code>@PrettyArgs(approval.ArgumentsPreview)</code></pre>
+                    </details>
+                    <div class="provider-approval-actions d-flex gap-2 mt-2">
+                        <button type="button" class="btn btn-sm btn-success"
+                                @onclick="() => AllowApprovalAsync(approval, rememberTool: false)">
+                            Allow once
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success"
+                                @onclick="() => AllowApprovalAsync(approval, rememberTool: true)">
+                            Always allow
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                @onclick="() => ToggleDenyReason(approval.Id)">
+                            Deny
+                        </button>
+                    </div>
+                    @if (_denyReasonFor == approval.Id)
+                    {
+                        <div class="d-flex gap-2 mt-2">
+                            <input type="text" class="form-control form-control-sm" placeholder="Motivo (opcional)"
+                                   aria-label="Motivo da recusa" @bind="_denyReason" />
+                            <button type="button" class="btn btn-sm btn-danger"
+                                    @onclick="() => DenyApprovalAsync(approval)">
+                                Confirm deny
+                            </button>
+                        </div>
+                    }
                 </div>
             }
             @if (_running && string.IsNullOrEmpty(_streaming))
@@ -443,6 +509,12 @@
     private string? _runId;
     private bool _archived;
     private bool _showArchived;
+
+    // SPEC-20261005-chat-tool-approval: pending approval cards + preset chip.
+    private readonly List<ChatApprovalDto> _pendingApprovals = [];
+    private string _permissionPreset = "ask";
+    private string? _denyReasonFor;
+    private string? _denyReason;
 
     /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
     public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
@@ -690,6 +762,9 @@
             _messages.Clear();
             _streaming = null;
             _reasoning = null;
+            _pendingApprovals.Clear();
+            _permissionPreset = conversation.PermissionPreset ?? "ask";
+            _denyReasonFor = null;
             await OnSearchChangedAsync();
         }
         catch (Exception ex)
@@ -740,6 +815,16 @@
         _messages.AddRange(detail.Messages);
         _streaming = null;
         _reasoning = null;
+        // RF-007: replay unresolved approvals on (re-)attach; they resolve
+        // live via approval.decided or when the run ends (auto-cancel).
+        _pendingApprovals.Clear();
+        if (detail.PendingApprovals is { Count: > 0 } pending)
+        {
+            _pendingApprovals.AddRange(pending);
+        }
+
+        _permissionPreset = detail.Conversation.PermissionPreset ?? "ask";
+        _denyReasonFor = null;
         if (_providerId != detail.Conversation.ProviderId)
         {
             _providerId = detail.Conversation.ProviderId;
@@ -1257,6 +1342,48 @@
                 }
                 await ScrollToEndAsync();
                 break;
+            case "approval.asked":
+            {
+                // SPEC-20261005-chat-tool-approval RF-002: pending card.
+                var asked = JsonSerializer.Deserialize<JsonElement>(data);
+                var dto = new ChatApprovalDto(
+                    asked.TryGetProperty("approvalId", out var aid) ? aid.GetString() ?? string.Empty : string.Empty,
+                    _runId ?? string.Empty,
+                    _conversationId ?? string.Empty,
+                    asked.TryGetProperty("toolCallId", out var tcid) ? tcid.GetString() ?? string.Empty : string.Empty,
+                    asked.TryGetProperty("toolName", out var tname) ? tname.GetString() ?? string.Empty : string.Empty,
+                    asked.TryGetProperty("argsPreview", out var aprv) ? aprv.GetString() ?? "{}" : "{}",
+                    "pending", DateTime.UtcNow, null, null, null);
+                _pendingApprovals.RemoveAll(a => a.Id == dto.Id);
+                _pendingApprovals.Add(dto);
+                _statusPhase = "waiting-approval";
+                _statusLabel = $"Approval: {dto.ToolName}";
+                await ScrollToEndAsync();
+                break;
+            }
+            case "approval.decided":
+            {
+                var decided = JsonSerializer.Deserialize<JsonElement>(data);
+                var decidedId = decided.TryGetProperty("approvalId", out var did) ? did.GetString() : null;
+                if (decidedId is not null)
+                {
+                    _pendingApprovals.RemoveAll(a => a.Id == decidedId);
+                }
+
+                if (_denyReasonFor == decidedId)
+                {
+                    _denyReasonFor = null;
+                }
+
+                if (_pendingApprovals.Count == 0 && _statusPhase is "waiting-approval")
+                {
+                    _statusPhase = null;
+                    _statusLabel = null;
+                }
+
+                await ScrollToEndAsync();
+                break;
+            }
             case "chat.tool_result":
                 await ReloadConversationAsync();
                 await ScrollToEndAsync();
@@ -1280,6 +1407,7 @@
 
                 _statusPhase = null;
                 _statusLabel = null;
+                _pendingApprovals.Clear();
                 break;
         }
     }
@@ -1305,6 +1433,14 @@
             _messages.AddRange(detail.Messages);
             _conversationTitle = detail.Conversation.Title;
             _archived = detail.Conversation.ArchivedAt is not null;
+            // RF-007: keep pending cards in sync on every transcript reload.
+            _pendingApprovals.Clear();
+            if (detail.PendingApprovals is { Count: > 0 } pending)
+            {
+                _pendingApprovals.AddRange(pending);
+            }
+
+            _permissionPreset = detail.Conversation.PermissionPreset ?? _permissionPreset;
             await OnSearchChangedAsync();
             return detail;
         }
@@ -1365,6 +1501,76 @@
         catch (JSException)
         {
             await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, "Não foi possível copiar."));
+        }
+    }
+
+    // ---- Tool approvals (SPEC-20261005-chat-tool-approval RF-003/RF-006) ----
+
+    private Task AllowApprovalAsync(ChatApprovalDto approval, bool rememberTool) =>
+        DecideApprovalAsync(approval, "allow", reason: null, rememberTool);
+
+    private Task DenyApprovalAsync(ChatApprovalDto approval) =>
+        DecideApprovalAsync(approval, "deny", reason: _denyReason, rememberTool: false);
+
+    private async Task DecideApprovalAsync(
+        ChatApprovalDto approval, string outcome, string? reason = null, bool rememberTool = false)
+    {
+        try
+        {
+            // Null = 409/404 — already decided (timeout/cancel/other tab); the
+            // card also clears on the broadcast approval.decided.
+            _ = await Client.DecideChatApprovalAsync(approval.Id, outcome, reason, rememberTool);
+            _pendingApprovals.RemoveAll(a => a.Id == approval.Id);
+            _denyReasonFor = null;
+            _denyReason = null;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao decidir aprovação: {ex.Message}";
+        }
+    }
+
+    private void ToggleDenyReason(string approvalId)
+    {
+        _denyReasonFor = _denyReasonFor == approvalId ? null : approvalId;
+        _denyReason = null;
+    }
+
+    private async Task ChangePresetAsync(ChangeEventArgs args)
+    {
+        var preset = args.Value?.ToString() ?? "ask";
+        if (_conversationId is null || preset == _permissionPreset)
+        {
+            return;
+        }
+
+        try
+        {
+            var updated = await Client.UpdateChatConversationPresetAsync(_conversationId, preset);
+            _permissionPreset = updated?.PermissionPreset ?? preset;
+            await OnSearchChangedAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Falha ao trocar preset: {ex.Message}";
+        }
+    }
+
+    private static string PrettyArgs(string? argsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argsJson))
+        {
+            return "{}";
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(argsJson);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return argsJson;
         }
     }
 

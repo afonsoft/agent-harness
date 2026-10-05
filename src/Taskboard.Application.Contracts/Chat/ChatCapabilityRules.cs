@@ -12,6 +12,17 @@ namespace Taskboard.Application.Contracts.Chat;
 /// </summary>
 public static class ChatCapabilityRules
 {
+    /// <summary>
+    /// Tools that mutate or execute — the approval gate's ask-set
+    /// (SPEC-20261005-chat-tool-approval RF-006) and the Settings "mutating"
+    /// hint. Was <c>ChatCapabilityRegistry.MutatingTools</c>; shared here so
+    /// the gate and the registry resolve against the same set.
+    /// </summary>
+    public static readonly ISet<string> MutatingTools = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "shell_exec", "write_file", "edit_file", "run_tests", "run_cli", "code_interpreter", "run_agent", "memory", "todo",
+    };
+
     public static bool IsEnabled(IConfiguration configuration, string capabilityId)
     {
         var kind = capabilityId switch
