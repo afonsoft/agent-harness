@@ -1922,7 +1922,6 @@ html[data-terminal-focus] .terminal-focus-exit {
 .ai-chat-main {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 220px);
     min-height: 420px;
 }
 
