@@ -1,0 +1,41 @@
+/* SPEC-20261016-chat-browser-tool */
+.chat-browser-shot {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: zoom-in;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .375rem;
+}
+
+.chat-browser-thumb {
+    width: 96px;
+    height: 60px;
+    object-fit: cover;
+    cursor: pointer;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .25rem;
+    opacity: .8;
+}
+
+.chat-browser-thumb:hover {
+    opacity: 1;
+    border-color: var(--bs-primary);
+}
+
+.chat-browser-zoom {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, .75);
+    cursor: zoom-out;
+}
+
+.chat-browser-zoom img {
+    max-width: 96vw;
+    max-height: 96vh;
+    border-radius: .375rem;
+}

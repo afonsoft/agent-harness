@@ -76,6 +76,10 @@
                     {
                         <div class="chat-ws-pane" hidden="@(_tab != "preview")"><ChatPreviewTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" OnElementPicked="OnElementPicked" /></div>
                     }
+                    @if (_visited.Contains("browser"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "browser")"><ChatBrowserTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" /></div>
+                    }
                 }
             </div>
         </div>
@@ -83,7 +87,7 @@
 </div>
 
 @code {
-    private static readonly string[] Tabs = ["tasks", "changes", "terminal", "editor", "plan", "preview"];
+    private static readonly string[] Tabs = ["tasks", "changes", "terminal", "editor", "plan", "preview", "browser"];
 
     /// <summary>Active conversation — workspace + persisted state resolve per id.</summary>
     [Parameter] public string? ConversationId { get; set; }
@@ -240,6 +244,7 @@
         "editor" => L.T("chat.ws.editor"),
         "plan" => L.T("chat.ws.plan"),
         "preview" => L.T("chat.ws.preview"),
+        "browser" => L.T("chat.ws.browser"),
         _ => tab,
     };
 

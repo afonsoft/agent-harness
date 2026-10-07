@@ -1311,6 +1311,22 @@ public sealed class TaskboardClient
         }
     }
 
+    /// <summary>SPEC-20261016-chat-browser-tool RF-004: shots gallery feed.</summary>
+    public async Task<IReadOnlyList<BrowserShotDto>> GetBrowserShotsAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var body = await _httpClient.GetFromJsonAsync<JsonObject>(
+                $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/browser/shots", cancellationToken);
+            return body?["shots"]?.Deserialize<IReadOnlyList<BrowserShotDto>>() ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     public async Task DeleteChatConversationAsync(string id, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.DeleteAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", cancellationToken);

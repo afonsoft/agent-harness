@@ -2026,7 +2026,7 @@ public sealed class ChatService(
                 yield return progress;
             }
 
-            var (resultJson, refused, refusalReason, imageUrls) = await toolTask.ConfigureAwait(false);
+            var (resultJson, refused, refusalReason, imageUrls, shotIds) = await toolTask.ConfigureAwait(false);
             yield return new ChatStatusEvent("idle", null);
             yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
             yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
@@ -2042,6 +2042,22 @@ public sealed class ChatService(
             await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
             await IndexMessageSafeAsync(toolMessage, ct).ConfigureAwait(false);
             await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+            // SPEC-20261016-chat-browser-tool RF-003: browser shots and other
+            // tool-made attachments bind to their tool message so they render
+            // inline (and escape the orphan sweep).
+            if (shotIds is { Count: > 0 } && attachmentRepository is not null)
+            {
+                try
+                {
+                    await BindAttachmentsAsync(conversation.Id, toolMessage.Id, shotIds, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is ChatValidationException or ChatConflictException)
+                {
+                    // A bad id must not kill the run — the shot stays staged
+                    // and the sweep collects it.
+                }
+            }
             // RF-006: oversized results spill to disk — the wire keeps a capped
             // head + spill:// pointer (persisted history stays whole, RNF-001).
             var wireResult = SpillToolResult(run, resultJson, state);
@@ -2980,7 +2996,7 @@ public sealed class ChatService(
         return rows.Select(ToDto).ToList();
     }
 
-    private async Task<(string Json, bool Refused, string? Reason, IReadOnlyList<string>? ImageUrls)> ExecuteToolAsync(
+    private async Task<(string Json, bool Refused, string? Reason, IReadOnlyList<string>? ImageUrls, IReadOnlyList<string>? AttachmentIds)> ExecuteToolAsync(
         OpenAiToolCall toolCall, ChatProviderSnapshot provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
@@ -2990,7 +3006,7 @@ public sealed class ChatService(
     {
         if (!toolSet.TryGetValue(toolCall.Name, out var tool))
         {
-            return (JsonSerializer.Serialize(new { error = $"unknown tool '{toolCall.Name}'" }), true, "unknown tool", null);
+            return (JsonSerializer.Serialize(new { error = $"unknown tool '{toolCall.Name}'" }), true, "unknown tool", null, null);
         }
 
         JsonElement arguments;
@@ -3000,7 +3016,7 @@ public sealed class ChatService(
         }
         catch (JsonException)
         {
-            return (JsonSerializer.Serialize(new { error = "invalid tool arguments" }), true, "bad arguments", null);
+            return (JsonSerializer.Serialize(new { error = "invalid tool arguments" }), true, "bad arguments", null, null);
         }
 
         var context = new ChatToolContext(
@@ -3026,7 +3042,7 @@ public sealed class ChatService(
         try
         {
             var result = await tool.ExecuteAsync(arguments, context, ct).ConfigureAwait(false);
-            return (result.Json, result.Refused, result.RefusalReason, result.ImageDataUrls);
+            return (result.Json, result.Refused, result.RefusalReason, result.ImageDataUrls, result.AttachmentIds);
         }
         catch (OperationCanceledException)
         {
@@ -3034,7 +3050,7 @@ public sealed class ChatService(
         }
         catch (Exception ex)
         {
-            return (JsonSerializer.Serialize(new { error = ex.Message }), false, null, null);
+            return (JsonSerializer.Serialize(new { error = ex.Message }), false, null, null, null);
         }
     }
 

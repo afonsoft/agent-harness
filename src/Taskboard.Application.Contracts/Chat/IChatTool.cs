@@ -44,7 +44,13 @@ public interface IChatTool
 /// </summary>
 public sealed record ChatToolResult(
     string Json, bool Refused = false, string? RefusalReason = null,
-    IReadOnlyList<string>? ImageDataUrls = null);
+    IReadOnlyList<string>? ImageDataUrls = null,
+    /// <summary>
+    /// SPEC-20261016-chat-browser-tool RF-003: attachment ids the tool created
+    /// (e.g. <c>browser-shot-*</c> rows) — the run binds them to the tool
+    /// message so the shots render inline like uploads.
+    /// </summary>
+    IReadOnlyList<string>? AttachmentIds = null);
 
 /// <summary>
 /// Live progress reporter handed to tools (SPEC-20261001-chat-agent-delegation

@@ -49,6 +49,17 @@ public sealed class StaticChatToolRiskClassifier : IChatToolRiskClassifier
             }
         }
 
+        // SPEC-20261016: browser_use — eval_js runs arbitrary page JS (high);
+        // the rest is page interaction (medium). RequiresConfirmation still
+        // applies on top per SPEC-…-browser-tool RF-007.
+        if (toolName is "browser_use")
+        {
+            var action = FirstArg(arguments, ["action"]);
+            return action is "eval_js"
+                ? new ChatToolRiskVerdict(ChatToolRisk.High, "eval_js runs arbitrary page JS")
+                : new ChatToolRiskVerdict(ChatToolRisk.Medium, "browser page interaction");
+        }
+
         // Memory writes vs reads.
         if (toolName is "memory")
         {
