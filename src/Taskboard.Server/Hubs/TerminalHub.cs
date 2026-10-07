@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Taskboard.Application.Chat;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Harness;
 using Taskboard.Integrations.Terminal;
@@ -122,6 +123,26 @@ public sealed class TerminalHub : Hub
             resolution.WorkingDirectory,
             resolution.Command,
             ThreadPtyResolver.SessionIdFor(threadId)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SPEC-20261011-chat-workspace-panel RF-006: opens (or rebinds to) a
+    /// plain-shell PTY rooted at the chat conversation's resolved workspace.
+    /// Session id is deterministic (<c>conv-&lt;conversationId&gt;</c>) so a
+    /// tab switch/refresh reattaches to the same PTY — never blocks a run.
+    /// </summary>
+    public async Task<string> OpenForConversation(string conversationId)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var ws = scope.ServiceProvider.GetRequiredService<ConversationWorkspaceService>();
+        var workdir = await ws.ResolveWorkdirAsync(conversationId, Context.ConnectionAborted)
+            .ConfigureAwait(false);
+        if (workdir is null)
+        {
+            throw new HubException($"Conversation '{conversationId}' not found.");
+        }
+
+        return await OpenCoreAsync(workdir, sessionId: $"conv-{conversationId}").ConfigureAwait(false);
     }
 
     private async Task<string> OpenCoreAsync(

@@ -1,0 +1,21 @@
+@inject ILocaleService L
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-006/RF-010: interactive shell bound
+    to the conversation workdir via TerminalHub.OpenForConversation
+    (session conv-<id>) — the PTY survives tab switches and never blocks or
+    interferes with the run.
+*@
+
+<div class="chat-ws-tabbody chat-ws-terminal">
+    <PtyHostPane ElementId="@($"pty-conv-{ConversationId}")"
+                 SessionKey="@($"conv-{ConversationId}")"
+                 ExpectedSessionId="@($"conv-{ConversationId}")"
+                 Open="@(hub => hub.InvokeAsync<string>("OpenForConversation", ConversationId))"
+                 ExitedMessage="@L.T("chat.ws.terminal.exited")" />
+</div>
+
+@code {
+    /// <summary>Conversation whose workspace hosts the shell.</summary>
+    [Parameter, EditorRequired] public string ConversationId { get; set; } = default!;
+}

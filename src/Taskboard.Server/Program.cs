@@ -543,6 +543,9 @@ void RegisterWorkspaceAndChatServices()
     builder.Services.AddSingleton(new ChatAttachmentStore(environment.GetDataDir()));
     // RF-007: file-tool mutations feed the run's deliverables card.
     builder.Services.AddSingleton<IChatFileEditTracker>(new ChatFileEditTracker());
+    // SPEC-20261011-chat-workspace-panel RF-004: shared todo store — the Todo
+    // tool writes during runs; the workspace panel's Tasks tab reads it.
+    builder.Services.AddSingleton(new ChatTodoStore(environment.GetDataDir()));
     builder.Services.AddSingleton<IChatWorkspaceDiffService>(sp => new GitWorkspaceDiffService(
         sp.GetRequiredService<IGitCommandRunner>()));
     builder.Services.AddSingleton<GenerateImageTool>(sp => new GenerateImageTool(
@@ -576,7 +579,7 @@ void RegisterWorkspaceAndChatServices()
             new SearchFilesTool(sp.GetRequiredService<ISecretRedactor>()),
             new GitTool(sp.GetRequiredService<ISecretRedactor>()),
             new RunTestsTool(sp.GetRequiredService<ISecretRedactor>()),
-            new TodoTool(new ChatTodoStore(environment.GetDataDir())),
+            new TodoTool(sp.GetRequiredService<ChatTodoStore>()),
             new RunCliTool(
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetRequiredService<IServiceScopeFactory>()),
@@ -668,6 +671,7 @@ void RegisterWorkspaceAndChatServices()
     // suspended call — shared TCS registry like the run coordinator.
     builder.Services.AddSingleton<ChatApprovalCoordinator>();
     builder.Services.AddScoped<ChatService>();
+    builder.Services.AddScoped<ConversationWorkspaceService>();
     // SPEC-20261005-chat-background-resume RF-002/RF-003: queue + broadcaster +
     // detached dispatcher — a chat run outlives the browser tab.
     builder.Services.AddSingleton<ChatRunQueue>();
@@ -2598,6 +2602,29 @@ void MapSettingsAndChatEndpoints()
         await chatService.GetConversationAsync(id, ct) is { } detail
             ? Results.Ok(detail)
             : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    // SPEC-20261011-chat-workspace-panel RF-003/RF-004/RF-005/RF-008: read APIs
+    // for the conversation's workspace pane — resolved path/git status, the
+    // todo-tool's task list, the workspace/worktree diff, the latest plan.
+    chat.MapGet("conversations/{id}/workspace", async (string id, ConversationWorkspaceService ws, CancellationToken ct) =>
+        await ws.GetWorkspaceAsync(id, ct) is { } workspace
+            ? Results.Ok(new { workspace })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapGet("conversations/{id}/todos", async (string id, ConversationWorkspaceService ws, CancellationToken ct) =>
+        await ws.GetTodosAsync(id, ct) is { } todos
+            ? Results.Ok(new { todos })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapGet("conversations/{id}/diff", async (string id, ConversationWorkspaceService ws, CancellationToken ct) =>
+        await ws.GetWorkspaceAsync(id, ct) is null
+            ? Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } })
+            : Results.Ok(new { diff = await ws.GetDiffAsync(id, ct) }));
+
+    chat.MapGet("conversations/{id}/plan", async (string id, ConversationWorkspaceService ws, CancellationToken ct) =>
+        await ws.GetWorkspaceAsync(id, ct) is null
+            ? Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } })
+            : Results.Ok(new { plan = await ws.GetLatestPlanAsync(id, ct) }));
 
     chat.MapPatch("conversations/{id}", async (string id, PatchChatConversationRequest request, ChatService chatService, CancellationToken ct) =>
         await chatService.PatchConversationAsync(id, request, ct) is { } conversation

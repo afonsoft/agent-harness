@@ -1,0 +1,58 @@
+@using Taskboard.Application.Contracts.Chat
+@inject TaskboardClient Client
+@inject ILocaleService L
+@inject NavigationManager Nav
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-007: VS Code Web (code-server) on
+    the conversation workdir via the proxied /vscode/ route — same iframe
+    pattern as the /editor page, falling back to an install hint when the
+    server is not provisioned.
+*@
+
+<div class="chat-ws-tabbody chat-ws-editor">
+    @if (_loading)
+    {
+        <div class="text-body-secondary small p-3">@L.T("chat.ws.loading")</div>
+    }
+    else if (_status is { Installed: true } && _workspace?.Path is { } path)
+    {
+        <iframe src="@($"/vscode/?folder={Uri.EscapeDataString(path)}")" class="chat-ws-editor-frame" title="VS Code Web"></iframe>
+    }
+    else
+    {
+        <div class="chat-ws-empty">
+            <Icon Name="IconName.CodeSlash" />
+            <p class="mb-2 mt-2 small">@L.T("chat.ws.editor.unavailable")</p>
+            <a class="btn btn-sm btn-outline-primary" href="/editor">@L.T("chat.ws.editor.openEditor")</a>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Conversation whose workspace is opened in the editor.</summary>
+    [Parameter, EditorRequired] public string ConversationId { get; set; } = default!;
+
+    private VscodeStatus? _status;
+    private ConversationWorkspaceDto? _workspace;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try
+        {
+            _status = await Client.GetVscodeStatusAsync();
+            _workspace = await Client.GetChatWorkspaceAsync(ConversationId);
+        }
+        catch
+        {
+            _status = null;
+            _workspace = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

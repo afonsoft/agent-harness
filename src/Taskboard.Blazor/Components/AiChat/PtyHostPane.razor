@@ -1,0 +1,224 @@
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-006: generic PTY host pane extracted
+    from PtyThreadPane — an xterm.js surface wired to any TerminalHub open
+    method the caller provides (<see cref="Open"/>). The session id is
+    deterministic (<see cref="ExpectedSessionId"/>) so a refresh/tab switch
+    rebinds to the same PTY and replays the scrollback — DisposeAsync
+    intentionally does NOT Close the session.
+*@
+
+<div class="ai-chat-pty-pane">
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">
+            <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />@_error
+            @if (_canRetry)
+            {
+                <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="OpenSessionAsync">Reopen</Button>
+            }
+        </Alert>
+    }
+    <div id="@ElementId" class="terminal-host ai-chat-pty-host" @onclick="FocusAsync"></div>
+</div>
+
+@code {
+    /// <summary>DOM element id hosting the xterm instance.</summary>
+    [Parameter, EditorRequired] public string ElementId { get; set; } = default!;
+
+    /// <summary>JS-side key under which the xterm instance is registered.</summary>
+    [Parameter, EditorRequired] public string SessionKey { get; set; } = default!;
+
+    /// <summary>
+    /// Deterministic server session id, set BEFORE the open invoke so the
+    /// scrollback replay — emitted during open, before it returns — passes
+    /// the output filter instead of being discarded.
+    /// </summary>
+    [Parameter, EditorRequired] public string ExpectedSessionId { get; set; } = default!;
+
+    /// <summary>Invokes the hub's open method and returns the session id.</summary>
+    [Parameter, EditorRequired] public Func<HubConnection, Task<string>> Open { get; set; } = default!;
+
+    /// <summary>Message shown when the remote process exits.</summary>
+    [Parameter] public string ExitedMessage { get; set; } = "Process exited";
+
+    private HubConnection? _hub;
+    private DotNetObjectReference<PtyHostPane>? _selfRef;
+    private string? _sessionId;
+    private string? _error;
+    private bool _canRetry;
+    private bool _started;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_started)
+        {
+            return;
+        }
+
+        _started = true;
+        _selfRef ??= DotNetObjectReference.Create(this);
+        await ConnectHubAsync();
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        _hub ??= new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/terminal-hub"))
+            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
+            .Build();
+
+        _hub.On<string, string>("output", (sessionId, data) =>
+            sessionId == _sessionId
+                ? JS.InvokeVoidAsync("taskboardTerminal.write", ElementId, data).AsTask()
+                : Task.CompletedTask);
+
+        _hub.On<string, string>("closed", (sessionId, reason) =>
+        {
+            if (sessionId != _sessionId)
+            {
+                return Task.CompletedTask;
+            }
+
+            _sessionId = null;
+            _error = $"{ExitedMessage} ({reason}) — the session can be reopened.";
+            _canRetry = true;
+            return InvokeAsync(StateHasChanged);
+        });
+
+        _hub.Reconnected += async _ =>
+        {
+            // The server session outlives the connection — reattach and refit.
+            var reattached = false;
+            try
+            {
+                reattached = _sessionId is not null
+                    && await _hub.InvokeAsync<bool>("Reattach", _sessionId);
+            }
+            catch
+            {
+                // Fall through — the operator can Reopen.
+            }
+
+            if (reattached)
+            {
+                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", ElementId);
+            }
+            else
+            {
+                _sessionId = null;
+                _error = "Connection lost — the session was reaped.";
+                _canRetry = true;
+                await InvokeAsync(StateHasChanged);
+            }
+        };
+
+        try
+        {
+            if (_hub.State == HubConnectionState.Disconnected)
+            {
+                await _hub.StartAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Terminal unavailable: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        var initialized = await JS.InvokeAsync<bool>(
+            "taskboardTerminal.init", ElementId, _selfRef, SessionKey);
+        if (!initialized)
+        {
+            _error = "Terminal emulator failed to initialize.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        await OpenSessionAsync();
+    }
+
+    private async Task OpenSessionAsync()
+    {
+        if (_hub is not { State: HubConnectionState.Connected })
+        {
+            _error = "No connection to the server.";
+            return;
+        }
+
+        try
+        {
+            _error = null;
+            _canRetry = false;
+            _sessionId = ExpectedSessionId;
+            _sessionId = await Open(_hub);
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
+        }
+        catch (Exception ex)
+        {
+            // HubException lands here — conversation deleted, terminal disabled, etc.
+            _sessionId = null;
+            _error = ex.Message;
+            _canRetry = true;
+        }
+        finally
+        {
+            StateHasChanged();
+        }
+    }
+
+    private async Task FocusAsync() =>
+        await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
+
+    [JSInvokable]
+    public async Task OnTerminalData(string tabKey, string data)
+    {
+        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
+        {
+            await _hub.InvokeAsync("Input", _sessionId, data);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnTerminalResize(string tabKey, int cols, int rows)
+    {
+        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
+        {
+            await _hub.InvokeAsync("Resize", _sessionId, cols, rows);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Leaving the pane must NOT kill the PTY — it stays orphaned
+        // server-side and reattaches on the next open. Only the SignalR
+        // connection is released.
+        if (_hub is not null)
+        {
+            try
+            {
+                await _hub.DisposeAsync();
+            }
+            catch
+            {
+                // Dispose is best-effort.
+            }
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardTerminal.dispose", ElementId);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop unavailable during teardown.
+        }
+
+        _selfRef?.Dispose();
+    }
+}

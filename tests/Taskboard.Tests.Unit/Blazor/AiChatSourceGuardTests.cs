@@ -103,11 +103,16 @@ public class AiChatSourceGuardTests
 
         var pane = File.ReadAllText(Path.Join(
             dir!.FullName, "src", "Taskboard.Blazor", "Components", "AiChat", "PtyThreadPane.razor"));
+        var host = File.ReadAllText(Path.Join(
+            dir.FullName, "src", "Taskboard.Blazor", "Components", "AiChat", "PtyHostPane.razor"));
 
-        var assign = pane.IndexOf("_sessionId = $\"t-{Thread.Id}\"", StringComparison.Ordinal);
-        var invoke = pane.IndexOf("InvokeAsync<string>(\"OpenForThread\"", StringComparison.Ordinal);
+        // O wrapper declara o id determinístico e o host o atribui antes do invoke.
+        pane.ShouldContain("ExpectedSessionId");
+        pane.ShouldContain("t-{Thread.Id}");
+        var assign = host.IndexOf("_sessionId = ExpectedSessionId", StringComparison.Ordinal);
+        var invoke = host.IndexOf("await Open(_hub)", StringComparison.Ordinal);
         assign.ShouldBeGreaterThanOrEqualTo(0);
-        invoke.ShouldBeGreaterThan(assign, "o sessionId determinístico deve ser atribuído antes do OpenForThread");
+        invoke.ShouldBeGreaterThan(assign, "o sessionId determinístico deve ser atribuído antes do open da sessão");
     }
 
     // SPEC-20260929-ai-code-ux-fixes.
@@ -284,5 +289,32 @@ public class AiChatSourceGuardTests
 
         source.ShouldContain("message.Kind == \"schedule\"");
         source.ShouldContain(">schedule</span>");
+    }
+
+    // Rename de sessão — lápis no header da página + edição inline do título.
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_BotaoRenameNoHeader()
+    {
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        source.ShouldContain("IconName.PencilSquare");
+        source.ShouldContain("BeginRenameSession");
+        source.ShouldContain("Rename session");
+    }
+
+    [Fact]
+    public void Dado_ProviderChatRazor_Quando_LeFonte_Entao_RenameInline()
+    {
+        // BeginRename abre o input inline; ConfirmRenameAsync faz o PATCH do
+        // título e atualiza _conversations + dispara LocationChanged p/ o
+        // submenu do NavMenu recarregar.
+        var source = File.ReadAllText(ProviderChatRazorPath());
+
+        source.ShouldContain("provider-rename-input");
+        source.ShouldContain("BeginRename");
+        source.ShouldContain("RenameChatConversationAsync");
+        source.ShouldContain("c with { Title = title }");
+        source.ShouldContain("Navigation.NavigateTo(Navigation.Uri)");
     }
 }

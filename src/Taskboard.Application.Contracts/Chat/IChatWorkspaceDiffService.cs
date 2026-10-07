@@ -15,4 +15,15 @@ public interface IChatWorkspaceDiffService
 
     Task<IReadOnlyList<ChatDeliverableDto>> DiffAsync(
         string workspacePath, ChatWorkspaceSnapshot snapshot, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SPEC-20261011-chat-workspace-panel RF-003/RF-005: live workspace state —
+    /// branch + dirty flag plus the full HEAD diff (tracked changes and
+    /// untracked files). Both return null outside a git work tree.
+    /// </summary>
+    Task<ChatWorkspaceStatusDto?> StatusAsync(
+        string workspacePath, CancellationToken cancellationToken = default);
+
+    Task<Taskboard.Dtos.WorkspaceDiffDto?> CurrentDiffAsync(
+        string workspacePath, CancellationToken cancellationToken = default);
 }

@@ -1,0 +1,130 @@
+@using Taskboard.Application.Contracts.Chat
+@implements IAsyncDisposable
+@inject TaskboardClient Client
+@inject ILocaleService L
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-004: live task-list surface for the
+    todo tool — polls the todos endpoint every 5s while mounted plus on
+    RefreshSignal bumps, so progress mirrors the run without user action.
+*@
+
+<div class="chat-ws-tabbody">
+    @if (_loading)
+    {
+        <div class="text-body-secondary small p-3">@L.T("chat.ws.loading")</div>
+    }
+    else if (_todos.Count == 0)
+    {
+        <div class="chat-ws-empty">
+            <Icon Name="IconName.CheckSquare" />
+            <p class="mb-0 mt-2 small">@L.T("chat.ws.tasks.empty")</p>
+        </div>
+    }
+    else
+    {
+        var done = _todos.Count(t => string.Equals(t.Status, "completed", StringComparison.Ordinal));
+        <div class="chat-ws-progress d-flex align-items-center gap-2 px-3 pt-2 pb-1">
+            <div class="progress flex-grow-1" role="progressbar" aria-valuenow="@done" aria-valuemin="0" aria-valuemax="@_todos.Count" style="height:.35rem">
+                <div class="progress-bar" style="width:@(done * 100 / _todos.Count)%"></div>
+            </div>
+            <span class="small text-body-secondary">@done/@_todos.Count</span>
+        </div>
+        <ul class="chat-ws-todos list-group list-group-flush">
+            @foreach (var todo in _todos)
+            {
+                <li class="list-group-item d-flex align-items-start gap-2 py-1 px-3">
+                    <Icon Name="@TodoIcon(todo.Status)" class="@($"mt-1 flex-shrink-0 {TodoClass(todo.Status)}")" />
+                    <span class="@(string.Equals(todo.Status, "completed", StringComparison.Ordinal) ? "text-body-secondary text-decoration-line-through" : "")">@todo.Content</span>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    /// <summary>Conversation whose todo list is shown.</summary>
+    [Parameter, EditorRequired] public string ConversationId { get; set; } = default!;
+
+    /// <summary>Bump to force a reload outside the polling cadence (e.g. run finished).</summary>
+    [Parameter] public int RefreshSignal { get; set; }
+
+    private IReadOnlyList<ChatTodoItem> _todos = [];
+    private bool _loading = true;
+    private int _lastRefresh = -1;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _pollCts;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (RefreshSignal != _lastRefresh)
+        {
+            _lastRefresh = RefreshSignal;
+            await LoadAsync();
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _pollCts = new CancellationTokenSource();
+            _timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            _ = PollLoopAsync(_pollCts.Token);
+        }
+    }
+
+    private async Task PollLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync(ct))
+            {
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown path.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _todos = await Client.GetChatTodosAsync(ConversationId);
+        }
+        catch
+        {
+            // Poll failures keep the last rendered list — the next tick retries.
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static IconName TodoIcon(string status) => status switch
+    {
+        "completed" => IconName.CheckCircleFill,
+        "in_progress" => IconName.PlayCircle,
+        _ => IconName.Circle,
+    };
+
+    private static string TodoClass(string status) => status switch
+    {
+        "completed" => "text-success",
+        "in_progress" => "text-primary",
+        _ => "text-body-secondary",
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        _pollCts?.Cancel();
+        _timer?.Dispose();
+        _pollCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,6 +1,9 @@
+@using Taskboard.Application.Contracts.Chat
 @inject IJSRuntime JS
 @inject SelectedRepositoryService RepoService
 @inject ILocaleService L
+@inject TaskboardClient Client
+@inject NavigationManager Nav
 @implements IDisposable
 
 <nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="@L.T("nav.sidebarNav")">
@@ -38,6 +41,34 @@
         <Icon Name="IconName.ChatDots" />
         <span class="nav-label">@L.T("nav.aicode")</span>
     </NavLink>
+    @* AI Code submenu: "+" starts a new session; below it the last 10
+       conversations, each with a trash icon for individual delete. Hidden in
+       the collapsed icon rail — labels would not fit anyway. *@
+    @if (Layout?.IsSidebarCollapsed != true)
+    {
+        <div class="nav-aicode-sub">
+            <button type="button" class="nav-aicode-new" title="@L.T("nav.aicode.new")"
+                    aria-label="@L.T("nav.aicode.new")"
+                    @onclick="NewChatSessionAsync">
+                <Icon Name="IconName.PlusLg" />
+                <span>@L.T("nav.aicode.new")</span>
+            </button>
+            @foreach (var conv in _chatHistory)
+            {
+                <div class="nav-aicode-item" @key="conv.Id">
+                    <NavLink class="nav-aicode-link" href="@($"ai-chat?c={conv.Id}")"
+                             title="@conv.Title" @onclick="CloseSidebarAsync">
+                        <span class="nav-aicode-title">@ConversationTitle(conv)</span>
+                    </NavLink>
+                    <button type="button" class="nav-aicode-del" title="@L.T("nav.aicode.delete")"
+                            aria-label="@L.T("nav.aicode.delete")"
+                            @onclick="() => DeleteChatHistoryAsync(conv.Id)">
+                        <Icon Name="IconName.Trash" />
+                    </button>
+                </div>
+            }
+        </div>
+    }
     <NavLink class="nav-link" href="terminal" aria-label="@L.T("nav.terminal")" data-label="@L.T("nav.terminal")" title='@RailTitle(L.T("nav.terminal"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Terminal" />
         <span class="nav-label">@L.T("nav.terminal")</span>
@@ -98,6 +129,7 @@
 
     private string _repoInput = string.Empty;
     private string? _repoWarning;
+    private IReadOnlyList<ChatConversationDto> _chatHistory = [];
 
     /// <summary>Repo name without the owner prefix, shown under the rail icon.</summary>
     private string RepoShortName =>
@@ -108,9 +140,59 @@
     protected override async Task OnInitializedAsync()
     {
         RepoService.Changed += OnRepoChangedAsync;
+        Nav.LocationChanged += OnLocationChanged;
         await RepoService.EnsureLoadedAsync();
         _repoInput = RepoService.Selected ?? string.Empty;
+        await LoadChatHistoryAsync();
     }
+
+    /// <summary>Reloads the last-10 list whenever the chat surface is reached —
+    /// conversations created or titled inside /ai-chat appear on return.</summary>
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (e.Location.Contains("ai-chat", StringComparison.Ordinal))
+        {
+            await LoadChatHistoryAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task LoadChatHistoryAsync()
+    {
+        try
+        {
+            var all = await Client.GetChatConversationsAsync();
+            _chatHistory = all.Take(10).ToList();
+        }
+        catch
+        {
+            _chatHistory = [];
+        }
+    }
+
+    /// <summary>"+" → deep-link with a ticks token so repeat clicks still
+    /// trigger OnParametersSetAsync on the /ai-chat page.</summary>
+    private async Task NewChatSessionAsync()
+    {
+        await CloseSidebarAsync();
+        Nav.NavigateTo($"ai-chat?new={DateTime.UtcNow.Ticks}");
+    }
+
+    private async Task DeleteChatHistoryAsync(string id)
+    {
+        try
+        {
+            await Client.DeleteChatConversationAsync(id);
+            _chatHistory = _chatHistory.Where(c => c.Id != id).ToList();
+        }
+        catch
+        {
+            // Keep the row — the next navigation reload reconciles.
+        }
+    }
+
+    private string ConversationTitle(ChatConversationDto conv) =>
+        string.IsNullOrWhiteSpace(conv.Title) ? L.T("nav.aicode.untitled") : conv.Title;
 
     /// <summary>Native tooltip shown only while the icon rail is collapsed; the
     /// styled ::after tooltip was removed because the nav scroll container clips it.</summary>
@@ -169,5 +251,6 @@
     public void Dispose()
     {
         RepoService.Changed -= OnRepoChangedAsync;
+        Nav.LocationChanged -= OnLocationChanged;
     }
 }

@@ -294,9 +294,18 @@
                     }
                 </div>
             }
-            @if (_conversationTitle is { Length: > 0 })
+            @if (_renaming)
             {
-                <span class="ms-auto small text-body-secondary text-truncate d-none d-md-block">@_conversationTitle</span>
+                <input class="provider-rename-input ms-auto" @ref="_renameInputRef"
+                       @bind="_renameDraft" @bind:event="oninput"
+                       @onkeydown="OnRenameKeyDownAsync" @onblur="ConfirmRenameAsync"
+                       maxlength="120" aria-label="Rename conversation" />
+            }
+            else if (_conversationTitle is { Length: > 0 })
+            {
+                <span class="ms-auto small text-body-secondary text-truncate d-none d-md-block provider-chat-title"
+                      role="button" title="Double-click to rename" tabindex="0"
+                      @ondblclick="BeginRename">@_conversationTitle</span>
             }
         </div>
 
@@ -800,11 +809,22 @@
             </div>
         </div>
     </div>
+
+    @* SPEC-20261011-chat-workspace-panel: Devin-style workspace pane docked
+       to the right of the chat — Tasks/Changes/Terminal/Editor/Plan for the
+       active conversation (split pane lg+, bottom sheet <lg). *@
+    <ConversationWorkspacePanel @ref="_wsPanel"
+                                ConversationId="@_conversationId"
+                                RefreshSignal="@_wsRefreshSignal" />
 </div>
 
 @code {
     // SPEC-20261001-chat-ux-compact FR-001: histórico oculto por default — ☰ abre o drawer.
     private bool _sidebarOpen;
+
+    // SPEC-20261011-chat-workspace-panel: workspace pane ref + data reload signal.
+    private ConversationWorkspacePanel? _wsPanel;
+    private int _wsRefreshSignal;
 
     private IReadOnlyList<ChatProviderDto> _providers = [];
     private Guid _providerId;
@@ -815,6 +835,10 @@
     private IReadOnlyList<ChatConversationDto> _conversations = [];
     private string? _conversationId;
     private string? _conversationTitle;
+    private bool _renaming;
+    private bool _focusRename;
+    private string _renameDraft = string.Empty;
+    private ElementReference _renameInputRef;
     private readonly List<ChatMessageDto> _messages = [];
 
     // RF-005: single pill — dropdown providers (skipped when only one)
@@ -964,8 +988,79 @@
     /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
     public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
 
+    /// <summary>SPEC-20261011: page-header workspace button proxies the pane.</summary>
+    public async Task ToggleWorkspacePanelAsync()
+    {
+        if (_wsPanel is not null)
+        {
+            await _wsPanel.ToggleAsync();
+        }
+    }
+
     /// <summary>SF-web: page-header new-chat button proxies the sidebar's own action.</summary>
     public Task StartNewChatPublicAsync() => StartNewChatAsync();
+
+    /// <summary>SPEC-20261011: opens a conversation from outside the component —
+    /// nav-submenu deep-links (?c=) and search hits land here.</summary>
+    public Task OpenConversationPublicAsync(string id) => OpenConversationAsync(id);
+
+    /// <summary>Header pencil (or double-click on the title) starts the inline
+    /// rename — Enter/blur commits, Escape cancels.</summary>
+    public void BeginRename()
+    {
+        if (_conversationId is null)
+        {
+            return;
+        }
+
+        _renameDraft = _conversationTitle ?? string.Empty;
+        _renaming = true;
+        _focusRename = true;
+        StateHasChanged();
+    }
+
+    private async Task OnRenameKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await ConfirmRenameAsync();
+        }
+        else if (args.Key == "Escape")
+        {
+            _renaming = false;
+        }
+    }
+
+    private async Task ConfirmRenameAsync()
+    {
+        // Escape already cleared _renaming — a trailing blur must not commit.
+        if (!_renaming)
+        {
+            return;
+        }
+
+        var title = _renameDraft.Trim();
+        _renaming = false;
+        if (_conversationId is null || title.Length == 0 || title == _conversationTitle)
+        {
+            return;
+        }
+
+        try
+        {
+            await Client.RenameChatConversationAsync(_conversationId, title);
+            _conversationTitle = title;
+            _conversations = _conversations
+                .Select(c => c.Id == _conversationId ? c with { Title = title } : c)
+                .ToList();
+            // Same-URI nav fires LocationChanged so the nav history reloads.
+            Navigation.NavigateTo(Navigation.Uri);
+        }
+        catch (Exception ex)
+        {
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Danger, $"Não foi possível renomear: {ex.Message}"));
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -2444,6 +2539,8 @@
                 _statusLabel = null;
                 _pendingApprovals.Clear();
                 _pendingSteers.Clear();
+                // RF-004/RF-005: run settled — refresh todo/diff/plan surfaces.
+                _wsRefreshSignal++;
                 break;
         }
     }
@@ -2522,6 +2619,19 @@
             catch (JSException)
             {
                 // JS helpers are progressive — paste attach just stays off.
+            }
+        }
+
+        if (_focusRename)
+        {
+            _focusRename = false;
+            try
+            {
+                await JS.InvokeVoidAsync("taskboard.focusElement", _renameInputRef);
+            }
+            catch (JSException)
+            {
+                // Focus is best-effort — the rename input still works without it.
             }
         }
     }
