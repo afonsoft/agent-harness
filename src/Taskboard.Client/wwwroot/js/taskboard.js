@@ -85,6 +85,17 @@ window.taskboard = {
         }
     },
 
+    // Chat fullscreen (/ai-chat): html[data-chat-fullscreen] drives the CSS
+    // that hides .app-topbar and collapses the sidebar rail into overlay-only
+    // mode. Session-only state — cleared on navigation by MainLayout.
+    setChatFullscreen: function (fullscreen) {
+        if (fullscreen) {
+            document.documentElement.dataset.chatFullscreen = 'true';
+        } else {
+            delete document.documentElement.dataset.chatFullscreen;
+        }
+    },
+
     // SPEC-20261001-terminal-memory-mobile RF-003: touch devices can pin the
     // virtual keybar without entering focus mode — html[data-terminal-keybar]
     // drives the CSS visibility rule alongside [data-terminal-focus].

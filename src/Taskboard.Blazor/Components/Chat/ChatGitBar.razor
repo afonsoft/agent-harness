@@ -19,8 +19,33 @@
                 <Icon Name="IconName.Github" /> @_status.RepoSlug
             </a>
         }
-        <span class="chat-gitbar-chip" title="@(_status.Workdir ?? "")">
-            <Icon Name="IconName.Git" /> @(_status.Branch ?? L.T("chat.git.detached"))
+        <span class="chat-gitbar-chip chat-gitbar-branch" title="@(_status.Workdir ?? "")">
+            <Icon Name="IconName.Git" />
+            <select class="chat-gitbar-branchselect" @onchange="CheckoutBranchAsync"
+                    value="@(_status.Branch ?? "")" @key="_status.Branch"
+                    disabled="@(_busy || _status.RunActive)"
+                    title="@L.T("chat.git.branchTitle")" aria-label="@L.T("chat.git.branchTitle")">
+                @if (_status.Branch is { } current)
+                {
+                    <option value="@current" selected>@current</option>
+                }
+                else
+                {
+                    <option value="" selected disabled>@L.T("chat.git.detached")</option>
+                }
+                @if (_branches is not null)
+                {
+                    @foreach (var branch in _branches.Branches)
+                    {
+                        if (branch == _status.Branch)
+                        {
+                            continue;
+                        }
+                        <option value="@branch">@branch</option>
+                    }
+                }
+            </select>
+            <Icon Name="IconName.CaretDownFill" />
         </span>
         @if (_status.Ahead > 0 || _status.Behind > 0)
         {
@@ -91,6 +116,7 @@
     [Parameter] public int RefreshSignal { get; set; }
 
     private ChatGitStatusDto? _status;
+    private ChatGitBranchesDto? _branches;
     private bool _busy;
     private bool _prOpen;
     private string? _log;
@@ -109,6 +135,7 @@
         _loadedFor = ConversationId;
         _lastSignal = RefreshSignal;
         _status = ConversationId is null ? null : await Client.GetChatGitStatusAsync(ConversationId);
+        _branches = _status is { IsRepo: true } ? await Client.GetChatBranchesAsync(ConversationId!) : null;
         _uncommitted = null;
     }
 
@@ -130,6 +157,34 @@
                 : result.Ok ? (result.Output.Length > 0 ? result.Output : $"git {op}: ok")
                 : $"git {op}: {result.Error}{(result.Output.Length > 0 ? "\n" + result.Output : "")}";
             _status = await Client.GetChatGitStatusAsync(ConversationId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>RF-006: branch picker — git switch + pull in one action.</summary>
+    private async Task CheckoutBranchAsync(ChangeEventArgs e)
+    {
+        var branch = e.Value as string;
+        if (ConversationId is null || _busy || string.IsNullOrWhiteSpace(branch)
+            || branch == _status?.Branch)
+        {
+            return;
+        }
+
+        _busy = true;
+        _log = $"$ git switch {branch} && git pull …";
+        try
+        {
+            var result = await Client.CheckoutChatBranchAsync(ConversationId, branch);
+            _log = result is null ? "(conversation not found)"
+                : result.Ok
+                    ? (result.Output.Length > 0 ? result.Output : $"git switch {branch}: ok")
+                    : $"git switch {branch}: {result.Error}{(result.Output.Length > 0 ? "\n" + result.Output : "")}";
+            _status = await Client.GetChatGitStatusAsync(ConversationId);
+            _branches = _status is { IsRepo: true } ? await Client.GetChatBranchesAsync(ConversationId) : null;
         }
         finally
         {

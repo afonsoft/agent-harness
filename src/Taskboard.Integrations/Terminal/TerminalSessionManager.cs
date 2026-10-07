@@ -31,6 +31,9 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         public string? ConnectionId { get; set; }
         public required Func<string, string, Task> OnOutput { get; set; }
         public required Func<string, string, Task> OnClosed { get; set; }
+        /// <summary>cwd the PTY started in — a deterministic id rebound to a
+        /// different workdir gets recycled so the shell lands in the right dir.</summary>
+        public string? Workdir { get; init; }
         public DateTimeOffset? OrphanedAtUtc { get; set; }
         /// <summary>Bounded output scrollback replayed on reattach (SPEC-20260928 RF-003).</summary>
         public StringBuilder Scrollback { get; } = new();
@@ -127,24 +130,38 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                             "Terminal session id is already in use.");
                     }
 
-                    bound.ConnectionId = connectionId;
-                    bound.OrphanedAtUtc = null;
-                    bound.OnOutput = onOutput;
-                    bound.OnClosed = onClosed;
-                    var replay = bound.Scrollback.ToString();
-                    if (replay.Length > 0)
+                    if (SameWorkdir(bound.Workdir, workdir))
                     {
-                        _ = bound.OnOutput(sessionId, replay);
+                        bound.ConnectionId = connectionId;
+                        bound.OrphanedAtUtc = null;
+                        bound.OnOutput = onOutput;
+                        bound.OnClosed = onClosed;
+                        var replay = bound.Scrollback.ToString();
+                        if (replay.Length > 0)
+                        {
+                            _ = bound.OnOutput(sessionId, replay);
+                        }
+
+                        return Task.FromResult(sessionId);
                     }
 
-                    return Task.FromResult(sessionId);
+                    // A live session whose workdir no longer matches (e.g. the
+                    // conversation's repo changed) gets recycled — the
+                    // deterministic id is reused by the fresh PTY below so the
+                    // shell lands in the requested directory.
+                    if (_sessions.TryRemove(sessionId, out var staleRunning))
+                    {
+                        _ = DisposeEntryAsync(staleRunning);
+                    }
                 }
-
-                // Stale entry (exited, Exited dispatch pending) — evict so the
-                // deterministic id can be reused by a fresh session.
-                if (_sessions.TryRemove(sessionId, out var stale))
+                else
                 {
-                    _ = DisposeEntryAsync(stale);
+                    // Stale entry (exited, Exited dispatch pending) — evict so the
+                    // deterministic id can be reused by a fresh session.
+                    if (_sessions.TryRemove(sessionId, out var stale))
+                    {
+                        _ = DisposeEntryAsync(stale);
+                    }
                 }
             }
 
@@ -170,7 +187,8 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 UserKey = userKey,
                 ConnectionId = connectionId,
                 OnOutput = onOutput,
-                OnClosed = onClosed
+                OnClosed = onClosed,
+                Workdir = workdir
             };
 
             session.OutputReceived += chunk =>
@@ -188,6 +206,23 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 sessionId, userKey, connectionId);
             return Task.FromResult(sessionId);
         }
+    }
+
+    /// <summary>Workdir equality for rebind-vs-recycle — normalized full paths.</summary>
+    private static bool SameWorkdir(string? a, string? b)
+    {
+        if (a is null || b is null)
+        {
+            return a is null && b is null;
+        }
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
+            comparison);
     }
 
     private static string? NormalizeSessionId(string? requested)

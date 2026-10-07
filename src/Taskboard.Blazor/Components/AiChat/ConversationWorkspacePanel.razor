@@ -15,7 +15,7 @@
     (hidden) so the xterm and the code-server iframe keep state.
 *@
 
-<div class="chat-ws @(_open ? "open" : "")" style="--ws-width:@_width.ToString("0.##", CultureInfo.InvariantCulture)%" @ref="_panelRef">
+<div class="chat-ws @(_open ? "open" : "") @(_maximized ? "maximized" : "")" style="--ws-width:@_width.ToString("0.##", CultureInfo.InvariantCulture)%" @ref="_panelRef">
     @if (_open)
     {
         <div class="chat-ws-resize" @ref="_resizeRef" role="separator" aria-orientation="vertical"></div>
@@ -31,6 +31,11 @@
                         </button>
                     }
                 </div>
+                <button type="button" class="chat-ws-close btn btn-sm btn-link text-body-secondary" @onclick="ToggleMaximizedAsync"
+                        title="@(_maximized ? L.T("chat.ws.restore") : L.T("chat.ws.maximize"))"
+                        aria-label="@(_maximized ? L.T("chat.ws.restore") : L.T("chat.ws.maximize"))">
+                    <Icon Name="@(_maximized ? IconName.ArrowLeft : IconName.ArrowsFullscreen)" />
+                </button>
                 <button type="button" class="chat-ws-close btn btn-sm btn-link text-body-secondary" @onclick="CloseAsync" title="@L.T("chat.ws.close")" aria-label="@L.T("chat.ws.close")">
                     <Icon Name="IconName.XLg" />
                 </button>
@@ -102,6 +107,7 @@
     public bool IsOpen => _open;
 
     private bool _open;
+    private bool _maximized;
     private string _tab = "tasks";
     private int _width = 45;
     private string? _loadedFor;
@@ -142,7 +148,12 @@
         }
     }
 
-    /// <summary>Toggles the pane (chat header button).</summary>
+    /// <summary>
+    /// Toggles the pane (chat header button). External callers invoke this
+    /// outside Blazor event dispatch, so it must trigger its own render —
+    /// without <see cref="InvokeAsync(Action)"/> the class flip never reaches
+    /// the DOM and the button looks dead.
+    /// </summary>
     public async Task ToggleAsync()
     {
         _open = !_open;
@@ -153,6 +164,7 @@
         }
 
         await PersistAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     /// <summary>Opens the pane (e.g. deep-link or run start).</summary>
@@ -167,6 +179,7 @@
         _visited.Add(_tab);
         await LoadWorkspaceAsync();
         await PersistAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     /// <summary>SPEC-20261017: ⌘K "open X tab" — selects then opens.</summary>
@@ -180,6 +193,14 @@
 
         _open = true;
         await LoadWorkspaceAsync();
+        await PersistAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Maximizes the pane over the chat column / restores the split width.</summary>
+    private async Task ToggleMaximizedAsync()
+    {
+        _maximized = !_maximized;
         await PersistAsync();
     }
 
@@ -206,6 +227,7 @@
                 _open = state.Open;
                 _tab = Tabs.Contains(state.Tab) ? state.Tab! : "tasks";
                 _width = Math.Clamp(state.Width, 30, 70);
+                _maximized = state.Maximized;
             }
         }
         catch
@@ -235,7 +257,7 @@
     {
         try
         {
-            await JS.InvokeVoidAsync("taskboardChat.chatWsSet", ConversationId, new { open = _open, tab = _tab, width = _width });
+            await JS.InvokeVoidAsync("taskboardChat.chatWsSet", ConversationId, new { open = _open, tab = _tab, width = _width, maximized = _maximized });
         }
         catch
         {
@@ -262,7 +284,7 @@
         _ => tab,
     };
 
-    private sealed record ChatWsState(bool Open, string? Tab, int Width);
+    private sealed record ChatWsState(bool Open, string? Tab, int Width, bool Maximized = false);
 
     public ValueTask DisposeAsync()
     {

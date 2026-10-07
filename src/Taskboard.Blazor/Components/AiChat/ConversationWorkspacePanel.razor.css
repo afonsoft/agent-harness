@@ -94,6 +94,10 @@ body.chat-ws-dragging .chat-ws-resize {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    /* 1px breathing room so tab content doesn't touch the pane edges. */
+    margin: 1px;
+    padding: 1px;
+    border-radius: 4px;
 }
 
 .chat-ws-pane[hidden] {
@@ -140,6 +144,11 @@ body.chat-ws-dragging .chat-ws-resize {
     flex: 1;
     border: 0;
     min-height: 0;
+    /* Explicit % sizing — flex-basis alone lets the iframe keep its intrinsic
+       300x150 box on some embeds; it must track the pane on every resize. */
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 .chat-ws-todos .list-group-item {
@@ -150,6 +159,20 @@ body.chat-ws-dragging .chat-ws-resize {
 body.chat-ws-dragging {
     cursor: col-resize;
     user-select: none;
+}
+
+/* RF-008: maximized — the pane covers the whole chat column; a back arrow
+   restores the persisted split width. */
+.chat-ws.open.maximized {
+    position: absolute;
+    inset: 0;
+    flex: none;
+    min-width: 0;
+    z-index: 20;
+}
+
+.chat-ws.open.maximized .chat-ws-resize {
+    display: none;
 }
 
 /* RF-001: below lg the pane becomes a bottom sheet over the chat column. */

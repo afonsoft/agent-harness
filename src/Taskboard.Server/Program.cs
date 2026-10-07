@@ -2664,6 +2664,16 @@ void MapSettingsAndChatEndpoints()
             ? Results.Ok(new { status })
             : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
 
+    chat.MapGet("conversations/{id}/git/branches", async (string id, ConversationGitService git, CancellationToken ct) =>
+        await git.GetBranchesAsync(id, ct) is { } branches
+            ? Results.Ok(new { branches })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapPost("conversations/{id}/git/checkout", async (string id, ChatGitCheckoutRequest request, ConversationGitService git, CancellationToken ct) =>
+        await git.CheckoutAsync(id, request.Branch, ct) is { } result
+            ? Results.Ok(new { result })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
     chat.MapPost("conversations/{id}/git/{op}", async (string id, string op, ConversationGitService git, CancellationToken ct) =>
         await git.RunSyncOpAsync(id, op, ct) is { } result
             ? Results.Ok(new { result })

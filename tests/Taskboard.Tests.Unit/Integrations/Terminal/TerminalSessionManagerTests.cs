@@ -459,6 +459,63 @@ public class TerminalSessionManagerTests
         await Should.NotThrowAsync(() => h.Manager.SweepIdleAsync());
         h.Sessions[0].Disposed.ShouldBeTrue();
     }
+
+    // Chat terminal tab: a deterministic conv-<id> rebind must land the shell
+    // in the conversation's repo — a live session in a stale workdir gets
+    // recycled instead of rebound.
+    [Fact]
+    public async Task Dado_SessaoVivaComOutroWorkdir_Quando_OpenMesmoId_Entao_ReciclaParaNovoWorkdir()
+    {
+        await using var h = new Harness();
+
+        var id = await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed,
+            workdir: "/home/u/repos/repo-a", requestedSessionId: "conv-1");
+        var second = await h.Manager.OpenAsync(
+            "u1", "conn2", h.OnOutput, h.OnClosed,
+            workdir: "/home/u/repos/repo-b", requestedSessionId: "conv-1");
+
+        second.ShouldBe(id);
+        h.Sessions.Count.ShouldBe(2);
+        h.Sessions[0].Disposed.ShouldBeTrue();
+        h.Sessions[1].IsRunning.ShouldBeTrue();
+        h.RequestedWorkdirs.ShouldBe(["/home/u/repos/repo-a", "/home/u/repos/repo-b"]);
+    }
+
+    [Fact]
+    public async Task Dado_SessaoVivaMesmoWorkdir_Quando_OpenMesmoId_Entao_RebindSemNovaSessao()
+    {
+        await using var h = new Harness();
+
+        await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed,
+            workdir: "/home/u/repos/repo-a", requestedSessionId: "conv-1");
+        var second = await h.Manager.OpenAsync(
+            "u1", "conn2", h.OnOutput, h.OnClosed,
+            workdir: "/home/u/repos/repo-a/", requestedSessionId: "conv-1");
+
+        second.ShouldBe("conv-1");
+        h.Sessions.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Dado_SessaoDeOutroUsuarioComOutroWorkdir_Quando_OpenMesmoId_Entao_RecusaEMantem()
+    {
+        // Ownership check comes before the workdir recycle — a foreign live
+        // session is never disposed by an id collision.
+        await using var h = new Harness();
+
+        await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed,
+            workdir: "/home/u/repos/repo-a", requestedSessionId: "conv-1");
+
+        await Should.ThrowAsync<InvalidOperationException>(() => h.Manager.OpenAsync(
+            "u2", "conn2", h.OnOutput, h.OnClosed,
+            workdir: "/home/u/repos/repo-b", requestedSessionId: "conv-1"));
+
+        h.Sessions[0].Disposed.ShouldBeFalse();
+        h.Sessions[0].IsRunning.ShouldBeTrue();
+    }
 }
 
 /// <summary>ILogger que grava as mensagens formatadas para asserção.</summary>

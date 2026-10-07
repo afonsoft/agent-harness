@@ -1625,28 +1625,31 @@ public sealed class ChatServiceTests : IDisposable
         var handler = new ScriptedProviderHandler(_ => (OkSse(), HttpStatusCode.OK));
         var service = NewService(handler, new ChatRunCoordinator(), extraConfig: new()
         {
-            ["Taskboard:Chat:Context:CompactAtTokens"] = "400",
+            // Budget folgado o bastante para o prune sozinho resolver a
+            // pressão — acima disso o RF-004 summarize rodaria e reconstruiria
+            // o wire sem tombstones (mudança de cenário, não bug).
+            ["Taskboard:Chat:Context:CompactAtTokens"] = "600",
             ["Taskboard:Chat:Context:KeepRecentTurns"] = "2",
         });
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
-        await SeedHistoryAsync(conversation.Id, 5, "velho");
+        await SeedHistoryAsync(conversation.Id, 10, "velho");
 
         var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "oi");
 
         // RF-003: wire carrega tombstone nos resultados antigos; o último turno fica inteiro.
         handler.Bodies.ShouldNotBeEmpty();
-        var request = handler.Bodies[0];
+        var request = handler.Bodies[^1];
         request.ShouldContain("earlier tool output pruned");
         request.ShouldNotContain("velho-resultado-0-");
         request.ShouldNotContain("velho-resultado-3-");
-        request.ShouldContain("velho-resultado-4-");
+        request.ShouldContain("velho-resultado-9-");
 
         // RF-007: evento do medidor + stats na run.
         events.OfType<ChatPressureEvent>().ShouldNotBeEmpty();
         var run = await _context.ChatRuns.OrderBy(r => r.CreatedAt).LastAsync();
         run.CompactionCount.ShouldBeGreaterThanOrEqualTo(1);
-        run.ContextTokensLimit.ShouldBe(400);
+        run.ContextTokensLimit.ShouldBe(600);
 
         // RNF-001: o histórico persistido NUNCA é alterado.
         _context.ChatMessages.Count(m => m.Content.Contains("velho-resultado-0-")).ShouldBe(1);

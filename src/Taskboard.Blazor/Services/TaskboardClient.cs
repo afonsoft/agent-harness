@@ -1253,6 +1253,36 @@ public sealed class TaskboardClient
         return body?.Result;
     }
 
+    /// <summary>RF-006: branches for the picker — null on 404 (unknown conversation).</summary>
+    public async Task<ChatGitBranchesDto?> GetChatBranchesAsync(string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/git/branches", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatGitBranchesResponse>(cancellationToken: cancellationToken);
+        return body?.Branches;
+    }
+
+    /// <summary>RF-006: switch branch then pull — returns the combined op result.</summary>
+    public async Task<ChatGitOpResult?> CheckoutChatBranchAsync(string conversationId, string branch, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/git/checkout",
+            new ChatGitCheckoutRequest(branch), cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatGitOpResponse>(cancellationToken: cancellationToken);
+        return body?.Result;
+    }
+
     public async Task<ChatCreatePrResult?> CreateChatPullRequestAsync(
         string conversationId, CreateChatPullRequestRequest request, CancellationToken cancellationToken = default)
     {
@@ -1821,6 +1851,7 @@ public sealed class TaskboardClient
     private sealed record ConversationPlanResponse(ChatApprovalDto? Plan);
     private sealed record ChatGitStatusResponse(ChatGitStatusDto Status);
     private sealed record ChatGitOpResponse(ChatGitOpResult Result);
+    private sealed record ChatGitBranchesResponse(ChatGitBranchesDto Branches);
     private sealed record ChatCreatePrResponse(ChatCreatePrResult Result);
     private sealed record ChatCapabilitiesResponse(List<ChatCapability> Capabilities);
     private sealed record CustomCliModelsResponse(List<string> Models);

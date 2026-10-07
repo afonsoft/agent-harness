@@ -51,6 +51,29 @@
     private string? _error;
     private bool _canRetry;
     private bool _started;
+    private string? _boundExpected;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_boundExpected == ExpectedSessionId)
+        {
+            return;
+        }
+
+        // ExpectedSessionId changed (e.g. the chat switched conversations) —
+        // the displayed PTY belongs to the old id: reset the surface and open
+        // against the new deterministic id once the pane has started.
+        var reopened = _boundExpected is not null && _started;
+        _boundExpected = ExpectedSessionId;
+        if (reopened)
+        {
+            _sessionId = null;
+            _error = null;
+            _canRetry = false;
+            await JS.InvokeVoidAsync("taskboardTerminal.reset", ElementId);
+            await OpenSessionAsync();
+        }
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

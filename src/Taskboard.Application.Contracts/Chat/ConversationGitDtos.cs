@@ -48,6 +48,20 @@ public sealed record ChatCreatePrResult(
 /// <summary>RF-003 request body — empty fields fall back to the run summary draft.</summary>
 public sealed record CreateChatPullRequestRequest(string? Title = null, string? Body = null);
 
+/// <summary>
+/// RF-006: branch picker payload — the checked-out branch plus every
+/// switchable branch (locals first, then remote-only entries DWIM'd by
+/// <c>git switch</c>).
+/// </summary>
+public sealed record ChatGitBranchesDto(
+    /// <summary>Current branch; <c>null</c> when detached.</summary>
+    string? Current,
+    /// <summary>All branch names the picker offers (deduped, local + remote).</summary>
+    IReadOnlyList<string> Branches);
+
+/// <summary>RF-006 request body — branch to switch to (followed by a pull).</summary>
+public sealed record ChatGitCheckoutRequest(string Branch);
+
 /// <summary>RF-004: hover card payload for a <c>github.com/*/pull/N</c> link.</summary>
 public sealed record ChatPrCardDto(
     int Number,

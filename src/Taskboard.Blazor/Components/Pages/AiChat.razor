@@ -15,6 +15,16 @@
 <PageTitle>AI Code - Harness</PageTitle>
 
 <div class="d-flex align-items-center gap-2 mb-3">
+    @* Chat fullscreen: topbar + sidebar hide — this hamburger reopens the
+       drawer as an overlay so navigation stays reachable. *@
+    @if (_chatFullscreen)
+    {
+        <button type="button" class="ai-chat-iconbtn"
+                data-bs-toggle="offcanvas" data-bs-target="#appSidebar"
+                aria-controls="appSidebar" aria-label="Open navigation" title="Menu">
+            <Icon Name="IconName.List" />
+        </button>
+    }
     <h1 class="h4 fw-bold mb-0">AI Code</h1>
     @* SPEC-20261003-ai-code-devin-layout RF-001: contexto em texto —
        workspace/repo selecionado (Devin-style "branch · repo"). *@
@@ -80,6 +90,13 @@
                 @onclick="BeginRenameSession">
             <Icon Name="IconName.PencilSquare" />
         </button>
+        @* Chat fullscreen — hides the app topbar + sidebar; resets on nav. *@
+        <button type="button" class="ai-chat-iconbtn" title="Chat fullscreen"
+                aria-label="Toggle chat fullscreen"
+                aria-pressed="@(_chatFullscreen ? "true" : "false")"
+                @onclick="ToggleChatFullscreenAsync">
+            <Icon Name="@(_chatFullscreen ? IconName.FullscreenExit : IconName.ArrowsFullscreen)" />
+        </button>
     </div>
 </div>
 
@@ -124,12 +141,15 @@ else
                         <Icon Name="IconName.Folder2Open" />
                         <span class="ms-1">@WorkspaceLabel</span>
                     </button>
-                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
-                            title="Repository (optional — resolves to ~/repos/<name>)"
-                            @onclick="ShowRepoModalAsync">
-                        <Icon Name="IconName.Folder" />
-                        <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : _cfgRepo)</span>
-                    </button>
+                    @if (!RepoCoveredByWorkspace)
+                    {
+                        <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                                title="Repository (optional — resolves to ~/repos/<name>)"
+                                @onclick="ShowRepoModalAsync">
+                            <Icon Name="IconName.Folder" />
+                            <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : RepoShortName(_cfgRepo))</span>
+                        </button>
+                    }
                     </AgentTools>
                 </ProviderChat>
             </div>
@@ -192,12 +212,15 @@ else
                         <Icon Name="IconName.Folder2Open" />
                         <span class="ms-1">@WorkspaceLabel</span>
                     </button>
-                    <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
-                            title="Repository (optional — resolves to ~/repos/<name>)"
-                            @onclick="ShowRepoModalAsync">
-                        <Icon Name="IconName.Folder" />
-                        <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : _cfgRepo)</span>
-                    </button>
+                    @if (!RepoCoveredByWorkspace)
+                    {
+                        <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
+                                title="Repository (optional — resolves to ~/repos/<name>)"
+                                @onclick="ShowRepoModalAsync">
+                            <Icon Name="IconName.Folder" />
+                            <span class="ms-1">@(string.IsNullOrWhiteSpace(_cfgRepo) ? "repo" : RepoShortName(_cfgRepo))</span>
+                        </button>
+                    }
                     <button type="button" class="ai-chat-ctl ai-chat-ctlbtn"
                             title="Model for delegated CLI runs"
                             @onclick="ShowModelModalAsync">
@@ -518,8 +541,8 @@ else
                     }
                     @if (!string.IsNullOrWhiteSpace(_activeThread.RepositoryFullName))
                     {
-                        <span class="ai-chat-chip">
-                            <Icon Name="IconName.Folder" /> @_activeThread.RepositoryFullName
+                        <span class="ai-chat-chip" title="@_activeThread.RepositoryFullName">
+                            <Icon Name="IconName.Folder" /> @RepoShortName(_activeThread.RepositoryFullName)
                         </span>
                     }
                     <span class="text-body-secondary" title="Workspace">@(_activeThread.WorkspacePath ?? "~/repos")</span>
@@ -905,6 +928,39 @@ else
     private string WorkspaceLabel => string.IsNullOrWhiteSpace(_cfgWorkspace)
         ? "~/repos"
         : _cfgWorkspace.Trim();
+
+    /// <summary>Composer pills stay compact — show the repo name only (last
+    /// segment of owner/name or of a folder path).</summary>
+    private static string RepoShortName(string path)
+    {
+        var trimmed = path.Trim().TrimEnd('/', '\\');
+        var idx = trimmed.LastIndexOfAny('/', '\\');
+        return idx >= 0 ? trimmed[(idx + 1)..] : trimmed;
+    }
+
+    /// <summary>A workspace folder that already IS the selected repo dir makes
+    /// the separate repo pill redundant — the picker hides it.</summary>
+    private bool RepoCoveredByWorkspace =>
+        !string.IsNullOrWhiteSpace(_cfgRepo)
+        && !string.IsNullOrWhiteSpace(_cfgWorkspace)
+        && string.Equals(RepoShortName(_cfgWorkspace), RepoShortName(_cfgRepo),
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Chat fullscreen — topbar + sidebar hidden (reset on nav).</summary>
+    private bool _chatFullscreen;
+
+    private async Task ToggleChatFullscreenAsync()
+    {
+        _chatFullscreen = !_chatFullscreen;
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setChatFullscreen", _chatFullscreen);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop unavailable — the button state still toggles.
+        }
+    }
 
     /// <summary>
     /// SPEC-20261004 RF-003: hydrates the agent-bar config from a conversation

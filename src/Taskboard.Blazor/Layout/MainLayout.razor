@@ -164,7 +164,21 @@
         // Devin-style mobile drawer: a nav pick must close the floating menu —
         // only the backdrop tap did before.
         _ = CloseMobileNavAsync();
+        // Chat fullscreen is scoped to /ai-chat — leaving it restores the chrome.
+        _ = ClearChatFullscreenAsync();
         StateHasChanged();
+    }
+
+    private async Task ClearChatFullscreenAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.setChatFullscreen", false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop not ready — the attr clears on the next nav anyway.
+        }
     }
 
     private async Task CloseMobileNavAsync()

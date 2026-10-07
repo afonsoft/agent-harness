@@ -25,8 +25,11 @@ public sealed class ShellExecTool(
 
     public string Name => "shell_exec";
     public string Description =>
-        "Run a shell command inside the workspace directory. Read-only commands are preferred; "
-        + "dangerous commands (recursive deletes, sudo, network egress) are refused. "
+        "Execute a shell command now inside the workspace directory and get its real "
+        + "stdout/stderr back. Use this to actually run commands the task needs (builds, "
+        + "tests, git, ls, cat, installs) — never answer with the command for the user "
+        + "to run; call this tool and report the output. Dangerous commands (recursive "
+        + "deletes, sudo, network egress) are refused by the security gateway. "
         + "run_in_background detaches the command into a durable ChatJob — poll it with "
         + "job_list/job_output, stop it with job_kill.";
     public string ParametersJson => """

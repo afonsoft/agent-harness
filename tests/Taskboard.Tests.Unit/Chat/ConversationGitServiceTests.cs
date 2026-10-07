@@ -213,6 +213,111 @@ public sealed class ConversationGitServiceTests : IDisposable
         card.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task Dado_RefsLocaisERemotas_Quando_Branches_Entao_ListaDedupSemHead()
+    {
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>())
+            .Returns(new ChatWorkspaceStatusDto(IsGit: true, Branch: "main", Dirty: false));
+        _git.Set("for-each-ref --format=%(refname) refs/heads/ refs/remotes/",
+            new ChatGitCommandResult(0, "refs/heads/feature-x\nrefs/heads/feature/slash\nrefs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/main\nrefs/remotes/origin/release\n", "", false));
+        _git.Set("branch --show-current", new ChatGitCommandResult(0, "main\n", "", false));
+
+        var branches = await NewService().GetBranchesAsync(_conversation.Id.Value);
+
+        branches.ShouldNotBeNull();
+        branches.Current.ShouldBe("main");
+        branches.Branches.ShouldBe(["feature-x", "feature/slash", "main", "release"]);
+    }
+
+    [Fact]
+    public async Task Dado_DirForaDeGit_Quando_Branches_Entao_ListaVazia()
+    {
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>()).Returns((ChatWorkspaceStatusDto?)null);
+
+        var branches = await NewService().GetBranchesAsync(_conversation.Id.Value);
+
+        branches.ShouldNotBeNull();
+        branches.Branches.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_RunAtiva_Quando_Checkout_Entao_RecusaRunActive()
+    {
+        var run = ChatRun.Create(ChatRunId.NewGuid(), _conversation.Id, ChatMessageId.NewGuid());
+        run.Start();
+        _context.ChatRuns.Add(run);
+        await _context.SaveChangesAsync();
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>())
+            .Returns(new ChatWorkspaceStatusDto(true, "main", false));
+
+        var result = await NewService().CheckoutAsync(_conversation.Id.Value, "feature-x");
+
+        result.ShouldNotBeNull();
+        result.Ok.ShouldBeFalse();
+        result.Error.ShouldBe("run-active");
+        _git.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_BranchComFlag_Quando_Checkout_Entao_InvalidBranchSemGit()
+    {
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>())
+            .Returns(new ChatWorkspaceStatusDto(true, "main", false));
+
+        var result = await NewService().CheckoutAsync(_conversation.Id.Value, "--detach");
+
+        result.ShouldNotBeNull();
+        result.Ok.ShouldBeFalse();
+        result.Error.ShouldBe("invalid-branch");
+        _git.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_WorkspaceLimpo_Quando_Checkout_Entao_SwitchEPull()
+    {
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>())
+            .Returns(new ChatWorkspaceStatusDto(true, "main", false));
+        _git.Set("switch feature-x", new ChatGitCommandResult(0, "Switched to branch 'feature-x'\n", "", false));
+        _git.Set("pull", new ChatGitCommandResult(0, "Already up to date.\n", "", false));
+
+        var result = await NewService().CheckoutAsync(_conversation.Id.Value, "feature-x");
+
+        result.ShouldNotBeNull();
+        result.Ok.ShouldBeTrue();
+        result.Error.ShouldBeNull();
+        _git.Calls.ShouldBe(["switch feature-x", "pull"]);
+    }
+
+    [Fact]
+    public async Task Dado_SwitchFalha_Quando_Checkout_Entao_GitFailedSemPull()
+    {
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>())
+            .Returns(new ChatWorkspaceStatusDto(true, "main", false));
+        _git.Set("switch ghost", new ChatGitCommandResult(128, "", "fatal: invalid reference\n", false));
+
+        var result = await NewService().CheckoutAsync(_conversation.Id.Value, "ghost");
+
+        result.ShouldNotBeNull();
+        result.Ok.ShouldBeFalse();
+        result.Error.ShouldBe("git-failed");
+        _git.Calls.ShouldNotContain("pull");
+    }
+
+    [Fact]
+    public async Task Dado_PullFalhaAposSwitch_Quando_Checkout_Entao_OkComPullFailed()
+    {
+        _diff.StatusAsync(_workdir, Arg.Any<CancellationToken>())
+            .Returns(new ChatWorkspaceStatusDto(true, "main", false));
+        _git.Set("switch feature-x", new ChatGitCommandResult(0, "Switched to branch 'feature-x'\n", "", false));
+        _git.Set("pull", new ChatGitCommandResult(1, "", "no tracking information\n", false));
+
+        var result = await NewService().CheckoutAsync(_conversation.Id.Value, "feature-x");
+
+        result.ShouldNotBeNull();
+        result.Ok.ShouldBeTrue();
+        result.Error.ShouldBe("pull-failed");
+    }
+
     public void Dispose()
     {
         _context.Dispose();
