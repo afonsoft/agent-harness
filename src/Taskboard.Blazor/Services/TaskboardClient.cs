@@ -1466,6 +1466,45 @@ public sealed class TaskboardClient
     }
 
     /// <summary>
+    /// SPEC-20261012-chat-run-controls: cooperative pause — 202 with the run
+    /// row (status may still be running; it flips at the next boundary).
+    /// False on 404/409 (run gone or already terminal).
+    /// </summary>
+    public async Task<bool> PauseChatRunAsync(
+        string conversationId, string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/runs/{Uri.EscapeDataString(runId)}/pause",
+            content: null, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return true;
+    }
+
+    /// <summary>
+    /// SPEC-20261012-chat-run-controls: wakes the parked executor or
+    /// re-queues an executor-less paused row. False on 404/409.
+    /// </summary>
+    public async Task<bool> ResumeChatRunAsync(
+        string conversationId, string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/runs/{Uri.EscapeDataString(runId)}/resume",
+            content: null, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Conflict)
+        {
+            return false;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return true;
+    }
+
+    /// <summary>
     /// SPEC-20261004 RF-001: subdirectory listing for the workspace picker —
     /// <paramref name="path"/> null means the workspace root (~/<repos>).
     /// Returns null on invalid/out-of-jail paths.

@@ -42,6 +42,9 @@ public sealed class ChatRun : AggregateRoot<ChatRunId>
 
     public DateTime? StartedAt { get; private set; }
 
+    /// <summary>SPEC-20261012-chat-run-controls: when the run parked (null = not paused).</summary>
+    public DateTime? PausedAt { get; private set; }
+
     public DateTime? FinishedAt { get; private set; }
 
     private ChatRun()
@@ -106,7 +109,65 @@ public sealed class ChatRun : AggregateRoot<ChatRunId>
         Finish(now);
     }
 
-    /// <summary>User-requested stop — legal from queued or running.</summary>
+    /// <summary>
+    /// SPEC-20261012-chat-run-controls: park at a tool boundary (or while
+    /// queued). Keeps the partial checkpoint — the pause is observable but
+    /// never interrupts in-flight work.
+    /// </summary>
+    public void Pause(DateTime? now = null)
+    {
+        if (Status != ChatRunStatus.Queued && Status != ChatRunStatus.Running)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Run '{Id}' cannot pause from status '{Status}'.");
+        }
+
+        Status = ChatRunStatus.Paused;
+        PausedAt = now ?? DateTime.UtcNow;
+        IncrementVersion();
+    }
+
+    /// <summary>
+    /// Resumes a parked run: un-started rows go back to <c>queued</c> (they
+    /// still need the dispatcher's <see cref="Start"/>); a parked live run
+    /// returns to <c>running</c>. Throws on any other status.
+    /// </summary>
+    public void Resume(DateTime? now = null)
+    {
+        if (Status != ChatRunStatus.Paused)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Run '{Id}' cannot resume from status '{Status}'.");
+        }
+
+        Status = StartedAt is null ? ChatRunStatus.Queued : ChatRunStatus.Running;
+        PausedAt = null;
+        IncrementVersion();
+    }
+
+    /// <summary>
+    /// Post-restart resume of a run that was parked mid-flight: the executor
+    /// is gone, so the row re-enters the queue and the turn is re-driven from
+    /// the transcript. Distinct from <see cref="Resume"/> — the in-memory
+    /// checkpoint cannot be continued after a restart.
+    /// </summary>
+    public void Requeue(DateTime? now = null)
+    {
+        if (Status != ChatRunStatus.Paused)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"Run '{Id}' cannot requeue from status '{Status}'.");
+        }
+
+        Status = ChatRunStatus.Queued;
+        PausedAt = null;
+        IncrementVersion();
+    }
+
+    /// <summary>User-requested stop — legal from any active status.</summary>
     public void Stop(DateTime? now = null)
     {
         EnsureActive(nameof(Stop));
@@ -137,6 +198,7 @@ public sealed class ChatRun : AggregateRoot<ChatRunId>
     private void Finish(DateTime? now)
     {
         FinishedAt = now ?? DateTime.UtcNow;
+        PausedAt = null;
         PartialContent = null;
         PartialReasoning = null;
         IncrementVersion();

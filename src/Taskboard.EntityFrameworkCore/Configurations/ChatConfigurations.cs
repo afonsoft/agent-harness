@@ -141,6 +141,8 @@ public sealed class ChatRunConfiguration : IEntityTypeConfiguration<ChatRun>
             .HasDefaultValue(0);
         builder.Property(r => r.CreatedAt);
         builder.Property(r => r.StartedAt);
+        // SPEC-20261012-chat-run-controls: parked-run timestamp.
+        builder.Property(r => r.PausedAt);
         builder.Property(r => r.FinishedAt);
 
         builder.Property(r => r.Version)

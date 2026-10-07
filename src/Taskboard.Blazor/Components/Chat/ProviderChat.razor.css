@@ -764,6 +764,27 @@
     background: var(--bs-danger);
 }
 
+/* SPEC-20261012-chat-run-controls RF-008: pause/resume next to Stop. */
+.provider-chat-send.pause {
+    border-color: var(--bs-warning);
+    color: var(--bs-warning);
+}
+
+.provider-chat-send.pause:hover:not(:disabled) {
+    background: var(--bs-warning);
+    color: var(--bs-dark);
+}
+
+.provider-chat-send.resume {
+    border-color: var(--bs-success);
+    color: var(--bs-success);
+}
+
+.provider-chat-send.resume:hover:not(:disabled) {
+    background: var(--bs-success);
+    color: var(--bs-dark);
+}
+
 .provider-chat-image {
     max-height: 380px;
 }

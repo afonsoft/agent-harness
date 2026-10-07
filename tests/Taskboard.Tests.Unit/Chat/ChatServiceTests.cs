@@ -402,6 +402,168 @@ public sealed class ChatServiceTests : IDisposable
         sync.Partial.ShouldBeNull("run terminal não carrega checkpoint");
     }
 
+    // ---- SPEC-20261012-chat-run-controls: pause/resume ----
+
+    [Fact]
+    public async Task Dado_RunQueued_Quando_PauseRun_Entao_PausedEPersistido()
+    {
+        // RF-003: run ainda na fila vira paused na hora — sem executor para sinalizar.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+
+        var dto = await _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        dto.Status.ShouldBe("paused");
+        dto.PausedAt.ShouldNotBeNull();
+        var row = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        row.Status.ShouldBe(ChatRunStatus.Paused);
+
+        var detail = await _service.GetConversationAsync(conversation.Id);
+        detail.ShouldNotBeNull().ActiveRun.ShouldNotBeNull("paused segue ativa — RF-001 IsActive");
+    }
+
+    [Fact]
+    public async Task Dado_RunPausedSemExecutor_Quando_ResumeRun_Entao_RequeueParaFila()
+    {
+        // RF-003: paused sem executor vivo re-entra na fila — a dispatcher
+        // re-dirige o turno a partir da transcript.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        await _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        var dto = await _service.ResumeRunAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        dto.Status.ShouldBe("queued");
+        dto.PausedAt.ShouldBeNull();
+
+        // A fila carrega o enqueue original + o requeue do resume.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var reader = _runQueue.ReadAllAsync(timeout.Token).GetAsyncEnumerator(timeout.Token);
+        (await reader.MoveNextAsync()).ShouldBeTrue();
+        reader.Current.RunId.ShouldBe(run.Id);
+        (await reader.MoveNextAsync()).ShouldBeTrue("resume re-enfileira o work item");
+        reader.Current.RunId.ShouldBe(run.Id);
+    }
+
+    [Fact]
+    public async Task Dado_RunPaused_Quando_Stop_Entao_Stopped()
+    {
+        // RF-005: stop alcança a run pausada sem executor.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        await _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        (await _service.StopAsync(conversation.Id)).ShouldBeTrue();
+
+        var row = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        row.Status.ShouldBe(ChatRunStatus.Stopped);
+        row.PausedAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_RunTerminal_Quando_PauseOuResume_Entao_ChatConflictException()
+    {
+        // RF-003/RF-004: pause e resume rejeitam run terminal com 409 no endpoint.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        var entity = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        entity.Start(DateTime.UtcNow);
+        entity.Complete(5, 3, DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+
+        await Should.ThrowAsync<ChatConflictException>(
+            () => _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None));
+        await Should.ThrowAsync<ChatConflictException>(
+            () => _service.ResumeRunAsync(conversation.Id, run.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Dado_RunPausedOuRunning_Quando_RepetePauseResume_Entao_Idempotente()
+    {
+        // Pause em paused e resume em running são no-ops — o cliente pode
+        // chamar de novo sem erro (botão clicado duas vezes).
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+        await _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        var again = await _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None);
+        again.Status.ShouldBe("paused");
+
+        var entity = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        entity.Resume();
+        await _context.SaveChangesAsync();
+        var resume = await _service.ResumeRunAsync(conversation.Id, run.Id, CancellationToken.None);
+        resume.Status.ShouldBe("queued");
+    }
+
+    [Fact]
+    public async Task Dado_RunSnapshot_Quando_GetRunSnapshot_Entao_LastActivityEStallThreshold()
+    {
+        // RF-007: attach entrega o stamp de atividade + o threshold usado
+        // na derivação de stalled no cliente.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "oi", CancellationToken.None);
+
+        var sync = await _service.GetRunSnapshotAsync(conversation.Id, run.Id, CancellationToken.None);
+
+        sync.ShouldNotBeNull();
+        sync.StallThresholdSeconds.ShouldBe(120);
+        sync.LastActivityUtc.ShouldNotBeNull("sem eventos ainda, cai no StartedAt/criação");
+    }
+
+    [Fact]
+    public async Task Dado_FlagDePausa_Quando_Executa_Entao_ParkNoBoundaryEResumeCompleta()
+    {
+        // RF-002: pause flag estaciona o executor no boundary — chat.paused,
+        // row paused, espera; resume acorda → chat.resumed → turno completa.
+        var conversation = await _service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        var run = await _service.EnqueueMessageAsync(conversation.Id, "rode ls", CancellationToken.None);
+        var entity = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+        entity.Start(DateTime.UtcNow);
+        await _context.SaveChangesAsync();
+
+        var runCts = await _coordinator.BeginAsync(conversation.Id);
+        try
+        {
+            // PauseRunAsync com executor vivo vira flag — o park acontece no stream.
+            var flagged = await _service.PauseRunAsync(conversation.Id, run.Id, CancellationToken.None);
+            flagged.Status.ShouldBe("running", "executor vivo só consome o flag no boundary");
+
+            var events = new List<ChatStreamEvent>();
+            await using var enumerator = _service
+                .ExecuteAsync(entity, runCts, CancellationToken.None)
+                .GetAsyncEnumerator();
+            (await enumerator.MoveNextAsync()).ShouldBeTrue();
+            enumerator.Current.ShouldBeOfType<ChatPausedEvent>();
+
+            var parked = await _context.ChatRuns.SingleAsync(r => r.Id == ChatRunId.From(run.Id));
+            parked.Status.ShouldBe(ChatRunStatus.Paused);
+
+            var resumed = await _service.ResumeRunAsync(conversation.Id, run.Id, CancellationToken.None);
+            resumed.Status.ShouldBe("paused", "o executor parked ainda vai persistir o resume");
+
+            while (await enumerator.MoveNextAsync())
+            {
+                events.Add(enumerator.Current);
+            }
+
+            events.OfType<ChatResumedEvent>().ShouldHaveSingleItem();
+            events.OfType<ChatDoneEvent>().ShouldHaveSingleItem();
+        }
+        finally
+        {
+            _coordinator.End(conversation.Id, runCts);
+            runCts.Dispose();
+        }
+    }
+
     /// <summary>Provider fake que grava o corpo do request — transcript introspection.</summary>
     private sealed class RecordingProviderHandler : HttpMessageHandler
     {

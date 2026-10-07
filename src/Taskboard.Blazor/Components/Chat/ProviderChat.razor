@@ -160,10 +160,10 @@
             {
                 <span class="badge text-bg-primary" title="Agent mode — delegated CLI runs bound to this conversation">agent</span>
             }
-            @if (_running)
-            {
-                <span class="badge text-bg-warning">running</span>
-            }
+            @* SPEC-20261012-chat-run-controls RF-006: the full agent state
+               replaces the boolean running badge — click focuses the
+               pending card / live status bubble. *@
+            <AgentStateChip State="@AgentState()" FocusTargetId="@ChipFocusTarget()" />
             @if (_archived)
             {
                 <span class="badge text-bg-secondary">arquivada</span>
@@ -539,6 +539,7 @@
             @* SPEC-20261005-chat-tool-approval RF-002/RF-007: pending approval
                cards — replayed from ChatApproval rows on open/attach and kept
                live via approval.asked / approval.decided SSE. *@
+            <div id="chat-approval-cards">
             @foreach (var approval in _pendingApprovals)
             {
                 @if (approval.Kind == "plan-review")
@@ -628,9 +629,10 @@
                 </div>
                 }
             }
+            </div>
             @if (_running && string.IsNullOrEmpty(_streaming))
             {
-                <div class="provider-chat-bubble assistant">
+                <div id="chat-live-bubble" class="provider-chat-bubble assistant">
                     @if (_statusPhase is not null)
                     {
                         <span class="chat-status-chip">
@@ -795,6 +797,25 @@
                                         disabled="@(string.IsNullOrWhiteSpace(_composer) || _providerId == Guid.Empty || string.IsNullOrEmpty(_model) || _archived)">
                                     <Icon Name="IconName.ArrowUpRightCircle" />
                                 </button>
+                                @* SPEC-20261012-chat-run-controls RF-008:
+                                   Pause⇄Resume toggle next to Stop — the
+                                   chip/SSE keep the actual state; Ctrl+.
+                                   fires the same toggle. *@
+                                @if (_runStatus is "paused")
+                                {
+                                    <button type="button" class="provider-chat-send resume" @onclick="TogglePauseAsync"
+                                            title="Resume (Ctrl+.)" aria-label="Resume run" disabled="@_runActionBusy">
+                                        <Icon Name="IconName.PlayCircle" />
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="provider-chat-send pause" @onclick="TogglePauseAsync"
+                                            title="Pause (Ctrl+.)" aria-label="Pause run"
+                                            disabled="@_runActionBusy">
+                                        <Icon Name="IconName.PauseCircle" />
+                                    </button>
+                                }
                                 <button type="button" class="provider-chat-send stop" @onclick="StopAsync" title="Stop" aria-label="Stop">
                                     <Icon Name="IconName.StopCircle" />
                                 </button>
@@ -948,7 +969,14 @@
     private string? _streaming;
     private string? _reasoning;
     private string? _error;
-    private bool _running;
+    // SPEC-20261012-chat-run-controls: the run's live status drives the chip;
+    // _running stays the boolean "a live run exists" the layout already uses.
+    private string? _runStatus;
+    private bool _running => _runStatus is "queued" or "running" or "paused";
+    private DateTime? _lastActivityUtc;
+    private int _stallThresholdSeconds = 120;
+    private Timer? _stallTimer;
+    private bool _runActionBusy;
     private bool _busy;
     private CancellationTokenSource? _streamCts;
     private string? _copiedId;
@@ -1492,6 +1520,7 @@
         _streamCts?.Dispose();
         _jobsPollCts?.Cancel();
         _jobsPollCts?.Dispose();
+        _stallTimer?.Dispose();
     }
 
     private async Task StartNewChatAsync()
@@ -1512,6 +1541,7 @@
             _conversationTitle = conversation.Title;
             _archived = false;
             _runId = null;
+            _runStatus = null;
             _streamCts?.Cancel();
             _messages.Clear();
             _streaming = null;
@@ -1619,7 +1649,7 @@
         }
         else if (detail.ActiveRun is null)
         {
-            _running = false;
+            _runStatus = null;
             _runId = null;
         }
     }
@@ -1716,6 +1746,15 @@
         _slashPreventDefault = false;
         if (SlashOpen && HandleSlashKey(e))
         {
+            return;
+        }
+
+        // SPEC-20261012-chat-run-controls RF-008: Ctrl+. toggles pause on a
+        // live run — queued parks too (leaves the FIFO front, resumable).
+        if (e.Key == "." && e.CtrlKey && !e.ShiftKey && _runStatus is "running" or "paused" or "queued")
+        {
+            _slashPreventDefault = true;
+            await TogglePauseAsync();
             return;
         }
 
@@ -1856,6 +1895,7 @@
     /// <summary>FR-003: "Running tool/MCP/agent" chip label per status phase.</summary>
     private string StatusText() => _statusPhase switch
     {
+        "paused" => "Pausado",
         "running_tool" => $"Running tool: {_statusLabel}",
         "running_mcp" => $"Running MCP: {_statusLabel}",
         "running_agent" => $"Running agent: {_statusLabel}",
@@ -2219,7 +2259,7 @@
         _streamCts?.Dispose();
         var streamCts = new CancellationTokenSource();
         _streamCts = streamCts;
-        _running = true;
+        _runStatus = "queued";
         _runId = runId;
         _streaming = string.Empty;
         _reasoning = string.Empty;
@@ -2271,7 +2311,14 @@
         {
             await InvokeAsync(async () =>
             {
-                _running = false;
+                // SPEC-20261012: chat.done already set the terminal status —
+                // keep it as the last-run chip; only a stale live status
+                // (stream dropped mid-run) clears before the re-attach.
+                if (_runStatus is "queued" or "running" or "paused")
+                {
+                    _runStatus = null;
+                }
+
                 _runId = null;
                 _streaming = null;
                 _statusPhase = null;
@@ -2379,6 +2426,9 @@
 
     private async Task HandleSseEventAsync(string eventName, string data)
     {
+        // SPEC-20261012 RF-007: every live event proves activity — the chip's
+        // stalled derivation reads this stamp.
+        _lastActivityUtc = DateTime.UtcNow;
         switch (eventName)
         {
             // RF-003: full durable state — persisted messages + the in-flight
@@ -2391,7 +2441,13 @@
                     _messages.AddRange(sync.Messages);
                     _streaming = sync.Partial;
                     _reasoning = sync.PartialReasoning;
-                    _running = sync.Run.Status is "queued" or "running";
+                    _runStatus = sync.Run.Status;
+                    // SPEC-20261012: attach derives stalled immediately — the
+                    // stamp/threshold come from the server, not the client.
+                    _lastActivityUtc = sync.LastActivityUtc ?? DateTime.UtcNow;
+                    _stallThresholdSeconds = sync.StallThresholdSeconds > 0
+                        ? sync.StallThresholdSeconds : 120;
+                    StartStallTimer();
                     // RF-007: chips are ephemeral UI state — a fresh attach
                     // rebuilds them from steer.queued replays, if any.
                     _pendingSteers.Clear();
@@ -2504,6 +2560,20 @@
                 await ReloadConversationAsync();
                 await ScrollToEndAsync();
                 break;
+            case "chat.paused":
+                // SPEC-20261012 RF-002: parked at a boundary — the composer
+                // flips Pause→Resume; partial content stays visible.
+                _runStatus = "paused";
+                _statusPhase = "paused";
+                _statusLabel = "Pausado";
+                break;
+            case "chat.resumed":
+                // SPEC-20261012 RF-003: back from the park — the next status
+                // event repaints the live phase.
+                _runStatus = "running";
+                _statusPhase = null;
+                _statusLabel = null;
+                break;
             case "chat.deliverables":
             {
                 // RF-007: the run's deliverables card — emitted just before
@@ -2523,6 +2593,9 @@
                 if (done.TryGetProperty("run", out var runEl)
                     && runEl.TryGetProperty("status", out var st))
                 {
+                    // SPEC-20261012: terminal state rides the header chip
+                    // until the next run/conversation replaces it.
+                    _runStatus = st.GetString();
                     switch (st.GetString())
                     {
                         case "failed":
@@ -2539,6 +2612,7 @@
                 _statusLabel = null;
                 _pendingApprovals.Clear();
                 _pendingSteers.Clear();
+                StopStallTimer();
                 // RF-004/RF-005: run settled — refresh todo/diff/plan surfaces.
                 _wsRefreshSignal++;
                 break;
@@ -2600,6 +2674,96 @@
         {
             // The stream ends on its own when the server cancels.
         }
+    }
+
+    /// <summary>
+    /// SPEC-20261012-chat-run-controls RF-008: Pause⇄Resume toggle — the
+    /// button and Ctrl+. share this path; server-side flips at the next
+    /// tool-call boundary (SSE chat.paused/chat.resumed repaint the chip).
+    /// </summary>
+    private async Task TogglePauseAsync()
+    {
+        if (_conversationId is null || _runId is null || _runActionBusy)
+        {
+            return;
+        }
+
+        _runActionBusy = true;
+        try
+        {
+            var ok = _runStatus == "paused"
+                ? await Client.ResumeChatRunAsync(_conversationId, _runId)
+                : await Client.PauseChatRunAsync(_conversationId, _runId);
+            if (!ok)
+            {
+                _notice = _runStatus == "paused"
+                    ? "Não foi possível retomar — a run já terminou."
+                    : "Não foi possível pausar — a run já terminou.";
+                await ReloadConversationAsync();
+            }
+            else if (_runStatus == "paused")
+            {
+                // Optimistic — a parked executor replays chat.resumed, a
+                // re-queued one restarts and the attach repaints anyway.
+                _runStatus = "running";
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = $"Falha no pause/resume: {ex.Message}";
+        }
+        finally
+        {
+            _runActionBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// SPEC-20261012 RF-006: derived agent state — pending approvals win over
+    /// running/paused; stalled derives from the last-event stamp; terminal
+    /// statuses ride through for the last-run badge.
+    /// </summary>
+    private string? AgentState() => _runStatus switch
+    {
+        "queued" => "queued",
+        "paused" => _pendingApprovals.Count > 0 ? "waiting-approval" : "paused",
+        "running" => _pendingApprovals.Count > 0 ? "waiting-approval"
+            : IsStalled() ? "stalled" : "running",
+        "completed" => "completed",
+        "failed" => "failed",
+        "stopped" => "stopped",
+        "interrupted" => "interrupted",
+        _ => null,
+    };
+
+    private string? ChipFocusTarget() => AgentState() switch
+    {
+        "waiting-approval" => "chat-approval-cards",
+        "queued" or "running" or "paused" or "stalled" => "chat-live-bubble",
+        _ => null,
+    };
+
+    /// <summary>RF-007: running + no event for the threshold → stalled.</summary>
+    private bool IsStalled() =>
+        _runStatus == "running"
+        && _lastActivityUtc is { } stamp
+        && DateTime.UtcNow - stamp > TimeSpan.FromSeconds(_stallThresholdSeconds);
+
+    /// <summary>
+    /// Tick driving the stalled derivation — cheap 5s re-render while a run
+    /// is live; started on attach, stopped on done/dispose.
+    /// </summary>
+    private void StartStallTimer()
+    {
+        _stallTimer ??= new Timer(
+            _ => InvokeAsync(StateHasChanged), null,
+            TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private void StopStallTimer()
+    {
+        _stallTimer?.Dispose();
+        _stallTimer = null;
     }
 
     /// <summary>

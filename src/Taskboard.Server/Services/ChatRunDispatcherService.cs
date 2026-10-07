@@ -158,6 +158,9 @@ public sealed class ChatRunDispatcherService : BackgroundService
             await foreach (var chatEvent in executor.ExecuteAsync(run, cts, stoppingToken).ConfigureAwait(false))
             {
                 _broadcaster.Publish(run.Id.Value, chatEvent);
+                // SPEC-20261012-chat-run-controls RF-005: activity stamp the
+                // stall watchdog reads — every event proves the run is alive.
+                _coordinator.Touch(run.Id.Value);
                 if (chatEvent is ChatDoneEvent doneEvent)
                 {
                     done = doneEvent;
@@ -220,6 +223,7 @@ public sealed class ChatRunDispatcherService : BackgroundService
 
             _broadcaster.Complete(run.Id.Value);
             _coordinator.End(item.ConversationId, cts);
+            _coordinator.ClearRun(run.Id.Value);
             cts.Dispose();
         }
 

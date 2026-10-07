@@ -2821,6 +2821,10 @@ void MapSettingsAndChatEndpoints()
                     {
                         deliverables = e.Deliverables,
                     }),
+                    // SPEC-20261012-chat-run-controls RF-002/RF-003: the run
+                    // parked at a boundary / left the park — the chip flips.
+                    ChatPausedEvent => ("chat.paused", (object?)new { }),
+                    ChatResumedEvent => ("chat.resumed", (object?)new { }),
                     // ChatDoneEvent arrives below with the fresh terminal row;
                     // ChatPersistedEvent is internal plumbing — not on the wire.
                     _ => (null, null),
@@ -2853,6 +2857,54 @@ void MapSettingsAndChatEndpoints()
         await chatService.StopAsync(id, ct)
             ? Results.Accepted(value: new { stopped = true })
             : Results.Conflict(new { stopped = false }));
+
+    // SPEC-20261012-chat-run-controls RF-002/RF-003: cooperative pause —
+    // flags the live executor to park at its next boundary; a queued row
+    // parks immediately. Idempotent on already-paused, 409 on terminal.
+    chat.MapPost("conversations/{id}/runs/{runId}/pause", async (
+        string id,
+        string runId,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var run = await chatService.PauseRunAsync(id, runId, ct);
+            return Results.Accepted($"/api/chat/conversations/{id}/runs/{runId}", new { run });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.NotFound(new { error = new { code = ErrConversationNotFound, message = ex.Message } });
+        }
+        catch (ChatConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "RUN_TERMINAL", message = ex.Message } });
+        }
+    });
+
+    // SPEC-20261012-chat-run-controls RF-003/RF-008: wakes the parked
+    // executor, or re-queues a row parked without one (queued pause /
+    // post-restart). Idempotent on already-running, 409 on terminal.
+    chat.MapPost("conversations/{id}/runs/{runId}/resume", async (
+        string id,
+        string runId,
+        ChatService chatService,
+        CancellationToken ct) =>
+    {
+        try
+        {
+            var run = await chatService.ResumeRunAsync(id, runId, ct);
+            return Results.Accepted($"/api/chat/conversations/{id}/runs/{runId}", new { run });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.NotFound(new { error = new { code = ErrConversationNotFound, message = ex.Message } });
+        }
+        catch (ChatConflictException ex)
+        {
+            return Results.Conflict(new { error = new { code = "RUN_TERMINAL", message = ex.Message } });
+        }
+    });
 
     // SPEC-20261005-chat-tool-approval RF-003: answers a pending approval —
     // atomic pending → decided (409 on race); broadcasts approval.decided and

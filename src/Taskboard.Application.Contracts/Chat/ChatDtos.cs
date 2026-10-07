@@ -110,7 +110,9 @@ public sealed record ChatRunDto(
     DateTime? FinishedAt,
     // SPEC-20261005-chat-context-management RF-007: compaction stats.
     int? ContextTokensLimit = null,
-    int CompactionCount = 0);
+    int CompactionCount = 0,
+    // SPEC-20261012-chat-run-controls: parked-run timestamp (null = not paused).
+    DateTime? PausedAt = null);
 
 /// <summary>
 /// The <c>chat.sync</c> payload of the attach stream (RF-003): durable state
@@ -123,7 +125,11 @@ public sealed record ChatRunSyncDto(
     ChatRunDto Run,
     string? Partial,
     string? PartialReasoning,
-    long LastEventSeq);
+    long LastEventSeq,
+    // SPEC-20261012-chat-run-controls RF-007: last event stamp + stall
+    // threshold so a fresh attach derives `stalled` immediately.
+    DateTime? LastActivityUtc = null,
+    int StallThresholdSeconds = 120);
 
 public sealed record CreateChatConversationRequest(
     Guid ProviderId,
