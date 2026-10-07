@@ -1,0 +1,98 @@
+@* SPEC-20261012-chat-run-controls RF-006: visible agent state — one chip in
+   the chat header deriving queued|running|paused|waiting-approval|stalled
+   (live) or the terminal badge of the last run. Click focuses the pending
+   approval card (waiting-approval) or the live status bubble. *@
+
+@if (State is not null)
+{
+    <button type="button"
+            class="agent-state-chip @CssClass"
+            title="@Title"
+            aria-label="Agent state: @State"
+            @onclick="OnFocusAsync">
+        <Icon Name="@IconName" />
+        <span class="agent-state-label">@Label</span>
+        @if (Pulsing)
+        {
+            <span class="agent-state-dot" aria-hidden="true"></span>
+        }
+    </button>
+}
+
+@code {
+    /// <summary>
+    /// Derived state: queued | running | paused | waiting-approval | stalled |
+    /// completed | failed | stopped | interrupted. Null hides the chip.
+    /// </summary>
+    [Parameter] public string? State { get; set; }
+
+    /// <summary>Element id the chip scrolls into view on click.</summary>
+    [Parameter] public string? FocusTargetId { get; set; }
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+
+    private string Label => State switch
+    {
+        "queued" => "queued",
+        "running" => "running",
+        "paused" => "paused",
+        "waiting-approval" => "approval",
+        "stalled" => "stalled",
+        "completed" => "done",
+        "failed" => "failed",
+        "stopped" => "stopped",
+        "interrupted" => "interrupted",
+        _ => State ?? string.Empty,
+    };
+
+    private IconName IconName => State switch
+    {
+        "queued" => IconName.HourglassSplit,
+        "running" => IconName.PlayCircleFill,
+        "paused" => IconName.PauseFill,
+        "waiting-approval" => IconName.HandIndex,
+        "stalled" => IconName.ExclamationTriangle,
+        "completed" => IconName.CheckCircle,
+        "failed" => IconName.XCircle,
+        "stopped" => IconName.StopCircle,
+        "interrupted" => IconName.LightningCharge,
+        _ => IconName.CircleHalf,
+    };
+
+    private string CssClass => State switch
+    {
+        "queued" => "queued",
+        "running" => "running",
+        "paused" => "paused",
+        "waiting-approval" => "waiting",
+        "stalled" => "stalled",
+        "completed" => "done",
+        "failed" or "interrupted" => "failed",
+        "stopped" => "stopped",
+        _ => string.Empty,
+    };
+
+    private string Title => State switch
+    {
+        "queued" => "Na fila — aguardando slot",
+        "running" => "Rodando",
+        "paused" => "Pausado — resume continua do checkpoint",
+        "waiting-approval" => "Aguardando aprovação",
+        "stalled" => "Sem eventos há um tempo — pode estar travado",
+        "completed" => "Última run concluída",
+        "failed" => "Última run falhou",
+        "stopped" => "Última run parada",
+        "interrupted" => "Última run interrompida",
+        _ => string.Empty,
+    };
+
+    private bool Pulsing => State is "running" or "waiting-approval" or "stalled";
+
+    private async Task OnFocusAsync()
+    {
+        if (!string.IsNullOrEmpty(FocusTargetId))
+        {
+            await JS.InvokeVoidAsync("taskboardChat.scrollIntoView", FocusTargetId);
+        }
+    }
+}

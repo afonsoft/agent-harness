@@ -80,6 +80,12 @@ public sealed record ChatSteerClaimedEvent(string SteerId, string Content) : Cha
 /// </summary>
 public sealed record ChatDeliverablesEvent(IReadOnlyList<ChatDeliverableDto> Deliverables) : ChatStreamEvent;
 
+/// <summary>SPEC-20261012-chat-run-controls: the run parked at a boundary — SSE <c>chat.paused</c>.</summary>
+public sealed record ChatPausedEvent : ChatStreamEvent;
+
+/// <summary>SPEC-20261012-chat-run-controls: a parked run is running again — SSE <c>chat.resumed</c>.</summary>
+public sealed record ChatResumedEvent : ChatStreamEvent;
+
 /// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
 /// CRUD, conversation persistence with search, and the send/stream tool loop
@@ -1178,6 +1184,138 @@ public sealed class ChatService(
     }
 
     /// <summary>
+    /// SPEC-20261012-chat-run-controls RF-002: cooperative pause — parks the
+    /// run at the current boundary when the endpoint flagged it, emits
+    /// <c>chat.paused</c>, blocks until resume/stop, then flips the row back
+    /// to running and emits <c>chat.resumed</c>. Never interrupts in-flight
+    /// work. A user stop while parked is swallowed here — the caller's
+    /// run-token check turns it into the normal stopped-by-user flow; a host
+    /// shutdown rethrows so the dispatcher lands the row as interrupted.
+    /// </summary>
+    private async IAsyncEnumerable<ChatStreamEvent> ParkOnPauseBoundaryAsync(
+        ChatRun run, [EnumeratorCancellation] CancellationToken ct,
+        CancellationToken stoppingToken)
+    {
+        if (!runs.ConsumePauseRequest(run.Id.Value))
+        {
+            yield break;
+        }
+
+        run.Pause(UtcNow);
+        await runRepository.SaveChangesAsync(stoppingToken).ConfigureAwait(false);
+        // Register BEFORE emitting — a resume hitting between chat.paused and
+        // the wait below still finds IsParked and releases this executor
+        // instead of requeueing the run it is about to keep driving.
+        var waiter = runs.RegisterResumeWaiter(run.Id.Value);
+        yield return new ChatPausedEvent();
+
+        try
+        {
+            await waiter.Task.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            if (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            yield break;
+        }
+        finally
+        {
+            // Un-signaled exits (stop/shutdown) drop the stale waiter; a
+            // completed resume already removed it — TryRemove is a no-op then.
+            runs.AbandonResumeWaiter(run.Id.Value, waiter);
+        }
+
+        run.Resume(UtcNow);
+        await runRepository.SaveChangesAsync(stoppingToken).ConfigureAwait(false);
+        yield return new ChatResumedEvent();
+    }
+
+    /// <summary>
+    /// SPEC-20261012-chat-run-controls RF-002/RF-008: pause flags the live
+    /// executor to park at its next boundary; a queued row — or a stale
+    /// running row whose executor is gone — flips to paused immediately.
+    /// Idempotent: pausing a parked run returns it unchanged.
+    /// </summary>
+    public async Task<ChatRunDto> PauseRunAsync(
+        string conversationId, string runId, CancellationToken ct = default)
+    {
+        var conversation = ChatConversationId.From(conversationId);
+        var run = await runRepository.Query
+            .Where(r => r.ConversationId == conversation && r.Id == ChatRunId.From(runId))
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Run '{runId}' not found.");
+
+        if (run.Status == ChatRunStatus.Paused)
+        {
+            return ToDto(run);
+        }
+
+        if (run.Status.IsTerminal)
+        {
+            throw new ChatConflictException($"Run '{runId}' already finished ({run.Status}).");
+        }
+
+        if (run.Status == ChatRunStatus.Queued || !runs.IsRunning(conversationId))
+        {
+            run.Pause(UtcNow);
+            await runRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        else
+        {
+            runs.RequestPause(runId);
+        }
+
+        return ToDto(run);
+    }
+
+    /// <summary>
+    /// SPEC-20261012-chat-run-controls RF-003/RF-008: wakes the parked
+    /// executor when one is live — it persists the resume and emits
+    /// <c>chat.resumed</c>; a row parked without an executor (paused while
+    /// queued, or orphaned by a restart) re-enters the dispatcher queue and
+    /// the turn is re-driven from the transcript. Idempotent on
+    /// running/queued.
+    /// </summary>
+    public async Task<ChatRunDto> ResumeRunAsync(
+        string conversationId, string runId, CancellationToken ct = default)
+    {
+        var conversation = ChatConversationId.From(conversationId);
+        var run = await runRepository.Query
+            .Where(r => r.ConversationId == conversation && r.Id == ChatRunId.From(runId))
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false)
+            ?? throw new ChatValidationException($"Run '{runId}' not found.");
+
+        if (run.Status == ChatRunStatus.Running || run.Status == ChatRunStatus.Queued)
+        {
+            // Idempotent — also kills a pause flag that never reached a
+            // boundary (pause→resume inside one step would park forever).
+            runs.SignalResume(runId);
+            return ToDto(run);
+        }
+
+        if (run.Status != ChatRunStatus.Paused)
+        {
+            throw new ChatConflictException($"Run '{runId}' is not paused ({run.Status}).");
+        }
+
+        if (runs.IsParked(runId))
+        {
+            // Live parked executor persists Resume + chat.resumed itself.
+            runs.SignalResume(runId);
+            return ToDto(run);
+        }
+
+        run.Requeue(UtcNow);
+        await runRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+        runQueue.Enqueue(new ChatRunWorkItem(run.Id.Value, conversation.Value));
+        return ToDto(run);
+    }
+
+    /// <summary>
     /// Stops everything pending on the conversation: the live run through the
     /// singleton coordinator (reaches the executor's detached token) plus any
     /// queued runs — the dispatcher never picks them up.
@@ -1187,10 +1325,20 @@ public sealed class ChatService(
         var stopped = runs.Stop(conversationId);
         var conversation = ChatConversationId.From(conversationId);
         var queued = await runRepository.Query
-            .Where(r => r.ConversationId == conversation && r.Status == ChatRunStatus.Queued)
+            .Where(r => r.ConversationId == conversation
+                && (r.Status == ChatRunStatus.Queued || r.Status == ChatRunStatus.Paused))
             .ToListAsync(ct).ConfigureAwait(false);
         foreach (var run in queued)
         {
+            // SPEC-20261012: a paused row with a live parked executor flips
+            // through the normal stop flow — its wait is cancelled, the
+            // executor unwinds and the dispatcher marks it stopped. Only
+            // executor-less rows are stopped here.
+            if (run.Status == ChatRunStatus.Paused && runs.IsParked(run.Id.Value))
+            {
+                continue;
+            }
+
             run.Stop(UtcNow);
         }
 
@@ -1241,7 +1389,12 @@ public sealed class ChatService(
             ToDto(run),
             live?.Partial ?? (active ? run.PartialContent : null),
             live?.PartialReasoning ?? (active ? run.PartialReasoning : null),
-            live?.LastSeq ?? 0);
+            live?.LastSeq ?? 0,
+            // SPEC-20261012 RF-007: fresh attach derives `stalled` without
+            // waiting a full threshold — falls back to StartedAt/CreatedAt
+            // so a run that never emitted still has a baseline.
+            runs.GetLastActivity(runId) ?? run.StartedAt ?? run.CreatedAt,
+            ParseInt("Taskboard:Chat:StallThresholdSeconds", 120));
     }
 
     /// <summary>
@@ -1289,6 +1442,19 @@ public sealed class ChatService(
 
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
+            // SPEC-20261012-chat-run-controls RF-002: cooperative park at a
+            // turn boundary — before compaction and the provider call.
+            await foreach (var ev in ParkOnPauseBoundaryAsync(run, ct, stoppingToken).ConfigureAwait(false))
+            {
+                yield return ev;
+            }
+
+            if (runCts.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
+            {
+                state.Error = "stopped by user";
+                break;
+            }
+
             // SPEC-20261005-chat-context-management RF-002: pressure check
             // before EACH provider call — prune (+summarize) the wire when it
             // crosses the effective budget; wire-only, history never mutates.
@@ -1722,6 +1888,18 @@ public sealed class ChatService(
     {
         foreach (var toolCall in toolCalls)
         {
+            // SPEC-20261012-chat-run-controls RF-002: park between tool
+            // results — no tool executes while the run is paused.
+            await foreach (var ev in ParkOnPauseBoundaryAsync(run, ct, stoppingToken).ConfigureAwait(false))
+            {
+                yield return ev;
+            }
+
+            if (ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
+            {
+                yield break;
+            }
+
             // SPEC-20261005-chat-tool-approval RF-002: the gate resolves the
             // per-call policy BEFORE execution — ask parks on a persisted
             // ChatApproval, deny becomes a synthetic refusal, allow falls
@@ -2993,7 +3171,8 @@ public sealed class ChatService(
         run.StartedAt,
         run.FinishedAt,
         run.ContextTokensLimit,
-        run.CompactionCount);
+        run.CompactionCount,
+        run.PausedAt);
 
     private static ChatApprovalDto ToDto(ChatApproval approval) => new(
         approval.Id.Value,
