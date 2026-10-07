@@ -21,10 +21,12 @@
     transition: background-color 0.15s ease;
 }
 
-.chat-ws-resize:hover,
-body.chat-ws-dragging .chat-ws-resize {
+.chat-ws-resize:hover {
     background: var(--bs-primary);
 }
+
+/* body.chat-ws-dragging styles live in site.css — a scoped selector can
+   never match <body> (it never carries this component's scope attribute). */
 
 .chat-ws-inner {
     flex: 1;
@@ -104,7 +106,12 @@ body.chat-ws-dragging .chat-ws-resize {
     display: none;
 }
 
-.chat-ws-tabbody {
+/* Rules below target markup rendered by the tab CHILD components
+   (ChatTasksTab, ChatChangesTab, ChatTerminalTab, ChatEditorTab, …) —
+   Blazor CSS isolation only scopes elements this component owns, so they
+   must go through ::deep anchored at the parent's .chat-ws-pane. */
+
+.chat-ws-pane ::deep .chat-ws-tabbody {
     flex: 1;
     overflow: auto;
     min-height: 0;
@@ -112,7 +119,7 @@ body.chat-ws-dragging .chat-ws-resize {
     flex-direction: column;
 }
 
-.chat-ws-empty {
+.chat-ws-pane ::deep .chat-ws-empty {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -123,24 +130,24 @@ body.chat-ws-dragging .chat-ws-resize {
     text-align: center;
 }
 
-.chat-ws-empty .bi {
+.chat-ws-pane ::deep .chat-ws-empty .bi {
     font-size: 1.6rem;
     opacity: 0.6;
 }
 
-.chat-ws-terminal .ai-chat-pty-pane {
+.chat-ws-pane ::deep .chat-ws-terminal .ai-chat-pty-pane {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
 }
 
-.chat-ws-terminal .terminal-host {
+.chat-ws-pane ::deep .chat-ws-terminal .terminal-host {
     flex: 1;
     min-height: 0;
 }
 
-.chat-ws-editor-frame {
+.chat-ws-pane ::deep .chat-ws-editor-frame {
     flex: 1;
     border: 0;
     min-height: 0;
@@ -151,14 +158,9 @@ body.chat-ws-dragging .chat-ws-resize {
     display: block;
 }
 
-.chat-ws-todos .list-group-item {
+.chat-ws-pane ::deep .chat-ws-todos .list-group-item {
     border-left: 0;
     border-right: 0;
-}
-
-body.chat-ws-dragging {
-    cursor: col-resize;
-    user-select: none;
 }
 
 /* RF-008: maximized — the pane covers the whole chat column; a back arrow

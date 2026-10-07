@@ -1215,6 +1215,18 @@ body {
     text-align: center;
 }
 
+/* Workspace-pane drag state (SPEC-20261011-chat-workspace-panel): toggled on
+   <body> by taskboardChat.initChatWsResize while the handle is held. Global
+   stylesheet — scoped razor.css selectors can never match <body>. */
+body.chat-ws-dragging {
+    cursor: col-resize;
+    user-select: none;
+}
+
+body.chat-ws-dragging .chat-ws-resize {
+    background: var(--bs-primary);
+}
+
 /* Terminal focus mode (SPEC-20260923-terminal-focus-mode) — CSS-only overlay.
    taskboard.setTerminalFocus flips html[data-terminal-focus]; everything below
    is presentation. z-index 1030 keeps the app usable (Bootstrap modals 1055,
