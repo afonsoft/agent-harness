@@ -288,6 +288,16 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
             string repositoryFullName, string title, string head, string baseBranch,
             string? body, CancellationToken cancellationToken = default) =>
             Task.FromResult($"https://github.com/{repositoryFullName}/pull/7");
+
+        public Task<string?> FindOpenPullRequestUrlAsync(
+            string repositoryFullName, string head, string baseBranch,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+
+        public Task<Taskboard.GitHub.PullRequestCardDto?> GetPullRequestCardAsync(
+            string repositoryFullName, int pullNumber,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<Taskboard.GitHub.PullRequestCardDto?>(null);
     }
 
     /// <summary>Reports every known agent as Available — PATH-independent discovery.</summary>
