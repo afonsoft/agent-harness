@@ -752,6 +752,26 @@
                     }
                 </div>
             }
+            @* SPEC-20261015-chat-preview-panel RF-004/RF-005: element picked
+               in the Preview tab lands here as a removable quote chip — it
+               rides the next send as context (not a message by itself). *@
+            @if (_quote is not null)
+            {
+                <div class="provider-steer-list" aria-label="Elemento citado">
+                    <span class="provider-steer-chip provider-quote-chip"
+                          title="@(_quote.PageUrl ?? _quote.Selector)">
+                        <Icon Name="IconName.Cursor" />
+                        <code class="provider-steer-chip-text">@_quote.Selector</code>
+                        @if (!string.IsNullOrEmpty(_quote.Text))
+                        {
+                            <span class="provider-steer-chip-text text-body-secondary">“@_quote.Text”</span>
+                        }
+                        <button type="button" class="provider-steer-cancel" title="Remover citação"
+                                aria-label="Remove quote"
+                                @onclick="() => _quote = null">✕</button>
+                    </span>
+                </div>
+            }
             @* SPEC-20261001-chat-skills-slash-commands FR-003: "/" no início do
                composer abre a paleta de skills/comandos. *@
             <SlashCommandPalette Items="SlashItems" Filter="@SlashFilter"
@@ -879,7 +899,8 @@
        active conversation (split pane lg+, bottom sheet <lg). *@
     <ConversationWorkspacePanel @ref="_wsPanel"
                                 ConversationId="@_conversationId"
-                                RefreshSignal="@_wsRefreshSignal" />
+                                RefreshSignal="@_wsRefreshSignal"
+                                OnElementPicked="OnPreviewElementPicked" />
 </div>
 
 @code {
@@ -889,6 +910,17 @@
     // SPEC-20261011-chat-workspace-panel: workspace pane ref + data reload signal.
     private ConversationWorkspacePanel? _wsPanel;
     private int _wsRefreshSignal;
+
+    // SPEC-20261015-chat-preview-panel: quote chip waiting on the next send.
+    private ChatElementQuote? _quote;
+
+    /// <summary>RF-004: preview pick → quote chip above the composer.</summary>
+    private Task OnPreviewElementPicked(ChatElementQuote quote)
+    {
+        _quote = quote;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
 
     private IReadOnlyList<ChatProviderDto> _providers = [];
     private Guid _providerId;
@@ -2014,8 +2046,9 @@
                 ? _stagedAttachments.Select(a => a.Id).ToList()
                 : null;
             var (run, steered, steerId) = await Client.EnqueueChatMessageAsync(
-                conversationId, content, steer, attachmentIds);
+                conversationId, content, steer, attachmentIds, _quote);
             _stagedAttachments.Clear();
+            _quote = null;
             if (steered && steerId is not null)
             {
                 // SPEC-20261005-chat-fork-steering RF-005: the message entered

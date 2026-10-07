@@ -1,9 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Taskboard.Application.Contracts.Chat;
-using Taskboard.Domain.Entities.Chat;
-using Taskboard.Repositories;
-using Taskboard.ValueObjects;
 
 namespace Taskboard.Integrations.Chat.Tools;
 
@@ -54,16 +51,11 @@ public sealed class RegisterPreviewTool(IServiceScopeFactory scopeFactory) : ICh
         }
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var conversations = scope.ServiceProvider.GetRequiredService<IRepository<ChatConversation>>();
-        var conversation = await conversations.GetAsync(
-            ChatConversationId.From(context.ConversationId), cancellationToken).ConfigureAwait(false);
-        if (conversation is null)
-        {
-            return new ChatToolResult("""{"ok":false,"error":"not-found"}""", Refused: true);
-        }
-
-        conversation.SetPreviewUrl(normalized, DateTime.UtcNow);
-        await conversations.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return new ChatToolResult($$"""{"ok":true,"previewUrl":"{{normalized}}"}""");
+        var store = scope.ServiceProvider.GetRequiredService<IConversationPreviewStore>();
+        var found = await store.SetPreviewUrlAsync(
+            context.ConversationId, normalized, cancellationToken).ConfigureAwait(false);
+        return found
+            ? new ChatToolResult($$"""{"ok":true,"previewUrl":"{{normalized}}"}""")
+            : new ChatToolResult("""{"ok":false,"error":"not-found"}""", Refused: true);
     }
 }

@@ -15,7 +15,20 @@ public sealed record SetChatPreviewRequest(string Url);
 /// card on the user message and reaches the model as a context block.
 /// </summary>
 public sealed record ChatElementQuote(
-    string Selector, string Tag, string? Text, string? PageUrl);
+    string Selector, string Tag, string? Text, string? PageUrl)
+{
+    /// <summary>
+    /// RF-004: the quote as a markdown blockquote line prepended to the user
+    /// message — renders as a small card in the transcript and reaches the
+    /// model as a context block.
+    /// </summary>
+    public string FormatBlock()
+    {
+        var text = Text is { Length: > 0 } t ? $" \"{t}\"" : string.Empty;
+        var page = PageUrl is { Length: > 0 } p ? $" — {p}" : string.Empty;
+        return $"> `{Selector}`{text}{page}";
+    }
+}
 
 /// <summary>
 /// Normalizes a user/agent-supplied app URL into the same-origin proxy path

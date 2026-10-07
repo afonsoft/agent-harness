@@ -539,7 +539,8 @@ public sealed class ChatService(
     /// </summary>
     public async Task<(ChatRunDto Run, string SteerId)?> EnqueueSteerAsync(
         string conversationId, string content, CancellationToken ct = default,
-        IReadOnlyList<string>? attachmentIds = null)
+        IReadOnlyList<string>? attachmentIds = null,
+        ChatElementQuote? quote = null)
     {
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -569,6 +570,13 @@ public sealed class ChatService(
         {
             throw new ChatSteerConflictException(
                 $"Steer inbox is full ({ChatSteer.MaxPendingPerRun} pending).");
+        }
+
+        // SPEC-20261015-chat-preview-panel RF-004: same quote treatment
+        // as a normal send — the steer payload is the model-visible text.
+        if (quote is not null)
+        {
+            content = $"{quote.FormatBlock()}\n\n{content}";
         }
 
         // Attachments ride the steer — the drain binds them to the steer
@@ -645,9 +653,7 @@ public sealed class ChatService(
         var titleSeed = content;
         if (quote is not null)
         {
-            var text = quote.Text is { Length: > 0 } t ? $" \"{t}\"" : string.Empty;
-            var page = quote.PageUrl is { Length: > 0 } p ? $" — {p}" : string.Empty;
-            content = $"> `{quote.Selector}`{text}{page}\n\n{content}";
+            content = $"{quote.FormatBlock()}\n\n{content}";
         }
 
         var userMessage = ChatMessage.CreateUser(conversation.Id, content, UtcNow);

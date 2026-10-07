@@ -1,0 +1,32 @@
+/* SPEC-20261015-chat-preview-panel */
+.chat-preview {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.chat-preview-url {
+    max-width: 280px;
+    font-family: var(--bs-font-monospace);
+    font-size: .8rem;
+}
+
+.chat-preview-dot {
+    width: .55rem;
+    height: .55rem;
+    border-radius: 50%;
+    background: var(--bs-secondary);
+    flex: none;
+}
+
+.chat-preview-dot.live {
+    background: var(--bs-success);
+    box-shadow: 0 0 0 3px rgba(25, 135, 84, .25);
+}
+
+.chat-preview-frame {
+    flex: 1;
+    border: 0;
+    width: 100%;
+    background: var(--bs-body-bg);
+}

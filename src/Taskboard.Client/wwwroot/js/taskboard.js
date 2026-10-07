@@ -598,6 +598,25 @@ window.taskboardChat = {
         } catch (e) { /* storage indisponível — estado fica só na sessão */ }
     },
 
+    // Generic localStorage helpers (SPEC-20261015 preview port memory).
+    chatStoreGet: function (key) {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            return null;
+        }
+    },
+
+    chatStoreSet: function (key, value) {
+        try {
+            if (value === null || value === undefined) {
+                localStorage.removeItem(key);
+            } else {
+                localStorage.setItem(key, value);
+            }
+        } catch (e) { /* sessão-only */ }
+    },
+
     // RF-001: drag-resize 30–70% — pointermove aplica --ws-width direto no
     // painel (sem roundtrip .NET); no pointerup devolve o % final.
     initChatWsResize: function (handle, panel, dotNetRef) {
@@ -641,8 +660,120 @@ window.taskboardChat = {
             document.addEventListener('pointermove', onMove);
             document.addEventListener('pointerup', onUp);
         });
+    },
+
+    // SPEC-20261015-chat-preview-panel RF-004: element picker — an overlay
+    // inside the same-origin preview iframe outlines the hovered element;
+    // clicking captures {selector, tag, text, pageUrl} and postMessages the
+    // parent, which turns it into a composer quote chip.
+    previewPickerEnable: function (iframe) {
+        var doc = iframe && iframe.contentDocument;
+        if (!doc || iframe._pickerOn) {
+            return;
+        }
+        iframe._pickerOn = true;
+        var box = doc.createElement('div');
+        box.id = '__pick';
+        box.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;'
+            + 'border:2px solid #7c3aed;background:rgba(124,58,237,.12);display:none;';
+        doc.body.appendChild(box);
+
+        var onMove = function (e) {
+            var el = doc.elementFromPoint(e.clientX, e.clientY);
+            if (!el || el === box) {
+                box.style.display = 'none';
+                return;
+            }
+            var r = el.getBoundingClientRect();
+            box.style.display = 'block';
+            box.style.left = r.left + 'px';
+            box.style.top = r.top + 'px';
+            box.style.width = r.width + 'px';
+            box.style.height = r.height + 'px';
+            box._el = el;
+        };
+        var onClick = function (e) {
+            var el = box._el || doc.elementFromPoint(e.clientX, e.clientY);
+            if (!el || el === box) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            window.parent.postMessage({
+                type: 'harness-preview-pick',
+                selector: previewPickSelector(el),
+                tag: el.tagName.toLowerCase(),
+                text: (el.textContent || '').trim().slice(0, 120),
+                pageUrl: doc.location ? doc.location.href : ''
+            }, window.location.origin);
+        };
+        doc.addEventListener('mousemove', onMove, true);
+        doc.addEventListener('click', onClick, true);
+        iframe._pickerTeardown = function () {
+            doc.removeEventListener('mousemove', onMove, true);
+            doc.removeEventListener('click', onClick, true);
+            box.remove();
+            iframe._pickerOn = false;
+        };
+    },
+
+    previewPickerDisable: function (iframe) {
+        if (iframe && iframe._pickerTeardown) {
+            iframe._pickerTeardown();
+            iframe._pickerTeardown = null;
+        }
+    },
+
+    // Parent-side listener — latest registered ref wins (tab recreations).
+    previewPickerListen: function (dotNetRef) {
+        window._previewPickRef = dotNetRef;
+        if (window._previewPickBound) {
+            return;
+        }
+        window._previewPickBound = true;
+        window.addEventListener('message', function (e) {
+            if (e.origin !== window.location.origin || !e.data
+                || e.data.type !== 'harness-preview-pick' || !window._previewPickRef) {
+                return;
+            }
+            window._previewPickRef.invokeMethodAsync('OnPreviewPick', e.data);
+        });
     }
 };
+
+// RF-004: CSS selector for the picked element — id shortcut, else a short
+// tag.class chain (≤4 ancestors) with :nth-of-type when siblings repeat.
+function previewPickSelector(el) {
+    if (el.id) {
+        return '#' + CSS.escape(el.id);
+    }
+    var parts = [];
+    var cur = el;
+    while (cur && cur.nodeType === 1 && parts.length < 4) {
+        var seg = cur.tagName.toLowerCase();
+        var cls = typeof cur.className === 'string'
+            ? cur.className.trim().split(/\s+/).filter(Boolean).slice(0, 2)
+            : [];
+        if (cls.length) {
+            seg += '.' + cls.map(function (c) { return CSS.escape(c); }).join('.');
+        }
+        var parent = cur.parentElement;
+        if (parent) {
+            var same = Array.prototype.filter.call(
+                parent.children, function (c) { return c.tagName === cur.tagName; });
+            if (same.length > 1) {
+                seg += ':nth-of-type(' + (same.indexOf(cur) + 1) + ')';
+            }
+        }
+        parts.unshift(seg);
+        if (cur.id) {
+            parts.unshift('#' + CSS.escape(cur.id));
+            break;
+        }
+        cur = parent;
+    }
+    return parts.join(' > ');
+}
 
 // SPEC-20260930-mobile-responsive-ui FR-007: global keyboard shortcuts.
 // Single document-level listener; all shortcuts are inert while focus is in

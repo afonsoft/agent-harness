@@ -1269,6 +1269,48 @@ public sealed class TaskboardClient
         return body?.Result;
     }
 
+    /// <summary>
+    /// SPEC-20261015-chat-preview-panel RF-002: pins the conversation
+    /// preview target (loopback URL or /preview/… path — the server
+    /// normalizes; 400 surfaces as the response body).
+    /// </summary>
+    public async Task<ChatConversationDto?> SetChatPreviewAsync(
+        string id, string url, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/preview",
+            new SetChatPreviewRequest(url), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body?.Conversation;
+    }
+
+    /// <summary>RF-002: clears the pinned preview target.</summary>
+    public async Task<ChatConversationDto?> ClearChatPreviewAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/preview", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatConversationResponse>(cancellationToken: cancellationToken);
+        return body?.Conversation;
+    }
+
+    /// <summary>RF-006: "app live" probe — HEAD through the preview proxy.</summary>
+    public async Task<bool> ProbeChatPreviewAsync(string previewPath, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, previewPath);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task DeleteChatConversationAsync(string id, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.DeleteAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", cancellationToken);
@@ -1391,11 +1433,12 @@ public sealed class TaskboardClient
     public async Task<(ChatRunDto Run, bool Steered, string? SteerId)> EnqueueChatMessageAsync(
         string id, string content, bool steer = false,
         IReadOnlyList<string>? attachmentIds = null,
+        ChatElementQuote? quote = null,
         CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/messages",
-            new SendChatMessageRequest(content, steer, attachmentIds), cancellationToken);
+            new SendChatMessageRequest(content, steer, attachmentIds, quote), cancellationToken);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<EnqueueChatMessageResponse>(cancellationToken: cancellationToken);
         return (body!.Run, body.Steered, body.SteerId);
