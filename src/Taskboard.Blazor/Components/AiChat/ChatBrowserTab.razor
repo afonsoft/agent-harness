@@ -1,0 +1,137 @@
+@namespace Taskboard.Blazor.Components.AiChat
+@using Taskboard.Application.Contracts.Chat
+@inject TaskboardClient Client
+@inject ILocaleService L
+@implements IAsyncDisposable
+
+@*
+    SPEC-20261016-chat-browser-tool RF-004: Browser tab — latest shot fit-to-
+    pane (click → zoom) + gallery strip of the run's shots. Refreshes on the
+    run-done RefreshSignal and on a light poll while the tab is open.
+*@
+
+<div class="chat-browser d-flex flex-column h-100">
+    @if (_shots.Count > 0)
+    {
+        <div class="chat-browser-header d-flex align-items-center gap-2 px-2 py-1 border-bottom small text-body-secondary">
+            <Icon Name="IconName.Globe" />
+            <span class="text-truncate" title="@_shots[0].FileName">@_shots[0].FileName</span>
+            <span class="ms-auto text-nowrap">@FormatTs(_shots[0].CreatedAt)</span>
+        </div>
+        <div class="chat-browser-stage flex-grow-1 d-flex align-items-center justify-content-center overflow-auto p-2">
+            <img src="@_shots[0].DownloadUrl" class="chat-browser-shot" alt="@_shots[0].FileName"
+                 @onclick="() => _zoom = true" />
+        </div>
+        @if (_shots.Count > 1)
+        {
+            <div class="chat-browser-gallery d-flex gap-1 p-2 border-top overflow-auto">
+                @foreach (var shot in _shots.Skip(1).Take(12))
+                {
+                    <img src="@shot.DownloadUrl" class="chat-browser-thumb" alt="@shot.FileName"
+                         title="@shot.FileName" @onclick="() => Select(shot)" @key="shot.Id" />
+                }
+            </div>
+        }
+    }
+    else
+    {
+        <div class="chat-ws-empty p-3 text-body-secondary small">@L.T("chat.browser.empty")</div>
+    }
+</div>
+
+@if (_zoom)
+{
+    <div class="chat-browser-zoom" @onclick="() => _zoom = false" role="button" tabindex="0"
+         @onkeydown="OnZoomKey">
+        <img src="@_shots[0].DownloadUrl" alt="@_shots[0].FileName" />
+    </div>
+}
+
+@code {
+    [Parameter] public string? ConversationId { get; set; }
+
+    /// <summary>Run-done signal — reloads the gallery.</summary>
+    [Parameter] public int RefreshSignal { get; set; }
+
+    private IReadOnlyList<BrowserShotDto> _shots = [];
+    private string? _loadedFor;
+    private int _lastRefresh = -1;
+    private bool _zoom;
+    private CancellationTokenSource? _pollCts;
+
+    protected override void OnInitialized() => StartPoll();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConversationId != _loadedFor)
+        {
+            _loadedFor = ConversationId;
+            _shots = [];
+        }
+
+        if (RefreshSignal != _lastRefresh)
+        {
+            _lastRefresh = RefreshSignal;
+            await LoadAsync();
+        }
+    }
+
+    private void StartPoll()
+    {
+        _pollCts = new CancellationTokenSource();
+        var ct = _pollCts.Token;
+        _ = Task.Run(async () =>
+        {
+            // RF-004: light poll keeps the gallery live during a run (the SSE
+            // attachment event is not wired to the tab yet — 10s is enough).
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                    await LoadAsync();
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (TaskCanceledException)
+                {
+                    return;
+                }
+            }
+        }, ct);
+    }
+
+    private async Task LoadAsync()
+    {
+        if (ConversationId is null)
+        {
+            return;
+        }
+
+        _shots = await Client.GetBrowserShotsAsync(ConversationId);
+    }
+
+    private void Select(BrowserShotDto shot)
+    {
+        // Gallery click promotes a shot to the stage without losing order.
+        _shots = [shot, .. _shots.Where(s => s.Id != shot.Id)];
+    }
+
+    private void OnZoomKey(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "Escape")
+        {
+            _zoom = false;
+        }
+    }
+
+    private static string FormatTs(DateTime ts) => ts.ToLocalTime().ToString("HH:mm:ss");
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollCts is not null)
+        {
+            await _pollCts.CancelAsync();
+            _pollCts.Dispose();
+        }
+    }
+}

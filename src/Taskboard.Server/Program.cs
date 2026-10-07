@@ -650,6 +650,9 @@ void RegisterWorkspaceAndChatServices()
             // SPEC-20261015-chat-preview-panel RF-002: agent announces the
             // app it just started → chat Preview tab pins it.
             new RegisterPreviewTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261016-chat-browser-tool: headless Chromium driving —
+            // pool + shot store resolved per call through a scope.
+            new BrowserUseTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261005-chat-jobs-schedule-search RF-002/RF-005/RF-010:
             // background-job, schedule and FTS search tools.
             new JobListTool(sp.GetRequiredService<IChatJobService>(), configuration),
@@ -697,6 +700,11 @@ void RegisterWorkspaceAndChatServices()
     // SPEC-20261015-chat-preview-panel: tools announce preview URLs through
     // this contract (Integrations has no Domain reference).
     builder.Services.AddScoped<IConversationPreviewStore, ConversationPreviewStore>();
+    // SPEC-20261016-chat-browser-tool: Playwright pool (singleton, lazy) +
+    // scoped shot store for browser-shot attachments.
+    builder.Services.AddSingleton<IBrowserSessionPool>(sp => new BrowserSessionPool(
+        environment.GetDataDir(), sp.GetRequiredService<ILogger<BrowserSessionPool>>()));
+    builder.Services.AddScoped<IChatShotStore, ChatShotStore>();
     // SPEC-20261014-chat-git-bar-overview: chips + pull/push/PR + hover card
     // for the resolved conversation workspace.
     builder.Services.AddSingleton<IChatGitOps>(sp => new ChatGitOps(sp.GetRequiredService<IGitCommandRunner>()));
@@ -3149,6 +3157,14 @@ void MapSettingsAndChatEndpoints()
             return Results.NotFound(new { error = new { code = "ATTACHMENT_NOT_FOUND", message = ex.Message } });
         }
     });
+
+    // ---- SPEC-20261016-chat-browser-tool RF-004: Browser tab gallery ----
+
+    chat.MapGet("conversations/{id}/browser/shots", async (
+        string id,
+        IChatShotStore shotStore,
+        CancellationToken ct) =>
+        Results.Ok(new { shots = await shotStore.ListShotsAsync(id, ct) }));
 
     // ---- SPEC-20261005-chat-attachments-feedback: message feedback (log-only) ----
 
