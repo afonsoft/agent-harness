@@ -1,0 +1,187 @@
+@using Taskboard.Application.Contracts.Chat
+@inject TaskboardClient Client
+@inject ILocaleService L
+
+@*
+    SPEC-20261014-chat-git-bar-overview RF-001..RF-003: git bar under the chat
+    header — repo link, branch chip, dirty/ahead/behind/worktree/run chips and
+    Pull / Push / Create-PR actions for the resolved conversation workspace.
+    Actions refuse while a run is active (server enforces too).
+*@
+
+@if (_status is not null && _status.IsRepo)
+{
+    <div class="chat-gitbar">
+        @if (!string.IsNullOrEmpty(_status.RepoSlug))
+        {
+            <a class="chat-gitbar-chip" href="https://github.com/@_status.RepoSlug" target="_blank" rel="noopener noreferrer"
+               title="@_status.RepoSlug">
+                <Icon Name="IconName.Github" /> @_status.RepoSlug
+            </a>
+        }
+        <span class="chat-gitbar-chip" title="@(_status.Workdir ?? "")">
+            <Icon Name="IconName.Git" /> @(_status.Branch ?? L.T("chat.git.detached"))
+        </span>
+        @if (_status.Ahead > 0 || _status.Behind > 0)
+        {
+            <span class="chat-gitbar-chip" title="@L.T("chat.git.sync")">
+                @if (_status.Ahead > 0) { <span>↑@_status.Ahead</span> }
+                @if (_status.Behind > 0) { <span class="ms-1">↓@_status.Behind</span> }
+            </span>
+        }
+        @if (_status.Dirty)
+        {
+            <span class="chat-gitbar-chip chat-gitbar-dirty" title="@L.T("chat.git.dirty")">● @L.T("chat.git.dirty")</span>
+        }
+        @if (_status.IsWorktree)
+        {
+            <span class="chat-gitbar-chip" title="@L.T("chat.git.worktreeHint")">
+                <Icon Name="IconName.Diagram3" /> @L.T("chat.git.worktree")
+            </span>
+        }
+        @if (_status.RunActive)
+        {
+            <span class="chat-gitbar-chip text-warning" title="@L.T("chat.git.runActiveHint")">⏸ @L.T("chat.git.runActive")</span>
+        }
+
+        <span class="chat-gitbar-actions">
+            <button type="button" class="chat-gitbar-btn" disabled="@(_busy || _status.RunActive)"
+                    title="@L.T("chat.git.pullTitle")" @onclick='() => RunOpAsync("pull")'>
+                <Icon Name="IconName.ArrowDownCircle" /> @L.T("chat.git.pull")
+            </button>
+            <button type="button" class="chat-gitbar-btn" disabled="@(_busy || _status.RunActive)"
+                    title="@L.T("chat.git.pushTitle")" @onclick='() => RunOpAsync("push")'>
+                <Icon Name="IconName.ArrowUpCircle" /> @L.T("chat.git.push")
+            </button>
+            <button type="button" class="chat-gitbar-btn chat-gitbar-pr" disabled="@(_busy || _status.RunActive)"
+                    title="@L.T("chat.git.prTitle")" @onclick="TogglePrForm">
+                <Icon Name="IconName.ArrowUpRightCircle" /> @L.T("chat.git.pr")
+            </button>
+        </span>
+
+        @if (_prOpen)
+        {
+            <div class="chat-gitbar-prform">
+                <input class="form-control form-control-sm mb-1" @bind="_prTitle" placeholder="@L.T("chat.git.prTitlePlaceholder")" />
+                <textarea class="form-control form-control-sm mb-1" rows="2" @bind="_prBody" placeholder="@L.T("chat.git.prBodyPlaceholder")"></textarea>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" disabled="@_busy" @onclick="CreatePrAsync">@L.T("chat.git.prCreate")</button>
+                    <button type="button" class="btn btn-sm btn-link" @onclick="TogglePrForm">@L.T("chat.git.cancel")</button>
+                </div>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(_log))
+        {
+            <pre class="chat-gitbar-log">@_log</pre>
+        }
+        @if (_uncommitted is not null)
+        {
+            <div class="chat-gitbar-log">
+                <div class="fw-semibold">@L.T("chat.git.uncommitted")</div>
+                <ul class="mb-1 ps-3">
+                    @foreach (var f in _uncommitted) { <li><code>@f</code></li> }
+                </ul>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? ConversationId { get; set; }
+    [Parameter] public int RefreshSignal { get; set; }
+
+    private ChatGitStatusDto? _status;
+    private bool _busy;
+    private bool _prOpen;
+    private string? _log;
+    private string? _prTitle;
+    private string? _prBody;
+    private IReadOnlyList<string>? _uncommitted;
+    private string? _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConversationId is null || ConversationId == _loadedFor && RefreshSignal == _lastSignal)
+        {
+            return;
+        }
+
+        _loadedFor = ConversationId;
+        _lastSignal = RefreshSignal;
+        _status = ConversationId is null ? null : await Client.GetChatGitStatusAsync(ConversationId);
+        _uncommitted = null;
+    }
+
+    private int _lastSignal = -1;
+
+    private async Task RunOpAsync(string op)
+    {
+        if (ConversationId is null || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _log = $"$ git {op} …";
+        try
+        {
+            var result = await Client.RunChatGitOpAsync(ConversationId, op);
+            _log = result is null ? "(conversation not found)"
+                : result.Ok ? (result.Output.Length > 0 ? result.Output : $"git {op}: ok")
+                : $"git {op}: {result.Error}{(result.Output.Length > 0 ? "\n" + result.Output : "")}";
+            _status = await Client.GetChatGitStatusAsync(ConversationId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void TogglePrForm()
+    {
+        _prOpen = !_prOpen;
+        _uncommitted = null;
+    }
+
+    private async Task CreatePrAsync()
+    {
+        if (ConversationId is null || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _uncommitted = null;
+        try
+        {
+            var result = await Client.CreateChatPullRequestAsync(
+                ConversationId, new CreateChatPullRequestRequest(_prTitle, _prBody));
+            if (result is null)
+            {
+                _log = "(conversation not found)";
+            }
+            else if (result.Ok)
+            {
+                _log = result.Existing
+                    ? $"↗ {L.T("chat.git.prExisting")}: {result.Url}"
+                    : $"↗ {L.T("chat.git.prCreated")}: {result.Url}";
+                _prOpen = false;
+            }
+            else if (result.Error == "uncommitted-changes")
+            {
+                _uncommitted = result.UncommittedFiles;
+                _log = null;
+            }
+            else
+            {
+                _log = $"create-pr: {result.Error}";
+            }
+
+            _status = await Client.GetChatGitStatusAsync(ConversationId);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

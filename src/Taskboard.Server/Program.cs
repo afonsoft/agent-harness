@@ -675,6 +675,10 @@ void RegisterWorkspaceAndChatServices()
     // for the `auto` approval policy.
     builder.Services.AddSingleton<IChatToolRiskClassifier>(StaticChatToolRiskClassifier.Instance);
     builder.Services.AddScoped<ConversationWorkspaceService>();
+    // SPEC-20261014-chat-git-bar-overview: chips + pull/push/PR + hover card
+    // for the resolved conversation workspace.
+    builder.Services.AddSingleton<IChatGitOps>(sp => new ChatGitOps(sp.GetRequiredService<IGitCommandRunner>()));
+    builder.Services.AddScoped<ConversationGitService>();
     // SPEC-20261005-chat-background-resume RF-002/RF-003: queue + broadcaster +
     // detached dispatcher — a chat run outlives the browser tab.
     builder.Services.AddSingleton<ChatRunQueue>();
@@ -2623,6 +2627,27 @@ void MapSettingsAndChatEndpoints()
         await ws.GetWorkspaceAsync(id, ct) is null
             ? Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } })
             : Results.Ok(new { diff = await ws.GetDiffAsync(id, ct) }));
+
+    // SPEC-20261014-chat-git-bar-overview RF-001..RF-005.
+    chat.MapGet("conversations/{id}/git/status", async (string id, ConversationGitService git, CancellationToken ct) =>
+        await git.GetStatusAsync(id, ct) is { } status
+            ? Results.Ok(new { status })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapPost("conversations/{id}/git/{op}", async (string id, string op, ConversationGitService git, CancellationToken ct) =>
+        await git.RunSyncOpAsync(id, op, ct) is { } result
+            ? Results.Ok(new { result })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapPost("conversations/{id}/pull-request", async (string id, CreateChatPullRequestRequest request, ConversationGitService git, CancellationToken ct) =>
+        await git.CreatePullRequestAsync(id, request, ct) is { } result
+            ? Results.Ok(new { result })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
+    chat.MapGet("pr-card", async (string url, ConversationGitService git, CancellationToken ct) =>
+        await git.GetPrCardAsync(url, ct) is { } card
+            ? Results.Ok(new { card })
+            : Results.NotFound(new { error = new { code = "PR_CARD_NOT_FOUND", message = "No PR card for that URL." } }));
 
     chat.MapGet("conversations/{id}/plan", async (string id, ConversationWorkspaceService ws, CancellationToken ct) =>
         await ws.GetWorkspaceAsync(id, ct) is null

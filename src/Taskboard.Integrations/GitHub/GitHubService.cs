@@ -540,6 +540,63 @@ public sealed class GitHubService : IGitHubService
         return pr.HtmlUrl;
     }
 
+    /// <inheritdoc />
+    public async Task<string?> FindOpenPullRequestUrlAsync(
+        string repositoryFullName,
+        string head,
+        string baseBranch,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuthenticated();
+        var (owner, name) = SplitRepositoryName(repositoryFullName);
+        var request = new PullRequestRequest
+        {
+            State = ItemStateFilter.Open,
+            Head = $"{owner}:{head}",
+            Base = baseBranch,
+        };
+        var prs = await _client.PullRequest.GetAllForRepository(owner, name, request);
+        return prs.FirstOrDefault()?.HtmlUrl;
+    }
+
+    /// <inheritdoc />
+    public async Task<PullRequestCardDto?> GetPullRequestCardAsync(
+        string repositoryFullName,
+        int pullNumber,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            EnsureAuthenticated();
+            var (owner, name) = SplitRepositoryName(repositoryFullName);
+            var pr = await _client.PullRequest.Get(owner, name, pullNumber);
+
+            var checks = await _client.Check.Run.GetAllForReference(owner, name, pr.Head.Sha);
+            var finished = checks.CheckRuns.Count(r => r.Status == CheckStatus.Completed);
+            var succeeded = checks.CheckRuns.Count(r =>
+                r.Conclusion == CheckConclusion.Success
+                || r.Conclusion == CheckConclusion.Neutral
+                || r.Conclusion == CheckConclusion.Skipped);
+            var failed = finished - succeeded;
+
+            return new PullRequestCardDto(
+                pr.Number,
+                pr.HtmlUrl,
+                pr.Title,
+                pr.State.Value == ItemState.Open ? "open" : "closed",
+                pr.Merged,
+                pr.User?.Login,
+                checks.TotalCount,
+                succeeded,
+                failed);
+        }
+        catch (Exception ex) when (ex is ApiException or InvalidOperationException)
+        {
+            _logger?.LogWarning(ex, "PR card lookup failed for {Repo}#{Number}", repositoryFullName, pullNumber);
+            return null;
+        }
+    }
+
     private static (string Owner, string Name) SplitRepositoryName(string repositoryFullName)
     {
         var parts = repositoryFullName.Split('/', StringSplitOptions.RemoveEmptyEntries);
