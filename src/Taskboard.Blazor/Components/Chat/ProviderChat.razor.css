@@ -1071,3 +1071,25 @@
     color: var(--bs-secondary-color);
     font-size: 0.72rem;
 }
+
+/* SPEC-20261017-chat-polish: suggestion chips + mic recording state. */
+.provider-suggestion-chip {
+    cursor: pointer;
+    background: var(--bs-primary-bg-subtle);
+    border-color: var(--bs-primary-border-subtle);
+}
+
+.provider-suggestion-chip:hover {
+    background: var(--bs-primary-bg-subtle);
+    filter: brightness(0.95);
+}
+
+.provider-pick-btn.recording {
+    color: var(--bs-danger);
+    animation: provider-mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes provider-mic-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}

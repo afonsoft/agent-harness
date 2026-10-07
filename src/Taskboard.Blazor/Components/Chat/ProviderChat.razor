@@ -6,6 +6,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ChatNotificationsService Notifications
+@inject ILocaleService Locale
 @implements IDisposable
 
 @* SPEC-20260929-ai-code-provider-chat RF-010: provider chat mode inside AI
@@ -772,6 +773,24 @@
                     </span>
                 </div>
             }
+            @* SPEC-20261017-chat-polish RF-002: next-action suggestions after
+               a run — click prefills the composer (never auto-send); × clears. *@
+            @if (_suggestions.Count > 0 && !_running)
+            {
+                <div class="provider-steer-list provider-suggestions" aria-label="Sugestões">
+                    @foreach (var suggestion in _suggestions)
+                    {
+                        <button type="button" class="provider-steer-chip provider-suggestion-chip" @key="suggestion"
+                                @onclick="() => _composer = suggestion">
+                            <Icon Name="IconName.Magic" />
+                            <span class="provider-steer-chip-text">@suggestion</span>
+                        </button>
+                    }
+                    <button type="button" class="provider-steer-cancel" title="Dispensar sugestões"
+                            aria-label="Dismiss suggestions"
+                            @onclick="() => _suggestions = []">✕</button>
+                </div>
+            }
             @* SPEC-20261001-chat-skills-slash-commands FR-003: "/" no início do
                composer abre a paleta de skills/comandos. *@
             <SlashCommandPalette Items="SlashItems" Filter="@SlashFilter"
@@ -797,6 +816,21 @@
                                 <InputFile id="provider-chat-attach-input" class="provider-attach-input"
                                            OnChange="OnAttachPickedAsync" multiple hidden />
                             </div>
+                            @* SPEC-20261017-chat-polish RF-005: mic — Web Speech
+                               fills the composer; hidden where unsupported. *@
+                            @if (_voiceSupported)
+                            {
+                                <div class="provider-pick-root">
+                                    <button type="button" class="provider-pick provider-pick-btn @(_voiceOn ? "recording" : null)"
+                                            title="@(_voiceOn ? "Parar ditado" : "Ditar mensagem")"
+                                            aria-label="@(_voiceOn ? "Stop dictation" : "Dictate message")"
+                                            aria-pressed="@(_voiceOn ? "true" : "false")"
+                                            disabled="@_archived"
+                                            @onclick="ToggleVoiceAsync">
+                                        <Icon Name="@(_voiceOn ? IconName.MicFill : IconName.Mic)" />
+                                    </button>
+                                </div>
+                            }
                             @AgentTools
                             <div class="provider-pick-root">
                                 <button type="button" class="provider-pick provider-pick-btn"
@@ -901,6 +935,11 @@
                                 ConversationId="@_conversationId"
                                 RefreshSignal="@_wsRefreshSignal"
                                 OnElementPicked="OnPreviewElementPicked" />
+
+    @* SPEC-20261017-chat-polish RF-003: ⌘K command palette — Ctrl+K opens,
+       commands self-register via ChatCommands.Build. *@
+    <CommandPalette @ref="_paletteRef" Open="_paletteOpen" Items="PaletteCommands"
+                    OnCommand="OnPaletteCommandAsync" OnClose="() => _paletteOpen = false" />
 </div>
 
 @code {
@@ -913,6 +952,19 @@
 
     // SPEC-20261015-chat-preview-panel: quote chip waiting on the next send.
     private ChatElementQuote? _quote;
+
+    // SPEC-20261017-chat-polish: ⌘K palette, post-run suggestions, voice input.
+    private CommandPalette? _paletteRef;
+    private bool _paletteOpen;
+    private IReadOnlyList<string> _suggestions = [];
+    private string? _suggestionsFor;
+    private bool _voiceSupported;
+    private bool _voiceOn;
+    private DotNetObjectReference<ProviderChat>? _hotkeyRef;
+    private DotNetObjectReference<ProviderChat>? _voiceRef;
+
+    /// <summary>⌘K "toggle sidebar" reaches the layout through its cascade.</summary>
+    [CascadingParameter] private MainLayout? Layout { get; set; }
 
     /// <summary>RF-004: preview pick → quote chip above the composer.</summary>
     private Task OnPreviewElementPicked(ChatElementQuote quote)
@@ -1602,6 +1654,10 @@
         _jobsPollCts?.Cancel();
         _jobsPollCts?.Dispose();
         _stallTimer?.Dispose();
+        _hotkeyRef?.Dispose();
+        _voiceRef?.Dispose();
+        _ = JS.InvokeVoidAsync("taskboardChat.unbindChatHotkeys");
+        _ = JS.InvokeVoidAsync("taskboardChat.voiceStop");
     }
 
     private async Task StartNewChatAsync()
@@ -1714,6 +1770,9 @@
         _permissionPreset = detail.Conversation.PermissionPreset ?? "ask";
         _planMode = detail.Conversation.PlanMode ?? "off";
         _denyReasonFor = null;
+        // RF-007: suggestion chips are per-conversation — never leak across.
+        _suggestions = [];
+        _suggestionsFor = null;
         if (_providerId != detail.Conversation.ProviderId)
         {
             _providerId = detail.Conversation.ProviderId;
@@ -1735,6 +1794,12 @@
         {
             _runStatus = null;
             _runId = null;
+        }
+
+        // RF-001: idle conversations offer their cached next actions.
+        if (detail.ActiveRun is null)
+        {
+            _ = LoadSuggestionsAsync();
         }
     }
 
@@ -2420,6 +2485,11 @@
                 {
                     AttachRun(conversationId, next.Id);
                 }
+                else
+                {
+                    // RF-001: run ended with no queued follow-up → chips.
+                    _ = LoadSuggestionsAsync();
+                }
             });
             streamCts.Dispose();
         }
@@ -2768,6 +2838,140 @@
         }
     }
 
+    // ---- SPEC-20261017-chat-polish: ⌘K palette + suggestions + voice ----
+
+    /// <summary>RF-003/RF-004: the palette list is rebuilt each render from
+    /// live state — a disabled command can't fire.</summary>
+    private IReadOnlyList<ChatCommandItem> PaletteCommands =>
+        ChatCommands.Build(new ChatCommandState(
+            HasConversation: _conversationId is not null,
+            RunActive: _running,
+            RunPaused: _runStatus is "paused",
+            Archived: _archived));
+
+    /// <summary>JS hotkey bridge (Ctrl+K / Ctrl+. / Ctrl+Shift+E).</summary>
+    [JSInvokable]
+    public async Task OnChatHotkey(string command)
+    {
+        switch (command)
+        {
+            case "palette":
+                _paletteOpen = !_paletteOpen;
+                if (_paletteOpen)
+                {
+                    _paletteRef?.Reset();
+                }
+                break;
+            case "pause":
+                if (_running && !_runActionBusy)
+                {
+                    await TogglePauseAsync();
+                }
+                break;
+            case "done":
+                if (_conversationId is not null && !_archived)
+                {
+                    await ArchiveConversationAsync(_conversationId);
+                }
+                break;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnPaletteCommandAsync(ChatCommandItem item)
+    {
+        switch (item.Id)
+        {
+            case "chat.new":
+                await StartNewChatAsync();
+                break;
+            case "chat.archive" or "chat.done":
+                if (_conversationId is not null)
+                {
+                    await ArchiveConversationAsync(_conversationId);
+                }
+                break;
+            case "chat.run.stop":
+                await StopAsync();
+                break;
+            case "chat.run.pause":
+                await TogglePauseAsync();
+                break;
+            case "app.sidebar":
+                if (Layout is not null)
+                {
+                    await Layout.SetSidebarCollapsedAsync(!Layout.IsSidebarCollapsed);
+                }
+                break;
+            default:
+                if (item.Id.StartsWith("ws.tab.", StringComparison.Ordinal) && _wsPanel is not null)
+                {
+                    await _wsPanel.OpenTabAsync(item.Id["ws.tab.".Length..]);
+                }
+                else if (item.Id.StartsWith("app.", StringComparison.Ordinal))
+                {
+                    var route = ChatCommands.AppPages.FirstOrDefault(p => p.Id == item.Id).Route;
+                    if (route is not null)
+                    {
+                        Navigation.NavigateTo(route);
+                    }
+                }
+                break;
+        }
+    }
+
+    /// <summary>RF-001: post-run chips — one cached load per conversation;
+    /// a fresh run's end clears the guard so the new chips fetch.</summary>
+    private async Task LoadSuggestionsAsync()
+    {
+        if (_conversationId is null || _running || _suggestionsFor == _conversationId)
+        {
+            return;
+        }
+
+        _suggestionsFor = _conversationId;
+        _suggestions = await Client.GetChatSuggestionsAsync(_conversationId);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>RF-005: mic toggle — the transcript streams into the composer
+    /// as text; the user still reviews before send.</summary>
+    private async Task ToggleVoiceAsync()
+    {
+        if (_voiceOn)
+        {
+            _voiceOn = false;
+            await JS.InvokeVoidAsync("taskboardChat.voiceStop");
+            return;
+        }
+
+        var lang = Locale.Culture switch { "en" => "en-US", "es" => "es-ES", _ => "pt-BR" };
+        _voiceRef ??= DotNetObjectReference.Create(this);
+        try
+        {
+            _voiceOn = await JS.InvokeAsync<bool>("taskboardChat.voiceStart", _voiceRef, lang);
+        }
+        catch (JSException)
+        {
+            _voiceOn = false;
+        }
+    }
+
+    [JSInvokable]
+    public void OnVoiceTranscript(string text)
+    {
+        _composer = text;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void OnVoiceEnd()
+    {
+        _voiceOn = false;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private async Task StopAsync()
     {
         if (_conversationId is null)
@@ -2891,6 +3095,10 @@
                 // SPEC-20261014-chat-git-bar-overview RF-004: github.com/*/pull/N
                 // links in assistant markdown get a hover card (60s server cache).
                 await JS.InvokeVoidAsync("taskboardChat.bindPrCards", "provider-chat-scroll");
+                // SPEC-20261017: ⌘K/Ctrl+./Ctrl+Shift+E hotkeys + voice support.
+                _hotkeyRef = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("taskboardChat.bindChatHotkeys", _hotkeyRef);
+                _voiceSupported = await JS.InvokeAsync<bool>("taskboardChat.voiceSupported");
             }
             catch (JSException)
             {

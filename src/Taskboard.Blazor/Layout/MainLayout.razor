@@ -51,7 +51,11 @@
         <main class="app-main" id="app-main" tabindex="-1" @ref="_mainElement">
             <ErrorBoundary>
                 <ChildContent>
-                    @Body
+                    @* ⌘K palette commands reach the layout (sidebar toggle)
+                       through the same cascade NavMenu already uses. *@
+                    <CascadingValue Value="this">
+                        @Body
+                    </CascadingValue>
                 </ChildContent>
                 <ErrorContent>
                     <div class="alert alert-danger">
@@ -157,7 +161,22 @@
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         UpdateTitle(e.Location);
+        // Devin-style mobile drawer: a nav pick must close the floating menu —
+        // only the backdrop tap did before.
+        _ = CloseMobileNavAsync();
         StateHasChanged();
+    }
+
+    private async Task CloseMobileNavAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.closeMobileNav");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+            // JS interop not ready — desktop nav is unaffected.
+        }
     }
 
     private void UpdateTitle(string uri)

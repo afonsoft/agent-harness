@@ -3166,6 +3166,16 @@ void MapSettingsAndChatEndpoints()
         CancellationToken ct) =>
         Results.Ok(new { shots = await shotStore.ListShotsAsync(id, ct) }));
 
+    // ---- SPEC-20261017-chat-polish RF-001: post-run suggestions ----
+
+    chat.MapPost("conversations/{id}/suggestions", async (
+        string id,
+        ChatService service,
+        CancellationToken ct) =>
+        await service.SuggestNextActionsAsync(id, ct) is { } suggestions
+            ? Results.Ok(new { suggestions })
+            : Results.NotFound());
+
     // ---- SPEC-20261005-chat-attachments-feedback: message feedback (log-only) ----
 
     // RF-005: 👍/👎 + category/note upsert — Version is CAS (0 on create).

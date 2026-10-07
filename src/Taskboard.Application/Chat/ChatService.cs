@@ -130,7 +130,8 @@ public sealed class ChatService(
     IChatFileEditTracker? editTracker = null,
     IChatWorkspaceDiffService? workspaceDiff = null,
     IChatMessageSearchIndex? searchIndex = null,
-    IChatToolRiskClassifier? riskClassifier = null) : IChatRunExecutor
+    IChatToolRiskClassifier? riskClassifier = null,
+    ChatTodoStore? todoStore = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -2408,6 +2409,92 @@ public sealed class ChatService(
 
         return ToDto(conversation, preview: null);
     }
+
+    // ---- SPEC-20261017-chat-polish RF-001: post-run suggestions ----
+
+    /// <summary>
+    /// Next-action chips after a run — one cheap provider call seeded with
+    /// the last assistant message + open todos. Failures degrade to an
+    /// empty list; <c>null</c> only when the conversation does not exist.
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> SuggestNextActionsAsync(string id, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        // RF-007: never while a run (and its approval prompts) is live.
+        if (runs.IsRunning(id))
+        {
+            return [];
+        }
+
+        var provider = await GetProviderSnapshotAsync(conversation.ProviderId, ct).ConfigureAwait(false);
+        var lastAssistant = await messages.Query
+            .Where(m => m.ConversationId == conversation.Id && m.Role == ChatMessageRole.Assistant)
+            .OrderByDescending(m => m.CreatedAt)
+            .Select(m => m.Content)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        if (provider is null || string.IsNullOrWhiteSpace(lastAssistant))
+        {
+            return [];
+        }
+
+        var todos = todoStore?.List(id)
+            .Where(t => t.Status is "pending" or "in_progress")
+            .Select(t => t.Content)
+            .ToList() ?? [];
+
+        var prompt = new StringBuilder();
+        prompt.AppendLine("Last assistant reply (clipped):");
+        prompt.AppendLine(lastAssistant.Length > 1200 ? lastAssistant[..1200] : lastAssistant);
+        foreach (var todo in todos.Take(10))
+        {
+            prompt.Append("todo: ").AppendLine(todo);
+        }
+        prompt.AppendLine("Suggest exactly 3 short next actions (one per line, <=12 words, no numbering, no bullets).");
+
+        try
+        {
+            var requestMessages = new List<OpenAiChatMessage>
+            {
+                new("system", "You propose short follow-up actions for a coding chat. Reply with plain lines only."),
+                new("user", prompt.ToString()),
+            };
+            var sb = new StringBuilder();
+            await foreach (var ev in client.StreamChatAsync(
+                provider.BaseUrl, provider.ApiKey, conversation.Model,
+                requestMessages, tools: null, maxTokens: 120, ct).ConfigureAwait(false))
+            {
+                if (ev.ContentDelta is { Length: > 0 } delta)
+                {
+                    sb.Append(delta);
+                }
+            }
+
+            return ParseSuggestions(sb.ToString());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // RF-001: the call is fire-and-forget — a provider hiccup yields
+            // no chips, never a user-facing error.
+            logger.LogDebug(ex, "Suggestion call failed for {ConversationId}", id);
+            return [];
+        }
+    }
+
+    /// <summary>Splits the raw reply into ≤3 clean suggestion strings.</summary>
+    internal static IReadOnlyList<string> ParseSuggestions(string raw) =>
+        raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => l.TrimStart('-', '*', ' ', '•')
+                .TrimStart('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', ')', ' ')
+                .Trim())
+            .Where(l => l.Length is > 2 and <= 120)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToList();
 
 
 
