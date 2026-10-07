@@ -891,7 +891,13 @@ window.taskboardShortcuts = {
             { keys: '?', label: 'Mostrar/ocultar ajuda de atalhos' },
             { keys: 'Esc', label: 'Fechar overlay' }
         ];
-        if (this._target('command')) {
+        if (window.taskboardChat && window.taskboardChat._chatHotkeyHandler) {
+            // SPEC-20261017: on the chat page Ctrl+K is the palette, not focus.
+            entries.push({ keys: 'Ctrl+K', label: 'Paleta de comandos' });
+            entries.push({ keys: 'Ctrl+.', label: 'Pausar/parar run' });
+            entries.push({ keys: 'Ctrl+Shift+E', label: 'Concluir e arquivar' });
+        }
+        else if (this._target('command')) {
             entries.push({ keys: 'Ctrl+K', label: 'Focar comando/composer da página' });
         }
         if (this._target('search')) {
