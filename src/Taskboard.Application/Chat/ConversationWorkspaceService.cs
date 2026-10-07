@@ -117,7 +117,9 @@ public sealed class ConversationWorkspaceService(
             approval.DecidedAt,
             approval.Decision,
             approval.DecidedBy?.Value,
-            approval.Kind.Value);
+            approval.Kind.Value,
+            approval.Risk,
+            approval.RiskReason);
     }
 
     /// <summary>RF-006: workdir for the conversation-scoped PTY (<c>conv-&lt;id&gt;</c>).</summary>

@@ -597,13 +597,14 @@ public sealed class RuntimeConfigurationService
 
     private static string? ValidatePermissionPreset(string value) =>
         Taskboard.ValueObjects.ChatPermissionPresets.IsValid(value)
+            // SPEC-20261013-chat-risk-approvals: `auto` joins the preset set.
             ? null
-            : "Permission preset must be one of: chat, ask, full.";
+            : "Permission preset must be one of: chat, ask, auto, full.";
 
     private static string? ValidateToolPolicy(string value) =>
-        value is "ask" or "never" or "allow"
+        value is "ask" or "never" or "allow" or "auto"
             ? null
-            : "Tool policy must be one of: ask, never, allow.";
+            : "Tool policy must be one of: ask, never, allow, auto.";
 
     private static string? ValidateJsonStringArray(string value)
     {

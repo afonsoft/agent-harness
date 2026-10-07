@@ -40,6 +40,16 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
     /// </summary>
     public ChatApprovalKind Kind { get; private set; } = ChatApprovalKind.ToolCall;
 
+    /// <summary>
+    /// SPEC-20261013-chat-risk-approvals: classifier tier that produced this
+    /// row (<c>medium</c> auto-allowed audit, <c>high</c> suspended call).
+    /// Null for approvals raised outside the <c>auto</c> policy.
+    /// </summary>
+    public string? Risk { get; private set; }
+
+    /// <summary>SPEC-20261013: the classifier's reason, shown on the card.</summary>
+    public string? RiskReason { get; private set; }
+
     public ChatApprovalStatus Status { get; private set; } = ChatApprovalStatus.Pending;
 
     public DateTime RequestedAt { get; private set; }
@@ -63,7 +73,9 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
         string toolName,
         string argumentsPreview,
         DateTime requestedAt,
-        ChatApprovalKind kind)
+        ChatApprovalKind kind,
+        string? risk,
+        string? riskReason)
         : base(id)
     {
         RunId = runId;
@@ -73,6 +85,8 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
         ArgumentsPreview = argumentsPreview;
         RequestedAt = requestedAt;
         Kind = kind;
+        Risk = risk;
+        RiskReason = riskReason;
     }
 
     public static ChatApproval Create(
@@ -83,7 +97,9 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
         string toolName,
         string? argumentsJson,
         DateTime? now = null,
-        ChatApprovalKind? kind = null)
+        ChatApprovalKind? kind = null,
+        string? risk = null,
+        string? riskReason = null)
     {
         var resolvedKind = kind ?? ChatApprovalKind.ToolCall;
         var preview = string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson;
@@ -95,7 +111,13 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
             preview = preview[..cap];
         }
 
-        return new ChatApproval(id, runId, conversationId, toolCallId, toolName, preview, now ?? DateTime.UtcNow, resolvedKind);
+        var reason = string.IsNullOrWhiteSpace(riskReason) ? null : riskReason.Trim();
+        if (reason is { Length: > 200 })
+        {
+            reason = reason[..200];
+        }
+
+        return new ChatApproval(id, runId, conversationId, toolCallId, toolName, preview, now ?? DateTime.UtcNow, resolvedKind, risk, reason);
     }
 
     /// <summary>

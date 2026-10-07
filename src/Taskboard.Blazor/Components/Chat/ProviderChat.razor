@@ -181,6 +181,7 @@
                             @onchange="ChangePresetAsync">
                         <option value="chat">Chat</option>
                         <option value="ask">Ask</option>
+                        <option value="auto">Auto</option>
                         <option value="full">Full</option>
                     </select>
                 </div>
@@ -350,6 +351,15 @@
                                 @if (message.Refused)
                                 {
                                     <span class="badge text-bg-warning ms-1">refused</span>
+                                }
+                                @* SPEC-20261013-chat-risk-approvals RF-004:
+                                   medium auto-elevated call — what ran
+                                   unreviewed + why. *@
+                                @if (message.ToolCallId is not null
+                                    && _riskByToolCall.TryGetValue(message.ToolCallId, out var notice))
+                                {
+                                    <span class="badge provider-risk-badge ms-1"
+                                          title="ran unreviewed — @notice">risk: @notice</span>
                                 }
                                 <span class="provider-tool-hint ms-auto">result</span>
                             </summary>
@@ -596,7 +606,18 @@
                     <div class="provider-approval-head">
                         <Icon Name="IconName.ShieldLock" />
                         <span class="fw-semibold">Approve <code>@approval.ToolName</code>?</span>
+                        @* SPEC-20261013 RF-004: the auto classifier's
+                           verdict + reason on a high-risk ask. *@
+                        @if (approval.Risk is not null)
+                        {
+                            <span class="badge provider-risk-badge provider-risk-@approval.Risk ms-1"
+                                  title="@approval.RiskReason">risk: @approval.Risk</span>
+                        }
                     </div>
+                    @if (approval.RiskReason is not null)
+                    {
+                        <div class="small text-body-secondary mt-1">@approval.RiskReason</div>
+                    }
                     <details class="provider-approval-args">
                         <summary class="small text-body-secondary">arguments</summary>
                         <pre class="chat-mini-terminal small mb-0"><code>@PrettyArgs(approval.ArgumentsPreview)</code></pre>
@@ -987,6 +1008,10 @@
 
     // SPEC-20261005-chat-tool-approval: pending approval cards + preset chip.
     private readonly List<ChatApprovalDto> _pendingApprovals = [];
+
+    // SPEC-20261013-chat-risk-approvals RF-004: auto-classified calls —
+    // toolCallId → "medium — <reason>" badge on the tool card.
+    private readonly Dictionary<string, string> _riskByToolCall = new(StringComparer.Ordinal);
     private string _permissionPreset = "ask";
     private string _planMode = "off";
     private string? _denyReasonFor;
@@ -1547,6 +1572,7 @@
             _streaming = null;
             _reasoning = null;
             _pendingApprovals.Clear();
+        _riskByToolCall.Clear();
             _permissionPreset = conversation.PermissionPreset ?? "ask";
             _planMode = conversation.PlanMode ?? "off";
             _denyReasonFor = null;
@@ -1616,6 +1642,7 @@
         // RF-007: replay unresolved approvals on (re-)attach; they resolve
         // live via approval.decided or when the run ends (auto-cancel).
         _pendingApprovals.Clear();
+        _riskByToolCall.Clear();
         if (detail.PendingApprovals is { Count: > 0 } pending)
         {
             _pendingApprovals.AddRange(pending);
@@ -2491,9 +2518,16 @@
                     asked.TryGetProperty("toolName", out var tname) ? tname.GetString() ?? string.Empty : string.Empty,
                     asked.TryGetProperty("argsPreview", out var aprv) ? aprv.GetString() ?? "{}" : "{}",
                     "pending", DateTime.UtcNow, null, null, null,
-                    asked.TryGetProperty("kind", out var knd) ? knd.GetString() ?? "tool-call" : "tool-call");
+                    asked.TryGetProperty("kind", out var knd) ? knd.GetString() ?? "tool-call" : "tool-call",
+                    asked.TryGetProperty("risk", out var rk) ? rk.GetString() : null,
+                    asked.TryGetProperty("riskReason", out var rr) ? rr.GetString() : null);
                 _pendingApprovals.RemoveAll(a => a.Id == dto.Id);
                 _pendingApprovals.Add(dto);
+                // RF-004: the tool card mirrors the high-risk badge too.
+                if (dto.Risk is not null && !string.IsNullOrEmpty(dto.ToolCallId))
+                {
+                    _riskByToolCall[dto.ToolCallId] = $"{dto.Risk} — {dto.RiskReason}";
+                }
                 _statusPhase = "waiting-approval";
                 _statusLabel = $"Approval: {dto.ToolName}";
                 await ScrollToEndAsync();
@@ -2560,6 +2594,21 @@
                 await ReloadConversationAsync();
                 await ScrollToEndAsync();
                 break;
+            case "risk.notice":
+            {
+                // SPEC-20261013 RF-004: medium call ran unreviewed — badge
+                // its tool card once the result message lands.
+                var notice = JsonSerializer.Deserialize<JsonElement>(data);
+                var noticeCallId = notice.TryGetProperty("toolCallId", out var nc) ? nc.GetString() : null;
+                var noticeRisk = notice.TryGetProperty("risk", out var nr) ? nr.GetString() : "medium";
+                var noticeReason = notice.TryGetProperty("reason", out var nn) ? nn.GetString() : null;
+                if (noticeCallId is not null)
+                {
+                    _riskByToolCall[noticeCallId] = $"{noticeRisk} — {noticeReason}";
+                }
+
+                break;
+            }
             case "chat.paused":
                 // SPEC-20261012 RF-002: parked at a boundary — the composer
                 // flips Pause→Resume; partial content stays visible.
@@ -2611,6 +2660,7 @@
                 _statusPhase = null;
                 _statusLabel = null;
                 _pendingApprovals.Clear();
+        _riskByToolCall.Clear();
                 _pendingSteers.Clear();
                 StopStallTimer();
                 // RF-004/RF-005: run settled — refresh todo/diff/plan surfaces.
@@ -2642,6 +2692,7 @@
             _archived = detail.Conversation.ArchivedAt is not null;
             // RF-007: keep pending cards in sync on every transcript reload.
             _pendingApprovals.Clear();
+        _riskByToolCall.Clear();
             if (detail.PendingApprovals is { Count: > 0 } pending)
             {
                 _pendingApprovals.AddRange(pending);
