@@ -290,4 +290,31 @@ public class AiChatSourceGuardTests
         source.ShouldContain("message.Kind == \"schedule\"");
         source.ShouldContain(">schedule</span>");
     }
+
+    // Rename de sessão — lápis no header da página + edição inline do título.
+
+    [Fact]
+    public void Dado_AiChatRazor_Quando_LeFonte_Entao_BotaoRenameNoHeader()
+    {
+        var source = File.ReadAllText(AiChatRazorPath());
+
+        source.ShouldContain("IconName.PencilSquare");
+        source.ShouldContain("BeginRenameSession");
+        source.ShouldContain("Rename session");
+    }
+
+    [Fact]
+    public void Dado_ProviderChatRazor_Quando_LeFonte_Entao_RenameInline()
+    {
+        // BeginRename abre o input inline; ConfirmRenameAsync faz o PATCH do
+        // título e atualiza _conversations + dispara LocationChanged p/ o
+        // submenu do NavMenu recarregar.
+        var source = File.ReadAllText(ProviderChatRazorPath());
+
+        source.ShouldContain("provider-rename-input");
+        source.ShouldContain("BeginRename");
+        source.ShouldContain("RenameChatConversationAsync");
+        source.ShouldContain("c with { Title = title }");
+        source.ShouldContain("Navigation.NavigateTo(Navigation.Uri)");
+    }
 }

@@ -72,6 +72,14 @@
                 @onclick="ToggleWorkspacePanelAsync">
             <Icon Name="IconName.LayoutSidebarInsetReverse" />
         </button>
+        @* Rename the active session — inline edit on the title inside
+           ProviderChat; disabled on the legacy thread UI. *@
+        <button type="button" class="ai-chat-iconbtn" title="Rename session"
+                aria-label="Rename session"
+                disabled="@(_providerChat is null)"
+                @onclick="BeginRenameSession">
+            <Icon Name="IconName.PencilSquare" />
+        </button>
     </div>
 </div>
 
@@ -1743,6 +1751,13 @@ else
         {
             await _providerChat.ToggleWorkspacePanelAsync();
         }
+    }
+
+    /// <summary>Header pencil → inline rename of the active provider-chat
+    /// conversation (no-op on the legacy thread UI).</summary>
+    private void BeginRenameSession()
+    {
+        _providerChat?.BeginRename();
     }
 
     /// <summary>Header "+" → new provider-chat conversation when the chat
