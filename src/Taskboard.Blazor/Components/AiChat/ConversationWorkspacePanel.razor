@@ -169,6 +169,20 @@
         await PersistAsync();
     }
 
+    /// <summary>SPEC-20261017: ⌘K "open X tab" — selects then opens.</summary>
+    public async Task OpenTabAsync(string tab)
+    {
+        if (Tabs.Contains(tab))
+        {
+            _tab = tab;
+            _visited.Add(tab);
+        }
+
+        _open = true;
+        await LoadWorkspaceAsync();
+        await PersistAsync();
+    }
+
     private async Task CloseAsync()
     {
         _open = false;

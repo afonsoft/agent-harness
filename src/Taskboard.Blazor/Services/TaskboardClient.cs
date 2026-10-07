@@ -1311,6 +1311,30 @@ public sealed class TaskboardClient
         }
     }
 
+    /// <summary>SPEC-20261017-chat-polish RF-001: post-run next-action chips —
+    /// empty list on failure (fire-and-forget by contract).</summary>
+    public async Task<IReadOnlyList<string>> GetChatSuggestionsAsync(
+        string id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(
+                $"api/local/chat/conversations/{Uri.EscapeDataString(id)}/suggestions",
+                content: null, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return [];
+            }
+
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(cancellationToken: cancellationToken);
+            return body?["suggestions"]?.Deserialize<IReadOnlyList<string>>() ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     /// <summary>SPEC-20261016-chat-browser-tool RF-004: shots gallery feed.</summary>
     public async Task<IReadOnlyList<BrowserShotDto>> GetBrowserShotsAsync(
         string id, CancellationToken cancellationToken = default)

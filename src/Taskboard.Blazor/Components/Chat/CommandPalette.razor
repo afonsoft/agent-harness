@@ -1,0 +1,132 @@
+@namespace Taskboard.Blazor.Components.Chat
+@using Taskboard.Application.Contracts.Chat
+@inject ILocaleService L
+
+@*
+    SPEC-20261017-chat-polish RF-003/RF-006: ⌘K modal palette — fuzzy list of
+    ChatCommandItems, fully keyboard operable (↑↓/Enter/Esc,
+    aria-activedescendant). Commands self-register via ChatCommands.Build;
+    the host dispatches by item.Id.
+*@
+
+@if (Open)
+{
+    <div class="cmdk-backdrop" @onclick="CloseAsync" role="presentation">
+        <div class="cmdk-panel" role="dialog" aria-modal="true" aria-label="@L.T("chat.cmdk.title")"
+             @onclick:stopPropagation="true" @onkeydown="OnKeyDown" @onkeydown:preventDefault="_prevent">
+            <input class="cmdk-input" type="text" role="combobox" aria-expanded="true"
+                   aria-controls="cmdk-list" aria-activedescendant="@ActiveDescendantId"
+                   placeholder="@L.T("chat.cmdk.placeholder")" autocomplete="off"
+                   @ref="_input" @bind="Query" @bind:event="oninput" />
+            <div class="cmdk-list" id="cmdk-list" role="listbox">
+                @if (Filtered.Count == 0)
+                {
+                    <div class="cmdk-empty">@L.T("chat.cmdk.empty")</div>
+                }
+                @for (var i = 0; i < Filtered.Count; i++)
+                {
+                    var index = i;
+                    var item = Filtered[i];
+                    <button type="button" role="option" id="@ItemId(index)"
+                            aria-selected="@(index == _active ? "true" : "false")"
+                            disabled="@(!item.Enabled)"
+                            class="cmdk-item @(index == _active ? "active" : null) @(item.Enabled ? null : "off")"
+                            @onclick="() => FireAsync(item)">
+                        <span class="cmdk-item-group">@item.Group</span>
+                        <span class="cmdk-item-label">@L.T(item.LabelKey)</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public IReadOnlyList<ChatCommandItem> Items { get; set; } = [];
+    [Parameter] public EventCallback<ChatCommandItem> OnCommand { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string _query = string.Empty;
+    private int _active;
+    private bool _prevent;
+    private ElementReference _input;
+
+    private string Query
+    {
+        get => _query;
+        set
+        {
+            _query = value;
+            _active = 0;
+        }
+    }
+
+    private IReadOnlyList<ChatCommandItem> Filtered =>
+        ChatCommandPalette.Filter(Items, L.T, _query);
+
+    private string ActiveDescendantId => Filtered.Count > 0 ? ItemId(_active) : null!;
+    private static string ItemId(int index) => $"cmdk-item-{index}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Open)
+        {
+            try
+            {
+                await _input.FocusAsync();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+            {
+                // Element not yet in the DOM — next render retries.
+            }
+        }
+    }
+
+    /// <summary>Re-opens reset the search + selection.</summary>
+    public void Reset()
+    {
+        _query = string.Empty;
+        _active = 0;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        _prevent = false;
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _active = Filtered.Count > 0 ? (_active + 1) % Filtered.Count : 0;
+                _prevent = true;
+                break;
+            case "ArrowUp":
+                _active = Filtered.Count > 0 ? (_active - 1 + Filtered.Count) % Filtered.Count : 0;
+                _prevent = true;
+                break;
+            case "Enter":
+                _prevent = true;
+                if (_active < Filtered.Count)
+                {
+                    await FireAsync(Filtered[_active]);
+                }
+                break;
+            case "Escape":
+                _prevent = true;
+                await CloseAsync();
+                break;
+        }
+    }
+
+    private async Task FireAsync(ChatCommandItem item)
+    {
+        if (!item.Enabled)
+        {
+            return;
+        }
+
+        await OnCommand.InvokeAsync(item);
+        await CloseAsync();
+    }
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+}

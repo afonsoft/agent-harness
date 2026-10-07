@@ -148,6 +148,15 @@ window.taskboard = {
                 localStorage.removeItem('harness.aichat.lastAgent');
             }
         } catch (e) { /* storage unavailable — session-only state */ }
+    },
+
+    // Devin-style mobile drawer: hide any open offcanvas after a nav pick
+    // (backdrop tap already closes; navigation must too).
+    closeMobileNav: function () {
+        var el = document.querySelector('.offcanvas.show');
+        if (el && window.bootstrap?.Offcanvas) {
+            window.bootstrap.Offcanvas.getOrCreateInstance(el).hide();
+        }
     }
 };
 
@@ -738,6 +747,90 @@ window.taskboardChat = {
             }
             window._previewPickRef.invokeMethodAsync('OnPreviewPick', e.data);
         });
+    },
+
+    // ---- SPEC-20261017-chat-polish: chat hotkeys (RF-003/RF-006) ----
+
+    // Ctrl+K palette, Ctrl+. pause-or-stop, Ctrl+Shift+E mark-done. Escape is
+    // NOT handled here — Blazor closes open surfaces topmost-first; a page
+    // with nothing open forwards Escape via 'escape'.
+    bindChatHotkeys: function (dotNetRef) {
+        this.unbindChatHotkeys();
+        var handler = function (e) {
+            var mod = e.ctrlKey || e.metaKey;
+            if (mod && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+                e.preventDefault();
+                e.stopPropagation();
+                dotNetRef.invokeMethodAsync('OnChatHotkey', 'palette');
+                return;
+            }
+            if (mod && !e.altKey && !e.shiftKey && e.key === '.') {
+                e.preventDefault();
+                dotNetRef.invokeMethodAsync('OnChatHotkey', 'pause');
+                return;
+            }
+            if (mod && e.shiftKey && !e.altKey && (e.key === 'e' || e.key === 'E')) {
+                e.preventDefault();
+                dotNetRef.invokeMethodAsync('OnChatHotkey', 'done');
+            }
+        };
+        // capture=true beats taskboardShortcuts' Ctrl+K composer-focus on this page.
+        document.addEventListener('keydown', handler, true);
+        this._chatHotkeyHandler = handler;
+    },
+
+    unbindChatHotkeys: function () {
+        if (this._chatHotkeyHandler) {
+            document.removeEventListener('keydown', this._chatHotkeyHandler, true);
+            this._chatHotkeyHandler = null;
+        }
+    },
+
+    // ---- SPEC-20261017-chat-polish RF-005: voice input (Web Speech API) ----
+
+    _recognition: null,
+
+    voiceSupported: function () {
+        return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    },
+
+    // Streams interim+final transcripts into OnVoiceTranscript; the host
+    // decides what lands in the composer (never auto-send per RF-005).
+    voiceStart: function (dotNetRef, lang) {
+        var Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Ctor) {
+            return false;
+        }
+        this.voiceStop();
+        var rec = new Ctor();
+        rec.lang = lang || 'pt-BR';
+        rec.continuous = true;
+        rec.interimResults = true;
+        var self = this;
+        rec.onresult = function (e) {
+            var text = '';
+            for (var i = 0; i < e.results.length; i++) {
+                text += e.results[i][0].transcript;
+            }
+            dotNetRef.invokeMethodAsync('OnVoiceTranscript', text);
+        };
+        rec.onerror = function () { self.voiceStop(); };
+        rec.onend = function () { dotNetRef.invokeMethodAsync('OnVoiceEnd', ''); };
+        this._recognition = rec;
+        try {
+            rec.start();
+            return true;
+        } catch (e) {
+            this._recognition = null;
+            return false;
+        }
+    },
+
+    voiceStop: function () {
+        if (this._recognition) {
+            try { this._recognition.stop(); } catch (e) { /* already stopped */ }
+            this._recognition = null;
+        }
     }
 };
 

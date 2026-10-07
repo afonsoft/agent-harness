@@ -123,9 +123,12 @@ public class MobileResponsiveTests
     {
         var js = TaskboardJs();
 
-        // FR-007: módulo único + listener único em document.
+        // FR-007: módulo único + listener único em document. O chat tem um
+        // capture-phase listener próprio (SPEC-20261017: Ctrl+K ganha do
+        // shortcut global e dispara mesmo com o composer focado) — um por módulo.
         js.ShouldContain("window.taskboardShortcuts");
-        Regex.Matches(js, @"document\.addEventListener\('keydown'").Count.ShouldBe(1);
+        js.ShouldContain("window.taskboardChat");
+        Regex.Matches(js, @"document\.addEventListener\('keydown'").Count.ShouldBe(2);
 
         // Guard cobre campos editáveis, xterm e editores de código.
         var guard = Regex.Match(js, @"_isEditable:\s*function[^}]+}");
