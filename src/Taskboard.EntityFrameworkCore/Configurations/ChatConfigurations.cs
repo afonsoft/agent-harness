@@ -86,6 +86,10 @@ public sealed class ChatConversationConfiguration : IEntityTypeConfiguration<Cha
             .HasMaxLength(128);
         builder.HasIndex(c => c.ForkedFromConversationId);
 
+        // SPEC-20261015-chat-preview-panel RF-002: /preview/{port} proxy path.
+        builder.Property(c => c.PreviewUrl)
+            .HasMaxLength(512);
+
         builder.Property(c => c.Version)
             .IsConcurrencyToken();
 

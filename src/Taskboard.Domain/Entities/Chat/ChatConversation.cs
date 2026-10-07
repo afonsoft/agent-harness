@@ -64,6 +64,13 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
     public string? ForkedFromConversationId { get; private set; }
     public string? ForkedAtMessageId { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261015-chat-preview-panel RF-002: the app URL the chat preview
+    /// tab points at — always a same-origin <c>/preview/{port}/{path}</c>
+    /// proxy path (loopback http(s) inputs are normalized by the caller).
+    /// </summary>
+    public string? PreviewUrl { get; private set; }
+
     private ChatConversation()
     {
     }
@@ -214,6 +221,13 @@ public sealed class ChatConversation : AggregateRoot<ChatConversationId>
         {
             return new HashSet<string>(StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>RF-002: pins (or clears with null) the preview tab target.</summary>
+    public void SetPreviewUrl(string? previewUrl, DateTime now)
+    {
+        PreviewUrl = NullIfBlank(previewUrl);
+        UpdatedAt = now;
     }
 
     /// <summary>RF-001: records the fork lineage right after creation.</summary>

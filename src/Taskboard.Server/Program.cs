@@ -91,6 +91,7 @@ using Yarp.ReverseProxy.Configuration;
 using Taskboard.Application.Settings;
 using Taskboard.GitHub;
 using Taskboard.Json;
+using Taskboard.Server.Chat;
 using Taskboard.Server.HealthChecks;
 using Taskboard.Server.Hubs;
 using Taskboard.Repositories;
@@ -280,6 +281,15 @@ app.UseWhen(
     }));
 
 app.MapReverseProxy();
+
+// SPEC-20261015-chat-preview-panel RF-001: loopback-only preview proxy —
+// /preview/{port}/… → 127.0.0.1:{port}; same-origin iframe enables the
+// element picker. Auth like every other app surface.
+app.MapMethods("/preview/{port:int}/{**path}", ["GET", "HEAD"], (
+        HttpContext ctx, int port, string? path, IHttpClientFactory factory) =>
+    ChatPreviewProxy.ForwardAsync(
+        ctx, factory.CreateClient("chat-preview"), port, path))
+    .RequireAuthorization();
 
 MapSettingsAndChatEndpoints();
 
@@ -531,6 +541,12 @@ void RegisterWorkspaceAndChatServices()
     {
         client.Timeout = TimeSpan.FromSeconds(30);
     });
+    builder.Services.AddHttpClient("chat-preview", static client =>
+    {
+        // SPEC-20261015: dev servers stream (SSE/hot reload) — the request
+        // abort token is the only timeout a proxied response gets.
+        client.Timeout = Timeout.InfiniteTimeSpan;
+    });
     builder.Services.AddSingleton<OpenAiCompatibleClient>(sp =>
         new(sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-provider")));
     builder.Services.AddSingleton<ChatImageStore>(new ChatImageStore(environment.GetDataDir()));
@@ -631,6 +647,9 @@ void RegisterWorkspaceAndChatServices()
             // SPEC-20261005-chat-plan-mode RF-003: plan review — the approval
             // gate intercepts the call; the tool only confirms approval.
             new ExitPlanModeTool(),
+            // SPEC-20261015-chat-preview-panel RF-002: agent announces the
+            // app it just started → chat Preview tab pins it.
+            new RegisterPreviewTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261005-chat-jobs-schedule-search RF-002/RF-005/RF-010:
             // background-job, schedule and FTS search tools.
             new JobListTool(sp.GetRequiredService<IChatJobService>(), configuration),
@@ -675,6 +694,9 @@ void RegisterWorkspaceAndChatServices()
     // for the `auto` approval policy.
     builder.Services.AddSingleton<IChatToolRiskClassifier>(StaticChatToolRiskClassifier.Instance);
     builder.Services.AddScoped<ConversationWorkspaceService>();
+    // SPEC-20261015-chat-preview-panel: tools announce preview URLs through
+    // this contract (Integrations has no Domain reference).
+    builder.Services.AddScoped<IConversationPreviewStore, ConversationPreviewStore>();
     // SPEC-20261014-chat-git-bar-overview: chips + pull/push/PR + hover card
     // for the resolved conversation workspace.
     builder.Services.AddSingleton<IChatGitOps>(sp => new ChatGitOps(sp.GetRequiredService<IGitCommandRunner>()));
@@ -2654,6 +2676,28 @@ void MapSettingsAndChatEndpoints()
             ? Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } })
             : Results.Ok(new { plan = await ws.GetLatestPlanAsync(id, ct) }));
 
+    // SPEC-20261015-chat-preview-panel RF-002: pin/clear the preview tab
+    // target — loopback URLs normalize to /preview/{port}/{path}.
+    chat.MapPost("conversations/{id}/preview", async (
+        string id, SetChatPreviewRequest request, ChatService chatService, CancellationToken ct) =>
+    {
+        try
+        {
+            return await chatService.SetConversationPreviewAsync(id, request.Url, ct) is { } conversation
+                ? Results.Ok(new { conversation })
+                : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } });
+        }
+        catch (ChatValidationException ex)
+        {
+            return Results.BadRequest(new { error = new { code = ErrValidation, message = ex.Message } });
+        }
+    });
+
+    chat.MapDelete("conversations/{id}/preview", async (string id, ChatService chatService, CancellationToken ct) =>
+        await chatService.ClearConversationPreviewAsync(id, ct) is { } conversation
+            ? Results.Ok(new { conversation })
+            : Results.NotFound(new { error = new { code = ErrConversationNotFound, message = $"Conversation '{id}' not found." } }));
+
     chat.MapPatch("conversations/{id}", async (string id, PatchChatConversationRequest request, ChatService chatService, CancellationToken ct) =>
         await chatService.PatchConversationAsync(id, request, ct) is { } conversation
             ? Results.Ok(new { conversation })
@@ -2697,13 +2741,13 @@ void MapSettingsAndChatEndpoints()
             // to the normal queued send.
             if (request.Steer)
             {
-                if (await chatService.EnqueueSteerAsync(id, request.Content, ct, request.AttachmentIds) is { } steered)
+                if (await chatService.EnqueueSteerAsync(id, request.Content, ct, request.AttachmentIds, request.Quote) is { } steered)
                 {
                     return Results.Accepted(value: new EnqueueChatMessageResponse(steered.Run, Steered: true, steered.SteerId));
                 }
             }
 
-            var run = await chatService.EnqueueMessageAsync(id, request.Content, ct, request.AttachmentIds);
+            var run = await chatService.EnqueueMessageAsync(id, request.Content, ct, request.AttachmentIds, request.Quote);
             return Results.Accepted(value: new EnqueueChatMessageResponse(run));
         }
         catch (ChatArchivedException ex)

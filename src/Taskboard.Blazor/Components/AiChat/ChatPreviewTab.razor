@@ -1,0 +1,270 @@
+@using Taskboard.Application.Contracts.Chat
+@implements IAsyncDisposable
+@inject TaskboardClient Client
+@inject IJSRuntime JS
+@inject ILocaleService L
+
+@*
+    SPEC-20261015-chat-preview-panel RF-003..RF-007: Preview tab — iframe of
+    the pinned app (via the loopback /preview/{port} proxy), URL/port input,
+    reload, open-external, live dot and the Pick-element overlay whose
+    selections land as a composer quote chip (OnElementPicked).
+*@
+
+<div class="chat-ws-tabbody chat-preview">
+    <div class="d-flex align-items-center gap-2 px-2 py-1 border-bottom">
+        <span class="chat-preview-dot @(_live ? "live" : "")" title="@(_live ? L.T("chat.preview.live") : L.T("chat.preview.offline"))"></span>
+        <input class="form-control form-control-sm chat-preview-url" type="text"
+               placeholder="@L.T("chat.preview.url-ph")" aria-label="@L.T("chat.preview.url")"
+               @bind="_urlInput" @bind:event="oninput" @onkeydown="OnUrlKeyAsync" />
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ApplyUrlAsync" title="@L.T("chat.preview.apply")">
+            <Icon Name="IconName.Check2" />
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="Reload" disabled="@(_src is null)" title="@L.T("chat.ws.refresh")" aria-label="@L.T("chat.ws.refresh")">
+            <Icon Name="IconName.ArrowClockwise" />
+        </button>
+        <a class="btn btn-sm btn-outline-secondary @(_src is null ? "disabled" : "")" href="@_src" target="_blank" rel="noopener" title="@L.T("chat.preview.open")" aria-label="@L.T("chat.preview.open")">
+            <Icon Name="IconName.BoxArrowUpRight" />
+        </a>
+        <button type="button" class="btn btn-sm @(_picking ? "btn-primary" : "btn-outline-primary") ms-auto"
+                @onclick="TogglePickAsync" disabled="@(_src is null)" title="@L.T("chat.preview.pick")"
+                aria-pressed="@_picking" aria-label="@L.T("chat.preview.pick")">
+            <Icon Name="IconName.Cursor" /> @L.T("chat.preview.pick")
+        </button>
+    </div>
+    @if (_error is not null)
+    {
+        <div class="alert alert-warning small m-2 py-1 px-2 mb-0">@_error</div>
+    }
+    @if (_src is null)
+    {
+        <div class="chat-ws-empty">
+            <Icon Name="IconName.Window" />
+            <p class="mb-0 mt-2 small">@L.T("chat.preview.empty")</p>
+        </div>
+    }
+    else
+    {
+        <iframe class="chat-preview-frame" @ref="_iframe" src="@_src" @key="_frameKey"
+                title="@L.T("chat.ws.preview")" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+    }
+</div>
+
+@code {
+    /// <summary>Conversation whose preview is shown.</summary>
+    [Parameter, EditorRequired] public string ConversationId { get; set; } = default!;
+
+    /// <summary>Bump to reload the pinned URL (run completion can announce one).</summary>
+    [Parameter] public int RefreshSignal { get; set; }
+
+    /// <summary>Picked element → composer quote chip.</summary>
+    [Parameter] public EventCallback<ChatElementQuote> OnElementPicked { get; set; }
+
+    private string? _src;
+    private string _urlInput = string.Empty;
+    private bool _picking;
+    private bool _live;
+    private int _frameKey;
+    private string? _error;
+    private string? _loadedFor;
+    private int _lastRefresh = -1;
+    private ElementReference _iframe;
+    private DotNetObjectReference<ChatPreviewTab>? _selfRef;
+    private CancellationTokenSource? _probeCts;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConversationId != _loadedFor)
+        {
+            _loadedFor = ConversationId;
+            _error = null;
+            _picking = false;
+            await LoadAsync();
+        }
+
+        if (RefreshSignal != _lastRefresh)
+        {
+            _lastRefresh = RefreshSignal;
+            await LoadAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("taskboardChat.previewPickerListen", _selfRef);
+            StartProbe();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var detail = await Client.GetChatConversationAsync(ConversationId);
+            var pinned = detail?.Conversation.PreviewUrl;
+            if (!string.IsNullOrEmpty(pinned))
+            {
+                _src = pinned;
+                _urlInput = pinned;
+            }
+            else if (_src is null)
+            {
+                // Last typed port survives the tab closing (localStorage).
+                var last = await JS.InvokeAsync<string?>(
+                    "taskboardChat.chatStoreGet", $"harness.chat.preview.port.{ConversationId}");
+                if (int.TryParse(last, out var port) && port is >= 1024 and <= 65535)
+                {
+                    _src = $"/preview/{port}/";
+                    _urlInput = $"localhost:{port}";
+                }
+            }
+        }
+        catch
+        {
+            _error = null;
+        }
+    }
+
+    private async Task ApplyUrlAsync()
+    {
+        var raw = _urlInput.Trim();
+        if (raw.Length == 0)
+        {
+            await Client.ClearChatPreviewAsync(ConversationId);
+            _src = null;
+            _live = false;
+            return;
+        }
+
+        // Bare "5021" / "localhost:5021" → http://localhost:5021/
+        var url = raw.StartsWith("/preview/", StringComparison.Ordinal) ? raw
+            : raw.Contains("://", StringComparison.Ordinal) ? raw
+            : $"http://{(raw.StartsWith("localhost", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("127.") ? "" : "localhost:")}{raw.TrimStart('/')}";
+
+        try
+        {
+            var updated = await Client.SetChatPreviewAsync(ConversationId, url);
+            _src = updated?.PreviewUrl ?? _src;
+            _error = null;
+            if (_src is not null && _src.StartsWith("/preview/", StringComparison.Ordinal))
+            {
+                var port = _src["/preview/".Length..].Split('/')[0];
+                await JS.InvokeVoidAsync(
+                    "taskboardChat.chatStoreSet", $"harness.chat.preview.port.{ConversationId}", port);
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private Task OnUrlKeyAsync(KeyboardEventArgs e) =>
+        e.Key is "Enter" ? ApplyUrlAsync() : Task.CompletedTask;
+
+    private void Reload()
+    {
+        _frameKey++;
+        if (_picking)
+        {
+            _ = DisablePickerAsync();
+        }
+    }
+
+    private async Task TogglePickAsync()
+    {
+        _picking = !_picking;
+        await Task.Delay(50); // iframe ref settles after render
+        try
+        {
+            if (_picking)
+            {
+                await JS.InvokeVoidAsync("taskboardChat.previewPickerEnable", _iframe);
+            }
+            else
+            {
+                await DisablePickerAsync();
+            }
+        }
+        catch (JSException)
+        {
+            // cross-origin or unloaded iframe — picker is best-effort
+            _picking = false;
+        }
+    }
+
+    private async Task DisablePickerAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardChat.previewPickerDisable", _iframe);
+        }
+        catch (JSException)
+        {
+            // iframe gone — nothing to tear down
+        }
+        _picking = false;
+    }
+
+    /// <summary>RF-006: live dot — probes the proxy every ≤30s while mounted.</summary>
+    private void StartProbe()
+    {
+        _probeCts = new CancellationTokenSource();
+        var ct = _probeCts.Token;
+        _ = Task.Run(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                if (_src is not null)
+                {
+                    var live = await Client.ProbeChatPreviewAsync(_src, ct);
+                    if (live != _live)
+                    {
+                        _live = live;
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+                else if (_live)
+                {
+                    _live = false;
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), ct);
+                }
+                catch (TaskCanceledException)
+                {
+                    return;
+                }
+            }
+        }, ct);
+    }
+
+    /// <summary>JS postMessage → composer quote chip (fires the parameter callback).</summary>
+    [JSInvokable]
+    public async Task OnPreviewPick(PickedElement pick)
+    {
+        var quote = new ChatElementQuote(pick.Selector, pick.Tag, pick.Text, pick.PageUrl);
+        await OnElementPicked.InvokeAsync(quote);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _probeCts?.Cancel();
+        _probeCts?.Dispose();
+        if (_picking)
+        {
+            await DisablePickerAsync();
+        }
+        _selfRef?.Dispose();
+    }
+
+    /// <summary>postMessage payload — shape mirrors chat-preview picker JS.</summary>
+    public sealed record PickedElement(
+        string Selector, string Tag, string? Text, string? PageUrl);
+}

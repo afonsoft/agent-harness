@@ -53,7 +53,10 @@ public sealed record ChatConversationDto(
     // SPEC-20261005-chat-fork-steering RF-001/RF-004: fork lineage + count.
     string? ForkedFromConversationId = null,
     string? ForkedAtMessageId = null,
-    int ForkCount = 0);
+    int ForkCount = 0,
+    // SPEC-20261015-chat-preview-panel RF-002: /preview/{port} proxy path
+    // the chat preview tab points at (null = nothing announced).
+    string? PreviewUrl = null);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -149,7 +152,13 @@ public sealed record SendChatMessageRequest(
     /// SPEC-20261005-chat-attachments-feedback RF-002: staged attachment ids
     /// bound to this message on send (cap <c>Chat:Attachments:MaxPerMessage</c>).
     /// </summary>
-    IReadOnlyList<string>? AttachmentIds = null);
+    IReadOnlyList<string>? AttachmentIds = null,
+    /// <summary>
+    /// SPEC-20261015-chat-preview-panel RF-004: element picked in the
+    /// preview tab — stored as a quote card on the user message and sent to
+    /// the model as a context block.
+    /// </summary>
+    ChatElementQuote? Quote = null);
 
 /// <summary>
 /// A staged/bound attachment (SPEC-20261005-chat-attachments-feedback RF-001).

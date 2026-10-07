@@ -72,6 +72,10 @@
                     {
                         <div class="chat-ws-pane" hidden="@(_tab != "plan")"><ChatPlanTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" /></div>
                     }
+                    @if (_visited.Contains("preview"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "preview")"><ChatPreviewTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" OnElementPicked="OnElementPicked" /></div>
+                    }
                 }
             </div>
         </div>
@@ -79,13 +83,16 @@
 </div>
 
 @code {
-    private static readonly string[] Tabs = ["tasks", "changes", "terminal", "editor", "plan"];
+    private static readonly string[] Tabs = ["tasks", "changes", "terminal", "editor", "plan", "preview"];
 
     /// <summary>Active conversation — workspace + persisted state resolve per id.</summary>
     [Parameter] public string? ConversationId { get; set; }
 
     /// <summary>Bump on run completion so data tabs reload.</summary>
     [Parameter] public int RefreshSignal { get; set; }
+
+    /// <summary>SPEC-20261015: picked preview element → composer quote chip.</summary>
+    [Parameter] public EventCallback<ChatElementQuote> OnElementPicked { get; set; }
 
     /// <summary>Whether the pane is currently open (for the toggle button state).</summary>
     public bool IsOpen => _open;
@@ -127,7 +134,7 @@
         if (_open)
         {
             _selfRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("taskboard.initChatWsResize", _resizeRef, _panelRef, _selfRef);
+            await JS.InvokeVoidAsync("taskboardChat.initChatWsResize", _resizeRef, _panelRef, _selfRef);
         }
     }
 
@@ -175,7 +182,7 @@
     {
         try
         {
-            var state = await JS.InvokeAsync<ChatWsState?>("taskboard.chatWsGet", ConversationId);
+            var state = await JS.InvokeAsync<ChatWsState?>("taskboardChat.chatWsGet", ConversationId);
             if (state is not null)
             {
                 _open = state.Open;
@@ -210,7 +217,7 @@
     {
         try
         {
-            await JS.InvokeVoidAsync("taskboard.chatWsSet", ConversationId, new { open = _open, tab = _tab, width = _width });
+            await JS.InvokeVoidAsync("taskboardChat.chatWsSet", ConversationId, new { open = _open, tab = _tab, width = _width });
         }
         catch
         {
@@ -232,6 +239,7 @@
         "terminal" => L.T("chat.ws.terminal"),
         "editor" => L.T("chat.ws.editor"),
         "plan" => L.T("chat.ws.plan"),
+        "preview" => L.T("chat.ws.preview"),
         _ => tab,
     };
 
