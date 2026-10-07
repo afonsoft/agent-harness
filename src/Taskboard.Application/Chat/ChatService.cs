@@ -584,9 +584,48 @@ public sealed class ChatService(
         return (ToDto(active), item.Id.Value);
     }
 
+    /// <summary>
+    /// SPEC-20261015-chat-preview-panel RF-002: pins the preview tab target.
+    /// The input is normalized through <see cref="ChatPreviewUrl.Normalize"/>
+    /// — loopback http(s) URLs become <c>/preview/{port}/{path}</c>, anything
+    /// else is a 400-class validation error.
+    /// </summary>
+    public async Task<ChatConversationDto?> SetConversationPreviewAsync(
+        string id, string url, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        var normalized = ChatPreviewUrl.Normalize(url)
+            ?? throw new ChatValidationException(
+                $"Invalid preview URL '{url}' — loopback http(s) or /preview/… only.");
+        conversation.SetPreviewUrl(normalized, UtcNow);
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(conversation, null);
+    }
+
+    /// <summary>RF-002: clears the pinned preview target.</summary>
+    public async Task<ChatConversationDto?> ClearConversationPreviewAsync(
+        string id, CancellationToken ct = default)
+    {
+        var conversation = await conversations.GetAsync(ChatConversationId.From(id), ct).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        conversation.SetPreviewUrl(null, UtcNow);
+        await conversations.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(conversation, null);
+    }
+
     public async Task<ChatRunDto> EnqueueMessageAsync(
         string conversationId, string content, CancellationToken ct = default,
-        IReadOnlyList<string>? attachmentIds = null)
+        IReadOnlyList<string>? attachmentIds = null,
+        ChatElementQuote? quote = null)
     {
         var conversation = await conversations.GetAsync(ChatConversationId.From(conversationId), ct).ConfigureAwait(false)
             ?? throw new ChatValidationException($"Conversation '{conversationId}' not found.");
@@ -600,10 +639,21 @@ public sealed class ChatService(
             throw new ChatValidationException($"Provider '{conversation.ProviderName}' no longer exists.");
         }
 
+        // SPEC-20261015-chat-preview-panel RF-004: the picked element rides
+        // the user message as a markdown quote card — persisted, rendered
+        // in the transcript and visible to the model as context.
+        var titleSeed = content;
+        if (quote is not null)
+        {
+            var text = quote.Text is { Length: > 0 } t ? $" \"{t}\"" : string.Empty;
+            var page = quote.PageUrl is { Length: > 0 } p ? $" — {p}" : string.Empty;
+            content = $"> `{quote.Selector}`{text}{page}\n\n{content}";
+        }
+
         var userMessage = ChatMessage.CreateUser(conversation.Id, content, UtcNow);
         await messages.AddAsync(userMessage, ct).ConfigureAwait(false);
         await IndexMessageSafeAsync(userMessage, ct).ConfigureAwait(false);
-        conversation.EnsureTitle(content, UtcNow);
+        conversation.EnsureTitle(titleSeed, UtcNow);
         conversation.Touch(UtcNow);
 
         // SPEC-20261005-chat-attachments-feedback RF-002: bind the staged
@@ -3307,7 +3357,8 @@ public sealed class ChatService(
         conversation.PlanMode,
         conversation.ForkedFromConversationId,
         conversation.ForkedAtMessageId,
-        forkCount);
+        forkCount,
+        conversation.PreviewUrl);
 
     private static ChatMessageDto ToDto(
         ChatMessage message,
