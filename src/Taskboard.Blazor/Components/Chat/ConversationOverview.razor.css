@@ -1,0 +1,37 @@
+/* SPEC-20261014 RF-005: compact overview popover near the header. */
+.chat-overview {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0.5rem;
+    z-index: 1040;
+    width: min(22rem, calc(100vw - 1rem));
+    padding: 0.6rem 0.75rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
+    font-size: 0.82rem;
+}
+
+.chat-overview-title {
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+}
+
+.chat-overview-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.15rem 0.75rem;
+    margin: 0;
+}
+
+.chat-overview-list dt {
+    color: var(--bs-secondary-color);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.chat-overview-list dd {
+    margin: 0;
+    min-width: 0;
+}

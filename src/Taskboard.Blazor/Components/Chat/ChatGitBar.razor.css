@@ -1,0 +1,72 @@
+/* SPEC-20261014: thin git context bar under the chat header. */
+.chat-gitbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.75rem;
+    border-bottom: 1px solid var(--bs-border-color);
+    font-size: 0.78rem;
+}
+
+.chat-gitbar-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 999px;
+    color: var(--bs-body-color);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+a.chat-gitbar-chip:hover {
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+}
+
+.chat-gitbar-dirty {
+    color: var(--bs-warning-text-emphasis);
+    border-color: var(--bs-warning-border-subtle);
+}
+
+.chat-gitbar-actions {
+    display: inline-flex;
+    gap: 0.25rem;
+    margin-left: auto;
+}
+
+.chat-gitbar-btn {
+    border: 1px solid var(--bs-border-color);
+    background: transparent;
+    color: var(--bs-body-color);
+    border-radius: 6px;
+    padding: 0.1rem 0.5rem;
+    font-size: inherit;
+}
+
+.chat-gitbar-btn:hover:not(:disabled) {
+    background: var(--bs-tertiary-bg);
+}
+
+.chat-gitbar-btn:disabled {
+    opacity: 0.5;
+}
+
+.chat-gitbar-prform {
+    flex-basis: 100%;
+    padding: 0.35rem 0;
+}
+
+.chat-gitbar-log {
+    flex-basis: 100%;
+    margin: 0.15rem 0 0.15rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--bs-tertiary-bg);
+    border-radius: 6px;
+    font-size: 0.75rem;
+    max-height: 8rem;
+    overflow: auto;
+    white-space: pre-wrap;
+}

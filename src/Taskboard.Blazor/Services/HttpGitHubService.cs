@@ -265,6 +265,21 @@ public sealed class HttpGitHubService(HttpClient http) : IGitHubService
         return result!.PrUrl;
     }
 
+    public Task<string?> FindOpenPullRequestUrlAsync(
+        string repositoryFullName,
+        string head,
+        string baseBranch,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "Open-PR lookup is server-side only — the client creates PRs via the conversation git endpoints.");
+
+    public Task<PullRequestCardDto?> GetPullRequestCardAsync(
+        string repositoryFullName,
+        int pullNumber,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "PR hover cards come from /api/local/chat/pr-card — no direct client lookup.");
+
     private static (string Owner, string Repo) SplitFullName(string fullName)
     {
         var parts = fullName.Split('/', 2, StringSplitOptions.TrimEntries);
