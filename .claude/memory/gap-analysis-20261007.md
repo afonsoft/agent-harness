@@ -73,22 +73,22 @@
 - **P3**: browser-tool (screenshot), suggestions, ⌘K palette, voice
 - **REJEITADO/fase posterior**: sandbox runtime; browser interativo (click-through)
 
-## 5. Gate → SPECs + Issues (pendente aprovação)
+## 5. Gate → SPECs + Issues (APROVADO 2026-10-07)
 
-Draft SPECs propostos (7 slices):
-- `.specs/SPEC-*-chat-workspace-panel.md` — painel direito: tabs Tasks/Changes/Terminal (+Editor embed)
-- `.specs/SPEC-*-chat-run-controls.md` — pause/resume, state chip, stuck watchdog
-- `.specs/SPEC-*-chat-risk-approvals.md` — classificador de risco + preset `auto`
-- `.specs/SPEC-*-chat-git-bar-overview.md` — chips git + promote→PR + overview peek
-- `.specs/SPEC-*-chat-preview-panel.md` — Preview + element picker
-- `.specs/SPEC-*-chat-browser-tool.md` — browser_use (screenshot) + aba Browser
-- `.specs/SPEC-*-chat-polish.md` — suggestions, ⌘K, voice
+Draft SPECs criados (7 slices):
+- `.specs/SPEC-20261011-chat-workspace-panel.md` — painel direito: tabs Tasks/Changes/Terminal/Editor/Plan → issue #522
+- `.specs/SPEC-20261012-chat-run-controls.md` — pause/resume, state chip, stuck watchdog → issue #523
+- `.specs/SPEC-20261013-chat-risk-approvals.md` — classificador de risco + preset `auto` → issue #524
+- `.specs/SPEC-20261014-chat-git-bar-overview.md` — chips git + promote→PR + overview peek → issue #525
+- `.specs/SPEC-20261015-chat-preview-panel.md` — Preview + element picker → issue #526
+- `.specs/SPEC-20261016-chat-browser-tool.md` — browser_use (screenshot) + aba Browser → issue #527
+- `.specs/SPEC-20261017-chat-polish.md` — suggestions, ⌘K, voice → issue #528
 
-Issues: criar Epic + slices `backlog` após aprovação do gate.
+Epic: #521 · slices #522–#528 (label `backlog`) · specs Draft em PR docs-only.
 
 ## 6. Pendências
 
-- Gate aguardando aprovação → escrever SPECs Draft + issues.
+- Gate aprovado → specs + issues criados; próximo: implementar slice 1 (`chat-workspace-panel`) branch/PR próprios.
 - Ambiguidade "abrir um talk": interpretado como voice input + side-chat (fork cobre thread paralela) — confirmar se era outra coisa.
 - Preview tab depende de haver URL de app no run (hoje nenhum run expõe porta) — spec deve definir convenção (run anuncia porta → chip no header).
 - Risk classifier: usar regras estáticas primeiro (path jail, comandos destrutivos, rede); LLM-judge é over-engineering.
