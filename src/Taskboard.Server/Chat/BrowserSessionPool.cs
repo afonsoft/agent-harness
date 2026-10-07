@@ -161,16 +161,16 @@ public sealed class BrowserSessionPool(
         switch (action.Action)
         {
             case "navigate":
-            {
-                var response = await page.GotoAsync(
-                    action.Url!, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded })
-                    .ConfigureAwait(false);
-                await SettleAsync(page, action.WaitMs).ConfigureAwait(false);
-                result = new BrowserActionResult(
-                    response?.Ok ?? true, page.Url, await page.TitleAsync().ConfigureAwait(false),
-                    ShotPng: await ShotAsync(page, action.FullPage).ConfigureAwait(false));
-                break;
-            }
+                {
+                    var response = await page.GotoAsync(
+                        action.Url!, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded })
+                        .ConfigureAwait(false);
+                    await SettleAsync(page, action.WaitMs).ConfigureAwait(false);
+                    result = new BrowserActionResult(
+                        response?.Ok ?? true, page.Url, await page.TitleAsync().ConfigureAwait(false),
+                        ShotPng: await ShotAsync(page, action.FullPage).ConfigureAwait(false));
+                    break;
+                }
             case "click":
                 await page.WaitForSelectorAsync(
                     action.Selector!, new() { Timeout = (float)SelectorWait.TotalMilliseconds }).ConfigureAwait(false);
@@ -186,46 +186,46 @@ public sealed class BrowserSessionPool(
                 result = await ResultWithShotAsync(page, action).ConfigureAwait(false);
                 break;
             case "scroll":
-            {
-                var (dx, dy) = action.Direction switch
                 {
-                    "up" => (0f, -600f),
-                    "left" => (-600f, 0f),
-                    "right" => (600f, 0f),
-                    _ => (0f, 600f),
-                };
-                await page.Mouse.WheelAsync(dx, dy).ConfigureAwait(false);
-                await SettleAsync(page, action.WaitMs).ConfigureAwait(false);
-                result = await ResultWithShotAsync(page, action).ConfigureAwait(false);
-                break;
-            }
+                    var (dx, dy) = action.Direction switch
+                    {
+                        "up" => (0f, -600f),
+                        "left" => (-600f, 0f),
+                        "right" => (600f, 0f),
+                        _ => (0f, 600f),
+                    };
+                    await page.Mouse.WheelAsync(dx, dy).ConfigureAwait(false);
+                    await SettleAsync(page, action.WaitMs).ConfigureAwait(false);
+                    result = await ResultWithShotAsync(page, action).ConfigureAwait(false);
+                    break;
+                }
             case "screenshot":
                 result = await ResultWithShotAsync(page, action).ConfigureAwait(false);
                 break;
             case "extract_text":
-            {
-                var text = await page.InnerTextAsync("body").ConfigureAwait(false);
-                result = new BrowserActionResult(
-                    true, page.Url, await page.TitleAsync().ConfigureAwait(false),
-                    Text: Trim(text, 8000));
-                break;
-            }
+                {
+                    var text = await page.InnerTextAsync("body").ConfigureAwait(false);
+                    result = new BrowserActionResult(
+                        true, page.Url, await page.TitleAsync().ConfigureAwait(false),
+                        Text: Trim(text, 8000));
+                    break;
+                }
             case "extract_html":
-            {
-                var html = await page.ContentAsync().ConfigureAwait(false);
-                result = new BrowserActionResult(
-                    true, page.Url, await page.TitleAsync().ConfigureAwait(false),
-                    Text: Trim(html, 20000));
-                break;
-            }
+                {
+                    var html = await page.ContentAsync().ConfigureAwait(false);
+                    result = new BrowserActionResult(
+                        true, page.Url, await page.TitleAsync().ConfigureAwait(false),
+                        Text: Trim(html, 20000));
+                    break;
+                }
             case "eval_js":
-            {
-                var value = await page.EvaluateAsync<object>(action.Script!).ConfigureAwait(false);
-                result = new BrowserActionResult(
-                    true, page.Url, await page.TitleAsync().ConfigureAwait(false),
-                    Text: Trim(System.Text.Json.JsonSerializer.Serialize(value), 8000));
-                break;
-            }
+                {
+                    var value = await page.EvaluateAsync<object>(action.Script!).ConfigureAwait(false);
+                    result = new BrowserActionResult(
+                        true, page.Url, await page.TitleAsync().ConfigureAwait(false),
+                        Text: Trim(System.Text.Json.JsonSerializer.Serialize(value), 8000));
+                    break;
+                }
             default:
                 result = new BrowserActionResult(false, null, null, Error: $"unknown action '{action.Action}'");
                 break;

@@ -97,7 +97,9 @@ public sealed class BrowserUseTool(IServiceScopeFactory scopeFactory) : IChatToo
         {
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
-                ok = false, action, error = result.Error ?? "browser action failed",
+                ok = false,
+                action,
+                error = result.Error ?? "browser action failed",
             }));
         }
 
@@ -116,8 +118,13 @@ public sealed class BrowserUseTool(IServiceScopeFactory scopeFactory) : IChatToo
         return new ChatToolResult(
             JsonSerializer.Serialize(new
             {
-                ok = true, action, url = result.Url, title = result.Title,
-                text = result.Text, shotId, shotUrl,
+                ok = true,
+                action,
+                url = result.Url,
+                title = result.Title,
+                text = result.Text,
+                shotId,
+                shotUrl,
             }),
             AttachmentIds: shotId is null ? null : [shotId]);
     }
