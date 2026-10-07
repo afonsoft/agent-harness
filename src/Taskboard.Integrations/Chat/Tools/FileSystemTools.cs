@@ -154,7 +154,10 @@ public sealed class ReadFileTool(
 public sealed class WriteFileTool(IChatFileEditTracker? editTracker = null) : IChatTool
 {
     public string Name => "write_file";
-    public string Description => "Create or overwrite a text file inside the workspace (path-jailed).";
+    public string Description =>
+        "Create or overwrite a text file on disk now inside the workspace (path-jailed) — "
+        + "the file is actually written when the tool runs. Use it to save real files, not "
+        + "to show the content for the user to paste.";
     public string ParametersJson => """
         {"type":"object","properties":{"path":{"type":"string","description":"Relative path inside the workspace"},"content":{"type":"string","description":"Full file content"}},"required":["path","content"]}
         """;

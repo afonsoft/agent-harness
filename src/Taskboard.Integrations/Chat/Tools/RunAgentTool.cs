@@ -20,8 +20,9 @@ public sealed class RunAgentTool(
     public string Name => "run_agent";
     public string Description =>
         "Delegate a coding task to a full agent CLI (Codex, Claude, etc.) running "
-        + "against the workspace. Use for real implementation work. Returns a run id "
-        + "immediately unless wait=true.";
+        + "against the workspace — the agent really edits files and runs commands. Use for "
+        + "real implementation work instead of describing the change in chat. Returns a run "
+        + "id immediately unless wait=true.";
     public string ParametersJson => """
         {"type":"object","properties":{
           "prompt":{"type":"string","description":"Instructions for the agent"},

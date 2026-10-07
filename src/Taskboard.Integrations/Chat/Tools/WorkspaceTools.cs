@@ -18,9 +18,11 @@ public sealed class EditFileTool(IChatFileEditTracker? editTracker = null) : ICh
 {
     public string Name => "edit_file";
     public string Description =>
-        "Edit a text file inside the workspace by replacing an exact string (path-jailed). "
-        + "old_string must appear exactly once unless replace_all is true — include enough "
-        + "surrounding context to make it unique. Prefer this over write_file for small changes.";
+        "Apply an edit now: replace an exact string in a workspace text file and the change "
+        + "lands on disk immediately (path-jailed). Use this to make code changes the task "
+        + "needs — do not describe the edit for the user to apply. old_string must appear "
+        + "exactly once unless replace_all is true — include enough surrounding context to "
+        + "make it unique. Prefer this over write_file for small changes.";
     public string ParametersJson => """
         {"type":"object","properties":{"path":{"type":"string","description":"Relative path inside the workspace"},"old_string":{"type":"string","description":"Exact text to replace"},"new_string":{"type":"string","description":"Replacement text"},"replace_all":{"type":"boolean","description":"Replace every occurrence (default false)"}},"required":["path","old_string","new_string"]}
         """;

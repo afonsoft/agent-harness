@@ -15,8 +15,10 @@ public sealed class RunCliTool(
 {
     public string Name => "run_cli";
     public string Description =>
-        "Run an installed agent CLI non-interactively inside the workspace (e.g. `devin exec \"...\"`, "
-        + "`taskctl --help`). The binary must be one of the installed Harness CLIs; arguments are passed "
+        "Execute an installed agent CLI non-interactively inside the workspace and return its "
+        + "output (e.g. `devin exec \"...\"`, `taskctl --help`). This actually runs the binary — "
+        + "use it to perform CLI actions the task needs instead of printing the command for the "
+        + "user. The binary must be one of the installed Harness CLIs; arguments are passed "
         + "directly to the process (no shell).";
     public string ParametersJson => """
         {"type":"object","properties":{"cli":{"type":"string","description":"Installed CLI binary name (e.g. devin, claude, opencode, taskctl); omit to use the conversation's selected agent CLI"},"args":{"type":"array","items":{"type":"string"},"description":"Arguments for the CLI"}}}

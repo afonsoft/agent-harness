@@ -1219,6 +1219,32 @@ body {
    taskboard.setTerminalFocus flips html[data-terminal-focus]; everything below
    is presentation. z-index 1030 keeps the app usable (Bootstrap modals 1055,
    offcanvas 1045 still layer above — e.g. the mobile nav drawer). */
+/* Chat fullscreen (/ai-chat): topbar gone; at lg+ the sidebar rail collapses
+   and the drawer opens only as an overlay from the title hamburger. */
+html[data-chat-fullscreen] .app-topbar {
+    display: none;
+}
+
+@media (min-width: 992px) {
+    html[data-chat-fullscreen] .offcanvas-lg.app-sidebar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: var(--bs-offcanvas-zindex, 1045);
+        transform: translateX(-100%) !important;
+        visibility: hidden !important;
+        transition: transform 0.3s ease-in-out;
+        box-shadow: none;
+    }
+
+    html[data-chat-fullscreen] .offcanvas-lg.app-sidebar.show {
+        transform: none !important;
+        visibility: visible !important;
+        box-shadow: 0 0 48px rgba(0, 0, 0, 0.4);
+    }
+}
+
 html[data-terminal-focus] .app-topbar {
     display: none;
 }

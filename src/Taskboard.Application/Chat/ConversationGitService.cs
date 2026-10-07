@@ -91,6 +91,115 @@ public sealed partial class ConversationGitService(
     }
 
     /// <summary>
+    /// RF-006: branch list for the picker — the checked-out branch plus every
+    /// switchable name (locals first, then remote-only entries; <c>git switch</c>
+    /// DWIMs them into tracking branches). Read-only — runs don't gate it.
+    /// </summary>
+    public async Task<ChatGitBranchesDto?> GetBranchesAsync(
+        string conversationId, CancellationToken cancellationToken = default)
+    {
+        var conversation = await conversations
+            .GetAsync(ChatConversationId.From(conversationId), cancellationToken).ConfigureAwait(false);
+        if (conversation is null)
+        {
+            return null;
+        }
+
+        var ws = await workspace.GetWorkspaceAsync(conversationId, cancellationToken).ConfigureAwait(false);
+        if (ws?.Path is null || !ws.IsGit)
+        {
+            return new ChatGitBranchesDto(null, []);
+        }
+
+        // Full refnames so local branches containing '/' (feature/x) stay intact
+        // while remotes strip their <remote>/ prefix.
+        var refs = await git.RunAsync(
+                ws.Path,
+                ["for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"],
+                cancellationToken)
+            .ConfigureAwait(false);
+        var current = await GitOutAsync(ws.Path, ["branch", "--show-current"], cancellationToken)
+            .ConfigureAwait(false);
+
+        var branches = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in refs.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string name;
+            if (line.StartsWith("refs/heads/", StringComparison.Ordinal))
+            {
+                name = line["refs/heads/".Length..];
+            }
+            else if (line.StartsWith("refs/remotes/", StringComparison.Ordinal))
+            {
+                // refs/remotes/<remote>/<name> → offer "<name>" (git switch
+                // DWIMs it into a tracking branch); HEAD pointers skip out.
+                var remoteRef = line["refs/remotes/".Length..];
+                var slash = remoteRef.IndexOf('/');
+                if (slash < 0)
+                {
+                    continue;
+                }
+
+                name = remoteRef[(slash + 1)..];
+            }
+            else
+            {
+                continue;
+            }
+
+            if (name is "HEAD" or "" || !seen.Add(name))
+            {
+                continue;
+            }
+
+            branches.Add(name);
+        }
+
+        return new ChatGitBranchesDto(current, branches);
+    }
+
+    /// <summary>
+    /// RF-006: <c>git switch &lt;branch&gt;</c> then <c>git pull</c> — the bar's
+    /// branch picker switches and syncs in one action. Refused during an
+    /// active run, like pull/push.
+    /// </summary>
+    public async Task<ChatGitOpResult?> CheckoutAsync(
+        string conversationId, string branch, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(branch) || !BranchNameRegex().IsMatch(branch.Trim()))
+        {
+            return new ChatGitOpResult(false, string.Empty, "invalid-branch");
+        }
+
+        var refusal = await GateAsync(conversationId, cancellationToken).ConfigureAwait(false);
+        if (refusal.notFound)
+        {
+            return null;
+        }
+        if (refusal.error is not null)
+        {
+            return new ChatGitOpResult(false, string.Empty, refusal.error);
+        }
+
+        var checkout = await git.RunAsync(
+            refusal.workdir!, ["switch", branch.Trim()], cancellationToken).ConfigureAwait(false);
+        if (checkout.ExitCode != 0)
+        {
+            return new ChatGitOpResult(false, Tail(checkout.Stdout, checkout.Stderr),
+                checkout.TimedOut ? "timed-out" : "git-failed");
+        }
+
+        var pull = await git.RunAsync(refusal.workdir!, ["pull"], cancellationToken).ConfigureAwait(false);
+        var output = Tail(
+            checkout.Stdout + "\n" + pull.Stdout,
+            checkout.Stderr + "\n" + pull.Stderr);
+        return pull.ExitCode == 0
+            ? new ChatGitOpResult(true, output, null)
+            : new ChatGitOpResult(true, output, "pull-failed");
+    }
+
+    /// <summary>
     /// RF-003: create a PR for the workspace head → base. Worktrees auto-commit
     /// pending changes; a plain workspace with a dirty tree fails with
     /// <c>uncommitted-changes</c> + the file list.
@@ -274,4 +383,9 @@ public sealed partial class ConversationGitService(
 
     [GeneratedRegex(@"behind (\d+)")]
     private static partial Regex BehindRegex();
+
+    // RF-006: a branch arg must never parse as a flag — leading '-' rejected
+    // (plus whitespace-free git-ref charset, capped).
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")]
+    private static partial Regex BranchNameRegex();
 }

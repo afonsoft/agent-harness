@@ -6,6 +6,7 @@ using Taskboard.Domain.Entities.Chat;
 using Taskboard.Dtos;
 using Taskboard.ValueObjects;
 using Taskboard.Repositories;
+using Taskboard.Workspace;
 
 namespace Taskboard.Application.Chat;
 
@@ -122,10 +123,43 @@ public sealed class ConversationWorkspaceService(
             approval.RiskReason);
     }
 
-    /// <summary>RF-006: workdir for the conversation-scoped PTY (<c>conv-&lt;id&gt;</c>).</summary>
+    /// <summary>
+    /// RF-006: workdir for the conversation-scoped PTY (<c>conv-&lt;id&gt;</c>).
+    /// A bound repo whose clone is missing still opens the shell inside
+    /// <c>&lt;root&gt;/&lt;repo&gt;</c> — the dir is materialized on demand so
+    /// the terminal never silently lands on the workspace root.
+    /// </summary>
     public async Task<string?> ResolveWorkdirAsync(
         string conversationId, CancellationToken cancellationToken = default)
-        => (await ResolveAsync(conversationId, cancellationToken).ConfigureAwait(false))?.Path;
+    {
+        var resolved = await ResolveAsync(conversationId, cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return null;
+        }
+
+        var (conversation, path, worktreeRunId) = resolved.Value;
+        if (worktreeRunId is null
+            && string.IsNullOrWhiteSpace(conversation.WorkspacePath)
+            && !string.IsNullOrWhiteSpace(conversation.RepositoryFullName)
+            && !string.IsNullOrWhiteSpace(path))
+        {
+            var cardDir = workspace.ResolveCardWorkdir(conversation.RepositoryFullName, out var exists);
+            if (!exists)
+            {
+                // cardDir is the workspace root here — the PTY belongs in the
+                // repo subdir even before the user clones into it.
+                var repoDir = WorkspacePaths.RepoWorkdir(cardDir, conversation.RepositoryFullName);
+                if (!string.Equals(repoDir, cardDir, StringComparison.Ordinal))
+                {
+                    Directory.CreateDirectory(repoDir);
+                    path = repoDir;
+                }
+            }
+        }
+
+        return path;
+    }
 
     private async Task<(ChatConversation Conversation, string? Path, string? WorktreeRunId)?> ResolveAsync(
         string conversationId, CancellationToken cancellationToken)
