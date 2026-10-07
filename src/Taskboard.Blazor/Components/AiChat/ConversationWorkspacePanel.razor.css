@@ -1,0 +1,171 @@
+/* SPEC-20261011-chat-workspace-panel RF-001: split pane at lg+ (drag-resize
+   30–70% via --ws-width), bottom sheet overlay below lg. */
+
+.chat-ws {
+    flex: 0 0 0;
+    min-width: 0;
+    position: relative;
+}
+
+.chat-ws.open {
+    flex: 0 0 var(--ws-width, 45%);
+    min-width: 300px;
+    max-width: 100%;
+    display: flex;
+}
+
+.chat-ws-resize {
+    flex: 0 0 5px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background-color 0.15s ease;
+}
+
+.chat-ws-resize:hover,
+body.chat-ws-dragging .chat-ws-resize {
+    background: var(--bs-primary);
+}
+
+.chat-ws-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-left: 1px solid var(--bs-border-color);
+    background: var(--bs-body-bg);
+}
+
+.chat-ws-header {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+}
+
+.chat-ws-tabs {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.chat-ws-tab {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.78rem;
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+}
+
+.chat-ws-tab:hover {
+    color: var(--bs-body-color);
+}
+
+.chat-ws-tab.active {
+    color: var(--bs-body-color);
+    border-bottom-color: var(--bs-primary);
+    font-weight: 600;
+}
+
+.chat-ws-close {
+    padding: 0 0.5rem;
+    align-self: center;
+    text-decoration: none;
+}
+
+.chat-ws-context {
+    border-bottom: 1px solid var(--bs-border-color);
+    white-space: nowrap;
+}
+
+.chat-ws-body {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.chat-ws-pane {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-ws-pane[hidden] {
+    display: none;
+}
+
+.chat-ws-tabbody {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-ws-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--bs-secondary-color);
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.chat-ws-empty .bi {
+    font-size: 1.6rem;
+    opacity: 0.6;
+}
+
+.chat-ws-terminal .ai-chat-pty-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.chat-ws-terminal .terminal-host {
+    flex: 1;
+    min-height: 0;
+}
+
+.chat-ws-editor-frame {
+    flex: 1;
+    border: 0;
+    min-height: 0;
+}
+
+.chat-ws-todos .list-group-item {
+    border-left: 0;
+    border-right: 0;
+}
+
+body.chat-ws-dragging {
+    cursor: col-resize;
+    user-select: none;
+}
+
+/* RF-001: below lg the pane becomes a bottom sheet over the chat column. */
+@media (max-width: 991.98px) {
+    .chat-ws.open {
+        position: absolute;
+        inset-inline: 0;
+        bottom: 0;
+        top: auto;
+        height: 55vh;
+        min-width: 0;
+        z-index: 30;
+        box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+    }
+
+    .chat-ws-resize {
+        display: none;
+    }
+}

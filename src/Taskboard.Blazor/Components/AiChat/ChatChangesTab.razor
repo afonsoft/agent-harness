@@ -1,0 +1,77 @@
+@using Taskboard.Application.Contracts.Chat
+@using Taskboard.Dtos
+@inject TaskboardClient Client
+@inject ILocaleService L
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-005: live uncommitted diff of the
+    conversation worktree — reuses Cockpit's GitDiffViewer; reloads on
+    RefreshSignal bumps and on the manual refresh button.
+*@
+
+<div class="chat-ws-tabbody">
+    <div class="d-flex align-items-center gap-2 px-2 py-1 border-bottom">
+        @if (_diff is not null)
+        {
+            <span class="small text-body-secondary">@L.T("chat.ws.changes.files", _diff.Files.Count)</span>
+            <span class="small text-success">+@_diff.Insertions</span>
+            <span class="small text-danger">-@_diff.Deletions</span>
+        }
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" @onclick="LoadAsync" disabled="@_loading">
+            <Icon Name="IconName.ArrowClockwise" /> @L.T("chat.ws.refresh")
+        </button>
+    </div>
+    @if (_loading && _diff is null)
+    {
+        <div class="text-body-secondary small p-3">@L.T("chat.ws.loading")</div>
+    }
+    else if (_diff is null || _diff.Files.Count == 0)
+    {
+        <div class="chat-ws-empty">
+            <Icon Name="IconName.FileEarmarkDiff" />
+            <p class="mb-0 mt-2 small">@L.T("chat.ws.changes.empty")</p>
+        </div>
+    }
+    else
+    {
+        <GitDiffViewer Diff="_diff" />
+    }
+</div>
+
+@code {
+    /// <summary>Conversation whose workspace diff is shown.</summary>
+    [Parameter, EditorRequired] public string ConversationId { get; set; } = default!;
+
+    /// <summary>Bump to force a reload (e.g. when a run completes).</summary>
+    [Parameter] public int RefreshSignal { get; set; }
+
+    private WorkspaceDiffDto? _diff;
+    private bool _loading = true;
+    private int _lastRefresh = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (RefreshSignal != _lastRefresh)
+        {
+            _lastRefresh = RefreshSignal;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _diff = await Client.GetChatWorkspaceDiffAsync(ConversationId);
+        }
+        catch
+        {
+            _diff = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

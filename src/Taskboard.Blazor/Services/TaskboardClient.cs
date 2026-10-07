@@ -1171,6 +1171,60 @@ public sealed class TaskboardClient
         return await response.Content.ReadFromJsonAsync<ChatConversationDetailDto>(cancellationToken: cancellationToken);
     }
 
+    // SPEC-20261011-chat-workspace-panel RF-003/RF-004/RF-005/RF-008: workspace
+    // pane read APIs — null on 404 (unknown/deleted conversation).
+    public async Task<ConversationWorkspaceDto?> GetChatWorkspaceAsync(string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/workspace", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ConversationWorkspaceResponse>(cancellationToken: cancellationToken);
+        return body?.Workspace;
+    }
+
+    public async Task<IReadOnlyList<ChatTodoItem>> GetChatTodosAsync(string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/todos", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return [];
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatTodoListResponse>(cancellationToken: cancellationToken);
+        return body?.Todos ?? [];
+    }
+
+    public async Task<WorkspaceDiffDto?> GetChatWorkspaceDiffAsync(string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/diff", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ConversationDiffResponse>(cancellationToken: cancellationToken);
+        return body?.Diff;
+    }
+
+    public async Task<ChatApprovalDto?> GetChatPlanAsync(string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/plan", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ConversationPlanResponse>(cancellationToken: cancellationToken);
+        return body?.Plan;
+    }
+
     public async Task DeleteChatConversationAsync(string id, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.DeleteAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", cancellationToken);
@@ -1595,6 +1649,10 @@ public sealed class TaskboardClient
     private sealed record ChatConversationResponse(ChatConversationDto Conversation);
     private sealed record ChatApprovalResponse(ChatApprovalDto Approval);
     private sealed record ChatApprovalListResponse(List<ChatApprovalDto> Approvals);
+    private sealed record ConversationWorkspaceResponse(ConversationWorkspaceDto Workspace);
+    private sealed record ChatTodoListResponse(List<ChatTodoItem> Todos);
+    private sealed record ConversationDiffResponse(WorkspaceDiffDto? Diff);
+    private sealed record ConversationPlanResponse(ChatApprovalDto? Plan);
     private sealed record ChatCapabilitiesResponse(List<ChatCapability> Capabilities);
     private sealed record CustomCliModelsResponse(List<string> Models);
 

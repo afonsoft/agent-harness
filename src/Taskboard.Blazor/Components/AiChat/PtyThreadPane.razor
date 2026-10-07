@@ -1,30 +1,18 @@
 @using Taskboard.Dtos
-@inject NavigationManager NavigationManager
-@inject IJSRuntime JS
-@implements IAsyncDisposable
 
 @*
     SPEC-20260928-ai-code-generic-cli RF-003: terminal-transport thread pane —
-    an xterm.js surface wired to TerminalHub.OpenForThread. The CLI argv and
-    workdir are resolved server-side from the thread (builtin or custom CLI,
-    host or docker exec). The session id is deterministic (t-<threadId>) so a
-    browser refresh rebinds to the same PTY and replays the scrollback —
-    DisposeAsync intentionally does NOT Close the session.
+    PtyHostPane wired to TerminalHub.OpenForThread. The CLI argv and workdir
+    are resolved server-side from the thread (builtin or custom CLI, host or
+    docker exec). The session id is deterministic (t-<threadId>) so a browser
+    refresh rebinds to the same PTY and replays the scrollback.
 *@
 
-<div class="ai-chat-pty-pane">
-    @if (!string.IsNullOrEmpty(_error))
-    {
-        <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">
-            <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />@_error
-            @if (_canRetry)
-            {
-                <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="OpenSessionAsync">Reopen</Button>
-            }
-        </Alert>
-    }
-    <div id="@ElementId" class="terminal-host ai-chat-pty-host" @onclick="FocusAsync"></div>
-</div>
+<PtyHostPane ElementId="@ElementId"
+             SessionKey="@SessionKey"
+             ExpectedSessionId="@($"t-{Thread.Id}")"
+             Open="@(hub => hub.InvokeAsync<string>("OpenForThread", Thread.Id))"
+             ExitedMessage="CLI exited" />
 
 @code {
     /// <summary>The terminal thread this pane renders — must have Kind == "terminal".</summary>
@@ -32,189 +20,4 @@
 
     private string ElementId => $"pty-thread-{Thread?.Id}";
     private string SessionKey => $"thread-{Thread?.Id}";
-
-    private HubConnection? _hub;
-    private DotNetObjectReference<PtyThreadPane>? _selfRef;
-    private string? _sessionId;
-    private string? _error;
-    private bool _canRetry;
-    private bool _started;
-    private string? _boundThreadId;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        // The pane is re-created per selected thread; guard against a stale
-        // firstRender when the parent swaps threads without disposing.
-        if (_started && _boundThreadId == Thread?.Id)
-        {
-            return;
-        }
-
-        _started = true;
-        _boundThreadId = Thread?.Id;
-        _selfRef ??= DotNetObjectReference.Create(this);
-        await ConnectHubAsync();
-    }
-
-    private async Task ConnectHubAsync()
-    {
-        _hub ??= new HubConnectionBuilder()
-            .WithUrl(NavigationManager.ToAbsoluteUri("/terminal-hub"))
-            .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
-                TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
-            .Build();
-
-        _hub.On<string, string>("output", (sessionId, data) =>
-            sessionId == _sessionId
-                ? JS.InvokeVoidAsync("taskboardTerminal.write", ElementId, data).AsTask()
-                : Task.CompletedTask);
-
-        _hub.On<string, string>("closed", (sessionId, reason) =>
-        {
-            if (sessionId != _sessionId)
-            {
-                return Task.CompletedTask;
-            }
-
-            _sessionId = null;
-            _error = $"CLI exited ({reason}) — the session can be reopened.";
-            _canRetry = true;
-            return InvokeAsync(StateHasChanged);
-        });
-
-        _hub.Reconnected += async _ =>
-        {
-            // The server session outlives the connection — reattach and refit.
-            var reattached = false;
-            try
-            {
-                reattached = _sessionId is not null
-                    && await _hub.InvokeAsync<bool>("Reattach", _sessionId);
-            }
-            catch
-            {
-                // Fall through — the operator can Reopen.
-            }
-
-            if (reattached)
-            {
-                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", ElementId);
-            }
-            else
-            {
-                _sessionId = null;
-                _error = "Connection lost — the CLI session was reaped.";
-                _canRetry = true;
-                await InvokeAsync(StateHasChanged);
-            }
-        };
-
-        try
-        {
-            if (_hub.State == HubConnectionState.Disconnected)
-            {
-                await _hub.StartAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            _error = $"Terminal unavailable: {ex.Message}";
-            await InvokeAsync(StateHasChanged);
-            return;
-        }
-
-        var initialized = await JS.InvokeAsync<bool>(
-            "taskboardTerminal.init", ElementId, _selfRef, SessionKey);
-        if (!initialized)
-        {
-            _error = "Terminal emulator failed to initialize.";
-            await InvokeAsync(StateHasChanged);
-            return;
-        }
-
-        await OpenSessionAsync();
-    }
-
-    private async Task OpenSessionAsync()
-    {
-        if (_hub is not { State: HubConnectionState.Connected } || Thread is null)
-        {
-            _error = "No connection to the server.";
-            return;
-        }
-
-        try
-        {
-            _error = null;
-            _canRetry = false;
-            // Deterministic session id known upfront (t-<threadId>): set it
-            // BEFORE invoking so the scrollback replay — emitted by the server
-            // during OpenAsync, before this call returns — passes the output
-            // filter instead of being discarded (SPEC-20260929 RF-004).
-            _sessionId = $"t-{Thread.Id}";
-            _sessionId = await _hub.InvokeAsync<string>("OpenForThread", Thread.Id);
-            await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
-        }
-        catch (Exception ex)
-        {
-            // HubException lands here — thread deleted, CLI disabled, etc.
-            _sessionId = null;
-            _error = ex.Message;
-            _canRetry = true;
-        }
-        finally
-        {
-            StateHasChanged();
-        }
-    }
-
-    private async Task FocusAsync() =>
-        await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
-
-    [JSInvokable]
-    public async Task OnTerminalData(string tabKey, string data)
-    {
-        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
-        {
-            await _hub.InvokeAsync("Input", _sessionId, data);
-        }
-    }
-
-    [JSInvokable]
-    public async Task OnTerminalResize(string tabKey, int cols, int rows)
-    {
-        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
-        {
-            await _hub.InvokeAsync("Resize", _sessionId, cols, rows);
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        // RF-003: leaving the pane (thread switch, refresh) must NOT kill the
-        // CLI — the PTY stays orphaned server-side and reattaches on the next
-        // OpenForThread. Only the SignalR connection is released.
-        if (_hub is not null)
-        {
-            try
-            {
-                await _hub.DisposeAsync();
-            }
-            catch
-            {
-                // Dispose is best-effort.
-            }
-        }
-
-        try
-        {
-            await JS.InvokeVoidAsync("taskboardTerminal.dispose", ElementId);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
-        {
-            // JS interop unavailable during teardown.
-        }
-
-        _selfRef?.Dispose();
-    }
 }

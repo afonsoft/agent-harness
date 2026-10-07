@@ -103,11 +103,16 @@ public class AiChatSourceGuardTests
 
         var pane = File.ReadAllText(Path.Join(
             dir!.FullName, "src", "Taskboard.Blazor", "Components", "AiChat", "PtyThreadPane.razor"));
+        var host = File.ReadAllText(Path.Join(
+            dir.FullName, "src", "Taskboard.Blazor", "Components", "AiChat", "PtyHostPane.razor"));
 
-        var assign = pane.IndexOf("_sessionId = $\"t-{Thread.Id}\"", StringComparison.Ordinal);
-        var invoke = pane.IndexOf("InvokeAsync<string>(\"OpenForThread\"", StringComparison.Ordinal);
+        // O wrapper declara o id determinístico e o host o atribui antes do invoke.
+        pane.ShouldContain("ExpectedSessionId");
+        pane.ShouldContain("t-{Thread.Id}");
+        var assign = host.IndexOf("_sessionId = ExpectedSessionId", StringComparison.Ordinal);
+        var invoke = host.IndexOf("await Open(_hub)", StringComparison.Ordinal);
         assign.ShouldBeGreaterThanOrEqualTo(0);
-        invoke.ShouldBeGreaterThan(assign, "o sessionId determinístico deve ser atribuído antes do OpenForThread");
+        invoke.ShouldBeGreaterThan(assign, "o sessionId determinístico deve ser atribuído antes do open da sessão");
     }
 
     // SPEC-20260929-ai-code-ux-fixes.

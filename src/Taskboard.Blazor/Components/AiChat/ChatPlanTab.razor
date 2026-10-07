@@ -1,0 +1,79 @@
+@using Taskboard.Application.Contracts.Chat
+@using Taskboard.Blazor.Services
+@inject TaskboardClient Client
+@inject ILocaleService L
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-008: read-only surface of the most
+    recent plan-review approval (approved or rejected) — the plan document the
+    agent proposed, rendered as markdown like the inline approval card.
+*@
+
+<div class="chat-ws-tabbody">
+    @if (_loading)
+    {
+        <div class="text-body-secondary small p-3">@L.T("chat.ws.loading")</div>
+    }
+    else if (_plan is null)
+    {
+        <div class="chat-ws-empty">
+            <Icon Name="IconName.Map" />
+            <p class="mb-0 mt-2 small">@L.T("chat.ws.plan.empty")</p>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex align-items-center gap-2 px-3 pt-2 small">
+            <Badge Color="@(string.Equals(_plan.Status, "approved", StringComparison.OrdinalIgnoreCase) ? BadgeColor.Success : BadgeColor.Danger)">
+                @_plan.Status
+            </Badge>
+            @if (_plan.DecidedAt is { } decidedAt)
+            {
+                <span class="text-body-secondary">@decidedAt.ToLocalTime().ToString("g")</span>
+            }
+            @if (!string.IsNullOrEmpty(_plan.DecidedBy))
+            {
+                <span class="text-body-secondary">· @_plan.DecidedBy</span>
+            }
+        </div>
+        <div class="ai-chat-md p-3">@((MarkupString)MarkdownRenderer.ToSafeHtml(_plan.ArgumentsPreview))</div>
+    }
+</div>
+
+@code {
+    /// <summary>Conversation whose latest plan is shown.</summary>
+    [Parameter, EditorRequired] public string ConversationId { get; set; } = default!;
+
+    /// <summary>Bump to force a reload (e.g. when a run completes).</summary>
+    [Parameter] public int RefreshSignal { get; set; }
+
+    private ChatApprovalDto? _plan;
+    private bool _loading = true;
+    private int _lastRefresh = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (RefreshSignal != _lastRefresh)
+        {
+            _lastRefresh = RefreshSignal;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _plan = await Client.GetChatPlanAsync(ConversationId);
+        }
+        catch
+        {
+            _plan = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

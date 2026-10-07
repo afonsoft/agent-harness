@@ -103,6 +103,116 @@ public sealed class GitWorkspaceDiffService(IGitCommandRunner git) : IChatWorksp
         return deliverables;
     }
 
+    /// <inheritdoc />
+    public async Task<ChatWorkspaceStatusDto?> StatusAsync(
+        string workspacePath, CancellationToken cancellationToken = default)
+    {
+        if (!await IsWorkTreeAsync(workspacePath, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        var branch = await git.RunAsync(
+            workspacePath, ["rev-parse", "--abbrev-ref", "HEAD"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        var porcelain = await git.RunAsync(
+            workspacePath, ["status", "--porcelain=v1"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new ChatWorkspaceStatusDto(
+            IsGit: true,
+            Branch: branch.ExitCode == 0 ? branch.StandardOutput.Trim() : null,
+            Dirty: porcelain.ExitCode == 0 && porcelain.StandardOutput.Length > 0);
+    }
+
+    /// <inheritdoc />
+    public async Task<Taskboard.Dtos.WorkspaceDiffDto?> CurrentDiffAsync(
+        string workspacePath, CancellationToken cancellationToken = default)
+    {
+        if (!await IsWorkTreeAsync(workspacePath, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        // vs HEAD — sem base branch: untracked ('??') vêm do porcelain, tracked
+        // do name-status/numstat; HEAD pode nem existir ainda (repo vazio) e
+        // aí os diffs saem vazios em vez de falhar.
+        var status = await git.RunAsync(
+            workspacePath, ["status", "--porcelain=v1"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        var numstat = await git.RunAsync(
+            workspacePath, ["diff", "--numstat", "HEAD"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        var nameStatus = await git.RunAsync(
+            workspacePath, ["diff", "--name-status", "HEAD"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        var patch = await git.RunAsync(
+            workspacePath, ["diff", "HEAD"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+
+        var perFile = GitDiffParser.ParseNumstatPerFile(
+            numstat.ExitCode == 0 ? numstat.StandardOutput : string.Empty);
+        var files = GitDiffParser.ParseNameStatus(
+            nameStatus.ExitCode == 0 ? nameStatus.StandardOutput : string.Empty);
+        var known = new HashSet<string>(files.Select(f => f.Path), StringComparer.Ordinal);
+        if (status.ExitCode == 0)
+        {
+            files.AddRange(GitDiffParser.ParseStatus(status.StandardOutput).Where(f => known.Add(f.Path)));
+        }
+
+        // Mesma regra do worktree diff: untracked conta linhas do disco como
+        // insertions, senão arquivos novos apareceriam +0−0.
+        Dictionary<string, int> untracked = [];
+        if (files.Any(f => f.Status == "Untracked" && !perFile.ContainsKey(f.Path)))
+        {
+            try
+            {
+                untracked = await GitDiffParser.CountUntrackedLinesAsync(
+                    git, workspacePath, CommandTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DomainException)
+            {
+                // ls-files falhou (dir removido em corrida etc.) — diff sai sem contagens.
+            }
+        }
+
+        var extraInsertions = 0;
+        files = files
+            .Select(f =>
+            {
+                if (perFile.TryGetValue(f.Path, out var counts))
+                {
+                    return f with { Insertions = counts.Insertions, Deletions = counts.Deletions };
+                }
+
+                var ins = GitDiffParser.UntrackedInsertions(f, untracked);
+                extraInsertions += ins;
+                return ins > 0 ? f with { Insertions = ins } : f;
+            })
+            .ToList();
+
+        return new Taskboard.Dtos.WorkspaceDiffDto(
+            files.Count,
+            perFile.Values.Sum(v => v.Insertions) + extraInsertions,
+            perFile.Values.Sum(v => v.Deletions),
+            files,
+            patch.ExitCode == 0 ? patch.StandardOutput : string.Empty);
+    }
+
+    private async Task<bool> IsWorkTreeAsync(string workspacePath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath))
+        {
+            return false;
+        }
+
+        var inside = await git.RunAsync(
+            workspacePath, ["rev-parse", "--is-inside-work-tree"], CommandTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        return inside.ExitCode == 0
+            && string.Equals(inside.StandardOutput.Trim(), "true", StringComparison.Ordinal);
+    }
+
     private static Dictionary<string, (int Added, int Removed)> ParseNumstat(string numstat)
     {
         var map = new Dictionary<string, (int, int)>(StringComparer.Ordinal);

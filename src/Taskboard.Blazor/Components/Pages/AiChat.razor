@@ -64,6 +64,14 @@
                 @onclick="NewChatOrConversationAsync">
             <Icon Name="IconName.PlusSquare" />
         </button>
+        @* SPEC-20261011-chat-workspace-panel RF-001: workspace pane toggle —
+           enabled only when a provider/agent chat surface is mounted. *@
+        <button type="button" class="ai-chat-iconbtn" title="Workspace panel"
+                aria-label="Toggle workspace panel"
+                disabled="@(_providerChat is null)"
+                @onclick="ToggleWorkspacePanelAsync">
+            <Icon Name="IconName.LayoutSidebarInsetReverse" />
+        </button>
     </div>
 </div>
 
@@ -1479,11 +1487,45 @@ else
     /// </summary>
     [SupplyParameterFromQuery(Name = "c")] public string? DeepLinkConversation { get; set; }
 
+    /// <summary>SPEC-20261011: nav-submenu "+" deep-link — any non-empty value
+    /// starts a fresh conversation; the ticks value makes repeat clicks distinct.</summary>
+    [SupplyParameterFromQuery(Name = "new")] public string? NewChatRequest { get; set; }
+
+    private string? _lastDeepLink;
+
+    /// <summary>Reacts to query-string changes while already on /ai-chat — the
+    /// nav submenu's ?c= picks an existing conversation, ?new= starts one.</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(DeepLinkConversation))
+        {
+            if (DeepLinkConversation != _lastDeepLink)
+            {
+                _lastDeepLink = DeepLinkConversation;
+                _cfgMode = "provider";
+                _seedConversationId = DeepLinkConversation;
+                if (_providerChat is not null)
+                {
+                    await _providerChat.OpenConversationPublicAsync(DeepLinkConversation);
+                }
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(NewChatRequest))
+        {
+            _lastDeepLink = null;
+            if (_providerChat is not null)
+            {
+                await _providerChat.StartNewChatPublicAsync();
+            }
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _dotNetRef = DotNetObjectReference.Create(this);
         if (!string.IsNullOrWhiteSpace(DeepLinkConversation))
         {
+            _lastDeepLink = DeepLinkConversation;
             _cfgMode = "provider";
             _seedConversationId = DeepLinkConversation;
         }
@@ -1691,6 +1733,16 @@ else
         }
 
         await OpenRailDrawerAsync();
+    }
+
+    /// <summary>SPEC-20261011-chat-workspace-panel RF-001: header button
+    /// toggles the provider-chat workspace pane (no-op on the legacy UI).</summary>
+    private async Task ToggleWorkspacePanelAsync()
+    {
+        if (_providerChat is not null)
+        {
+            await _providerChat.ToggleWorkspacePanelAsync();
+        }
     }
 
     /// <summary>Header "+" → new provider-chat conversation when the chat

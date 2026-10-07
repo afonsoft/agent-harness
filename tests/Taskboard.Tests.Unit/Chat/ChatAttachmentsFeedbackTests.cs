@@ -10,6 +10,7 @@ using Taskboard.Application.Chat;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Domain.Entities.Chat;
+using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore.Data;
 using Taskboard.EntityFrameworkCore.Repositories;
 using Taskboard.Integrations.Chat;
@@ -567,6 +568,12 @@ public sealed class ChatAttachmentsFeedbackTests : IDisposable
         public Task<IReadOnlyList<ChatDeliverableDto>> DiffAsync(
             string workspacePath, ChatWorkspaceSnapshot snapshot, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ChatDeliverableDto>>([]);
+
+        public Task<ChatWorkspaceStatusDto?> StatusAsync(string workspacePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ChatWorkspaceStatusDto?>(null);
+
+        public Task<WorkspaceDiffDto?> CurrentDiffAsync(string workspacePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<WorkspaceDiffDto?>(null);
     }
 
     /// <summary>Diff fake: snapshot válido + respostas fixas no DiffAsync.</summary>
@@ -578,6 +585,12 @@ public sealed class ChatAttachmentsFeedbackTests : IDisposable
         public Task<IReadOnlyList<ChatDeliverableDto>> DiffAsync(
             string workspacePath, ChatWorkspaceSnapshot snapshot, CancellationToken cancellationToken = default) =>
             Task.FromResult(deliverables);
+
+        public Task<ChatWorkspaceStatusDto?> StatusAsync(string workspacePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ChatWorkspaceStatusDto?>(new ChatWorkspaceStatusDto(IsGit: true, Branch: "main", Dirty: true));
+
+        public Task<WorkspaceDiffDto?> CurrentDiffAsync(string workspacePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult<WorkspaceDiffDto?>(null);
     }
 
     /// <summary>Git runner fake: responde na ordem das chamadas.</summary>

@@ -481,6 +481,68 @@ window.taskboardChat = {
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
+    },
+
+    // SPEC-20261011-chat-workspace-panel RF-001/RF-002: per-conversation pane
+    // state — {open, tab, width} under harness.chat.workspace.<conversationId>.
+    chatWsGet: function (conversationId) {
+        try {
+            var raw = localStorage.getItem('harness.chat.workspace.' + conversationId);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    chatWsSet: function (conversationId, state) {
+        try {
+            localStorage.setItem('harness.chat.workspace.' + conversationId, JSON.stringify(state));
+        } catch (e) { /* storage indisponível — estado fica só na sessão */ }
+    },
+
+    // RF-001: drag-resize 30–70% — pointermove aplica --ws-width direto no
+    // painel (sem roundtrip .NET); no pointerup devolve o % final.
+    initChatWsResize: function (handle, panel, dotNetRef) {
+        if (!handle || !panel || handle._wsResizeBound) {
+            return;
+        }
+        handle._wsResizeBound = true;
+        var last = 45;
+        var dragging = false;
+        var onMove = function (e) {
+            if (!dragging) {
+                return;
+            }
+            var parent = panel.parentElement;
+            if (!parent) {
+                return;
+            }
+            var rect = parent.getBoundingClientRect();
+            if (rect.width <= 0) {
+                return;
+            }
+            var pct = ((rect.right - e.clientX) / rect.width) * 100;
+            pct = Math.max(30, Math.min(70, pct));
+            last = pct;
+            panel.style.setProperty('--ws-width', pct.toFixed(2) + '%');
+        };
+        var onUp = function () {
+            if (!dragging) {
+                return;
+            }
+            dragging = false;
+            document.body.classList.remove('chat-ws-dragging');
+            document.removeEventListener('pointermove', onMove);
+            document.removeEventListener('pointerup', onUp);
+            dotNetRef.invokeMethodAsync('OnResizeEnd', last);
+        };
+        handle.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            dragging = true;
+            document.body.classList.add('chat-ws-dragging');
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+        });
     }
 };
 

@@ -1,0 +1,245 @@
+@using Taskboard.Application.Contracts.Chat
+@using System.Globalization
+@implements IAsyncDisposable
+@inject TaskboardClient Client
+@inject IJSRuntime JS
+@inject ILocaleService L
+
+@*
+    SPEC-20261011-chat-workspace-panel RF-001..RF-010: Devin-style right-hand
+    workspace pane docked inside the chat — Tasks/Changes/Terminal/Editor/Plan
+    tabs for the active conversation. Split pane at lg+ (drag-resize 30–70%,
+    default 45%); below lg it becomes a bottom sheet over the chat. Per-
+    conversation state {open, tab, width} persists under
+    harness.chat.workspace.<conversationId>. Visited tabs stay mounted
+    (hidden) so the xterm and the code-server iframe keep state.
+*@
+
+<div class="chat-ws @(_open ? "open" : "")" style="--ws-width:@_width.ToString("0.##", CultureInfo.InvariantCulture)%" @ref="_panelRef">
+    @if (_open)
+    {
+        <div class="chat-ws-resize" @ref="_resizeRef" role="separator" aria-orientation="vertical"></div>
+        <div class="chat-ws-inner">
+            <div class="chat-ws-header">
+                <div class="chat-ws-tabs" role="tablist" aria-label="@L.T("chat.ws.title")">
+                    @foreach (var tab in Tabs)
+                    {
+                        <button type="button" role="tab" aria-selected="@(_tab == tab)"
+                                class="chat-ws-tab @(_tab == tab ? "active" : "")"
+                                @onclick="() => SelectTabAsync(tab)">
+                            @TabLabel(tab)
+                        </button>
+                    }
+                </div>
+                <button type="button" class="chat-ws-close btn btn-sm btn-link text-body-secondary" @onclick="CloseAsync" title="@L.T("chat.ws.close")" aria-label="@L.T("chat.ws.close")">
+                    <Icon Name="IconName.XLg" />
+                </button>
+            </div>
+            @if (_workspace is not null)
+            {
+                <div class="chat-ws-context small text-body-secondary text-truncate px-2 py-1" title="@_workspace.Path">
+                    <Icon Name="IconName.Git" class="me-1" />@(_workspace.Branch ?? "—")
+                    @if (!string.IsNullOrEmpty(_workspace.Repository))
+                    {
+                        <span class="ms-1">· @_workspace.Repository</span>
+                    }
+                    @if (_workspace.Dirty)
+                    {
+                        <span class="ms-1 text-warning">· @L.T("chat.ws.dirty")</span>
+                    }
+                </div>
+            }
+            <div class="chat-ws-body">
+                @if (ConversationId is not null)
+                {
+                    @if (_visited.Contains("tasks"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "tasks")"><ChatTasksTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" /></div>
+                    }
+                    @if (_visited.Contains("changes"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "changes")"><ChatChangesTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" /></div>
+                    }
+                    @if (_visited.Contains("terminal"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "terminal")"><ChatTerminalTab ConversationId="@ConversationId" /></div>
+                    }
+                    @if (_visited.Contains("editor"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "editor")"><ChatEditorTab ConversationId="@ConversationId" /></div>
+                    }
+                    @if (_visited.Contains("plan"))
+                    {
+                        <div class="chat-ws-pane" hidden="@(_tab != "plan")"><ChatPlanTab ConversationId="@ConversationId" RefreshSignal="@RefreshSignal" /></div>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly string[] Tabs = ["tasks", "changes", "terminal", "editor", "plan"];
+
+    /// <summary>Active conversation — workspace + persisted state resolve per id.</summary>
+    [Parameter] public string? ConversationId { get; set; }
+
+    /// <summary>Bump on run completion so data tabs reload.</summary>
+    [Parameter] public int RefreshSignal { get; set; }
+
+    /// <summary>Whether the pane is currently open (for the toggle button state).</summary>
+    public bool IsOpen => _open;
+
+    private bool _open;
+    private string _tab = "tasks";
+    private int _width = 45;
+    private string? _loadedFor;
+    private int _lastRefresh = -1;
+    private HashSet<string> _visited = [];
+    private ConversationWorkspaceDto? _workspace;
+    private ElementReference _panelRef;
+    private ElementReference _resizeRef;
+    private DotNetObjectReference<ConversationWorkspacePanel>? _selfRef;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConversationId != _loadedFor)
+        {
+            _loadedFor = ConversationId;
+            _visited = [];
+            _workspace = null;
+            await LoadStateAsync();
+            if (_open)
+            {
+                _visited.Add(_tab);
+            }
+        }
+
+        if (RefreshSignal != _lastRefresh)
+        {
+            _lastRefresh = RefreshSignal;
+            await LoadWorkspaceAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_open)
+        {
+            _selfRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("taskboard.initChatWsResize", _resizeRef, _panelRef, _selfRef);
+        }
+    }
+
+    /// <summary>Toggles the pane (chat header button).</summary>
+    public async Task ToggleAsync()
+    {
+        _open = !_open;
+        if (_open)
+        {
+            _visited.Add(_tab);
+            await LoadWorkspaceAsync();
+        }
+
+        await PersistAsync();
+    }
+
+    /// <summary>Opens the pane (e.g. deep-link or run start).</summary>
+    public async Task OpenAsync()
+    {
+        if (_open)
+        {
+            return;
+        }
+
+        _open = true;
+        _visited.Add(_tab);
+        await LoadWorkspaceAsync();
+        await PersistAsync();
+    }
+
+    private async Task CloseAsync()
+    {
+        _open = false;
+        await PersistAsync();
+    }
+
+    private async Task SelectTabAsync(string tab)
+    {
+        _tab = tab;
+        _visited.Add(tab);
+        await PersistAsync();
+    }
+
+    private async Task LoadStateAsync()
+    {
+        try
+        {
+            var state = await JS.InvokeAsync<ChatWsState?>("taskboard.chatWsGet", ConversationId);
+            if (state is not null)
+            {
+                _open = state.Open;
+                _tab = Tabs.Contains(state.Tab) ? state.Tab! : "tasks";
+                _width = Math.Clamp(state.Width, 30, 70);
+            }
+        }
+        catch
+        {
+            // Storage unavailable — defaults apply for the session.
+        }
+    }
+
+    private async Task LoadWorkspaceAsync()
+    {
+        if (ConversationId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _workspace = await Client.GetChatWorkspaceAsync(ConversationId);
+        }
+        catch
+        {
+            _workspace = null;
+        }
+    }
+
+    private async Task PersistAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("taskboard.chatWsSet", ConversationId, new { open = _open, tab = _tab, width = _width });
+        }
+        catch
+        {
+            // Storage unavailable — session-only state.
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnResizeEnd(double pct)
+    {
+        _width = (int)Math.Round(Math.Clamp(pct, 30, 70));
+        await PersistAsync();
+    }
+
+    private string TabLabel(string tab) => tab switch
+    {
+        "tasks" => L.T("chat.ws.tasks"),
+        "changes" => L.T("chat.ws.changes"),
+        "terminal" => L.T("chat.ws.terminal"),
+        "editor" => L.T("chat.ws.editor"),
+        "plan" => L.T("chat.ws.plan"),
+        _ => tab,
+    };
+
+    private sealed record ChatWsState(bool Open, string? Tab, int Width);
+
+    public ValueTask DisposeAsync()
+    {
+        _selfRef?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

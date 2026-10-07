@@ -6,6 +6,8 @@
     border-radius: .75rem;
     overflow: hidden;
     background: var(--bs-body-bg);
+    /* SPEC-20261011: bottom-sheet workspace pane anchors here below lg. */
+    position: relative;
 }
 
 .provider-chat-sidebar {

@@ -288,6 +288,91 @@ body {
     opacity: 1;
 }
 
+/* SPEC-20261011: AI Code submenu — "+" new session + last 10 conversations
+   with per-item trash. Only rendered while the sidebar is expanded. */
+.nav-aicode-sub {
+    margin-left: 1.4rem;
+    padding-left: 0.55rem;
+    border-left: 1px solid var(--bs-border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.nav-aicode-new {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px dashed var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: transparent;
+    color: var(--bs-secondary-color);
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    width: 100%;
+    text-align: left;
+}
+
+.nav-aicode-new:hover {
+    color: var(--bs-emphasis-color);
+    border-color: var(--bs-primary);
+}
+
+.nav-aicode-item {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.nav-aicode-link {
+    flex: 1;
+    min-width: 0;
+    display: block;
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--bs-border-radius);
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+    text-decoration: none;
+}
+
+.nav-aicode-link:hover {
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-emphasis-color);
+}
+
+.nav-aicode-link.active {
+    color: var(--bs-primary-text-emphasis);
+    font-weight: 600;
+}
+
+.nav-aicode-title {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-aicode-del {
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color);
+    padding: 0.1rem 0.3rem;
+    border-radius: var(--bs-border-radius);
+    font-size: 0.7rem;
+    line-height: 1;
+    visibility: hidden;
+}
+
+.nav-aicode-item:hover .nav-aicode-del,
+.nav-aicode-del:focus-visible {
+    visibility: visible;
+}
+
+.nav-aicode-del:hover {
+    color: var(--bs-danger);
+    background-color: var(--bs-tertiary-bg);
+}
+
 @media (min-width: 992px) {
     html[data-sidebar-collapsed] .app-sidebar .sidebar-repo-selector {
         display: none;

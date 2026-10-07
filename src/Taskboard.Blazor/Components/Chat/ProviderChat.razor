@@ -800,11 +800,22 @@
             </div>
         </div>
     </div>
+
+    @* SPEC-20261011-chat-workspace-panel: Devin-style workspace pane docked
+       to the right of the chat — Tasks/Changes/Terminal/Editor/Plan for the
+       active conversation (split pane lg+, bottom sheet <lg). *@
+    <ConversationWorkspacePanel @ref="_wsPanel"
+                                ConversationId="@_conversationId"
+                                RefreshSignal="@_wsRefreshSignal" />
 </div>
 
 @code {
     // SPEC-20261001-chat-ux-compact FR-001: histórico oculto por default — ☰ abre o drawer.
     private bool _sidebarOpen;
+
+    // SPEC-20261011-chat-workspace-panel: workspace pane ref + data reload signal.
+    private ConversationWorkspacePanel? _wsPanel;
+    private int _wsRefreshSignal;
 
     private IReadOnlyList<ChatProviderDto> _providers = [];
     private Guid _providerId;
@@ -964,8 +975,21 @@
     /// <summary>SF-web: page-header history button proxies the sidebar.</summary>
     public void ToggleHistoryDrawer() => _sidebarOpen = !_sidebarOpen;
 
+    /// <summary>SPEC-20261011: page-header workspace button proxies the pane.</summary>
+    public async Task ToggleWorkspacePanelAsync()
+    {
+        if (_wsPanel is not null)
+        {
+            await _wsPanel.ToggleAsync();
+        }
+    }
+
     /// <summary>SF-web: page-header new-chat button proxies the sidebar's own action.</summary>
     public Task StartNewChatPublicAsync() => StartNewChatAsync();
+
+    /// <summary>SPEC-20261011: opens a conversation from outside the component —
+    /// nav-submenu deep-links (?c=) and search hits land here.</summary>
+    public Task OpenConversationPublicAsync(string id) => OpenConversationAsync(id);
 
     protected override async Task OnInitializedAsync()
     {
@@ -2444,6 +2468,8 @@
                 _statusLabel = null;
                 _pendingApprovals.Clear();
                 _pendingSteers.Clear();
+                // RF-004/RF-005: run settled — refresh todo/diff/plan surfaces.
+                _wsRefreshSignal++;
                 break;
         }
     }
