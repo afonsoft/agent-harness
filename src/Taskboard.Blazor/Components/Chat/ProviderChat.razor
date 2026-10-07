@@ -308,6 +308,28 @@
                       role="button" title="Double-click to rename" tabindex="0"
                       @ondblclick="BeginRename">@_conversationTitle</span>
             }
+            @* SPEC-20261014-chat-git-bar-overview RF-005: ⓘ opens the compact
+               conversation-overview peek panel. *@
+            @if (_conversationId is not null)
+            {
+                <button type="button" class="provider-chat-action @(_overviewOpen ? "active" : string.Empty)"
+                        title="Overview — resumo da conversa e workspace"
+                        aria-label="Conversation overview"
+                        aria-pressed="@(_overviewOpen ? "true" : "false")"
+                        @onclick="() => _overviewOpen = !_overviewOpen">
+                    <Icon Name="IconName.InfoCircle" />
+                </button>
+            }
+        </div>
+
+        @* SPEC-20261014-chat-git-bar-overview RF-001..RF-005: repo/branch/
+           sync chips + pull/push/PR for the resolved workspace. *@
+        <div class="provider-gitbar-anchor">
+            <ChatGitBar ConversationId="@_conversationId" RefreshSignal="@_messages.Count" />
+            @if (_overviewOpen && _conversationId is not null)
+            {
+                <ConversationOverview ConversationId="@_conversationId" />
+            }
         </div>
 
         @* SPEC-20261005-chat-jobs-schedule-search RF-003: live background-job
@@ -879,6 +901,8 @@
     private string? _conversationTitle;
     private bool _renaming;
     private bool _focusRename;
+    // SPEC-20261014-chat-git-bar-overview RF-005: ⓘ overview peek toggle.
+    private bool _overviewOpen;
     private string _renameDraft = string.Empty;
     private ElementReference _renameInputRef;
     private readonly List<ChatMessageDto> _messages = [];
@@ -1630,6 +1654,7 @@
     {
         _conversationId = detail.Conversation.Id;
         _conversationTitle = detail.Conversation.Title;
+        _overviewOpen = false;
         _archived = detail.Conversation.ArchivedAt is not null;
         // SPEC-20261004 RF-003: the open conversation's stored binding becomes
         // "applied" — the parameters-set PATCH must not treat it as a change.
@@ -2830,6 +2855,9 @@
             {
                 await JS.InvokeVoidAsync("taskboardChat.hookPaste",
                     "provider-chat-input", "provider-chat-attach-input");
+                // SPEC-20261014-chat-git-bar-overview RF-004: github.com/*/pull/N
+                // links in assistant markdown get a hover card (60s server cache).
+                await JS.InvokeVoidAsync("taskboardChat.bindPrCards", "provider-chat-scroll");
             }
             catch (JSException)
             {

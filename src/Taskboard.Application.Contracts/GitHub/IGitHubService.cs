@@ -117,4 +117,23 @@ public interface IGitHubService
         string baseBranch,
         string? body,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SPEC-20261014-chat-git-bar-overview: achar um PR aberto para head/base —
+    /// idempotência do create-PR do chat (mesmo head/base → reusa a URL).
+    /// </summary>
+    Task<string?> FindOpenPullRequestUrlAsync(
+        string repositoryFullName,
+        string head,
+        string baseBranch,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SPEC-20261014 RF-004: card de um PR para o hover — retorna null quando
+    /// o PR não existe ou a API falha (o link renderiza como link comum).
+    /// </summary>
+    Task<PullRequestCardDto?> GetPullRequestCardAsync(
+        string repositoryFullName,
+        int pullNumber,
+        CancellationToken cancellationToken = default);
 }

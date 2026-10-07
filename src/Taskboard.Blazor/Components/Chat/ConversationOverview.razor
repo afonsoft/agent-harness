@@ -1,0 +1,85 @@
+@using Taskboard.Application.Contracts.Chat
+@inject TaskboardClient Client
+@inject ILocaleService L
+
+@*
+    SPEC-20261014-chat-git-bar-overview RF-005: compact "Overview" peek —
+    conversation summary + workspace/repo chips + pending-approvals hint,
+    toggled by the ⓘ button in the chat header.
+*@
+
+<div class="chat-overview">
+    <div class="chat-overview-title">
+        <Icon Name="IconName.InfoCircle" class="me-1" /> @L.T("chat.overview.title")
+    </div>
+    @if (Detail is null)
+    {
+        <div class="text-body-secondary small">@L.T("chat.overview.empty")</div>
+    }
+    else
+    {
+        <dl class="chat-overview-list">
+            <dt>@L.T("chat.overview.conversation")</dt>
+            <dd class="text-truncate" title="@Detail.Conversation.Title">@Detail.Conversation.Title</dd>
+            <dt>@L.T("chat.overview.provider")</dt>
+            <dd>@Detail.Conversation.Model</dd>
+            @if (!string.IsNullOrEmpty(Detail.Conversation.Agent?.RepositoryFullName))
+            {
+                <dt>@L.T("chat.overview.repository")</dt>
+                <dd>
+                    <a href="https://github.com/@Detail.Conversation.Agent!.RepositoryFullName" target="_blank" rel="noopener noreferrer">
+                        <Icon Name="IconName.Github" /> @Detail.Conversation.Agent!.RepositoryFullName
+                    </a>
+                </dd>
+            }
+            @if (GitStatus?.Workdir is not null)
+            {
+                <dt>@L.T("chat.overview.workspace")</dt>
+                <dd class="text-truncate" title="@GitStatus.Workdir">
+                    <code>@GitStatus.Workdir</code>
+                    @if (GitStatus.IsWorktree) { <span class="badge text-bg-secondary ms-1">@L.T("chat.git.worktree")</span> }
+                </dd>
+            }
+            @if (GitStatus is { IsRepo: true })
+            {
+                <dt>@L.T("chat.overview.branch")</dt>
+                <dd>
+                    <Icon Name="IconName.Git" /> @(GitStatus.Branch ?? L.T("chat.git.detached"))
+                    @if (GitStatus.Dirty) { <span class="badge text-bg-warning ms-1">@L.T("chat.git.dirty")</span> }
+                </dd>
+            }
+            <dt>@L.T("chat.overview.messages")</dt>
+            <dd>@Detail.Messages.Count</dd>
+            @if (Detail.ActiveRun is not null)
+            {
+                <dt>@L.T("chat.overview.run")</dt>
+                <dd>@Detail.ActiveRun.Status</dd>
+            }
+            @if (Detail.PendingApprovals?.Count > 0)
+            {
+                <dt>@L.T("chat.overview.approvals")</dt>
+                <dd><span class="badge text-bg-warning">@Detail.PendingApprovals.Count @L.T("chat.overview.pending")</span></dd>
+            }
+        </dl>
+    }
+</div>
+
+@code {
+    [Parameter] public string? ConversationId { get; set; }
+
+    private ChatConversationDetailDto? Detail;
+    private ChatGitStatusDto? GitStatus;
+    private string? _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConversationId is null || ConversationId == _loadedFor)
+        {
+            return;
+        }
+
+        _loadedFor = ConversationId;
+        Detail = await Client.GetChatConversationAsync(ConversationId);
+        GitStatus = await Client.GetChatGitStatusAsync(ConversationId);
+    }
+}

@@ -436,6 +436,104 @@ window.taskboardChat = {
         }
     },
 
+    // SPEC-20261014-chat-git-bar-overview RF-004: github.com/*/pull/N links in
+    // assistant markdown get a hover card — fetched from the cached server
+    // endpoint (60s), positioned near the link. Errors degrade to no card.
+    bindPrCards: function (containerId) {
+        var container = document.getElementById(containerId);
+        if (!container || container._prCardsBound) {
+            return;
+        }
+        container._prCardsBound = true;
+        var card = null;
+        var hideTimer = null;
+
+        var hide = function () {
+            if (card) {
+                card.remove();
+                card = null;
+            }
+        };
+        var scheduleHide = function () {
+            hideTimer = setTimeout(hide, 250);
+        };
+        var cancelHide = function () {
+            if (hideTimer) {
+                clearTimeout(hideTimer);
+                hideTimer = null;
+            }
+        };
+
+        container.addEventListener('mouseover', function (e) {
+            var link = e.target.closest
+                && e.target.closest('a[href*="github.com/"][href*="/pull/"]');
+            if (!link) {
+                return;
+            }
+            cancelHide();
+            if (card && card._for === link.href) {
+                return;
+            }
+            hide();
+            card = document.createElement('div');
+            card.className = 'chat-pr-card';
+            card._for = link.href;
+            card.textContent = '…';
+            var rect = link.getBoundingClientRect();
+            card.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 360)) + 'px';
+            card.style.top = (rect.bottom + 6) + 'px';
+            card.addEventListener('mouseenter', cancelHide);
+            card.addEventListener('mouseleave', scheduleHide);
+            document.body.appendChild(card);
+
+            fetch('/api/local/chat/pr-card?url=' + encodeURIComponent(link.href),
+                    { credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (body) {
+                    if (!card || card._for !== link.href || !body || !body.card) {
+                        if (card && card._for === link.href) {
+                            card.textContent = link.href;
+                        }
+                        return;
+                    }
+                    var c = body.card;
+                    var state = c.merged ? 'merged' : c.state;
+                    var checks = c.checksTotal > 0
+                        ? 'checks ' + c.checksSucceeded + '/' + c.checksTotal
+                            + (c.checksFailed > 0 ? ' (' + c.checksFailed + ' failed)' : '')
+                        : 'no checks';
+                    card.innerHTML = '';
+                    var head = document.createElement('div');
+                    var badge = document.createElement('span');
+                    badge.className = 'pr-card-state ' + state;
+                    badge.textContent = state + ' #' + c.number;
+                    head.appendChild(badge);
+                    var title = document.createElement('div');
+                    title.className = 'pr-card-title';
+                    title.textContent = c.title;
+                    var meta = document.createElement('div');
+                    meta.className = 'pr-card-meta';
+                    meta.textContent = (c.author || 'unknown') + ' · ' + checks;
+                    card.appendChild(head);
+                    card.appendChild(title);
+                    card.appendChild(meta);
+                })
+                .catch(function () {
+                    if (card && card._for === link.href) {
+                        card.textContent = link.href;
+                    }
+                });
+        });
+        container.addEventListener('mouseout', function (e) {
+            var link = e.target.closest
+                && e.target.closest('a[href*="github.com/"][href*="/pull/"]');
+            if (link) {
+                scheduleHide();
+            }
+        });
+        container.addEventListener('scroll', hide);
+    },
+
     // RF-003: clipboard files (screenshot paste etc.) flow into the same
     // hidden input — InputFile picks them up through the dispatched change.
     hookPaste: function (textareaId, fileInputId) {

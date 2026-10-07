@@ -1225,6 +1225,50 @@ public sealed class TaskboardClient
         return body?.Plan;
     }
 
+    // SPEC-20261014-chat-git-bar-overview RF-001..RF-005: git chips + actions
+    // for the conversation workspace.
+    public async Task<ChatGitStatusDto?> GetChatGitStatusAsync(string conversationId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/git/status", cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatGitStatusResponse>(cancellationToken: cancellationToken);
+        return body?.Status;
+    }
+
+    public async Task<ChatGitOpResult?> RunChatGitOpAsync(string conversationId, string op, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsync($"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/git/{op}", content: null, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatGitOpResponse>(cancellationToken: cancellationToken);
+        return body?.Result;
+    }
+
+    public async Task<ChatCreatePrResult?> CreateChatPullRequestAsync(
+        string conversationId, CreateChatPullRequestRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"api/local/chat/conversations/{Uri.EscapeDataString(conversationId)}/pull-request",
+            request, cancellationToken);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<ChatCreatePrResponse>(cancellationToken: cancellationToken);
+        return body?.Result;
+    }
+
     public async Task DeleteChatConversationAsync(string id, CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.DeleteAsync($"api/local/chat/conversations/{Uri.EscapeDataString(id)}", cancellationToken);
@@ -1692,6 +1736,9 @@ public sealed class TaskboardClient
     private sealed record ChatTodoListResponse(List<ChatTodoItem> Todos);
     private sealed record ConversationDiffResponse(WorkspaceDiffDto? Diff);
     private sealed record ConversationPlanResponse(ChatApprovalDto? Plan);
+    private sealed record ChatGitStatusResponse(ChatGitStatusDto Status);
+    private sealed record ChatGitOpResponse(ChatGitOpResult Result);
+    private sealed record ChatCreatePrResponse(ChatCreatePrResult Result);
     private sealed record ChatCapabilitiesResponse(List<ChatCapability> Capabilities);
     private sealed record CustomCliModelsResponse(List<string> Models);
 
