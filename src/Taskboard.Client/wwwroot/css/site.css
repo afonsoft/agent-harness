@@ -82,6 +82,15 @@ body {
     }
 }
 
+/* Devin-style mobile drawer: Bootstrap's default offcanvas width is 400px —
+   on narrow phones it covers the whole viewport, leaving no backdrop strip to
+   tap-to-close. Cap it so a dimmed area always remains outside. */
+@media (max-width: 991.98px) {
+    .offcanvas-lg.app-sidebar {
+        --bs-offcanvas-width: min(320px, 80vw);
+    }
+}
+
 .app-sidebar-brand {
     display: flex;
     align-items: center;
