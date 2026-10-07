@@ -25,6 +25,7 @@ Key capabilities:
 - **CLI session resume** — `/agents` scans on-disk transcripts (`~/.claude/projects`, `~/.codex/sessions`, opencode store) via `GET /api/agents/sessions` and offers one-click resume (`claude --resume`, `codex resume`, `opencode --session`) through the terminal.
 - **Worktree checkpoints** — `harness-checkpoint:` prefixed commits snapshot and restore worktree state mid-run (`worktree_checkpoint`/`worktree_checkpoints` tools).
 - **Workspace picker** — Agent chat runs tools against a chosen folder (default `~/repos`, any subfolder selectable); per-conversation, sandboxed to `$HOME`.
+- **Devin-style chat workspace** — the AI Code chat docks a live workspace panel beside the transcript (Tasks / Changes / Terminal PTY / Editor / Plan / Preview / Browser tabs, drag-resizable, persisted per conversation), plus a ⌘K command palette, run pause/resume/stop controls, risk-tiered auto-approvals, git bar with PR links, preview tab with element-picker → composer quote, `browser_use` tool with a shot gallery, post-run next-action suggestion chips, and voice dictation.
 - **Verification loop** — opt-in deterministic build/test/coverage gate after each agent run (`dotnet format → build → test` with TRX + coverage parsing); failures feed a retry loop with a structured `feedbackPrompt` and escalate to human after max attempts.
 - **Security gateway** — pre-dispatch command classification (Safe/WorkspaceWrite/Dangerous, fail-closed), path-jail + symlink-escape enforcement, and secret scrubbing on logged output.
 - **Context & memory** — hierarchical context compilation (`AGENTS.md`/`CLAUDE.md`/`.cursorrules`, env + git block, token-budgeted compaction) and project memory items scoped by remote origin.
@@ -42,7 +43,7 @@ Key capabilities:
 
 | Board | AI Code |
 |---|---|
-| ![GitHub issues as a drag-and-drop Kanban board](docs/screenshots/board.jpg) | ![Devin-style chat with mode toggle, icon toolbar and workspace context](docs/screenshots/ai-code.jpg) |
+| ![GitHub issues as a drag-and-drop Kanban board](docs/screenshots/board.jpg) | ![Devin-style chat with tool cards and the workspace panel (Tarefas/Alterações/Terminal/Editor/Plano/Preview/Browser)](docs/screenshots/ai-code.jpg) |
 | **Living Specs** | **Jobs** |
 | ![SDD specs catalog with status tracking and drift warnings](docs/screenshots/specs.jpg) | ![Managed background jobs with intervals, toggles and run history](docs/screenshots/jobs.jpg) |
 | **FinOps** | **CLI Agents** |
@@ -51,6 +52,10 @@ Key capabilities:
 | ![Interactive bash PTY tabs over SignalR](docs/screenshots/terminal.jpg) | ![Feature switches and configuration overrides](docs/screenshots/settings.jpg) |
 | **Agent Dashboard** | **Workspace picker** |
 | ![Needs You / Working / Done / Idle columns plus resumable CLI sessions](docs/screenshots/agents-dashboard.jpg) | ![Workspace picker modal listing subfolders of ~/repos](docs/screenshots/workspace-picker.jpg) |
+| **Chat command palette** | **Chat app preview** |
+| ![⌘K palette with session and workspace commands](docs/screenshots/ai-code-palette.jpg) | ![Preview tab proxying a live host app inside the chat](docs/screenshots/ai-code-preview.jpg) |
+| **Chat overview** | **Mobile navigation** |
+| ![Conversation overview popover with model, workspace and message count](docs/screenshots/ai-code-overview.jpg) | ![Mobile nav sliding over the content, closing on outside tap](docs/screenshots/mobile-nav.jpg) |
 
 ## Tech Stack
 
