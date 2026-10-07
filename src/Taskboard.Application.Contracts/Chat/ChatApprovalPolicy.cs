@@ -17,6 +17,17 @@ public enum ChatApprovalDecision
 }
 
 /// <summary>
+/// SPEC-20261013-chat-risk-approvals RF-004: the gate's full resolution —
+/// the decision plus, for the <c>auto</c> policy, the classifier verdict
+/// that produced it (medium → badge; high → reason on the card).
+/// </summary>
+public sealed record ChatGateResolution(
+    ChatApprovalDecision Decision,
+    ChatToolRiskVerdict? Verdict = null,
+    /// <summary>Audit label — e.g. <c>auto:medium</c>, <c>tool-policy:auto</c>.</summary>
+    string? Via = null);
+
+/// <summary>
 /// SPEC-20261005-chat-tool-approval RF-006/RF-008/RF-009: resolves
 /// <c>preset → policy(tool)</c> for the run-loop gate. Order
 /// (§3): global disable → per-tool <c>never|allow|ask</c> override →
@@ -81,6 +92,92 @@ public static class ChatApprovalPolicy
             // ask (and unknown presets — fail-safe): prompt for mutating calls.
             _ when mutating => ChatApprovalDecision.Ask,
             _ => ChatApprovalDecision.Allow,
+        };
+    }
+
+    /// <summary>
+    /// SPEC-20261013 RF-003/RF-004: same resolution order as
+    /// <see cref="Resolve"/>, extended with the <c>auto</c> policy — per-tool
+    /// <c>auto</c> and preset <c>auto</c> both consult the classifier
+    /// (<paramref name="classify"/>). Tools flagged
+    /// <paramref name="requiresConfirmation"/> never auto-approve (RF-005):
+    /// under <c>auto</c> they fall back to the normal ask card.
+    /// </summary>
+    public static ChatGateResolution ResolveDetailed(
+        IConfiguration configuration,
+        string preset,
+        IReadOnlySet<string> conversationAllowedTools,
+        string toolName,
+        bool mutating,
+        bool requiresConfirmation,
+        Func<ChatToolRiskVerdict> classify)
+    {
+        if (!IsEnabled(configuration))
+        {
+            return new ChatGateResolution(ChatApprovalDecision.Allow);
+        }
+
+        var toolPolicy = configuration[$"{ToolPolicyPrefix}{toolName}"];
+        if (string.Equals(toolPolicy, "never", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChatGateResolution(ChatApprovalDecision.Deny, Via: "tool-policy:never");
+        }
+
+        if (string.Equals(toolPolicy, "allow", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChatGateResolution(ChatApprovalDecision.Allow, Via: "tool-policy:allow");
+        }
+
+        if (string.Equals(toolPolicy, "ask", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChatGateResolution(
+                mutating ? ChatApprovalDecision.Ask : ChatApprovalDecision.Allow,
+                Via: "tool-policy:ask");
+        }
+
+        if (string.Equals(toolPolicy, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return ResolveAuto(mutating, requiresConfirmation, classify, "tool-policy:auto");
+        }
+
+        if (conversationAllowedTools.Contains(toolName))
+        {
+            return new ChatGateResolution(ChatApprovalDecision.Allow, Via: "allowed-list");
+        }
+
+        return preset switch
+        {
+            ChatPermissionPresets.Chat when mutating =>
+                new ChatGateResolution(ChatApprovalDecision.Deny, Via: "preset:chat"),
+            ChatPermissionPresets.Full =>
+                new ChatGateResolution(ChatApprovalDecision.Allow, Via: "preset:full"),
+            ChatPermissionPresets.Auto =>
+                ResolveAuto(mutating, requiresConfirmation, classify, "preset:auto"),
+            _ when mutating =>
+                new ChatGateResolution(ChatApprovalDecision.Ask, Via: "preset:ask"),
+            _ => new ChatGateResolution(ChatApprovalDecision.Allow, Via: "preset:ask"),
+        };
+    }
+
+    /// <summary>low → silent; medium → allow + notice; high → ask. RequiresConfirmation hard-gates.</summary>
+    private static ChatGateResolution ResolveAuto(
+        bool mutating, bool requiresConfirmation, Func<ChatToolRiskVerdict> classify, string via)
+    {
+        // RF-005: the tool's own confirmation flag outranks the classifier —
+        // a RequiresConfirmation tool always prompts, whatever the risk tier.
+        if (requiresConfirmation)
+        {
+            return new ChatGateResolution(
+                ChatApprovalDecision.Ask,
+                Via: $"{via} (requires-confirmation)");
+        }
+
+        var verdict = classify();
+        return verdict.Risk switch
+        {
+            ChatToolRisk.High => new ChatGateResolution(ChatApprovalDecision.Ask, verdict, via),
+            ChatToolRisk.Medium => new ChatGateResolution(ChatApprovalDecision.Allow, verdict, via),
+            _ => new ChatGateResolution(ChatApprovalDecision.Allow, Via: via),
         };
     }
 

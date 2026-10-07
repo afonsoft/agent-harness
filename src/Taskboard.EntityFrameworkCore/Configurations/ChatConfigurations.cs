@@ -219,6 +219,12 @@ public sealed class ChatApprovalConfiguration : IEntityTypeConfiguration<ChatApp
                 v => v == null ? null : v.Value,
                 v => v == null ? null : ChatApprovalDecidedBy.From(v));
 
+        // SPEC-20261013-chat-risk-approvals: classifier tier + reason.
+        builder.Property(a => a.Risk)
+            .HasMaxLength(8);
+        builder.Property(a => a.RiskReason)
+            .HasMaxLength(200);
+
         builder.Property(a => a.Version)
             .IsConcurrencyToken();
 

@@ -671,6 +671,9 @@ void RegisterWorkspaceAndChatServices()
     // suspended call — shared TCS registry like the run coordinator.
     builder.Services.AddSingleton<ChatApprovalCoordinator>();
     builder.Services.AddScoped<ChatService>();
+    // SPEC-20261013-chat-risk-approvals: deterministic per-call risk rules
+    // for the `auto` approval policy.
+    builder.Services.AddSingleton<IChatToolRiskClassifier>(StaticChatToolRiskClassifier.Instance);
     builder.Services.AddScoped<ConversationWorkspaceService>();
     // SPEC-20261005-chat-background-resume RF-002/RF-003: queue + broadcaster +
     // detached dispatcher — a chat run outlives the browser tab.
@@ -2806,6 +2809,8 @@ void MapSettingsAndChatEndpoints()
                         toolName = e.ToolName,
                         argsPreview = e.ArgumentsPreview,
                         kind = e.Kind,
+                        risk = e.Risk,
+                        riskReason = e.RiskReason,
                     }),
                     ChatApprovalDecidedEvent e => ("approval.decided", new
                     {
@@ -2825,6 +2830,15 @@ void MapSettingsAndChatEndpoints()
                     // parked at a boundary / left the park — the chip flips.
                     ChatPausedEvent => ("chat.paused", (object?)new { }),
                     ChatResumedEvent => ("chat.resumed", (object?)new { }),
+                    // SPEC-20261013-chat-risk-approvals RF-004: medium call
+                    // auto-elevated — the tool card gets the badge.
+                    ChatRiskNoticeEvent e => ("risk.notice", new
+                    {
+                        toolCallId = e.ToolCallId,
+                        toolName = e.ToolName,
+                        risk = e.Risk,
+                        reason = e.Reason,
+                    }),
                     // ChatDoneEvent arrives below with the fresh terminal row;
                     // ChatPersistedEvent is internal plumbing — not on the wire.
                     _ => (null, null),

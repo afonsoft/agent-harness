@@ -42,11 +42,19 @@ public sealed record ChatApprovalDecidedBy : StringValueObject
         "ui",
         "auto-timeout",
         "auto-cancel",
+        // SPEC-20261013-chat-risk-approvals: the `auto` preset's risk gate —
+        // auto:<tier> records which tier auto-allowed the call.
+        "auto:low",
+        "auto:medium",
+        "auto:high",
     };
 
     public static readonly ChatApprovalDecidedBy Ui = new("ui");
     public static readonly ChatApprovalDecidedBy AutoTimeout = new("auto-timeout");
     public static readonly ChatApprovalDecidedBy AutoCancel = new("auto-cancel");
+
+    /// <summary>The <c>auto:&lt;risk&gt;</c> audit marker (SPEC-20261013).</summary>
+    public static ChatApprovalDecidedBy ForAutoRisk(string risk) => new($"auto:{risk}");
 
     public ChatApprovalDecidedBy(string value)
         : base(value, AllowedValues)

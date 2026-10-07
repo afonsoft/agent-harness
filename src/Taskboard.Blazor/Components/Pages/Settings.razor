@@ -558,9 +558,22 @@
                                 @onchange="ChangeApprovalPresetAsync">
                             <option value="chat">chat — read-only</option>
                             <option value="ask">ask — prompt por tool</option>
+                            <option value="auto">auto — por risco</option>
                             <option value="full">full — never ask</option>
                         </select>
                     </div>
+
+                    @* SPEC-20261013-chat-risk-approvals RF-006: the `auto`
+                       preset's classifier rules, summarized for the admin. *@
+                    <details class="small text-body-secondary mt-1">
+                        <summary>Como o preset <code>auto</code> decide</summary>
+                        <ul class="mb-0 mt-1">
+                            <li><strong>low</strong> — roda em silêncio (reads, search, git status/diff/log).</li>
+                            <li><strong>medium</strong> — roda + badge <em>risk: medium</em> no tool card e linha de auditoria <code>auto:medium</code> (writes dentro do workspace, git add/commit/checkout -b, run_tests, delegação).</li>
+                            <li><strong>high</strong> — abre o card de aprovação com a razão (rm -rf, force push, publish, git reset --hard, credenciais .env/.ssh, path fora do workspace, sudo).</li>
+                            <li>Tools <code>RequiresConfirmation</code> e o plan mode NUNCA são rebaixados pelo auto — perguntam sempre.</li>
+                        </ul>
+                    </details>
 
                     @{ var approvalTimeoutEntry = FeatureEntry("Taskboard:Chat:Approval:TimeoutSeconds"); }
                     <div class="setting-row">
@@ -632,6 +645,7 @@
                                                         <option value="ask">ask</option>
                                                         <option value="never">never</option>
                                                         <option value="allow">allow</option>
+                                                        <option value="auto">auto</option>
                                                     </select>
                                                 }
                                                 else

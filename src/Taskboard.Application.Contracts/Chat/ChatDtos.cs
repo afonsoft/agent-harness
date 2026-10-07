@@ -227,7 +227,11 @@ public sealed record ChatApprovalDto(
     string? Decision,
     string? DecidedBy,
     // SPEC-20261005-chat-plan-mode RF-003: tool-call | plan-review.
-    string Kind = "tool-call");
+    string Kind = "tool-call",
+    // SPEC-20261013-chat-risk-approvals RF-004: classifier tier + reason the
+    // `auto` policy attached — the card shows "risk: high — <reason>".
+    string? Risk = null,
+    string? RiskReason = null);
 
 /// <summary>Body of <c>POST /api/local/chat/approvals/{id}/decide</c> (RF-003/RF-004).</summary>
 public sealed record DecideChatApprovalRequest(

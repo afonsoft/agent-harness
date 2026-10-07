@@ -50,7 +50,10 @@ public sealed record ChatPersistedEvent : ChatStreamEvent;
 /// </summary>
 public sealed record ChatApprovalAskedEvent(
     string ApprovalId, string ToolCallId, string ToolName, string ArgumentsPreview,
-    string Kind = "tool-call") : ChatStreamEvent;
+    string Kind = "tool-call",
+    // SPEC-20261013-chat-risk-approvals RF-004: the `auto` classifier's
+    // verdict a high-risk card carries (null on policy asks).
+    string? Risk = null, string? RiskReason = null) : ChatStreamEvent;
 
 /// <summary>RF-003/RF-005: the pending approval resolved — SSE <c>approval.decided</c>.</summary>
 public sealed record ChatApprovalDecidedEvent(
@@ -87,6 +90,14 @@ public sealed record ChatPausedEvent : ChatStreamEvent;
 public sealed record ChatResumedEvent : ChatStreamEvent;
 
 /// <summary>
+/// SPEC-20261013-chat-risk-approvals RF-004: an <c>auto</c>-policy call
+/// classified <c>medium</c> ran without a prompt — SSE <c>risk.notice</c>,
+/// rendered as a badge on the tool card.
+/// </summary>
+public sealed record ChatRiskNoticeEvent(
+    string ToolCallId, string ToolName, string Risk, string Reason) : ChatStreamEvent;
+
+/// <summary>
 /// Provider chat orchestration (SPEC-20260929-ai-code-provider-chat): provider
 /// CRUD, conversation persistence with search, and the send/stream tool loop
 /// (RF-005) over the OpenAI-compatible client with auto-confined tools (RF-006).
@@ -118,7 +129,8 @@ public sealed class ChatService(
     ChatAttachmentStore? attachmentStore = null,
     IChatFileEditTracker? editTracker = null,
     IChatWorkspaceDiffService? workspaceDiff = null,
-    IChatMessageSearchIndex? searchIndex = null) : IChatRunExecutor
+    IChatMessageSearchIndex? searchIndex = null,
+    IChatToolRiskClassifier? riskClassifier = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -126,6 +138,8 @@ public sealed class ChatService(
     };
 
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private readonly IChatToolRiskClassifier _riskClassifier =
+        riskClassifier ?? StaticChatToolRiskClassifier.Instance;
 
     private DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
 
@@ -1904,18 +1918,26 @@ public sealed class ChatService(
             // per-call policy BEFORE execution — ask parks on a persisted
             // ChatApproval, deny becomes a synthetic refusal, allow falls
             // through to the normal path.
-            var gateJson = await ApplyApprovalGateAsync(run, conversation, toolSet, toolCall, ct, stoppingToken)
+            var gateJson = await ApplyApprovalGateAsync(run, conversation, provider, toolSet, toolCall, ct, stoppingToken)
                 .ConfigureAwait(false);
             if (gateJson is { Abort: true })
             {
                 yield break;
             }
 
-            if (gateJson is not null)
+            // SPEC-20261013 RF-004: medium auto-elevations — the call runs,
+            // but the tool card gets the risk badge.
+            if (gateJson is { Notice: { } notice })
             {
-                var deniedJson = gateJson.Value.ResultJson!;
-                var deniedReason = gateJson.Value.RefusalReason;
-                var deniedRefused = gateJson.Value.Refused;
+                yield return new ChatRiskNoticeEvent(
+                    toolCall.Id, toolCall.Name, notice.RiskValue, notice.Reason);
+            }
+
+            if (gateJson?.ResultJson is not null)
+            {
+                var deniedJson = gateJson.ResultJson;
+                var deniedReason = gateJson.RefusalReason;
+                var deniedRefused = gateJson.Refused;
                 yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
                 yield return new ChatToolResultEvent(toolCall.Name, deniedJson, deniedRefused, deniedReason);
                 var deniedMessage = ChatMessage.CreateTool(
@@ -2330,9 +2352,43 @@ public sealed class ChatService(
     /// <c>Refused=false</c> marks a synthetic result that is not a refusal
     /// (a rejected plan review — the model revises, nothing was denied).
     /// </summary>
-    private async Task<(string? ResultJson, string? RefusalReason, bool Abort, bool Refused)?> ApplyApprovalGateAsync(
+    /// <summary>Outcome of the gate — null ResultJson = the call executes.</summary>
+    private sealed record GateOutcome(
+        string? ResultJson,
+        string? RefusalReason,
+        bool Abort,
+        bool Refused,
+        /// <summary>SPEC-20261013 RF-004: medium verdict to badge on the tool card.</summary>
+        ChatToolRiskVerdict? Notice = null);
+
+    /// <summary>Minimal context for the classifier — only WorkspacePath is read.</summary>
+    private ChatToolContext ClassificationContext(
+        ChatRun run, ChatConversation conversation, ChatProviderSnapshot provider) =>
+        new(
+            WorkspacePath: ResolveWorkspacePath(conversation),
+            ProviderId: provider.Id,
+            ProviderBaseUrl: provider.BaseUrl,
+            ProviderApiKey: provider.ApiKey,
+            ImageModel: string.Empty,
+            SearchBackend: string.Empty,
+            SearchUrl: string.Empty,
+            SearchApiKey: string.Empty,
+            ConversationId: conversation.Id.Value,
+            Model: conversation.Model,
+            RunId: run.Id.Value);
+
+    /// <summary>The workspace the tools jail against — same resolution as the executor's context.</summary>
+    private string ResolveWorkspacePath(ChatConversation conversation) =>
+        // Agent-chat: an explicit workspace wins; otherwise the bound repo
+        // resolves (null → the default ~/repos root).
+        !string.IsNullOrWhiteSpace(conversation.WorkspacePath)
+            ? conversation.WorkspacePath
+            : workspace.ResolveCardWorkdir(conversation.RepositoryFullName, out _);
+
+    private async Task<GateOutcome?> ApplyApprovalGateAsync(
         ChatRun run,
         ChatConversation conversation,
+        ChatProviderSnapshot provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         OpenAiToolCall toolCall,
         CancellationToken ct,
@@ -2362,7 +2418,8 @@ public sealed class ChatService(
         {
             if (ValidatePlanArgument(toolCall.ArgumentsJson) is { } invalid)
             {
-                return (JsonSerializer.Serialize(new { error = invalid }), "invalid plan", false, false);
+                return new GateOutcome(
+                    JsonSerializer.Serialize(new { error = invalid }), "invalid plan", false, false);
             }
 
             return await AskAsync(run, conversation, toolCall, ChatApprovalKind.PlanReview, ct, stoppingToken)
@@ -2376,26 +2433,62 @@ public sealed class ChatService(
         // regardless of the preset (enforcement at the gate, not the prompt).
         if (planMode == ChatPlanModes.On && mutating)
         {
-            return (JsonSerializer.Serialize(new { error = ChatPlanMode.MutatingDenial }),
+            return new GateOutcome(JsonSerializer.Serialize(new { error = ChatPlanMode.MutatingDenial }),
                 "denied by plan mode", false, true);
         }
 
-        var decision = ChatApprovalPolicy.Resolve(
-            configuration, preset, allowedTools, toolCall.Name, mutating);
+        // SPEC-20261013 RF-004: the `auto` policy classifies the call —
+        // low runs silent, medium runs with a notice + audit row, high asks.
+        var resolution = ChatApprovalPolicy.ResolveDetailed(
+            configuration, preset, allowedTools, toolCall.Name, mutating,
+            tool.RequiresConfirmation,
+            () => _riskClassifier.Classify(
+                toolCall.Name, SafeArgs(toolCall.ArgumentsJson),
+                ClassificationContext(run, conversation, provider)));
 
-        switch (decision)
+        switch (resolution.Decision)
         {
             case ChatApprovalDecision.Allow:
+                // RF-004/RNF: medium auto-elevations get an audit row — the
+                // decided approval (`auto:medium`) is the durable trail, the
+                // risk.notice event badges the live tool card.
+                if (resolution.Verdict is { Risk: ChatToolRisk.Medium } medium)
+                {
+                    var audit = ChatApproval.Create(
+                        ChatApprovalId.NewGuid(), run.Id, conversation.Id,
+                        toolCall.Id, toolCall.Name, toolCall.ArgumentsJson, UtcNow,
+                        risk: medium.RiskValue, riskReason: medium.Reason);
+                    audit.Decide(ChatApprovalStatus.AllowedOnce, "allow",
+                        ChatApprovalDecidedBy.ForAutoRisk(medium.RiskValue), UtcNow);
+                    await approvalRepository.AddAsync(audit, ct).ConfigureAwait(false);
+                    await approvalRepository.SaveChangesAsync(ct).ConfigureAwait(false);
+                    return new GateOutcome(null, null, false, false, medium);
+                }
+
                 return null;
             case ChatApprovalDecision.Deny:
-                return (JsonSerializer.Serialize(new
+                return new GateOutcome(JsonSerializer.Serialize(new
                 {
                     error = $"Tool call blocked: '{toolCall.Name}' is denied by the conversation permission preset ({preset}).",
                 }), "denied by permission policy", false, true);
         }
 
-        return await AskAsync(run, conversation, toolCall, ChatApprovalKind.ToolCall, ct, stoppingToken)
-            .ConfigureAwait(false);
+        return await AskAsync(run, conversation, toolCall, ChatApprovalKind.ToolCall, ct, stoppingToken,
+            resolution.Verdict).ConfigureAwait(false);
+    }
+
+    /// <summary>Parses the call's args for classification — malformed JSON classifies as an empty object.</summary>
+    private static JsonElement SafeArgs(string? argumentsJson)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(
+                string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+        }
+        catch (JsonException)
+        {
+            return JsonSerializer.Deserialize<JsonElement>("{}");
+        }
     }
 
     /// <summary>
@@ -2442,21 +2535,24 @@ public sealed class ChatService(
     /// persist → broadcast <c>approval.asked</c> + notifier fan-out → suspend
     /// on the coordinator → resolve allow/deny/timeout/cancel.
     /// </summary>
-    private async Task<(string? ResultJson, string? RefusalReason, bool Abort, bool Refused)?> AskAsync(
+    private async Task<GateOutcome?> AskAsync(
         ChatRun run, ChatConversation conversation, OpenAiToolCall toolCall,
-        ChatApprovalKind kind, CancellationToken ct, CancellationToken stoppingToken)
+        ChatApprovalKind kind, CancellationToken ct, CancellationToken stoppingToken,
+        ChatToolRiskVerdict? risk = null)
     {
         var approval = ChatApproval.Create(
             ChatApprovalId.NewGuid(), run.Id, conversation.Id,
             toolCall.Id, toolCall.Name,
             kind == ChatApprovalKind.PlanReview ? ExtractPlan(toolCall.ArgumentsJson) : toolCall.ArgumentsJson,
-            UtcNow, kind);
+            UtcNow, kind,
+            risk?.RiskValue, risk?.Reason);
 
         await approvalRepository.AddAsync(approval, ct).ConfigureAwait(false);
         await approvalRepository.SaveChangesAsync(ct).ConfigureAwait(false);
 
         broadcaster.Publish(run.Id.Value, new ChatApprovalAskedEvent(
-            approval.Id.Value, toolCall.Id, toolCall.Name, approval.ArgumentsPreview, approval.Kind.Value));
+            approval.Id.Value, toolCall.Id, toolCall.Name, approval.ArgumentsPreview, approval.Kind.Value,
+            approval.Risk, approval.RiskReason));
 
         // RF-002: run.approval fan-out — same seam as run.completed; a closed
         // tab still learns the run needs a human. Best-effort per notifier.
@@ -2501,14 +2597,14 @@ public sealed class ChatService(
                 // model revises in plan mode (RF-003), no refusal chip.
                 if (kind == ChatApprovalKind.PlanReview)
                 {
-                    return (JsonSerializer.Serialize(new
+                    return new GateOutcome(JsonSerializer.Serialize(new
                     {
                         approved = false,
                         feedback = DenialFeedback(denied),
                     }), "plan review rejected", false, false);
                 }
 
-                return (JsonSerializer.Serialize(new
+                return new GateOutcome(JsonSerializer.Serialize(new
                 {
                     error = $"Tool call denied by the user{SuffixReason(denied)}",
                 }), "denied by user", false, true);
@@ -2524,21 +2620,21 @@ public sealed class ChatService(
                 }
                 // user stop: unwind the tool loop cleanly (Abort) — the run
                 // ends through the normal stopped-by-user terminal path.
-                return (null, null, true, false);
+                return new GateOutcome(null, null, true, false);
             }
 
             await ExpireApprovalAsync(approval, stoppingToken).ConfigureAwait(false);
             if (kind == ChatApprovalKind.PlanReview)
             {
                 // RNF-002 fail-closed: no answerer → stays in plan mode.
-                return (JsonSerializer.Serialize(new
+                return new GateOutcome(JsonSerializer.Serialize(new
                 {
                     approved = false,
                     feedback = "Plan review timed out — still in plan mode.",
                 }), "approval unavailable", false, false);
             }
 
-            return (JsonSerializer.Serialize(new
+            return new GateOutcome(JsonSerializer.Serialize(new
             {
                 error = $"Tool call '{toolCall.Name}' could not run: approval request timed out (fail-closed).",
             }), "approval unavailable", false, true);
@@ -2854,9 +2950,7 @@ public sealed class ChatService(
         var context = new ChatToolContext(
             // Agent-chat: an explicit workspace wins; otherwise the bound repo
             // resolves (null → the default ~/repos root).
-            WorkspacePath: !string.IsNullOrWhiteSpace(conversation.WorkspacePath)
-                ? conversation.WorkspacePath
-                : workspace.ResolveCardWorkdir(conversation.RepositoryFullName, out _),
+            WorkspacePath: ResolveWorkspacePath(conversation),
             ProviderId: provider.Id,
             ProviderBaseUrl: provider.BaseUrl,
             ProviderApiKey: provider.ApiKey,
@@ -3186,7 +3280,9 @@ public sealed class ChatService(
         approval.DecidedAt,
         approval.Decision,
         approval.DecidedBy?.Value,
-        approval.Kind.Value);
+        approval.Kind.Value,
+        approval.Risk,
+        approval.RiskReason);
 
     private static ChatConversationDto ToDto(
         ChatConversation conversation, string? preview, string? activeRunStatus = null,

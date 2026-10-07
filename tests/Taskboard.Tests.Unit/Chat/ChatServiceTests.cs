@@ -1269,6 +1269,177 @@ public sealed class ChatServiceTests : IDisposable
         tool.Executions.ShouldBe(0);
     }
 
+    // ---- SPEC-20261013-chat-risk-approvals: preset `auto` no gate ----
+
+    /// <summary>Tool mutante sem RequiresConfirmation — o auto decide por risco.</summary>
+    private sealed class FakeRunTestsTool : IChatTool
+    {
+        public string Name => "run_tests";
+        public string Description => "runs tests";
+        public string ParametersJson => """{"type":"object","properties":{}}""";
+        public int Executions { get; private set; }
+
+        public Task<ChatToolResult> ExecuteAsync(
+            JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
+        {
+            Executions++;
+            return Task.FromResult(new ChatToolResult(
+                JsonSerializer.Serialize(new { passed = 1 })));
+        }
+    }
+
+    /// <summary>shell_exec fake — comandos classificados pela tabela de risco.</summary>
+    private sealed class FakeShellExecTool : IChatTool
+    {
+        public string Name => "shell_exec";
+        public string Description => "shell";
+        public string ParametersJson => """{"type":"object","properties":{"command":{"type":"string"}}}""";
+        public int Executions { get; private set; }
+
+        public Task<ChatToolResult> ExecuteAsync(
+            JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
+        {
+            Executions++;
+            return Task.FromResult(new ChatToolResult(
+                JsonSerializer.Serialize(new { exitCode = 0 })));
+        }
+    }
+
+    /// <summary>RF-005: RequiresConfirmation nunca é rebaixado — auto ainda pergunta.</summary>
+    [Fact]
+    public async Task Dado_PresetAuto_Quando_ToolExigeConfirmacao_Entao_Pede()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewApprovalService(tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "auto"), CancellationToken.None);
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+        approval.ToolName.ShouldBe("write_file");
+        approval.Risk.ShouldBeNull("hard gate não vem do classifier");
+
+        await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("allow"), CancellationToken.None);
+        await runTask;
+        tool.Executions.ShouldBe(1);
+    }
+
+    /// <summary>RF-004: medium roda com risk.notice + linha de auditoria auto:medium.</summary>
+    [Fact]
+    public async Task Dado_PresetAuto_Quando_ToolMedium_Entao_ExecutaComNoticeEAuditoria()
+    {
+        var tool = new FakeRunTestsTool();
+        var service = NewService(
+            new PlanReviewProviderHandler("run_tests", "{}"),
+            new ChatRunCoordinator(), extraTool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "auto"), CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "testa");
+
+        tool.Executions.ShouldBe(1);
+        var notice = events.OfType<ChatRiskNoticeEvent>().Single();
+        notice.ToolName.ShouldBe("run_tests");
+        notice.Risk.ShouldBe("medium");
+        var audit = await _context.ChatApprovals.AsNoTracking()
+            .SingleAsync(a => a.ConversationId == ChatConversationId.From(conversation.Id));
+        audit.Status.ShouldBe(ChatApprovalStatus.AllowedOnce);
+        audit.DecidedBy!.Value.ShouldBe("auto:medium");
+        audit.Risk.ShouldBe("medium");
+        audit.RiskReason.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    /// <summary>RF-004: comando destrutivo abre o ask card com risk: high + razão.</summary>
+    [Fact]
+    public async Task Dado_PresetAuto_Quando_ComandoDestrutivo_Entao_AskCardComRisco()
+    {
+        var tool = new FakeShellExecTool();
+        var service = NewService(
+            new PlanReviewProviderHandler("shell_exec", """{"command":"rm -rf /tmp/x"}"""),
+            new ChatRunCoordinator(), extraTool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "auto"), CancellationToken.None);
+
+        var runTask = RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "limpa");
+        var approval = await WaitForPendingApprovalAsync(conversation.Id);
+        approval.ToolName.ShouldBe("shell_exec");
+        approval.Risk.ShouldBe("high");
+        approval.RiskReason.ShouldNotBeNull().ShouldContain("rm -rf");
+
+        await service.DecideApprovalAsync(
+            approval.Id.Value, new DecideChatApprovalRequest("deny"), CancellationToken.None);
+        var events = await runTask;
+        tool.Executions.ShouldBe(0);
+        events.OfType<ChatToolResultEvent>().Single().Refused.ShouldBeTrue();
+    }
+
+    /// <summary>RF-004: leitura sob auto roda em silêncio — zero approval/notice.</summary>
+    [Fact]
+    public async Task Dado_PresetAuto_Quando_ToolLeitura_Entao_Silencioso()
+    {
+        var service = NewService(
+            new PlanReviewProviderHandler("echo_tool", """{"text":"oi"}"""),
+            new ChatRunCoordinator());
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "auto"), CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "leia");
+
+        events.OfType<ChatRiskNoticeEvent>().ShouldBeEmpty();
+        _context.ChatApprovals.ShouldBeEmpty();
+        events.OfType<ChatToolResultEvent>().Single().ResultJson.ShouldContain("echo:oi");
+    }
+
+    /// <summary>RNF-001: plan mode continua lei — auto não rebaixa a recusa.</summary>
+    [Fact]
+    public async Task Dado_PlanModeOn_Quando_PresetAuto_Entao_MutanteNegado()
+    {
+        var tool = new FakeWriteTool();
+        var service = NewPlanService(new MutatingProviderHandler(), tool: tool);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        await service.PatchConversationAsync(
+            conversation.Id, new PatchChatConversationRequest(PermissionPreset: "auto"), CancellationToken.None);
+        await service.SetPlanModeAsync(conversation.Id, true, CancellationToken.None);
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "escreva");
+
+        tool.Executions.ShouldBe(0);
+        _context.ChatApprovals.ShouldBeEmpty();
+        events.OfType<ChatToolResultEvent>().Single().ResultJson
+            .ShouldContain("Plan mode is active");
+    }
+
+    /// <summary>RF-003: override por tool `auto` sob preset chat decide por risco.</summary>
+    [Fact]
+    public async Task Dado_ToolPolicyAuto_Quando_PresetChat_Entao_MediumExecuta()
+    {
+        var tool = new FakeRunTestsTool();
+        var service = NewService(
+            new PlanReviewProviderHandler("run_tests", "{}"),
+            new ChatRunCoordinator(), extraTool: tool,
+            extraConfig: new Dictionary<string, string?>
+            {
+                ["Taskboard:Chat:Approval:ToolPolicy:run_tests"] = "auto",
+            });
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+        // preset continua o default ask — a policy por tool vence.
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "testa");
+
+        tool.Executions.ShouldBe(1);
+        events.OfType<ChatRiskNoticeEvent>().Single().Risk.ShouldBe("medium");
+    }
+
     private sealed class FakeWorkspaceResolver : IWorkspacePathResolver
     {
         public string ResolveCardWorkdir(string? repositoryFullName, out bool exists)

@@ -15,8 +15,16 @@ public static class ChatPermissionPresets
     /// <summary>Never prompt — tools execute directly.</summary>
     public const string Full = "full";
 
-    public static readonly IReadOnlyList<string> All = [Chat, Ask, Full];
+    /// <summary>
+    /// SPEC-20261013-chat-risk-approvals: per-call risk tiers — the static
+    /// classifier allows <c>low</c> silently, <c>medium</c> with a notice,
+    /// and asks on <c>high</c>. Tools flagged <c>RequiresConfirmation</c>
+    /// keep their hard gate.
+    /// </summary>
+    public const string Auto = "auto";
+
+    public static readonly IReadOnlyList<string> All = [Chat, Ask, Full, Auto];
 
     public static bool IsValid(string? preset) =>
-        preset is Chat or Ask or Full;
+        preset is Chat or Ask or Full or Auto;
 }
