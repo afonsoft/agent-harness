@@ -188,4 +188,29 @@ public class MobileResponsiveTests
         Regex.IsMatch(body, @"\.provider-chat-actions\s*\{\s*opacity:\s*\.?[5-9]")
             .ShouldBeTrue("ações de mensagem devem ficar visíveis no touch (sem hover)");
     }
+
+    [Fact]
+    public void Dado_ProviderChatCss_Quando_ParseBolhas_Entao_SemCaixaComoOpenWebUi()
+    {
+        // Convergência visual com o open-webui: resposta flat (texto direto),
+        // pill do usuário em cinza neutro e tool card sem painel emoldurado —
+        // cards de ação viram barra de acento, não caixa.
+        var css = SourceOf(
+            "src", "Taskboard.Blazor", "Components", "Chat", "ProviderChat.razor.css");
+
+        var user = Regex.Match(css,
+            @"\.provider-chat-bubble\.user\s*\{(?<body>[^}]+)\}").Groups["body"].Value;
+        user.ShouldContain("var(--bs-secondary-bg)");
+        user.ShouldNotContain("var(--bs-primary-bg-subtle)");
+
+        var tool = Regex.Match(css,
+            @"\.provider-chat-bubble\.tool\s*\{(?<body>[^}]+)\}").Groups["body"].Value;
+        tool.ShouldNotContain("background:");
+        tool.ShouldNotContain("border: 1px");
+
+        var approval = Regex.Match(css,
+            @"\.provider-approval-card\s*\{(?<body>[^}]+)\}").Groups["body"].Value;
+        approval.ShouldContain("border-left:");
+        approval.ShouldNotContain("border: 1px");
+    }
 }
