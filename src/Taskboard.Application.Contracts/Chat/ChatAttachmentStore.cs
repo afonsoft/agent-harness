@@ -58,12 +58,8 @@ public sealed class ChatAttachmentStore(string dataDir)
             return null;
         }
 
-        foreach (var file in Directory.EnumerateFiles(Root, $"{attachmentId}.*"))
-        {
-            return (file, MimeForExtension(Path.GetExtension(file)));
-        }
-
-        return null;
+        var file = Directory.EnumerateFiles(Root, $"{attachmentId}.*").FirstOrDefault();
+        return file is null ? null : (file, MimeForExtension(Path.GetExtension(file)));
     }
 
     public byte[]? ReadBytes(string storagePath)

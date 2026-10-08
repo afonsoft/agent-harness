@@ -14,6 +14,8 @@ public sealed class StaticChatToolRiskClassifier : IChatToolRiskClassifier
     /// <summary>Singleton — the classifier is stateless.</summary>
     public static readonly StaticChatToolRiskClassifier Instance = new();
 
+    private static readonly TimeSpan DriveLetterMatchTimeout = TimeSpan.FromMilliseconds(250);
+
     public ChatToolRiskVerdict Classify(string toolName, JsonElement arguments, ChatToolContext context)
     {
         // Shell-driven calls classify on the command line itself.
@@ -183,7 +185,7 @@ public sealed class StaticChatToolRiskClassifier : IChatToolRiskClassifier
 
         if (path.Contains("..", StringComparison.Ordinal)
             || path.StartsWith('~')
-            || Regex.IsMatch(path, @"^[a-zA-Z]:[\\/]")
+            || Regex.IsMatch(path, @"^[a-zA-Z]:[\\/]", RegexOptions.None, DriveLetterMatchTimeout)
             || Path.IsPathRooted(path))
         {
             if (!Path.IsPathRooted(path))

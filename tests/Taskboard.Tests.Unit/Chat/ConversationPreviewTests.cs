@@ -129,6 +129,19 @@ public sealed class ConversationPreviewTests : IDisposable
     public void Dado_Csp_Quando_StripFrameAncestors_Entao_RemoveDiretiva(string? input, string? expected)
         => ChatPreviewProxy.StripFrameAncestors(input).ShouldBe(expected);
 
+    // SPEC-20261008-s8949: os WriteAsync de erro devem observar
+    // context.RequestAborted — token pré-cancelado aborta a escrita.
+    [Fact]
+    public async Task Dado_RequestAbortada_Quando_ForwardPortaInvalida_Entao_WriteCancela()
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.RequestAborted = new CancellationToken(canceled: true);
+
+        var act = () => ChatPreviewProxy.ForwardAsync(http, new HttpClient(), 80, null);
+
+        await act.ShouldThrowAsync<OperationCanceledException>();
+    }
+
     // ---- RegisterPreviewTool (RF-002) ----
 
     private RegisterPreviewTool NewTool(IConversationPreviewStore store)

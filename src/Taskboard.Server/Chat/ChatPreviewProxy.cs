@@ -78,7 +78,8 @@ public static class ChatPreviewProxy
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             await context.Response.WriteAsync(
-                $"preview port must be {ChatPreviewUrl.MinPort}–{ChatPreviewUrl.MaxPort}.");
+                $"preview port must be {ChatPreviewUrl.MinPort}–{ChatPreviewUrl.MaxPort}.",
+                context.RequestAborted);
             return;
         }
 
@@ -105,7 +106,8 @@ public static class ChatPreviewProxy
         {
             // RF-007: a dead port surfaces as a clean 502 — never a stack.
             context.Response.StatusCode = StatusCodes.Status502BadGateway;
-            await context.Response.WriteAsync($"app não respondeu na porta {port}");
+            await context.Response.WriteAsync(
+                $"app não respondeu na porta {port}", context.RequestAborted);
             return;
         }
         catch (TaskCanceledException) when (!context.RequestAborted.IsCancellationRequested)

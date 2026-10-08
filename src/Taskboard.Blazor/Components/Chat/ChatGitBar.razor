@@ -134,8 +134,8 @@
 
         _loadedFor = ConversationId;
         _lastSignal = RefreshSignal;
-        _status = ConversationId is null ? null : await Client.GetChatGitStatusAsync(ConversationId);
-        _branches = _status is { IsRepo: true } ? await Client.GetChatBranchesAsync(ConversationId!) : null;
+        _status = await Client.GetChatGitStatusAsync(ConversationId);
+        _branches = _status is { IsRepo: true } ? await Client.GetChatBranchesAsync(ConversationId) : null;
         _uncommitted = null;
     }
 
