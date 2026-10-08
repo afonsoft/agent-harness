@@ -48,8 +48,8 @@ src/Taskboard.Blazor/Components/Chat/ProviderChat.razor
 ## 4. Requirements
 
 ### RF-001: Client cap equals server default
-- **Description:** `OpenReadStream` must use `maxAllowedSize: 8L * 1024 * 1024` (8388608) — the `Taskboard:Chat:Attachments:MaxBytes` default and the S5693 `fileUploadSizeLimit` threshold.
-- **Rules:** no literal above 8388608 for the upload cap; a named constant is preferred over a magic literal.
+- **Description:** the S5693 analyzer multiplies `GetMultipleFiles(N)` × `OpenReadStream(maxAllowedSize)` and flags when the aggregate exceeds `fileUploadSizeLimit` (8388608). Bound the aggregate: `GetMultipleFiles(4)` × `maxAllowedSize: 2L * 1024 * 1024` = exactly 8 MB per pick gesture (server still enforces `Taskboard:Chat:Attachments:MaxBytes` = 8 MB per file).
+- **Rules:** `AttachmentMaxFiles * AttachmentMaxBytes <= 8388608`; named constants preferred over magic literals.
 
 ### RF-002: Per-file size error
 - **Description:** when `OpenReadStream` throws because the file exceeds the cap, the error must be surfaced as a per-file `_error` entry (`Anexo '{name}' recusado: …`) instead of aborting the remaining picks via the outer catch.
@@ -57,8 +57,9 @@ src/Taskboard.Blazor/Components/Chat/ProviderChat.razor
 
 ## 5. Acceptance Criteria
 
-- **Given** a picked file > 8 MB, **when** `OnAttachPickedAsync` runs, **then** the file is not uploaded, `_error` names the file, and subsequent picked files are still processed.
-- **Given** a picked file ≤ 8 MB, **when** uploaded, **then** behavior is unchanged.
+- **Given** a picked file > 2 MB, **when** `OnAttachPickedAsync` runs, **then** the file is not uploaded, `_error` names the file, and subsequent picked files are still processed.
+- **Given** a picked file ≤ 2 MB, **when** uploaded, **then** behavior is unchanged.
+- **Given** a multi-file pick, **then** at most 4 files are processed per gesture (aggregate ≤ 8 MB).
 - SonarQube no longer reports issue `AaENGTyJBQ30xXuHrwGt` (S5693).
 
 ## 6. Task Plan
