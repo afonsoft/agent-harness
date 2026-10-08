@@ -202,3 +202,7 @@ This installs skills into `.claude/skills/`; `skills-lock.json` records the lock
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/chart?repos=afonsoft/agent-harness&type=date&legend=bottom-right)](https://www.star-history.com/?repos=afonsoft%2Fagent-harness&type=date&legend=bottom-right)
