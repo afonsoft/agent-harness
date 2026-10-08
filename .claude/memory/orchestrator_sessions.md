@@ -1,5 +1,13 @@
 # Orchestrator Sessions
 
+## Session — 2026-10-08 (docs: Star History no README)
+
+**Scope**: Tarefa única de documentação via `/create-readme` + `orchestrator` (Phase 0 → commit/push/PR/merge → Phase 8). Adicionar seção `## Star History` (star-history.com) solicitada pelo usuário.
+**Decisions**: Seção adicionada ao final dos READMEs, após License/Licença; snippet exato do usuário (repo `afonsoft/agent-harness`, `legend=bottom-right`); aplicado em ambos `README.md` (en-us) e `README.pt-br.md` (pt-br) para manter paridade bilíngue.
+**Delivered**: Commit `45303d0` (`docs(readme): add Star History section`), PR #552 merged em `main` (`e24ca89`), branch `devin/20261008-readme-star-history` deletada (local + remota).
+**Remaining**: Nenhum gap pendente desta tarefa. Phase -1: skills dir não é clone git → `Unable to check framework updates` (skills locais OK).
+**Lessons**: `gh pr merge --delete-branch` já faz checkout de `main` e fast-forward local — não repetir `git pull` em seguida.
+
 ## Session — 2026-09-28 (gap-analysis sweep completo)
 
 **Scope**: Sweep pós-fechamento — 11 candidatos → 5 CONFIRMADOS (3 spec-worthy) / 6 REJEITADOS. Relatório em `.claude/memory/gap-analysis-20260928.md`.
