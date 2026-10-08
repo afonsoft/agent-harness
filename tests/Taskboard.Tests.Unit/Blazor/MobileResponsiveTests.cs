@@ -165,4 +165,27 @@ public class MobileResponsiveTests
         // FR-007: overlay de atalhos estilizado.
         css.ShouldContain(".shortcut-help-overlay");
     }
+
+    [Fact]
+    public void Dado_ProviderChatCss_Quando_ParseBlocoMobile_Entao_ChatFicaCompacto()
+    {
+        // O chat mobile precisa ficar compacto: header quebra linha,
+        // bolhas/composer apertados e ações de mensagem sempre visíveis
+        // (touch não tem hover — opacity 0 esconderia copiar/regenerar).
+        var css = SourceOf(
+            "src", "Taskboard.Blazor", "Components", "Chat", "ProviderChat.razor.css");
+
+        var media = Regex.Match(
+            css, @"@media \(max-width: 767\.98px\)(?<body>.*?)\n\}",
+            RegexOptions.Singleline);
+        media.Success.ShouldBeTrue("ProviderChat.razor.css deve ter bloco mobile <=768px");
+        var body = media.Groups["body"].Value;
+
+        body.ShouldContain(".provider-chat-header");
+        body.ShouldContain("flex-wrap: wrap");
+        body.ShouldContain(".provider-chat-bubble");
+        body.ShouldContain(".provider-chat-composer-box");
+        Regex.IsMatch(body, @"\.provider-chat-actions\s*\{\s*opacity:\s*\.?[5-9]")
+            .ShouldBeTrue("ações de mensagem devem ficar visíveis no touch (sem hover)");
+    }
 }

@@ -842,8 +842,86 @@
         box-shadow: 0 0 1rem rgba(0, 0, 0, .25);
     }
 
+    /* Compact layout: the header carries presets/meter/actions — quebra
+       em linha e aperta o espaçamento em vez de transbordar. */
+    .provider-chat-header {
+        flex-wrap: wrap;
+        row-gap: .25rem !important;
+        padding: .35rem .5rem !important;
+    }
+
+    .provider-pressure-meter {
+        width: 4rem;
+    }
+
+    .provider-chat-messages {
+        padding: .5rem .5rem !important;
+    }
+
+    .provider-chat-empty-title {
+        font-size: 1.2rem;
+    }
+
+    .provider-chat-bubble {
+        margin-bottom: .5rem;
+    }
+
     .provider-chat-bubble.user {
         max-width: 100%;
+        padding: .4rem .7rem;
+        border-radius: .9rem;
+    }
+
+    .provider-chat-bubble.tool {
+        padding: .3rem .55rem;
+    }
+
+    .provider-tool-card summary {
+        font-size: .78rem;
+        gap: .3rem;
+    }
+
+    /* Touch não tem hover — as ações da mensagem ficam sempre visíveis. */
+    .provider-chat-actions {
+        opacity: .6;
+    }
+
+    .provider-chat-action {
+        padding: .1rem .3rem;
+        font-size: .8rem;
+    }
+
+    .provider-chat-composer-box {
+        border-radius: 1rem;
+        padding: .4rem .55rem .3rem;
+    }
+
+    .provider-chat-composer-footer {
+        flex-wrap: wrap;
+    }
+
+    .provider-pick {
+        max-width: 9rem;
+        padding: .1rem .4rem .1rem .3rem;
+    }
+
+    .provider-pick-label {
+        font-size: .72rem;
+        max-width: 6rem;
+    }
+
+    .provider-pick-select {
+        font-size: .72rem;
+        max-width: 6rem;
+    }
+
+    .provider-jobs-strip {
+        padding: .2rem .5rem;
+        gap: .25rem;
+    }
+
+    .provider-job-chip {
+        font-size: .7rem;
     }
 }
 
