@@ -9,15 +9,16 @@ This document describes the delivered architecture of **Harness**, the local-fir
 ```mermaid
 flowchart LR
     subgraph Entry["Presentation"]
-        UI["Blazor WASM SPA<br/>Board · Gantt · Workflow · Specs<br/>VS Code · Terminal · Cockpit"]
+        UI["Blazor WASM SPA<br/>Board · Gantt · Workflow · Specs<br/>VS Code · Terminal · Cockpit · Jobs<br/>AI Chat (workspace panel)"]
         CLI["taskctl CLI<br/>Spectre.Console.Cli"]
         MCP["MCP Server<br/>ModelContextProtocol SDK"]
     end
 
-    SRV["Taskboard.Server<br/>Minimal APIs · SignalR hubs · SSE · auth"]
+    SRV["Taskboard.Server<br/>Minimal APIs · SignalR hubs · SSE · auth<br/>/preview loopback proxy"]
 
     subgraph Core["Application Core (MediatR)"]
-        APP["Use cases<br/>Agents · AiChat · Specs · Settings"]
+        APP["Use cases<br/>Agents · Specs · Settings"]
+        CHAT["Chat Engine<br/>ChatRunCoordinator · Queue · Approvals"]
         HAR["Harness Engine<br/>PipelineEngine · FinOps · Memory"]
         SEC["Security + Verify<br/>PermissionGateway · VerificationLoop"]
     end
@@ -32,9 +33,12 @@ flowchart LR
     CLI --> SRV
     MCP --> SRV
     SRV --> APP
+    SRV --> CHAT
     APP --> HAR --> SEC --> INT
     APP --> DOM --> DB
     APP --> INT
+    CHAT --> DOM
+    CHAT --> AGT
     INT --> GH
     INT --> AGT
 ```
@@ -43,7 +47,8 @@ flowchart LR
 
 ### 1. Presentation Layer
 
-- **Blazor WASM (`Taskboard.Blazor`)** — SPA served by the Server as static files. Pages: Board, Gantt, Workflow (read-only GitHub Actions monitor), Specs, VS Code, Terminal, Cockpit (`/cockpit` + `/cockpit/runs/{id}`), AI Chat, CLI Agents, FinOps, Settings, Skills, Prompts. The **global repository selector** (`SelectedRepositoryService`, persisted in `localStorage` as `harness.selectedRepo`) feeds every repo-scoped page and new terminal sessions / VS Code workdir. The **Terminal page** supports a session-scoped **focus mode** — `html[data-terminal-focus]` hides the top bar and page chrome so the shell fills the viewport (compact tab strip + floating restore kept) — and a **virtual keybar**, rendered only on coarse-pointer/no-hover devices while in focus mode, that emits ANSI sequences and control bytes through the existing `TerminalHub.Input` channel (sticky one-shot Ctrl, arrows, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, clipboard paste via `navigator.clipboard` → `term.paste`).
+- **Blazor WASM (`Taskboard.Blazor`)** — SPA served by the Server as static files. Pages: Board, Gantt, Workflow (read-only GitHub Actions monitor), Specs, VS Code, Terminal, Cockpit (`/cockpit` + `/cockpit/runs/{id}`), AI Chat, CLI Agents, Jobs, FinOps, Settings, Skills, Prompts. The **global repository selector** (`SelectedRepositoryService`, persisted in `localStorage` as `harness.selectedRepo`) feeds every repo-scoped page and new terminal sessions / VS Code workdir. The **Terminal page** supports a session-scoped **focus mode** — `html[data-terminal-focus]` hides the top bar and page chrome so the shell fills the viewport (compact tab strip + floating restore kept) — and a **virtual keybar**, rendered only on coarse-pointer/no-hover devices while in focus mode, that emits ANSI sequences and control bytes through the existing `TerminalHub.Input` channel (sticky one-shot Ctrl, arrows, Esc, Tab/Shift+Tab, Home/End/PgUp/PgDn, clipboard paste via `navigator.clipboard` → `term.paste`).
+- **AI Chat workspace** (`Components/AiChat`) — the provider chat is a full agent IDE surface: `ConversationWorkspacePanel` with tabs (Plan, Tasks, Editor, Browser, Preview, Terminal, Changes), `ThreadRail`, `ToolCallCard`/`ToolCallChangesCard`, `PermissionPromptCard` for risk approvals, staged attachments (8 MB cap, sniffed MIME, `attach://` URIs), `ChatGitBar` (status/branches/pull/push/PR per conversation), `ConversationOverview`, command palettes, and a `/preview/{port}` iframe that renders the agent's running app same-origin via the server proxy.
 - **`taskctl` (`Taskboard.Cli`)** — automation/CLI surface.
 - **MCP Server (`Taskboard.Mcp`)** — exposes taskboard capabilities as tools to LLM clients.
 - **`Taskboard.Maui`** — phase-2 shell (not part of the deployed server).
@@ -52,18 +57,25 @@ flowchart LR
 
 ASP.NET Core Minimal APIs + instance-token auth. Responsibilities:
 
-- Route groups: `/api` (issues, `repos/{owner}/{repo}/*`, timeline, metrics, workflows), `/api/specs`, `/api/harness/{runs,pipelines,finops}`, `/api/agents`, `/api/agent-clis`, `/api/github`, `/api/vscode/*`, `/api/skills`, `/api/memory`, `/api/configuration`, `/api/mcp/*`, `/api/local/*` (incl. `local/cli-metrics`), `/api/settings`.
-- **SignalR hubs:** `HarnessCockpitHub` (`/harness-cockpit-hub`), `TerminalHub` (`/terminal-hub`, PTY sessions), `AgentLogHub` (`/agent-log-hub`).
-- **SSE:** `/api/events` for board/issue updates.
-- **Hosted services:** `SpecDriftScanService` (maintenance job; drift report cached, `?repo=` forces live scan), `StaleAgentRunReaperService`, FinOps aggregation, CLI metrics sync, in-memory event streams (cockpit + AI-chat threads).
+- Route groups: `/api` (issues, `repos/{owner}/{repo}/*`, timeline, metrics, workflows), `/api/specs`, `/api/harness/{runs,pipelines,finops}`, `/api/agents`, `/api/agent-clis`, `/api/github`, `/api/vscode/*`, `/api/skills`, `/api/memory`, `/api/configuration`, `/api/mcp/*`, `/api/settings`, and the local groups:
+  - `/api/local/chat/*` — providers, conversations, messages (SSE runs), staged attachments, todos, plan, diff, fork, compact, approvals, suggestions, capabilities, git ops (`status/branches/checkout/{op}`, pull-request), preview pin, browser shots, jobs + schedules, control/stop.
+  - `/api/local/delegation/*` — task DAG + **agent mailbox** (list/reply/dismiss) and the merged activity feed; board issues can be delegated into fresh worktrees.
+  - `/api/local/push/*` — Web Push subscriptions (`vapid-public`, subscribe/unsubscribe).
+  - `/api/local/cli-metrics` — CLI usage metrics sync.
+- **SignalR hubs:** `HarnessCockpitHub` (`/harness-cockpit-hub`), `TerminalHub` (`/terminal-hub`, PTY sessions), `AgentLogHub` (`/agent-log-hub`), `ChatRunHub` (`/chat-run-hub` — run lifecycle + approval prompts for the provider chat).
+- **SSE:** `/api/events` for board/issue updates; chat message streams also flow over SSE inside `/api/local/chat`.
+- **Loopback preview proxy:** `GET/HEAD /preview/{port}/{**path}` → `127.0.0.1:{port}` (auth-gated, hop-by-hop headers stripped, `X-Frame-Options`/CSP `frame-ancestors` dropped, absolute loopback `Location` rewritten through the proxy) so the chat iframe preview is same-origin for the element picker.
+- **Hosted services:** `SpecDriftScanService` (maintenance job; drift report cached, `?repo=` forces live scan), `StaleAgentRunReaperService`, `ChatRunRetentionService` (stale runs + orphan attachment sweep), FinOps aggregation, CLI metrics sync, in-memory event streams (cockpit + AI-chat threads).
 - Manages external process lifecycles: **code-server** (VS Code, incl. `POST /api/vscode/restart`) and **PTY shells** bound to the selected repo's workspace.
 
 ### 3. Application Layer (`Taskboard.Application`)
 
-MediatR commands/queries + module app services: `Agents`, `AiChat`, `CliMetrics`, `Configuration`, `GitHub`, `Settings`, `Specs`, `Mapping`, and **`Harness`**:
+MediatR commands/queries + module app services: `Agents`, `AiChat`, `CliMetrics`, `Configuration`, `GitHub`, `Settings`, `Specs`, `Mapping`, **`Chat`**, and **`Harness`**:
 
+- **Chat subsystem** (`Application/Chat`) — the provider-chat runtime: `ChatService` (conversations/messages/attachments), `ChatRunCoordinator` + `ChatRunQueue` + `IChatRunExecutor`/`IChatRunNotifier` (queued agent runs with steer/stop), `ChatApprovalCoordinator` + `StaticChatToolRiskClassifier`/`ChatRiskRules` (deterministic tool-call risk tiers → auto/ask gates), `ChatCapabilityRegistry`, `ChatScheduleService` (scheduled prompts), `ConversationWorkspaceService`/`ConversationGitService`/`ConversationPreviewStore`/`ChatShotStore` (per-conversation workdir, git ops, preview pin, browser shots), `TokenPressureEstimator`, `InlineToolCallMarkup`.
 - **`PipelineEngine`** — executes multi-stage DAG runs (`PipelineExecution`): dispatches stages in dependency order, honors approval gates, accepts **steer** messages mid-flight (`SteerQueue`), cancels via token, emits structured timeline events, and can create a PR on success.
 - **`PipelineExecutionAppService`**, **`PipelineTemplates`**, **`PipelineContextSynthesizer`** — run lifecycle, template catalog, and per-stage context assembly.
+- **Delegation** — agent mailbox (`IAgentMailboxRepository`) + task DAG dispatcher for multi-agent coordination (`delegate_task`/`delegate_plan` surfaces).
 - **`FinOpsService` / `FinOpsAggregator`** — per-run and aggregate token/cost metrics.
 
 ### 4. Domain Layer (`Taskboard.Domain` + `Domain.Shared`)
@@ -132,7 +144,7 @@ flowchart LR
 
 ## 🔒 Trust Boundary
 
-Local-first: the server binds localhost and every request requires the instance token. All durable state stays in `~/.agent-harness/data`. Outbound calls are limited to GitHub (required), optional Jira/Cloud companion, and the agent CLIs spawned locally inside jailed worktrees. Commands executed on behalf of agents pass through `PermissionGateway` risk classification, `PathJailValidator` write restrictions and `SecretScrubber` on outputs.
+Local-first: the server binds localhost and every request requires the instance token. All durable state stays in `~/.agent-harness/data`. Outbound calls are limited to GitHub (required), optional Jira/Cloud companion, and the agent CLIs spawned locally inside jailed worktrees. Commands executed on behalf of agents pass through `PermissionGateway` risk classification, `PathJailValidator` write restrictions and `SecretScrubber` on outputs. Chat tool calls are independently gated by `StaticChatToolRiskClassifier` (deterministic rules: destructive shell, workspace escape, secrets, network egress) feeding `ChatApprovalPolicy` — low runs silent, medium warns, high requires approval.
 
 ## 🚢 Deployment Topology
 

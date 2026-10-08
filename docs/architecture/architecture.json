@@ -98,11 +98,25 @@
    "sublabel": "PipelineEngine / FinOps / Memory",
    "pos": [
     565,
-    60
+    40
    ],
    "size": [
     160,
     70
+   ]
+  },
+  {
+   "id": "chat",
+   "type": "backend",
+   "label": "Chat Engine",
+   "sublabel": "Runs · Approvals · /preview",
+   "pos": [
+    375,
+    50
+   ],
+   "size": [
+    150,
+    60
    ]
   },
   {
@@ -234,6 +248,13 @@
    "toSide": "bottom"
   },
   {
+   "id": "server-to-chat",
+   "from": "server",
+   "to": "chat",
+   "fromSide": "top",
+   "toSide": "bottom"
+  },
+  {
    "id": "harness-to-security",
    "from": "harness",
    "to": "security",
@@ -288,7 +309,8 @@
    "dot": "cyan",
    "title": "Presentation",
    "items": [
-    "Blazor WASM pages: Board, Gantt, Workflow, Specs, VS Code, Terminal, Cockpit",
+    "Blazor WASM pages: Board, Gantt, Workflow, Specs, VS Code, Terminal, Cockpit, Jobs",
+    "AI Chat workspace: Plan/Tasks/Editor/Browser/Preview/Terminal tabs, approvals, attachments",
     "taskctl CLI + MCP server for agent access",
     "Global repo selector drives repo-scoped pages"
    ]
@@ -297,9 +319,18 @@
    "dot": "emerald",
    "title": "Realtime",
    "items": [
-    "SignalR hubs: /harness-cockpit-hub, /terminal-hub, agent logs",
-    "SSE /api/events for board updates",
+    "SignalR hubs: /harness-cockpit-hub, /terminal-hub, /agent-log-hub, /chat-run-hub",
+    "SSE /api/events + chat message streams",
     "Structured pipeline events replayed to late joiners"
+   ]
+  },
+  {
+   "dot": "slate",
+   "title": "Chat Engine",
+   "items": [
+    "ChatRunCoordinator + queue: steerable provider runs, attachments (8MB cap)",
+    "StaticChatToolRiskClassifier → approval policy (low silent / medium warn / high ask)",
+    "Delegation: task DAG + agent mailbox; /preview/{port} loopback proxy for app iframe"
    ]
   },
   {
