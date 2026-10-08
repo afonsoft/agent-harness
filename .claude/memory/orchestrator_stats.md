@@ -6,8 +6,8 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-10-08 UTC` (sessão 8 — docs: Star History no README, PR #552)
-- **fase_atual**: `Phase 8 — sessão encerrada (docs-only: PR #552 merged em main @e24ca89; sem gaps)`
+- **iniciado_em**: `2026-10-08 UTC` (sessão 8 — docs Star History #552 + gap-analysis E18 #554–#557, PR #558)
+- **fase_atual**: `Phase 8 — E18 entregue (PR #558 merged @20f1e96); issues #554–#557 fechadas; sem gaps pendentes`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
