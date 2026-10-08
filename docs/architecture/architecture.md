@@ -1,6 +1,6 @@
 # System Architecture — agent-harness
 
-This document describes the delivered architecture of **Harness**, the local-first AI agent workbench. The interactive diagram is generated from `architecture.json` → `architecture.html` (archify).
+This document describes the delivered architecture of **Harness**, the local-first AI agent workbench. The interactive diagram is generated from `architecture.json` → `architecture.html` (archify). Architecture Decision Records live in [`adr/`](adr/) (AD-0001..AD-0004).
 
 ## 🏛️ Architectural Overview
 
