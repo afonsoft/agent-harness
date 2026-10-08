@@ -73,7 +73,8 @@ public sealed class CacheInspectorService(
 
         if (redisConfigured && redis is not null)
         {
-            var probe = await ProbeRedisCachedAsync(redis, instanceName ?? string.Empty, cancellationToken)
+            // redisConfigured ⇒ instanceName non-null (normalized above).
+            var probe = await ProbeRedisCachedAsync(redis, instanceName!, cancellationToken)
                 .ConfigureAwait(false);
             (redisConnected, serverKeys, serverKeysPartial, statsError) =
                 (probe.Connected, probe.ServerKeys, probe.Partial, probe.Error);

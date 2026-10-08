@@ -297,7 +297,8 @@ public sealed partial class ConversationGitService(
         var card = await cache.GetOrCreateAsync(
             $"chat-pr-card:{slug}:{number}",
             async _ => await github.GetPullRequestCardAsync(slug, number, cancellationToken).ConfigureAwait(false),
-            new HybridCacheEntryOptions { Expiration = PrCardTtl }).ConfigureAwait(false);
+            new HybridCacheEntryOptions { Expiration = PrCardTtl },
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         return card is null
             ? null
             : new ChatPrCardDto(card.Number, card.Url, card.Title, card.State, card.Merged,

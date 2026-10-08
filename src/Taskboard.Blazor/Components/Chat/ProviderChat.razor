@@ -2225,9 +2225,9 @@
         {
             foreach (var file in args.GetMultipleFiles(10))
             {
-                await using var stream = file.OpenReadStream(maxAllowedSize: 32L * 1024 * 1024);
                 try
                 {
+                    await using var stream = file.OpenReadStream(maxAllowedSize: AttachmentMaxBytes);
                     var dto = await Client.UploadChatAttachmentAsync(
                         conversationId, file.Name, file.ContentType, stream);
                     if (dto is not null)
@@ -2235,7 +2235,7 @@
                         _stagedAttachments.Add(dto);
                     }
                 }
-                catch (HttpRequestException ex)
+                catch (Exception ex) when (ex is HttpRequestException or IOException)
                 {
                     _error = $"Anexo '{file.Name}' recusado: {ex.Message}";
                 }
@@ -2798,6 +2798,10 @@
     }
 
     private static readonly JsonSerializerOptions SseJson = new(JsonSerializerDefaults.Web);
+
+    // SPEC-20261008-s5693: client-side cap alinhado ao server
+    // (Taskboard:Chat:Attachments:MaxBytes default = 8 MB).
+    private const long AttachmentMaxBytes = 8L * 1024 * 1024;
 
     private async Task<ChatConversationDetailDto?> ReloadConversationAsync()
     {

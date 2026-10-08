@@ -313,4 +313,22 @@ public sealed class ChatRiskClassifierTests
         ChatApprovalDecidedBy.From("auto:medium").Value.ShouldBe("auto:medium");
         ChatApprovalDecidedBy.ForAutoRisk("medium").Value.ShouldBe("auto:medium");
     }
+
+    // ---- SPEC-20261008-s6444: regex com matchTimeout mantém o veredito ----
+
+    [Theory]
+    [InlineData(@"\brm\b", "rm -rf /tmp/x", true)]
+    [InlineData(@"\brm\b", "ls -la", false)]
+    [InlineData(@"(?i)shutdown", "SHUTDOWN now", true)]
+    public void Dado_RegraComTimeout_Quando_Matches_Entao_VereditoEsperado(
+        string pattern, string value, bool expected)
+        => new ChatRiskRule(pattern, ChatToolRisk.High, "r").Matches(value).ShouldBe(expected);
+
+    [Theory]
+    [InlineData(@"C:\Users\x", true)]   // drive letter rooted → escape
+    [InlineData("rel/path.txt", false)] // relativo simples → seguro
+    [InlineData("spill://abc", false)]  // URI virtual → nunca escape
+    public void Dado_Path_Quando_EscapesWorkspaceComTimeout_Entao_MesmoVeredito(
+        string path, bool expected)
+        => StaticChatToolRiskClassifier.EscapesWorkspace(path, Workspace).ShouldBe(expected);
 }

@@ -11,8 +11,10 @@ namespace Taskboard.Application.Chat;
 /// </summary>
 public sealed record ChatRiskRule(string Pattern, ChatToolRisk Risk, string Reason)
 {
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(250);
+
     public bool Matches(string value) =>
-        Regex.IsMatch(value, Pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        Regex.IsMatch(value, Pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, MatchTimeout);
 }
 
 /// <summary>
