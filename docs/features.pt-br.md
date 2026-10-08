@@ -54,6 +54,17 @@
 - **Web CLI Agent** (SPEC-20260929-webcli-toggle-finops-active-sessions): os endpoints de agente interativo (prompt/queue/retry/cancel/respostas de permissão) vêm habilitados por padrão (`Taskboard:WebCliAgent:Enabled=true`, env alias `HARNESS_WEB_CLI_AGENT_ENABLED`); uma seção dedicada **Features** no Settings renderiza switches para as chaves booleanas do catálogo (Web CLI Agent, Terminal) — alternar persiste um override no banco que aplica na hora, sem restart, e a chave continua editável na tabela Configuration
 - `MockLLMProvider` é só para dev/teste (`Taskboard:AiChat:MockProvider=true`) — nunca é o default de produção
 
+## AI Code — Workspace do Chat (onda de outubro)
+
+- **Painel workspace** (SPEC-20261011): o chat AI Code acopla um painel de workspace à direita, ao vivo, ao lado do transcript — abas Tarefas / Alterações / Terminal PTY / Editor / Plano / Preview / Browser, redimensionável por arrasto e persistido por conversa; uma **command palette** ⌘K (`CommandPalette.razor`) expõe comandos de sessão e workspace, e o **ditado por voz** (SpeechRecognition em `taskboard.js`) alimenta o composer
+- **Controles de run** (SPEC-20261012): controles pause/resume/stop no run ao vivo (`POST .../runs/{runId}/pause|resume`, `.../stop`) — pause suspende após a tool call corrente, resume continua o mesmo `ChatRun` durável; o stream do run (`GET .../runs/{runId}/stream`) repassa o backlog persistido e segue ao vivo — refresh da página nunca perde eventos
+- **Approvals por risco** (SPEC-20261005/SPEC-20261013): tool calls arriscadas suspendem o run e levantam um card de aprovação com o tier do classificador (`risk` + `riskReason`); decida `allow` (uma vez), `allow + rememberTool` (allow-list da conversa) ou `deny` — aprovações também chegam como notificações do navegador via Web Push e pelo hub SignalR `/chat-run-hub`
+- **Git bar** (SPEC-20261014): barra compacta sobre o transcript mostra status do worktree, branch (com checkout), ahead/behind, alterações não commitadas e links de PR; ops de git (`commit`/`push`/`undo`) e create-PR rodam contra o worktree da conversa
+- **Aba Preview** (SPEC-20261015): proxya um app do host rodando dentro do chat — URLs loopback normalizam para `/preview/{port}/{path}` (reverse proxy exclusivo de loopback), com element-picker → citação no composer para apontar o agente a um elemento do DOM
+- **Browser tool** (SPEC-20261016): `browser_use` opera uma sessão de navegador em pool para o agente, com aba de galeria de shots (`GET .../browser/shots`)
+- **Polish** (SPEC-20261017): chips de próxima ação pós-run, popover de visão geral da conversa (modelo, workspace, contagem de mensagens), nav mobile deslizante sobre o conteúdo
+- **DAG de delegação + mailbox** (SPEC-20261005-delegation-dag-mailbox): o chat decompõe trabalho num DAG de `DelegationTask` com promoção por dependência, stale-base guard e retry-of; mensagens tipadas de mailbox (`text`/`worker_done`/`heartbeat`/`escalation`/`decision`) roteiam entre agentes; fan-out roda o mesmo prompt em N CLIs em worktrees paralelos com comparação de diffs; o Agent Dashboard (`/agents`) agrega Needs You / Working / Done / Idle
+
 ## Cloud
 
 - Companion loopback local

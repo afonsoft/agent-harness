@@ -13,7 +13,7 @@
 - [x] **Testes de CLI com `CommandAppTester`** — `tests/Taskboard.Tests.Unit/Cli/CliSmokeTests.cs` cobre `--help` raiz e de cada comando (SPEC-20260919-cli-test-coverage).
 - [x] **Check para `[CommandArgument]` sem `<>`/`[]`** — implementado como teste de guarda por reflection (`Dado_CommandArgument_Quando_Registrado_Entao_PlaceholderUsaColchetes`) em vez de CI, pois `.github/workflows/**` é protegido por hard rule.
 - [x] **Comentário inline** em `Program.cs` acima do primeiro `CommandArgument` (`CloudLoginSettings`, linhas ~152-153).
-- [ ] **Decisão/ADR** registrando *por que* Spectre foi escolhido em vez de `System.CommandLine`.
+- [x] **Decisão/ADR** registrando *por que* Spectre foi escolhido em vez de `System.CommandLine`.
 - [ ] **Revisar UX diff** com a CLI original — confirmar que nenhum comando foi perdido e que mudanças posicional → `--flag` foram intencionais.
 
 ## Convenção para este arquivo

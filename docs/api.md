@@ -419,6 +419,77 @@ Providers are OpenAI-compatible endpoints registered by the operator (SPEC-20260
 
 Conversations persist in SQLite (`ChatConversation`/`ChatMessage`); `q` searches title and message content. `POST .../messages` streams the assistant turn as SSE — `chat.delta` `{ content }`, `chat.tool_call` `{ name, arguments }`, `chat.tool_result` `{ name, result, refused, refusalReason }`, `chat.done` `{ tokensIn, tokensOut, finishReason, error }`. The server runs an OpenAI function-calling tool loop (max `Taskboard:Chat:MaxToolIterations`, default 8) over the host tools — `shell_exec`/`run_cli` classified by the security gateway (`Dangerous` refused), file ops path-jailed to the workspace, output truncated (16 KB) and secret-scrubbed; master switch `Taskboard:Chat:Tools:Enabled`. `POST .../stop` cancels the in-flight turn (`202`/`409`). `GET .../images/{fileName}` serves PNGs produced by `generate_image` (`404 IMAGE_NOT_FOUND`).
 
+### Chat Runs, Approvals & Workspace (October wave)
+
+```http
+POST   /api/local/chat/conversations/{id}/attachments                          (multipart: file)
+GET    /api/local/chat/conversations/{id}/attachments/{attachmentId}/download
+DELETE /api/local/chat/conversations/{id}/attachments/{attachmentId}
+POST   /api/local/chat/conversations/{id}/runs/{runId}/pause
+POST   /api/local/chat/conversations/{id}/runs/{runId}/resume
+POST   /api/local/chat/conversations/{id}/stop
+GET    /api/local/chat/conversations/{id}/runs/{runId}/stream                  → SSE
+POST   /api/local/chat/conversations/{id}/steer/{steerId}/cancel
+POST   /api/local/chat/approvals/{id}/decide        { outcome, reason?, rememberTool? }
+GET    /api/local/chat/conversations/{id}/approvals?status={pending|decided}
+GET    /api/local/chat/conversations/{id}/workspace
+GET    /api/local/chat/conversations/{id}/todos
+GET    /api/local/chat/conversations/{id}/diff
+GET    /api/local/chat/conversations/{id}/git/status
+GET    /api/local/chat/conversations/{id}/git/branches
+POST   /api/local/chat/conversations/{id}/git/checkout           { branch }
+POST   /api/local/chat/conversations/{id}/git/{op}               { op: commit|push|undo… }
+POST   /api/local/chat/conversations/{id}/pull-request
+GET    /api/local/chat/conversations/{id}/plan
+POST   /api/local/chat/conversations/{id}/plan-mode              { active }
+POST   /api/local/chat/conversations/{id}/compact
+POST   /api/local/chat/conversations/{id}/fork
+POST   /api/local/chat/conversations/{id}/preview                { url }
+DELETE /api/local/chat/conversations/{id}/preview
+GET    /api/local/chat/conversations/{id}/browser/shots
+POST   /api/local/chat/conversations/{id}/suggestions
+GET    /api/local/chat/conversations/{id}/jobs
+GET    /api/local/chat/conversations/{id}/jobs/{jobId}/output
+```
+
+**Attachments** (SPEC-20261008-s5693): `POST .../attachments` uploads one file per call (multipart, `DisableAntiforgery`) → `201 { attachment }` with the download URL; the server gate is `Taskboard:Chat:Attachments:MaxBytes` (default 8 MB total) and the client picker caps each file at 2 MB (4 files) — oversize/invalid → `400 VALIDATION`; archived conversation → `409 CONVERSATION_ARCHIVED`. `GET .../download` streams the stored bytes; `DELETE` removes the attachment.
+
+**Runs** (SPEC-20261012): a conversation run executes as a durable `ChatRun` — `POST .../runs/{runId}/pause` suspends after the current tool call, `.../resume` continues it, `.../stop` cancels (`202`/`409`); `GET .../runs/{runId}/stream` replays the persisted event backlog and then follows live (`chat.*` frames, same shapes as the messages SSE); `POST .../steer/{steerId}/cancel` drops a queued steer message before it is consumed. `POST .../fork` copies the conversation up to a chosen event; `POST .../compact` summarizes history under the token budget; `POST .../plan-mode` toggles plan mode (on→off cancels a pending plan review fail-closed); `POST .../suggestions` records post-run next-action chips; `GET .../jobs` + `.../jobs/{jobId}/output` expose scheduled chat jobs.
+
+**Approvals** (SPEC-20261005/SPEC-20261013): tool calls classified risky suspend the run and raise an approval card — `GET .../approvals?status=pending` feeds the re-attach replay; `POST /api/local/chat/approvals/{id}/decide` body `{ outcome: "allow"|"deny", reason?, rememberTool? }` — `allow` permits once, `rememberTool: true` (allow only) adds the tool to the conversation allowed-list, `deny` rejects with the reason; responses `200 { approval }`, `404 APPROVAL_NOT_FOUND`, `409 APPROVAL_DECIDED`. Cards carry `risk` + `riskReason` from the static classifier tier (`auto` policy).
+
+**Workspace & git** (SPEC-20261011/SPEC-20261014): `GET .../workspace` powers the right-side tabbed panel (tasks/changes/terminal/editor/plan/preview/browser); `GET .../todos` and `.../diff` feed the Tasks/Changes tabs; `GET .../git/status` + `.../git/branches` feed the git bar (ahead/behind, PR card cached via HybridCache), `POST .../git/checkout` switches branch, `POST .../git/{op}` runs the allowlisted op (`commit`/`push`/`undo`), `POST .../pull-request` opens the PR from the conversation worktree; `GET .../browser/shots` lists `browser_use` screenshots.
+
+**Preview** (SPEC-20261015): `POST .../preview` pins the preview tab target — loopback URLs normalize to `/preview/{port}/{path}`; `DELETE .../preview` clears it. `GET|HEAD /preview/{port:int}/{**path}` is a loopback-only reverse proxy to `127.0.0.1:{port}` (same-origin iframe; non-loopback target → `400`).
+
+**SignalR hub `/chat-run-hub`** (authenticated): server → client broadcasts `run.completed`, `run.approval`, `run.pressure`, `steer.queued`, `steer.resolved` — the chat UI reacts without polling.
+
+### Agent Delegation (DAG + mailbox)
+
+```http
+GET    /api/local/delegation/tasks
+POST   /api/local/delegation/tasks/from-issue
+POST   /api/local/delegation/tasks/{id}/promote
+GET    /api/local/delegation/mailbox
+POST   /api/local/delegation/mailbox/{id}/reply
+POST   /api/local/delegation/mailbox/{id}/dismiss
+GET    /api/local/delegation/dashboard
+GET    /api/local/delegation/fanout/{groupId}/compare
+GET    /api/local/delegation/events                              → SSE
+```
+
+Delegation tasks form a dependency DAG (`pending→ready` promotion via `POST .../tasks/{id}/promote`, stale-base guard, retry-of); `POST .../tasks/from-issue` creates a task from a board issue. The mailbox carries typed messages (`text`/`worker_done`/`heartbeat`/`escalation`/`decision`) routed by scope and recipient — `reply`/`dismiss` act on individual messages; escalations and decisions surface in the dashboard's **Needs You** column. `GET .../dashboard` aggregates tasks, runs, mailbox alerts and idle CLIs for `/agents`. `GET .../fanout/{groupId}/compare` diffs N parallel fan-out runs of the same prompt. `GET .../events` streams delegation changes as SSE.
+
+### Web Push (push subscriptions)
+
+```http
+GET    /api/local/push/vapid-public
+POST   /api/local/push/subscriptions      { endpoint, keys: { p256dh, auth } }
+DELETE /api/local/push/subscriptions
+```
+
+Web Push backing for browser notifications (approval toasts, run completions): `GET vapid-public` returns the VAPID public key; `POST subscriptions` validates `endpoint`, `keys.p256dh` and `keys.auth` (`400 VALIDATION`) and persists the subscription; `DELETE` removes it.
+
 ## SSE
 
 ### Global events

@@ -54,6 +54,17 @@
 - **Web CLI Agent** (SPEC-20260929-webcli-toggle-finops-active-sessions): the interactive agent endpoints (prompt/queue/retry/cancel/permission replies) are on by default (`Taskboard:WebCliAgent:Enabled=true`, env alias `HARNESS_WEB_CLI_AGENT_ENABLED`); a dedicated **Features** section in Settings renders form switches for the boolean feature keys (Web CLI Agent, Terminal) — toggling persists a DB override that applies immediately, no restart, and the key stays editable in the Configuration table
 - `MockLLMProvider` is dev/test only (`Taskboard:AiChat:MockProvider=true`) — never the production default
 
+## AI Code — Chat Workspace (October wave)
+
+- **Workspace panel** (SPEC-20261011): the AI Code chat docks a live right-side workspace panel beside the transcript — tabs Tasks / Changes / Terminal PTY / Editor / Plan / Preview / Browser, drag-resizable and persisted per conversation; a ⌘K **command palette** (`CommandPalette.razor`) exposes session and workspace commands, and **voice dictation** (SpeechRecognition in `taskboard.js`) feeds the composer
+- **Run controls** (SPEC-20261012): pause/resume/stop controls on the live run (`POST .../runs/{runId}/pause|resume`, `.../stop`) — pause suspends after the current tool call, resume continues the same durable `ChatRun`; the run stream (`GET .../runs/{runId}/stream`) replays the persisted backlog then follows live, so a page refresh never loses events
+- **Risk-based approvals** (SPEC-20261005/SPEC-20261013): risky tool calls suspend the run and raise an approval card with the classifier tier (`risk` + `riskReason`); decide `allow` (once), `allow + rememberTool` (conversation allowed-list) or `deny` — approvals also arrive as browser notifications via Web Push and the `/chat-run-hub` SignalR hub
+- **Git bar** (SPEC-20261014): a compact bar over the transcript shows worktree status, branch (with checkout), ahead/behind, uncommitted changes and PR links; git ops (`commit`/`push`/`undo`) and create-PR run against the conversation worktree
+- **Preview tab** (SPEC-20261015): proxies a live host app inside the chat — loopback URLs normalize to `/preview/{port}/{path}` (loopback-only reverse proxy), with element-picker → composer quote for pointing the agent at a DOM element
+- **Browser tool** (SPEC-20261016): `browser_use` drives a pooled browser session for the agent, with a shot gallery tab (`GET .../browser/shots`)
+- **Polish** (SPEC-20261017): post-run next-action suggestion chips, conversation overview popover (model, workspace, message count), mobile nav sliding over the content
+- **Delegation DAG + mailbox** (SPEC-20261005-delegation-dag-mailbox): the chat decomposes work into a `DelegationTask` DAG with dependency-driven promotion, stale-base guard and retry-of; typed mailbox messages (`text`/`worker_done`/`heartbeat`/`escalation`/`decision`) route between agents; fan-out runs the same prompt against N CLIs in parallel worktrees with diff comparison; the Agent Dashboard (`/agents`) aggregates Needs You / Working / Done / Idle
+
 ## Cloud
 
 - Local companion loopback
