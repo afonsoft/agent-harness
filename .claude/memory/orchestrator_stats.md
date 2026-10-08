@@ -6,8 +6,8 @@
 
 ## Sessão
 
-- **iniciado_em**: `2026-09-30 UTC` (sessão 7 — Sonar backlog #410 batch 1 + crash fix #414)
-- **fase_atual**: `Phase 5 — #410 batch 1 entregue (PR #415 aberto, ~35 regras Sonar resolvidas + crash fix #414); restante: S3776 (59 sites), S7637 bloqueado, exclusão docs geradas pendente de token/aprovação`
+- **iniciado_em**: `2026-10-08 UTC` (sessão 8 — docs: Star History no README, PR #552)
+- **fase_atual**: `Phase 8 — sessão encerrada (docs-only: PR #552 merged em main @e24ca89; sem gaps)`
 - **repositorio**: `afonsoft/agent-harness` (renomeado de `taskboard-ai` em 2026-09-20)
 - **branch_trabalho**: `main`
 - **framework**: `afonsoft/skills` instalado via `npx skills add afonsoft/skills` (ver `skills-lock.json`)
