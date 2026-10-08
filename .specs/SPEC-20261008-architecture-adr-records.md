@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Status | **Draft** |
+| Status | **Approved** |
 | Owner | @afonsoft |
 | Ticket | GAP-architecture-adr-records |
 | Área | docs/architecture/adr/ |

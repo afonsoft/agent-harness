@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Status | **Draft** |
+| Status | **Approved** |
 | Owner | @afonsoft |
 | Ticket | GAP-implementation-empty-aichat-project |
 | Área | Taskboard.sln, src/Taskboard.AiChat/ |

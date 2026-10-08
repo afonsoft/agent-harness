@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Status | **Draft** |
+| Status | **Approved** |
 | Owner | @afonsoft |
 | Ticket | GAP-documentation-chat-wave-docs-sync |
 | Área | docs/api.md, docs/features.md (+ mirrors `*.pt-br.md`) |
