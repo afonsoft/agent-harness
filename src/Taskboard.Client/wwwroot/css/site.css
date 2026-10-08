@@ -1849,10 +1849,31 @@ html[data-terminal-focus] .terminal-focus-exit {
 }
 
 /* AI Chat — thread rail layout (SPEC-20260928-ai-code-ux-simplify) */
+/* .ai-chat-page fills .app-main (definite height via the app-shell flex chain)
+   so the chat surface takes the whole available area instead of a calc(100vh)
+   estimate. */
+.ai-chat-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
 .ai-chat-layout {
     display: flex;
+    flex: 1;
+    min-height: 0;
     gap: 0.75rem;
     align-items: stretch;
+}
+
+/* The chat card body hands its stretched height down to the chat surface
+   (ProviderChat uses flex:1 in its own scoped CSS). */
+.ai-chat-main > .card-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 /* SPEC-20260929-ai-chat-rail-overlay RF-001: o rail não é flex item — fica

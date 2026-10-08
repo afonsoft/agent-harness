@@ -213,4 +213,19 @@ public class MobileResponsiveTests
         approval.ShouldContain("border-left:");
         approval.ShouldNotContain("border: 1px");
     }
+
+    [Fact]
+    public void Dado_ProviderChatCss_Quando_ParseRaiz_Entao_PreencheAreaSemCalcViewport()
+    {
+        // A área do chat cresce com o espaço real do .app-main via cadeia flex
+        // (.ai-chat-page → .ai-chat-layout → .card-body) — sem height:calc(100vh)
+        // que deixava folga vazia abaixo do chat.
+        var css = SourceOf(
+            "src", "Taskboard.Blazor", "Components", "Chat", "ProviderChat.razor.css");
+
+        var root = Regex.Match(css,
+            @"\.provider-chat\s*\{(?<body>[^}]+)\}").Groups["body"].Value;
+        root.ShouldContain("flex: 1");
+        root.ShouldNotContain("100vh");
+    }
 }

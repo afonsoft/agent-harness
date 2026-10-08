@@ -1,6 +1,8 @@
 /* SPEC-20260929-ai-code-provider-chat RF-010 — open-webui-like layout. */
+/* Fills the host area (.app-main → .ai-chat-page → .card-body flex chain) —
+   no calc(100vh) magic numbers; min-height keeps it usable on tiny viewports. */
 .provider-chat {
-    height: calc(100vh - 180px);
+    flex: 1;
     min-height: 480px;
     border: 1px solid var(--bs-border-color);
     border-radius: .75rem;
@@ -834,10 +836,6 @@
 }
 
 @media (max-width: 767.98px) {
-    .provider-chat {
-        height: calc(100vh - 220px);
-    }
-
     /* Mobile: the open drawer overlays; collapsed stays fully hidden. */
     .provider-chat-sidebar:not(.collapsed) {
         position: absolute;
