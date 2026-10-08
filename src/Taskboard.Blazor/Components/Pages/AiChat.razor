@@ -14,6 +14,9 @@
 
 <PageTitle>AI Code - Harness</PageTitle>
 
+@* Fills .app-main so the chat surface uses all available height
+   (no calc(100vh) magic numbers — the flex chain does the sizing). *@
+<div class="ai-chat-page">
 <div class="d-flex align-items-center gap-2 mb-3">
     @* Chat fullscreen: topbar + sidebar hide — this hamburger reopens the
        drawer as an overlay so navigation stays reachable. *@
@@ -654,6 +657,7 @@ else
     </section>
 </div>
 }
+</div>
 
 @* RF-006: repo picker popup — free text or the shared repository combobox. *@
 <Modal @ref="_repoModal" Title="Repository" Size="ModalSize.Small" Fullscreen="ModalFullscreen.SmallDown" IsVerticallyCentered="true">
