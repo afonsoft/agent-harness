@@ -33,13 +33,15 @@ public class ChatRazorSonarGuardTests
     }
 
     [Fact]
-    public void Dado_ProviderChat_Quando_LeFonte_Entao_CapUpload8MbComErroPorArquivo()
+    public void Dado_ProviderChat_Quando_LeFonte_Entao_CapUploadAgregado8MbComErroPorArquivo()
     {
-        // S5693: OpenReadStream usa AttachmentMaxBytes (=8MB, default do server)
-        // dentro do try por arquivo, com catch de IOException.
+        // S5693: o analyzer multiplica GetMultipleFiles(N) x maxAllowedSize —
+        // 4 arquivos x 2MB = agregado de 8MB (= fileUploadSizeLimit do profile).
         var source = File.ReadAllText(RepoPath(
             "src", "Taskboard.Blazor", "Components", "Chat", "ProviderChat.razor"));
-        source.ShouldContain("AttachmentMaxBytes = 8L * 1024 * 1024");
+        source.ShouldContain("AttachmentMaxFiles = 4");
+        source.ShouldContain("AttachmentMaxBytes = 2L * 1024 * 1024");
+        source.ShouldContain("args.GetMultipleFiles(AttachmentMaxFiles)");
         source.ShouldContain("file.OpenReadStream(maxAllowedSize: AttachmentMaxBytes)");
         source.ShouldContain("or IOException");
         source.ShouldNotContain("32L * 1024 * 1024");
