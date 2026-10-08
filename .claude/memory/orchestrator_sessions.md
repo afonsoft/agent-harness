@@ -1,5 +1,13 @@
 # Orchestrator Sessions
 
+## Session — 2026-10-08 (E18 — gap-analysis entregue)
+
+**Scope**: Execução do Epic E18 (#554) — 3 slices do gap-analysis 20261008: #555 docs sync (P2), #556 remove dead AiChat project (P3), #557 ADR records (P3). Inclui reconciliação das 14 issues abertas (fechadas com evidência) e aprovação dos 3 SPECs no gate.
+**Decisions**: Docs da onda de outubro concentrados em 1 subseção api.md + 1 seção features.md (não espalhados); ADRs retrospectivos no formato Status/Context/Decision/Consequences com evidência de commit/SPEC; namespace `Taskboard.AiChat` em Contracts preservado (só o projeto morto saiu).
+**Delivered**: PR #558 merged (`20f1e96`) — commits `97a7ecc` (SPECs+report), `afbccec` (S1 docs), `4086ad2` (S2 sln), `f1e7021` (S3 ADRs). Build Release 0w/0e; suite 2540 verde (2171 unit + 369 int). Issues #554–#557 fechadas com label `done`; 14 issues antigas (#521–#528, #544–#549) fechadas com evidência.
+**Remaining**: Nenhum gap pendente. Followup restante em `.specs/followups.md`: revisar UX diff da CLI original (item 17).
+**Lessons**: `dotnet sln remove` + `rm -rf` do dir cobre o caso de projeto vazio sem tocar namespaces; HybridCache/SignalR event names saem de `SignalRChatRunNotifier` (const strings) — fonte para documentar hubs.
+
 ## Session — 2026-10-08 (docs: Star History no README)
 
 **Scope**: Tarefa única de documentação via `/create-readme` + `orchestrator` (Phase 0 → commit/push/PR/merge → Phase 8). Adicionar seção `## Star History` (star-history.com) solicitada pelo usuário.
