@@ -8,7 +8,7 @@ namespace Taskboard.Application.Contracts.Agents;
 /// </summary>
 public sealed record AgentBoardCard(
     string Id,
-    /// <summary><c>task</c> | <c>run</c> | <c>mailbox</c> | <c>scope</c></summary>
+    /// <summary><c>task</c> | <c>run</c> | <c>mailbox</c> | <c>scope</c> | <c>cli</c></summary>
     string Kind,
     string CliName,
     string SessionTitle,
@@ -19,6 +19,8 @@ public sealed record AgentBoardCard(
     string? RepoName,
     string? WorktreeName,
     string? FanoutGroupId,
+    /// <summary>PR link extracted from the mailbox when a leg was promoted.</summary>
+    string? PrUrl,
     bool Unread,
     string DeepLink);
 
@@ -31,11 +33,28 @@ public sealed record AgentBoardSnapshot(
     int UnreadTotal,
     DateTime GeneratedAtUtc);
 
+/// <summary>
+/// SPEC-20261020-agent-board-v2 RF-004: board toolbar filters — all optional,
+/// applied in-memory after projection (deep-linkable via query-string).
+/// </summary>
+public sealed record AgentBoardQuery(
+    /// <summary>Substring match on title/preview/cli/repo/worktree.</summary>
+    string? Text = null,
+    /// <summary>Exact cli name (case-insensitive).</summary>
+    string? Cli = null,
+    /// <summary>Exact attention state name (case-insensitive).</summary>
+    string? State = null,
+    /// <summary>Exact repo name (case-insensitive).</summary>
+    string? Repo = null,
+    /// <summary>Only cards with a linked PR.</summary>
+    bool? HasPr = null);
+
 /// <summary>SPEC RF-001/RF-006: board projection + unread markers.</summary>
 public interface IAgentBoardService
 {
     Task<AgentBoardSnapshot> GetSnapshotAsync(
-        string scope, string userId, int take = 20, CancellationToken ct = default);
+        string scope, string userId, int take = 20,
+        AgentBoardQuery? query = null, CancellationToken ct = default);
 
     /// <summary>Marks a card read for the user — idempotent.</summary>
     Task MarkReadAsync(string userId, string cardId, CancellationToken ct = default);

@@ -59,6 +59,11 @@ else if (_columns is not null)
                  @ondragleave="() => OnDragLeave(column.Column)">
                 <div class="kanban-column-header @GetStatusClass(column.Column)">
                     <h2>@column.Label</h2>
+                    @{ var needsYou = NeedsYouCount(issues); }
+                    @if (needsYou > 0)
+                    {
+                        <Badge Color="BadgeColor.Warning" title="Needs you">! @needsYou</Badge>
+                    }
                     <span class="kanban-label">@issues.Count</span>
                 </div>
                 <div class="kanban-column-body" style="max-height: 70vh;">
@@ -132,8 +137,12 @@ else if (_columns is not null)
                                     {
                                         <span class="text-body-secondary">|</span>
                                         <span class="agent-badge @GetAgentBadgeClass(run!)"
-                                              title="Agente: @GetAgentDisplayName(run!.AgentType) — @run!.State">
+                                              title="@AgentBadgeTitle(run!)">
                                             <Icon Name="IconName.Robot" />@GetAgentShortName(run!.AgentType) · @GetAgentStateLabel(run!.State)
+                                            @if (NeedsYou(run!))
+                                            {
+                                                <Icon Name="IconName.ExclamationTriangleFill" Class="text-warning" />
+                                            }
                                         </span>
                                     }
                                     <span class="task-meta-time ms-auto" title="@context.UpdatedAt">@RelativeTime(context.UpdatedAt ?? context.CreatedAt)</span>
@@ -184,6 +193,8 @@ else if (_columns is not null)
     private string? _currentRepository;
     private IReadOnlyList<BoardColumnDto>? _columns;
     private Dictionary<string, AgentRunDto>? _agentRuns;
+    // RF-009: attention state per run key — drives the needs-you glyph.
+    private Dictionary<string, AgentAttentionState>? _runAttention;
     private IssueDto? _draggedIssue;
     private GitHubBoardColumn? _draggedFromColumn;
     private GitHubBoardColumn? _dragOverColumn;
@@ -229,11 +240,16 @@ else if (_columns is not null)
         {
             var runs = await OrchestrationService.GetLatestRunsAsync();
             _agentRuns = runs.ToDictionary(r => r.IssueId);
+            var states = await Client.GetAgentAttentionAsync(
+                runs.Select(r => $"run:{r.Id:N}"));
+            _runAttention = states.ToDictionary(
+                s => s.SessionKey, s => s.State, StringComparer.Ordinal);
         }
         catch
         {
             // Badge hydration is best-effort — the board still works without it.
             _agentRuns = null;
+            _runAttention = null;
         }
     }
 
@@ -243,6 +259,20 @@ else if (_columns is not null)
         return _agentRuns is not null
             && _agentRuns.TryGetValue(issue.Id.ToString(CultureInfo.InvariantCulture), out run);
     }
+
+    // RF-009: an issue "needs you" when its run's attention state is
+    // waiting/blocked — surfaced as a card glyph + column header count.
+    private bool NeedsYou(AgentRunDto run) =>
+        _runAttention is not null
+        && _runAttention.TryGetValue($"run:{run.Id:N}", out var state)
+        && state is AgentAttentionState.WaitingYou or AgentAttentionState.Blocked;
+
+    private int NeedsYouCount(IEnumerable<IssueDto> issues) =>
+        issues.Count(i => TryGetRun(i, out var run) && run is not null && NeedsYou(run));
+
+    private string AgentBadgeTitle(AgentRunDto run) =>
+        $"Agente: {GetAgentDisplayName(run.AgentType)} — {run.State}"
+        + (NeedsYou(run) ? " — needs you" : "");
 
     private static string GetAgentBadgeClass(AgentRunDto run)
     {
