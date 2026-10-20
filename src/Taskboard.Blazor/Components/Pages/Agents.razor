@@ -35,14 +35,14 @@
     <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
             <h2 class="h6 fw-semibold mb-0">Agent Dashboard</h2>
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadDashboardAsync" Disabled="_dashboardLoading">
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadDashboardAsync" Disabled="_boardLoading">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
         </div>
-        @if (_dashboard is null)
+        @if (_board is null)
         {
             <p class="small text-body-secondary mb-0">
-                @(_dashboardLoading ? "Loading…" : "No delegation activity yet — delegate work from the AI Code chat (delegate_task/delegate_fanout).")
+                @(_boardLoading ? "Loading…" : "No delegation activity yet — delegate work from the AI Code chat (delegate_task/delegate_fanout).")
             </p>
         }
         else
@@ -62,7 +62,7 @@
                 </ul>
             }
             <div class="row g-3">
-                @foreach (var (title, color, items) in DashboardColumns())
+                @foreach (var (title, color, items) in BoardColumns())
                 {
                     <div class="col-12 col-md-6 col-xl-3">
                         <div class="border rounded p-2 h-100">
@@ -77,58 +77,80 @@
                             else
                             {
                                 <ul class="list-unstyled mb-0 small">
-                                    @foreach (var item in items)
+                                    @foreach (var card in items)
                                     {
-                                        <li class="mb-2" @key="item.Id">
-                                            <span class="fw-semibold">@item.CliName</span>
-                                            <span class="text-body-secondary">· @item.Kind</span>
-                                            <div class="text-truncate" title="@item.Detail">@item.Title</div>
-                                            @if (!string.IsNullOrEmpty(item.Detail))
-                                            {
-                                                <div class="text-body-secondary text-truncate" title="@item.Detail">@item.Detail</div>
-                                            }
-                                            @if (item.Kind == "mailbox")
-                                            {
-                                                @if (_openReplyId == item.Id)
+                                        <li class="mb-2 rounded p-2 @CardTint(card)" role="button" tabindex="0"
+                                            @key="card.Id" @onclick="() => OpenCardAsync(card)"
+                                            @onkeydown="e => OnCardKeyDown(e, card)">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <Badge Color="@AttentionBadge(card.State)">@card.State</Badge>
+                                                <span class="fw-semibold text-truncate">@card.SessionTitle</span>
+                                                @if (card.Unread)
                                                 {
-                                                    <textarea class="form-control form-control-sm mt-1" rows="2"
-                                                              placeholder="Reply to the agent…"
-                                                              @bind="_replyText"></textarea>
-                                                    <div class="d-flex gap-2 mt-1">
-                                                        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
-                                                                Disabled="@(_mailboxBusy || string.IsNullOrWhiteSpace(_replyText))"
-                                                                @onclick="() => SendReplyAsync(item.Id)">
-                                                            @(_mailboxBusy ? "Sending…" : "Reply")
-                                                        </Button>
-                                                        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
-                                                                @onclick="() => _openReplyId = null">Cancel</Button>
-                                                    </div>
-                                                    @if (!string.IsNullOrEmpty(_mailboxError))
-                                                    {
-                                                        <div class="text-danger small mt-1">@_mailboxError</div>
-                                                    }
+                                                    <span class="badge rounded-pill bg-primary ms-auto" title="unread">●</span>
                                                 }
-                                                else
-                                                {
-                                                    <div class="d-flex gap-2 mt-1">
-                                                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small"
-                                                                @onclick="() => { _openReplyId = item.Id; _replyText = string.Empty; _mailboxError = null; }">
-                                                            Reply
-                                                        </Button>
-                                                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small"
-                                                                Disabled="_mailboxBusy"
-                                                                @onclick="() => DismissMailboxAsync(item.Id)">
-                                                            Dismiss
-                                                        </Button>
-                                                    </div>
-                                                }
-                                            }
-                                            @if (item.Kind == "task" && !string.IsNullOrEmpty(item.Group))
+                                                <span class="text-body-secondary ms-auto small">@card.CliName</span>
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(card.PreviewText))
                                             {
-                                                <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
-                                                        @onclick="() => OpenCompareAsync(item.Group)">
-                                                    <Icon Name="IconName.ColumnsGap" class="me-1" />Compare legs
-                                                </Button>
+                                                <div class="text-body-secondary text-truncate mt-1" title="@card.PreviewText">@card.PreviewText</div>
+                                            }
+                                            <div class="d-flex gap-2 mt-1 align-items-center">
+                                                @if (!string.IsNullOrEmpty(card.RepoName))
+                                                {
+                                                    <Badge Color="BadgeColor.Secondary">@card.RepoName</Badge>
+                                                }
+                                                @if (!string.IsNullOrEmpty(card.FanoutGroupId))
+                                                {
+                                                    <span @onclick:stopPropagation="true">
+                                                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
+                                                                @onclick="() => OpenCompareAsync(card.FanoutGroupId)">
+                                                            <Icon Name="IconName.ColumnsGap" class="me-1" />Compare legs
+                                                        </Button>
+                                                    </span>
+                                                }
+                                            </div>
+                                            @if (card.Kind == "scope")
+                                            {
+                                                @foreach (var item in ScopeMailboxItems())
+                                                {
+                                                    <div class="border rounded p-2 mt-1 bg-body" @onclick:stopPropagation="true">
+                                                        <div class="text-truncate" title="@item.Detail">@item.Title</div>
+                                                        @if (_openReplyId == item.Id)
+                                                        {
+                                                            <textarea class="form-control form-control-sm mt-1" rows="2"
+                                                                      placeholder="Reply to the agent…"
+                                                                      @bind="_replyText"></textarea>
+                                                            <div class="d-flex gap-2 mt-1">
+                                                                <Button Color="ButtonColor.Primary" Size="ButtonSize.Small"
+                                                                        Disabled="@(_mailboxBusy || string.IsNullOrWhiteSpace(_replyText))"
+                                                                        @onclick="() => SendReplyAsync(item.Id)">
+                                                                    @(_mailboxBusy ? "Sending…" : "Reply")
+                                                                </Button>
+                                                                <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                                                                        @onclick="() => _openReplyId = null">Cancel</Button>
+                                                            </div>
+                                                            @if (!string.IsNullOrEmpty(_mailboxError))
+                                                            {
+                                                                <div class="text-danger small mt-1">@_mailboxError</div>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="d-flex gap-2 mt-1">
+                                                                <Button Color="ButtonColor.Link" Size="ButtonSize.Small"
+                                                                        @onclick="() => { _openReplyId = item.Id; _replyText = string.Empty; _mailboxError = null; }">
+                                                                    Reply
+                                                                </Button>
+                                                                <Button Color="ButtonColor.Link" Size="ButtonSize.Small"
+                                                                        Disabled="_mailboxBusy"
+                                                                        @onclick="() => DismissMailboxAsync(item.Id)">
+                                                                    Dismiss
+                                                                </Button>
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
                                             }
                                         </li>
                                     }
@@ -697,7 +719,9 @@
 
     // SPEC-20261006: agent dashboard + resumable CLI sessions.
     private AgentDashboardDto? _dashboard;
-    private bool _dashboardLoading = true;
+    // SPEC-20261020-agent-board-v2: kanban cards from the attention model.
+    private AgentBoardSnapshot? _board;
+    private bool _boardLoading = true;
     private IReadOnlyList<AgentSessionInfoDto> _sessions = [];
     private bool _sessionsLoading;
 
@@ -821,22 +845,77 @@
 
     private async Task LoadDashboardAsync()
     {
-        _dashboardLoading = true;
+        _boardLoading = true;
         try
         {
+            _board = await Client.GetAgentBoardAsync();
             _dashboard = await Client.GetDelegationDashboardAsync();
             _events = await Client.GetDelegationEventsAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            _board = null;
             _dashboard = null;
             _events = [];
         }
         finally
         {
-            _dashboardLoading = false;
+            _boardLoading = false;
         }
     }
+
+    private Task OnCardKeyDown(KeyboardEventArgs e, AgentBoardCard card) =>
+        e.Key is "Enter" or " " ? OpenCardAsync(card) : Task.CompletedTask;
+
+    /// <summary>SPEC-20261020 RF-006: card click → mark read + deep-link.</summary>
+    private async Task OpenCardAsync(AgentBoardCard card)
+    {
+        _ = Client.MarkAgentBoardCardReadAsync(card.Id);
+        if (!string.IsNullOrWhiteSpace(card.DeepLink) && card.Kind != "scope")
+        {
+            Navigation.NavigateTo(card.DeepLink);
+        }
+    }
+
+    /// <summary>Mailbox items behind the scope card's Needs You entry.</summary>
+    private IEnumerable<DashboardItemDto> ScopeMailboxItems() =>
+        _dashboard?.NeedsYou.Where(i => i.Kind == "mailbox") ?? [];
+
+    private IEnumerable<(string Title, BadgeColor Color, IReadOnlyList<AgentBoardCard> Items)> BoardColumns()
+    {
+        if (_board is null)
+        {
+            yield break;
+        }
+
+        yield return ("Needs You", BadgeColor.Danger, _board.NeedsYou);
+        yield return ("Working", BadgeColor.Primary, _board.Working);
+        yield return ("Done", BadgeColor.Success, _board.Done);
+        yield return ("Idle", BadgeColor.Secondary, _board.Idle);
+    }
+
+    private static BadgeColor AttentionBadge(AgentAttentionState state) => state switch
+    {
+        AgentAttentionState.WaitingYou => BadgeColor.Warning,
+        AgentAttentionState.Blocked => BadgeColor.Danger,
+        AgentAttentionState.Done => BadgeColor.Success,
+        AgentAttentionState.Working => BadgeColor.Primary,
+        AgentAttentionState.Idle => BadgeColor.Secondary,
+        AgentAttentionState.Exited => BadgeColor.Dark,
+        AgentAttentionState.Unverifiable => BadgeColor.Light,
+        _ => BadgeColor.Secondary,
+    };
+
+    /// <summary>RF-008 tint: Needs You amber, fresh Done green.</summary>
+    private static string CardTint(AgentBoardCard card) => card.State switch
+    {
+        AgentAttentionState.WaitingYou or AgentAttentionState.Blocked =>
+            "border border-warning bg-warning-subtle",
+        AgentAttentionState.Done when card.PreviewAtUtc is { } at
+            && DateTime.UtcNow - at < TimeSpan.FromMinutes(15) =>
+            "border border-success bg-success-subtle",
+        _ => "border bg-body-tertiary",
+    };
 
     private async Task PromoteLegAsync(FanoutCompareLegDto leg, bool createPr = false)
     {
@@ -946,20 +1025,6 @@
         {
             _compareLoading = false;
         }
-    }
-
-    private IEnumerable<(string Title, BadgeColor Color, IReadOnlyList<DashboardItemDto> Items)>
-        DashboardColumns()
-    {
-        if (_dashboard is null)
-        {
-            yield break;
-        }
-
-        yield return ("Needs You", BadgeColor.Danger, _dashboard.NeedsYou);
-        yield return ("Working", BadgeColor.Primary, _dashboard.Working);
-        yield return ("Done", BadgeColor.Success, _dashboard.Done);
-        yield return ("Idle", BadgeColor.Secondary, _dashboard.Idle);
     }
 
     private async Task LoadCustomDefsAsync()

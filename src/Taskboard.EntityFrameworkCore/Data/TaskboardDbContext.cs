@@ -54,6 +54,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<AgentMailboxMessage> AgentMailboxMessages => Set<AgentMailboxMessage>();
     public DbSet<AgentSessionState> AgentSessionStates => Set<AgentSessionState>();
     public DbSet<AgentSessionStateTransition> AgentSessionStateTransitions => Set<AgentSessionStateTransition>();
+    public DbSet<AgentBoardReadMarker> AgentBoardReadMarkers => Set<AgentBoardReadMarker>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -17,6 +17,32 @@ namespace Taskboard.EntityFrameworkCore.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.AgentBoardReadMarker", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CardId")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AgentBoardReadMarkers", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.AgentLog", b =>
                 {
                     b.Property<long>("Id")
