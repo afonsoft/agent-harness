@@ -128,4 +128,43 @@ public class AgentBoardServiceTests
         await _markers.Received(1).MarkReadAsync(
             "local", "task:t1", Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
+
+    // RF-004: filtros da toolbar (texto/cli/estado/hasPr).
+    [Fact]
+    public async Task Dado_FiltroTexto_Quando_Snapshot_Entao_SomenteCardsQueCasam()
+    {
+        _tasks.ListByScopeAsync("harness", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([
+                Task("task-6", DelegationTaskStatus.Running, "fix the login bug"),
+                Task("task-7", DelegationTaskStatus.Running, "refactor billing"),
+            ]);
+
+        var snapshot = await _service.GetSnapshotAsync(
+            "harness", "local", query: new AgentBoardQuery(Text: "login"));
+
+        var card = snapshot.Working.ShouldHaveSingleItem();
+        card.SessionTitle.ShouldContain("login");
+    }
+
+    [Fact]
+    public async Task Dado_PrNoMailbox_Quando_FiltroHasPr_Entao_SoCardComPr()
+    {
+        _tasks.ListByScopeAsync("harness", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([
+                Task("task-8", DelegationTaskStatus.Done),
+                Task("task-9", DelegationTaskStatus.Done),
+            ]);
+        _mailbox.ListByScopeAsync("harness", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([new MailboxMessageDto(
+                "m1", "harness", "codex", "coordinator", "text",
+                "task-8 done — https://github.com/acme/repo/pull/42",
+                DateTime.UtcNow, null)]);
+
+        var snapshot = await _service.GetSnapshotAsync(
+            "harness", "local", query: new AgentBoardQuery(HasPr: true));
+
+        var card = snapshot.Done.ShouldHaveSingleItem();
+        card.Id.ShouldBe("task:task-8");
+        card.PrUrl.ShouldBe("https://github.com/acme/repo/pull/42");
+    }
 }

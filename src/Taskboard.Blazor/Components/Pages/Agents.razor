@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject TaskboardClient Client
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @inject IAgentPromptTemplateService PromptTemplateService
 @inject ILocaleService L
 @inject ToastService ToastService
@@ -38,6 +39,48 @@
             <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadDashboardAsync" Disabled="_boardLoading">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
+        </div>
+        @* SPEC-20261020-agent-board-v2 RF-004/RF-005: toolbar filters + show-idle. *@
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <input class="form-control form-control-sm" style="max-width:220px"
+                   placeholder="Search title, preview, repo…" aria-label="Filter board"
+                   @bind="_boardQuery" @bind:event="oninput" @bind:after="OnFilterChangedAsync" />
+            <select class="form-select form-select-sm" style="max-width:140px" aria-label="Filter by CLI"
+                    @bind="_boardCli" @bind:after="OnFilterChangedAsync">
+                <option value="">All CLIs</option>
+                @foreach (var c in _knownClis.OrderBy(x => x))
+                {
+                    <option value="@c">@c</option>
+                }
+            </select>
+            <select class="form-select form-select-sm" style="max-width:150px" aria-label="Filter by state"
+                    @bind="_boardState" @bind:after="OnFilterChangedAsync">
+                <option value="">All states</option>
+                @foreach (var s in Enum.GetNames<AgentAttentionState>())
+                {
+                    <option value="@s">@s</option>
+                }
+            </select>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="board-haspr"
+                       @bind="_boardHasPr" @bind:after="OnFilterChangedAsync" />
+                <label class="form-check-label small" for="board-haspr">Has PR</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="board-idle"
+                       @bind="_showIdle" @bind:after="OnShowIdleChangedAsync" />
+                <label class="form-check-label small" for="board-idle">
+                    Show idle@(_board is null || _showIdle ? "" : $" ({_board.Idle.Count})")
+                </label>
+            </div>
+            @if (FiltersActive())
+            {
+                <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
+                        @onclick="ClearFiltersAsync">Clear</Button>
+            }
+            <span class="ms-auto small text-body-secondary">
+                @((_board?.UnreadTotal ?? 0) == 0 ? "" : $"{_board!.UnreadTotal} unread")
+            </span>
         </div>
         @if (_board is null)
         {
@@ -108,6 +151,11 @@
                                                             <Icon Name="IconName.ColumnsGap" class="me-1" />Compare legs
                                                         </Button>
                                                     </span>
+                                                }
+                                                @if (card.PrUrl is not null)
+                                                {
+                                                    <a href="@card.PrUrl" target="_blank" rel="noopener"
+                                                       class="small" @onclick:stopPropagation="true">PR ↗</a>
                                                 }
                                             </div>
                                             @if (card.Kind == "scope")
@@ -722,6 +770,15 @@
     // SPEC-20261020-agent-board-v2: kanban cards from the attention model.
     private AgentBoardSnapshot? _board;
     private bool _boardLoading = true;
+    private const string ShowIdleStorageKey = "agent-board:show-idle";
+    private string? _boardQuery;
+    private string? _boardCli;
+    private string? _boardState;
+    private bool _boardHasPr;
+    // RF-005: default hides the Idle column — toggle persists per browser.
+    private bool _showIdle;
+    private readonly HashSet<string> _knownClis = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _filterDebounce;
     private IReadOnlyList<AgentSessionInfoDto> _sessions = [];
     private bool _sessionsLoading;
 
@@ -785,6 +842,23 @@
             await LoadSessionsAsync();
         }
 
+        // RF-004/RF-005: deep-linkable filters + persisted show-idle toggle.
+        _boardQuery = ResolveQueryValue("q");
+        _boardCli = ResolveQueryValue("cli") is { Length: > 0 } q && _activeTab == "dashboard"
+            ? q : _boardCli;
+        _boardState = ResolveQueryValue("state");
+        _boardHasPr = string.Equals(ResolveQueryValue("hasPr"), "true", StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            _showIdle = "1" == await JS.InvokeAsync<string?>(
+                "localStorage.getItem", ShowIdleStorageKey);
+        }
+        catch (JSException) { }
+        if (FiltersActive())
+        {
+            await LoadDashboardAsync();
+        }
+
         StateHasChanged();
     }
 
@@ -843,12 +917,54 @@
         await LoadSessionsAsync();
     }
 
+    // RF-005: debounced so typing does not fire a request per keystroke.
+    private async Task OnFilterChangedAsync()
+    {
+        _filterDebounce?.Cancel();
+        _filterDebounce?.Dispose();
+        _filterDebounce = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, _filterDebounce.Token);
+            await LoadDashboardAsync();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task OnShowIdleChangedAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem",
+                ShowIdleStorageKey, _showIdle ? "1" : "0");
+        }
+        catch (JSException) { }
+    }
+
+    private bool FiltersActive() =>
+        !string.IsNullOrWhiteSpace(_boardQuery) || !string.IsNullOrWhiteSpace(_boardCli)
+        || !string.IsNullOrWhiteSpace(_boardState) || _boardHasPr;
+
+    private async Task ClearFiltersAsync()
+    {
+        _boardQuery = _boardCli = _boardState = null;
+        _boardHasPr = false;
+        await LoadDashboardAsync();
+    }
+
     private async Task LoadDashboardAsync()
     {
         _boardLoading = true;
         try
         {
-            _board = await Client.GetAgentBoardAsync();
+            _board = await Client.GetAgentBoardAsync(
+                q: _boardQuery, cli: _boardCli, state: _boardState, hasPr: _boardHasPr);
+            foreach (var card in _board is null
+                ? Enumerable.Empty<AgentBoardCard>()
+                : _board.NeedsYou.Concat(_board.Working).Concat(_board.Done).Concat(_board.Idle))
+            {
+                _knownClis.Add(card.CliName);
+            }
             _dashboard = await Client.GetDelegationDashboardAsync();
             _events = await Client.GetDelegationEventsAsync();
         }
@@ -891,7 +1007,9 @@
         yield return ("Needs You", BadgeColor.Danger, _board.NeedsYou);
         yield return ("Working", BadgeColor.Primary, _board.Working);
         yield return ("Done", BadgeColor.Success, _board.Done);
-        yield return ("Idle", BadgeColor.Secondary, _board.Idle);
+        // RF-005: Idle is collapsed by the toolbar toggle (persisted per-browser).
+        if (_showIdle)
+            yield return ("Idle", BadgeColor.Secondary, _board.Idle);
     }
 
     private static BadgeColor AttentionBadge(AgentAttentionState state) => state switch

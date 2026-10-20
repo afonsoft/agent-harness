@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Delegation;
@@ -43,8 +44,13 @@ public sealed class AgentBoardService : IAgentBoardService
         _time = timeProvider ?? TimeProvider.System;
     }
 
+    private static readonly Regex PrUrlPattern = new(
+        @"https://github\.com/[\w.\-]+/[\w.\-]+/pull/\d+",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public async Task<AgentBoardSnapshot> GetSnapshotAsync(
-        string scope, string userId, int take = 20, CancellationToken ct = default)
+        string scope, string userId, int take = 20,
+        AgentBoardQuery? query = null, CancellationToken ct = default)
     {
         var tasks = await _tasks.ListByScopeAsync(scope, take: 200, ct).ConfigureAwait(false);
         var mailbox = await _mailbox.ListByScopeAsync(scope, take: 100, ct).ConfigureAwait(false);
@@ -59,6 +65,22 @@ public sealed class AgentBoardService : IAgentBoardService
             .GroupBy(m => m.Scope, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.CreatedAt).First(),
                 StringComparer.Ordinal);
+        // RF-004: promoted legs post the PR link in the mailbox — key it by
+        // task id/fanout group so the card can carry the badge/filter.
+        var prByToken = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var m in mailbox)
+        {
+            var pr = PrUrlPattern.Match(m.Payload);
+            if (pr.Success)
+            {
+                foreach (var token in m.Payload.Split(
+                    ' ', '\n', '\t', '(', ')', ':')
+                    .Where(t => t.StartsWith("task-", StringComparison.Ordinal)))
+                {
+                    prByToken.TryAdd(token.TrimEnd('.', ','), pr.Value);
+                }
+            }
+        }
 
         var needsYou = new List<AgentBoardCard>();
         var working = new List<AgentBoardCard>();
@@ -74,7 +96,7 @@ public sealed class AgentBoardService : IAgentBoardService
                 Title($"decision needed — {scope}"),
                 scopeState.State,
                 Preview(scopeState.Evidence ?? lastMailboxByScope.GetValueOrDefault(scope)?.Payload),
-                scopeState.LastSignalAtUtc, null, null, null, null,
+                scopeState.LastSignalAtUtc, null, null, null, null, null,
                 Unread(markers, $"scope:{scope}", scopeState.LastSignalAtUtc),
                 "/agents?tab=dashboard"));
         }
@@ -91,6 +113,7 @@ public sealed class AgentBoardService : IAgentBoardService
                 attention?.LastSignalAtUtc ?? task.FinishedAt ?? task.LastHeartbeatAt ?? task.CreatedAt,
                 task.StartedAt,
                 RepoName(task.RepositoryPath), task.WorktreeRunId, task.FanoutGroupId,
+                prByToken.GetValueOrDefault(task.Id),
                 Unread(markers, key,
                     attention?.LastSignalAtUtc ?? task.FinishedAt ?? task.LastHeartbeatAt),
                 $"/agents?tab=dashboard&focus={task.Id}");
@@ -127,7 +150,7 @@ public sealed class AgentBoardService : IAgentBoardService
                 Title($"run {run.IssueId}"), state,
                 Preview(attention?.Evidence ?? run.State.ToString()),
                 attention?.LastSignalAtUtc ?? run.StartedAt.UtcDateTime,
-                run.StartedAt.UtcDateTime, null, null, null,
+                run.StartedAt.UtcDateTime, null, null, null, null,
                 Unread(markers, key, attention?.LastSignalAtUtc ?? run.StartedAt.UtcDateTime),
                 $"/cockpit?issue={Uri.EscapeDataString(run.IssueId)}");
 
@@ -146,8 +169,18 @@ public sealed class AgentBoardService : IAgentBoardService
             .Select(a => new AgentBoardCard(
                 $"cli:{a.Type}", "cli", a.Type.ToString().ToLowerInvariant(), a.Name,
                 AgentAttentionState.Idle, "installed — no active work",
-                null, null, null, null, null, false, "/agents?tab=cli"))
+                null, null, null, null, null, null, false, "/agents?tab=cli"))
             .ToList();
+
+        // RF-004: toolbar filters applied after projection so counts stay
+        // meaningful per column.
+        if (query is not null)
+        {
+            needsYou = ApplyQuery(needsYou, query);
+            working = ApplyQuery(working, query);
+            done = ApplyQuery(done, query);
+            idle = ApplyQuery(idle, query);
+        }
 
         var unreadTotal = needsYou.Concat(working).Concat(done).Count(c => c.Unread);
         return new AgentBoardSnapshot(
@@ -197,6 +230,46 @@ public sealed class AgentBoardService : IAgentBoardService
     private static bool Unread(
         IReadOnlyDictionary<string, DateTime> markers, string cardId, DateTime? activityAtUtc) =>
         activityAtUtc is { } at && (!markers.TryGetValue(cardId, out var read) || at > read);
+
+    private static List<AgentBoardCard> ApplyQuery(
+        List<AgentBoardCard> cards, AgentBoardQuery query)
+    {
+        IEnumerable<AgentBoardCard> filtered = cards;
+        if (!string.IsNullOrWhiteSpace(query.Text))
+        {
+            filtered = filtered.Where(c =>
+                c.SessionTitle.Contains(query.Text, StringComparison.OrdinalIgnoreCase)
+                || c.PreviewText.Contains(query.Text, StringComparison.OrdinalIgnoreCase)
+                || c.CliName.Contains(query.Text, StringComparison.OrdinalIgnoreCase)
+                || (c.RepoName?.Contains(query.Text, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (c.WorktreeName?.Contains(query.Text, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Cli))
+        {
+            filtered = filtered.Where(c =>
+                string.Equals(c.CliName, query.Cli, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.State)
+            && Enum.TryParse<AgentAttentionState>(query.State, ignoreCase: true, out var wanted))
+        {
+            filtered = filtered.Where(c => c.State == wanted);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Repo))
+        {
+            filtered = filtered.Where(c =>
+                string.Equals(c.RepoName, query.Repo, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (query.HasPr == true)
+        {
+            filtered = filtered.Where(c => c.PrUrl is not null);
+        }
+
+        return filtered.ToList();
+    }
 
     private static IReadOnlyList<AgentBoardCard> Sort(
         List<AgentBoardCard> cards, int take, bool needsYouOrder) =>

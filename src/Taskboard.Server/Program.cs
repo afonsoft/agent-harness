@@ -2337,10 +2337,13 @@ void MapSettingsAndChatEndpoints()
     // SPEC-20261020-agent-board-v2 RF-001: kanban cards (needs_you/working/
     // done/idle) + per-user unread + deep-links.
     api.MapGet("agents/board", async (
-        string? scope, HttpContext context, IAgentBoardService board, CancellationToken ct) =>
+        string? scope, string? q, string? cli, string? state, string? repo,
+        bool? hasPr, HttpContext context, IAgentBoardService board,
+        CancellationToken ct) =>
         Results.Ok(await board.GetSnapshotAsync(
             string.IsNullOrWhiteSpace(scope) ? defaultScope : scope,
-            BoardUserId(context), take: 20, ct)));
+            BoardUserId(context), take: 20,
+            new AgentBoardQuery(q, cli, state, repo, hasPr), ct)));
 
     api.MapPost("agents/board/cards/{id}/read", async (
         string id, HttpContext context, IAgentBoardService board, CancellationToken ct) =>

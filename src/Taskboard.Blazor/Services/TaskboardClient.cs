@@ -538,12 +538,34 @@ public sealed class TaskboardClient
         return response?.Agents ?? [];
     }
 
-    /// <summary>SPEC-20261020-agent-board-v2 RF-001: kanban cards + unread.</summary>
+    /// <summary>SPEC-20261020-agent-board-v2 RF-001/RF-004: kanban cards + unread + toolbar filters.</summary>
     public async Task<AgentBoardSnapshot?> GetAgentBoardAsync(
-        string? scope = null, CancellationToken cancellationToken = default) =>
-        await _httpClient.GetFromJsonAsync<AgentBoardSnapshot>(
-            $"/api/agents/board{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
-            cancellationToken);
+        string? scope = null, string? q = null, string? cli = null,
+        string? state = null, string? repo = null, bool? hasPr = null,
+        CancellationToken cancellationToken = default)
+    {
+        var url = "/api/agents/board?"
+            + (string.IsNullOrWhiteSpace(scope) ? "" : $"scope={Uri.EscapeDataString(scope)}&")
+            + (string.IsNullOrWhiteSpace(q) ? "" : $"q={Uri.EscapeDataString(q)}&")
+            + (string.IsNullOrWhiteSpace(cli) ? "" : $"cli={Uri.EscapeDataString(cli)}&")
+            + (string.IsNullOrWhiteSpace(state) ? "" : $"state={Uri.EscapeDataString(state)}&")
+            + (string.IsNullOrWhiteSpace(repo) ? "" : $"repo={Uri.EscapeDataString(repo)}&")
+            + (hasPr == true ? "hasPr=true" : "");
+        return await _httpClient.GetFromJsonAsync<AgentBoardSnapshot>(
+            url.TrimEnd('&', '?'), cancellationToken);
+    }
+
+    private sealed record AgentAttentionResponse(IReadOnlyList<AgentSessionStateDto> States);
+
+    /// <summary>SPEC-20261020-agent-board-v2 RF-009: attention states for run keys.</summary>
+    public async Task<IReadOnlyList<AgentSessionStateDto>> GetAgentAttentionAsync(
+        IEnumerable<string>? keys = null, CancellationToken cancellationToken = default)
+    {
+        var url = "/api/agents/attention"
+            + (keys is null ? "" : $"?keys={Uri.EscapeDataString(string.Join(',', keys))}");
+        var response = await _httpClient.GetFromJsonAsync<AgentAttentionResponse>(url, cancellationToken);
+        return response?.States ?? [];
+    }
 
     /// <summary>SPEC-20261020-agent-board-v2 RF-006: mark a card read.</summary>
     public async Task MarkAgentBoardCardReadAsync(
