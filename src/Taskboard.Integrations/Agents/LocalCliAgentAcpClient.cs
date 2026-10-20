@@ -10,10 +10,20 @@ namespace Taskboard.Integrations.Agents;
 public sealed class LocalCliAgentAcpClient : IAgentAcpClient
 {
     private readonly IEnumerable<IAgentAdapter> _adapters;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentHookTokenService? _hookTokens;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
 
-    public LocalCliAgentAcpClient(IEnumerable<IAgentAdapter> adapters)
+    public LocalCliAgentAcpClient(
+        IEnumerable<IAgentAdapter> adapters,
+        Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null,
+        Taskboard.Application.Contracts.Agents.IAgentHookTokenService? hookTokens = null,
+        Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
         _adapters = adapters;
+        _outputSink = outputSink;
+        _hookTokens = hookTokens;
+        _configuration = configuration;
     }
 
     public async Task<AgentExecutionResult> ExecuteAsync(
@@ -63,6 +73,12 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
 
         WithoutHarnessEnv.Apply(startInfo.Environment, startInfo.WorkingDirectory);
 
+        // SPEC-20261020-agent-attention-model RF-003: hook env injected after
+        // the harness-env scrub so managed hooks can call /api/agent-hooks.
+        var sessionKey = $"issue:{request.IssueId}";
+        AgentHookEnv.ApplyTo(
+            startInfo.Environment, _hookTokens, _configuration, sessionKey);
+
         using var process = Process.Start(startInfo);
         if (process is null)
         {
@@ -74,6 +90,7 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
             if (e.Data is not null)
             {
                 progress.Report(new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.StdOut, e.Data));
+                _outputSink?.ObserveOutput(sessionKey, executable, e.Data);
             }
         };
 

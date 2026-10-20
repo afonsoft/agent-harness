@@ -418,7 +418,12 @@ void RegisterAcpAndAgentServices()
     // session when Taskboard:Acp:SessionRuns=true; otherwise keep args-mode.
     builder.Services.AddSingleton<IAgentAcpClient>(sp =>
     {
-        var fallback = new JsonRpcAcpClient(sp.GetServices<IAgentAdapter>());
+        var fallback = new JsonRpcAcpClient(
+            sp.GetServices<IAgentAdapter>(),
+            sp.GetService<IAgentOutputAttentionSink>(),
+            sp.GetService<IAgentHookTokenService>(),
+            sp.GetService<IAgentAttentionService>(),
+            sp.GetService<IConfiguration>());
         return sp.GetRequiredService<IConfiguration>().GetValue("Taskboard:Acp:SessionRuns", false)
             ? new AcpSessionRunClient(sp.GetRequiredService<AcpSessionClient>(), fallback)
             : (IAgentAcpClient)fallback;
@@ -506,6 +511,10 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddScoped<IAgentSessionStateRepository, EfCoreAgentSessionStateRepository>();
     builder.Services.AddSingleton<IAgentAttentionBroadcaster, EventStreamAgentAttentionBroadcaster>();
     builder.Services.AddSingleton<IAgentAttentionService, AgentAttentionService>();
+    builder.Services.AddSingleton<AgentOutputAttentionService>();
+    builder.Services.AddSingleton<IAgentOutputAttentionSink>(sp => sp.GetRequiredService<AgentOutputAttentionService>());
+    builder.Services.AddSingleton<IAgentHookTokenService, AgentHookTokenService>();
+    builder.Services.AddSingleton<IAgentHookInstaller, AgentHookInstaller>();
     builder.Services.AddHostedService<AgentAttentionSweepService>();
     // SPEC-20261020-agent-board-v2: kanban card projection + read markers.
     builder.Services.AddScoped<IAgentBoardService, AgentBoardService>();
@@ -2334,6 +2343,37 @@ void MapSettingsAndChatEndpoints()
         return Results.Ok(new { states = await attention.SnapshotAsync(parsed, ct) });
     });
 
+    // SPEC-20261020-agent-attention-model RF-003: managed CLI hooks POST
+    // here with a per-session Bearer token (HARNESS_AGENT_HOOK_TOKEN).
+    api.MapPost("agent-hooks", async (
+        AgentHookEvent evt, HttpContext context,
+        IAgentHookTokenService tokens, IAgentAttentionService attention,
+        CancellationToken ct) =>
+    {
+        var auth = context.Request.Headers.Authorization.ToString();
+        var token = auth.StartsWith("Bearer ", StringComparison.Ordinal) ? auth[7..] : null;
+        var session = token is null ? null : tokens.Validate(token);
+        if (session is null || !string.Equals(session, evt.SessionKey, StringComparison.Ordinal))
+        {
+            return Results.Unauthorized();
+        }
+
+        var (state, reason) = evt.Event switch
+        {
+            "permission" or "question" or "notification" =>
+                (AgentAttentionState.WaitingYou, evt.Event),
+            "turn_start" or "turn_end" or "stop" or "session_start" or "pre_tool" or "post_tool" =>
+                (AgentAttentionState.Working, evt.Event),
+            "session_end" => (AgentAttentionState.Exited, evt.Event),
+            _ => (AgentAttentionState.Working, "unknown-event"),
+        };
+
+        await attention.PublishAsync(new AttentionSignal(
+            evt.SessionKey, "hook", AttentionSignalKind.Hook, state, reason,
+            SanitizeHookPayload(evt.Payload)), ct).ConfigureAwait(false);
+        return Results.Ok();
+    });
+
     // SPEC-20261020-agent-board-v2 RF-001: kanban cards (needs_you/working/
     // done/idle) + per-user unread + deep-links.
     api.MapGet("agents/board", async (
@@ -2354,6 +2394,24 @@ void MapSettingsAndChatEndpoints()
 
     static string BoardUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
+
+    // RF-003/NFR: hook payloads are capped at 200 chars of evidence and
+    // obvious credentials stripped before they reach the store/logs.
+    static string? SanitizeHookPayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+        var trimmed = payload.Length > 4096 ? payload[..4096] : payload;
+        trimmed = System.Text.RegularExpressions.Regex.Replace(
+            trimmed,
+            @"Bearer\s+\S+|sk-[A-Za-z0-9_\-]+|api[_-]?key[""']?\s*[:=]\s*[""']?\S+|token[""']?\s*[:=]\s*[""']?\S+",
+            "[redacted]",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(100));
+        return trimmed.Length > 200 ? trimmed[..200] : trimmed;
+    }
 
     // SPEC-20261007 RF-001: human reply path — answers a Needs You
     // escalation/decision; resolves the original message.

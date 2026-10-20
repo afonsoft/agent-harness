@@ -36,6 +36,8 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         public string? Workdir { get; init; }
         public DateTimeOffset? OrphanedAtUtc { get; set; }
         /// <summary>Bounded output scrollback replayed on reattach (SPEC-20260928 RF-003).</summary>
+        /// <summary>Attention-model key — <c>term:{sessionId}</c>.</summary>
+        public string? AttentionKey { get; init; }
         public StringBuilder Scrollback { get; } = new();
     }
 
@@ -56,11 +58,15 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     private readonly CancellationTokenSource _sweepCts = new();
     private readonly Task _sweepTask;
     private readonly object _gate = new();
+    private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentAttentionService? _attention;
 
-    public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger, IConfiguration? configuration = null)
+    public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger, IConfiguration? configuration = null, Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null, Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null)
         : this((workdir, command) => sessionFactory.Create(workdir, command: command), logger,
             scrollbackChars: ParseScrollbackChars(configuration))
     {
+        _outputSink = outputSink;
+        _attention = attention;
     }
 
     private static int? ParseScrollbackChars(IConfiguration? configuration) =>
@@ -188,13 +194,18 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 ConnectionId = connectionId,
                 OnOutput = onOutput,
                 OnClosed = onClosed,
-                Workdir = workdir
+                Workdir = workdir,
+                AttentionKey = $"term:{sessionId}"
             };
 
+            // SPEC-20261020-agent-attention-model RF-005/RF-006: tail-match
+            // interactive CLI output (OSC titles + permission/question patterns).
+            var cliName = command is { Count: > 0 } ? command[0] : null;
             session.OutputReceived += chunk =>
             {
                 AppendScrollback(entry, chunk);
                 _ = entry.OnOutput(sessionId, chunk);
+                _outputSink?.ObserveOutput($"term:{sessionId}", cliName, chunk);
             };
             session.Exited += code => { _ = NotifyClosedAsync(sessionId, "exited"); };
 
@@ -397,6 +408,22 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             _logger.LogInformation(
                 "Terminal session {SessionId} closed ({Reason}).", sessionId, reason);
             await NotifyAsync(entry, sessionId, reason).ConfigureAwait(false);
+            // RF-007: process exit is a lifecycle signal — strong, commits
+            // immediately as exited (never inferred from silence).
+            if (reason == "exited" && _attention is not null && entry.AttentionKey is { } key)
+            {
+                try
+                {
+                    await _attention.PublishAsync(new Taskboard.Application.Contracts.Agents.AttentionSignal(
+                        key, "terminal", Taskboard.Agents.AttentionSignalKind.Lifecycle,
+                        Taskboard.Agents.AgentAttentionState.Exited, "pty-exited"),
+                        _sweepCts.Token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Attention publish is advisory — session teardown proceeds.
+                }
+            }
             await DisposeEntryAsync(entry).ConfigureAwait(false);
         }
     }
@@ -441,8 +468,12 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         }
     }
 
-    private static async Task DisposeEntryAsync(SessionEntry entry)
+    private async Task DisposeEntryAsync(SessionEntry entry)
     {
+        if (entry.AttentionKey is { } key)
+        {
+            _outputSink?.Discard(key);
+        }
         try
         {
             await entry.Session.DisposeAsync().ConfigureAwait(false);

@@ -66,6 +66,45 @@ public interface IAgentSessionStateRepository
 }
 
 /// <summary>
+/// SPEC-20261020-agent-attention-model RF-005/RF-006: consumes raw PTY/stdout
+/// chunks, keeps a ≤4KB tail ring per session, extracts OSC titles and
+/// pattern-matches the tail — publishing weak signals into the evaluator
+/// (debounced ≥2s per session).
+/// </summary>
+public interface IAgentOutputAttentionSink
+{
+    /// <param name="cli">Binary/display name; resolved via AgentCliAttentionPatterns.</param>
+    void ObserveOutput(string sessionKey, string? cli, string chunk);
+
+    /// <summary>Drops the session tail buffer when the session closes.</summary>
+    void Discard(string sessionKey);
+}
+
+/// <summary>
+/// SPEC-20261020-agent-attention-model RF-003: per-session hook tokens —
+/// issued when a session starts, injected as HARNESS_AGENT_HOOK_TOKEN,
+/// rotated per session, never logged.
+/// </summary>
+public interface IAgentHookTokenService
+{
+    /// <summary>Issues (or rotates) the token for a session.</summary>
+    string Issue(string sessionKey);
+
+    /// <summary>Maps a presented token back to its session — null when unknown.</summary>
+    string? Validate(string token);
+
+    /// <summary>Best-effort cleanup when a session ends.</summary>
+    void Revoke(string sessionKey);
+}
+
+/// <summary>POST /api/agent-hooks body from a managed hook.</summary>
+public sealed record AgentHookEvent(
+    string SessionKey,
+    /// <summary>permission | question | turn_start | turn_end | stop | session_end | notification</summary>
+    string Event,
+    string? Payload);
+
+/// <summary>
 /// RF-002/RF-008: single entry point for producers → evaluator → store →
 /// broadcast. Evaluator is serialized per session key.
 /// </summary>
