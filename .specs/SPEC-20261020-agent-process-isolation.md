@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `devin/20261020-prod-oom-hardening` |
 | Ticket | [#577](https://github.com/afonsoft/agent-harness/issues/577) |
-| Status | `Draft` |
+| Status | `Approved` |
 
 ## 1. User Story
 
