@@ -11,10 +11,23 @@ namespace Taskboard.Integrations.Agents;
 public sealed class JsonRpcAcpClient : IAgentAcpClient
 {
     private readonly IEnumerable<IAgentAdapter> _adapters;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentHookTokenService? _hookTokens;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentAttentionService? _attention;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
 
-    public JsonRpcAcpClient(IEnumerable<IAgentAdapter> adapters)
+    public JsonRpcAcpClient(
+        IEnumerable<IAgentAdapter> adapters,
+        Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null,
+        Taskboard.Application.Contracts.Agents.IAgentHookTokenService? hookTokens = null,
+        Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null,
+        Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
         _adapters = adapters;
+        _outputSink = outputSink;
+        _hookTokens = hookTokens;
+        _attention = attention;
+        _configuration = configuration;
     }
 
     public async Task<AgentExecutionResult> ExecuteAsync(
@@ -50,6 +63,17 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
 
         WithoutHarnessEnv.Apply(startInfo.Environment, startInfo.WorkingDirectory);
 
+        // SPEC-20261020-agent-attention-model RF-003: hook env after the
+        // harness-env scrub — managed hooks call back to /api/agent-hooks.
+        var sessionKey = $"issue:{request.IssueId}";
+        if (_hookTokens is not null)
+        {
+            var baseUrl = _configuration?["Taskboard:BaseUrl"] ?? "http://127.0.0.1:47823";
+            startInfo.Environment["HARNESS_AGENT_HOOK_URL"] = $"{baseUrl.TrimEnd('/')}/api/agent-hooks";
+            startInfo.Environment["HARNESS_AGENT_HOOK_TOKEN"] = _hookTokens.Issue(sessionKey);
+            startInfo.Environment["HARNESS_AGENT_HOOK_SESSION"] = sessionKey;
+        }
+
         using var process = Process.Start(startInfo);
         if (process is null)
         {
@@ -61,6 +85,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             if (e.Data is not null)
             {
                 TryHandleOutput(e.Data, request.IssueId, tcs, progress);
+                _outputSink?.ObserveOutput(sessionKey, command.ExecutablePath, e.Data);
             }
         };
 
@@ -69,6 +94,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             if (e.Data is not null)
             {
                 progress?.Report(new AgentLogMessage(DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.StdErr, e.Data));
+                _outputSink?.ObserveOutput(sessionKey, command.ExecutablePath, e.Data);
             }
         };
 
@@ -104,7 +130,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
             ModelUsed: request.ResolvedModelName);
     }
 
-    private static void TryHandleOutput(string line, string expectedId, TaskCompletionSource<AgentExecutionResult> tcs, IProgress<AgentLogMessage> progress)
+    private void TryHandleOutput(string line, string expectedId, TaskCompletionSource<AgentExecutionResult> tcs, IProgress<AgentLogMessage> progress)
     {
         try
         {
@@ -154,12 +180,25 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
     /// thought…); everything else becomes <c>method: params</c> text as before.
     /// SPEC-20260921-agent-execution-event-pipeline RF-002.
     /// </summary>
-    private static void ReportNotification(string line, string issueId, IProgress<AgentLogMessage> progress)
+    private void ReportNotification(string line, string issueId, IProgress<AgentLogMessage> progress)
     {
         var parsed = AcpProtocolParser.Parse(line);
         if (parsed is not null
             && parsed.Method is "session/update" or "session/request_permission")
         {
+            // RF-005/RF-009: ACP permission requests are a strong hook-class
+            // signal — the CLI is blocked on the human right now.
+            if (parsed.Method == "session/request_permission" && _attention is not null)
+            {
+                _ = _attention.PublishAsync(new Taskboard.Application.Contracts.Agents.AttentionSignal(
+                    $"issue:{issueId}",
+                    "acp",
+                    Taskboard.Agents.AttentionSignalKind.Hook,
+                    Taskboard.Agents.AgentAttentionState.WaitingYou,
+                    "permission",
+                    parsed.Content));
+            }
+
             progress?.Report(new AgentLogMessage(
                 DateTimeOffset.UtcNow,
                 issueId,
