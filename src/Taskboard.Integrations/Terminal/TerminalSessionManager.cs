@@ -416,7 +416,8 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 {
                     await _attention.PublishAsync(new Taskboard.Application.Contracts.Agents.AttentionSignal(
                         key, "terminal", Taskboard.Agents.AttentionSignalKind.Lifecycle,
-                        Taskboard.Agents.AgentAttentionState.Exited, "pty-exited")).ConfigureAwait(false);
+                        Taskboard.Agents.AgentAttentionState.Exited, "pty-exited"),
+                        _sweepCts.Token).ConfigureAwait(false);
                 }
                 catch
                 {

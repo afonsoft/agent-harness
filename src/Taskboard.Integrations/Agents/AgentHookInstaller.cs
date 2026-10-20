@@ -25,6 +25,8 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
     /// <summary>Sentinel inside managed hook commands/blocks.</summary>
     public const string Marker = "harness-agent-hook";
 
+    private const string HooksKey = "hooks";
+
     private static readonly (AgentCliKind Kind, string Event, string ClaudeEvent)[] ClaudeHooks =
     [
         (AgentCliKind.Claude, "session_start", "SessionStart"),
@@ -54,12 +56,12 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
     private static string ClaudeSettingsPath(string workdir) =>
         Path.Combine(workdir, ".claude", "settings.json");
 
-    private async Task<bool> InstallClaudeAsync(string workdir, CancellationToken ct)
+    private static async Task<bool> InstallClaudeAsync(string workdir, CancellationToken ct)
     {
         var path = ClaudeSettingsPath(workdir);
         var root = await ReadJsonAsync(path, ct).ConfigureAwait(false);
-        var hooks = root["hooks"] as JsonObject ?? new JsonObject();
-        root["hooks"] = hooks;
+        var hooks = root[HooksKey] as JsonObject ?? new JsonObject();
+        root[HooksKey] = hooks;
 
         var changed = false;
         foreach (var (_, evt, claudeEvent) in ClaudeHooks)
@@ -83,7 +85,7 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
             entries.Add(new JsonObject
             {
                 ["matcher"] = "*",
-                ["hooks"] = new JsonArray
+                [HooksKey] = new JsonArray
                 {
                     new JsonObject
                     {
@@ -97,7 +99,11 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
 
         if (changed)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var settingsDir = Path.GetDirectoryName(path);
+            if (settingsDir is not null)
+            {
+                Directory.CreateDirectory(settingsDir);
+            }
             await File.WriteAllTextAsync(path,
                 root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), ct)
                 .ConfigureAwait(false);
@@ -105,7 +111,7 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
         return changed;
     }
 
-    private async Task<bool> UninstallClaudeAsync(string workdir, CancellationToken ct)
+    private static async Task<bool> UninstallClaudeAsync(string workdir, CancellationToken ct)
     {
         var path = ClaudeSettingsPath(workdir);
         if (!File.Exists(path))
@@ -114,7 +120,7 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
         }
 
         var root = await ReadJsonAsync(path, ct).ConfigureAwait(false);
-        if (root["hooks"] is not JsonObject hooks)
+        if (root[HooksKey] is not JsonObject hooks)
         {
             return false;
         }
@@ -122,33 +128,30 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
         var changed = false;
         foreach (var property in hooks.ToList())
         {
-            if (property.Value is JsonArray entries)
+            if (property.Value is not JsonArray entries)
             {
-                var kept = new JsonArray();
-                foreach (var entry in entries)
-                {
-                    if (entry?.ToJsonString().Contains(Marker) != true)
-                    {
-                        kept.Add(entry?.DeepClone());
-                    }
-                }
-                if (kept.Count != entries.Count)
-                {
-                    changed = true;
-                    if (kept.Count == 0)
-                    {
-                        hooks.Remove(property.Key);
-                    }
-                    else
-                    {
-                        hooks[property.Key] = kept;
-                    }
-                }
+                continue;
+            }
+
+            var kept = WithoutManaged(entries);
+            if (kept.Count == entries.Count)
+            {
+                continue;
+            }
+
+            changed = true;
+            if (kept.Count == 0)
+            {
+                hooks.Remove(property.Key);
+            }
+            else
+            {
+                hooks[property.Key] = kept;
             }
         }
         if (hooks.Count == 0)
         {
-            root.Remove("hooks");
+            root.Remove(HooksKey);
         }
 
         if (changed)
@@ -160,6 +163,20 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
         return changed;
     }
 
+    /// <summary>Entries minus managed ones — user hooks are never touched.</summary>
+    private static JsonArray WithoutManaged(JsonArray entries)
+    {
+        var kept = new JsonArray();
+        foreach (var entry in entries)
+        {
+            if (entry?.ToJsonString().Contains(Marker) != true)
+            {
+                kept.Add(entry?.DeepClone());
+            }
+        }
+        return kept;
+    }
+
     // ---------- Codex: config.toml managed block ----------
 
     private const string BlockBegin = "# >>> harness-agent-hook >>>";
@@ -168,7 +185,7 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
     private static string CodexConfigPath(string workdir) =>
         Path.Combine(workdir, ".codex", "config.toml");
 
-    private async Task<bool> InstallCodexAsync(string workdir, CancellationToken ct)
+    private static async Task<bool> InstallCodexAsync(string workdir, CancellationToken ct)
     {
         var path = CodexConfigPath(workdir);
         var text = File.Exists(path)
@@ -188,14 +205,18 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
             + "\\\\\\\"event\\\\\\\":\\\\\\\"notification\\\\\\\"}\\\\\\\" >/dev/null 2>&1 || true\"]\n"
             + $"{BlockEnd}\n";
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var settingsDir = Path.GetDirectoryName(path);
+        if (settingsDir is not null)
+        {
+            Directory.CreateDirectory(settingsDir);
+        }
         await File.WriteAllTextAsync(path,
             (text.Length > 0 ? text.TrimEnd() + "\n\n" : "") + block, ct)
             .ConfigureAwait(false);
         return true;
     }
 
-    private async Task<bool> UninstallCodexAsync(string workdir, CancellationToken ct)
+    private static async Task<bool> UninstallCodexAsync(string workdir, CancellationToken ct)
     {
         var path = CodexConfigPath(workdir);
         if (!File.Exists(path))
@@ -213,9 +234,10 @@ public sealed class AgentHookInstaller : IAgentHookInstaller
 
         var after = text[(end + BlockEnd.Length)..].TrimStart('\n', '\r');
         var before = text[..begin].TrimEnd();
-        await File.WriteAllTextAsync(path,
-            before.Length > 0 ? before + "\n" + (after.Length > 0 ? "\n" + after : "") : after, ct)
-            .ConfigureAwait(false);
+        var merged = before.Length == 0
+            ? after
+            : before + "\n" + (after.Length > 0 ? "\n" + after : "");
+        await File.WriteAllTextAsync(path, merged, ct).ConfigureAwait(false);
         return true;
     }
 

@@ -76,13 +76,8 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
         // SPEC-20261020-agent-attention-model RF-003: hook env injected after
         // the harness-env scrub so managed hooks can call /api/agent-hooks.
         var sessionKey = $"issue:{request.IssueId}";
-        if (_hookTokens is not null)
-        {
-            var baseUrl = _configuration?["Taskboard:BaseUrl"] ?? "http://127.0.0.1:47823";
-            startInfo.Environment["HARNESS_AGENT_HOOK_URL"] = $"{baseUrl.TrimEnd('/')}/api/agent-hooks";
-            startInfo.Environment["HARNESS_AGENT_HOOK_TOKEN"] = _hookTokens.Issue(sessionKey);
-            startInfo.Environment["HARNESS_AGENT_HOOK_SESSION"] = sessionKey;
-        }
+        AgentHookEnv.ApplyTo(
+            startInfo.Environment, _hookTokens, _configuration, sessionKey);
 
         using var process = Process.Start(startInfo);
         if (process is null)

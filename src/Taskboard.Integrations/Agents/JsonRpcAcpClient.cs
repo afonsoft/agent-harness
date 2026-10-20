@@ -66,13 +66,8 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         // SPEC-20261020-agent-attention-model RF-003: hook env after the
         // harness-env scrub — managed hooks call back to /api/agent-hooks.
         var sessionKey = $"issue:{request.IssueId}";
-        if (_hookTokens is not null)
-        {
-            var baseUrl = _configuration?["Taskboard:BaseUrl"] ?? "http://127.0.0.1:47823";
-            startInfo.Environment["HARNESS_AGENT_HOOK_URL"] = $"{baseUrl.TrimEnd('/')}/api/agent-hooks";
-            startInfo.Environment["HARNESS_AGENT_HOOK_TOKEN"] = _hookTokens.Issue(sessionKey);
-            startInfo.Environment["HARNESS_AGENT_HOOK_SESSION"] = sessionKey;
-        }
+        AgentHookEnv.ApplyTo(
+            startInfo.Environment, _hookTokens, _configuration, sessionKey);
 
         using var process = Process.Start(startInfo);
         if (process is null)
