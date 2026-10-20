@@ -52,6 +52,8 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ChatPushSubscription> ChatPushSubscriptions => Set<ChatPushSubscription>();
     public DbSet<DelegationTask> DelegationTasks => Set<DelegationTask>();
     public DbSet<AgentMailboxMessage> AgentMailboxMessages => Set<AgentMailboxMessage>();
+    public DbSet<AgentSessionState> AgentSessionStates => Set<AgentSessionState>();
+    public DbSet<AgentSessionStateTransition> AgentSessionStateTransitions => Set<AgentSessionStateTransition>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
