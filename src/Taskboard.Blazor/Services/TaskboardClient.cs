@@ -538,6 +538,20 @@ public sealed class TaskboardClient
         return response?.Agents ?? [];
     }
 
+    /// <summary>SPEC-20261020-agent-board-v2 RF-001: kanban cards + unread.</summary>
+    public async Task<AgentBoardSnapshot?> GetAgentBoardAsync(
+        string? scope = null, CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentBoardSnapshot>(
+            $"/api/agents/board{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            cancellationToken);
+
+    /// <summary>SPEC-20261020-agent-board-v2 RF-006: mark a card read.</summary>
+    public async Task MarkAgentBoardCardReadAsync(
+        string cardId, CancellationToken cancellationToken = default) =>
+        await _httpClient.PostAsync(
+            $"/api/agents/board/cards/{Uri.EscapeDataString(cardId)}/read",
+            content: null, cancellationToken);
+
     /// <summary>SPEC-20261006 RF-001: agent dashboard columns (scope = conversation; default 'harness').</summary>
     public async Task<AgentDashboardDto?> GetDelegationDashboardAsync(
         string? scope = null, CancellationToken cancellationToken = default) =>

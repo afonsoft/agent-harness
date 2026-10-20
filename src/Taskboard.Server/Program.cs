@@ -507,6 +507,9 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<IAgentAttentionBroadcaster, EventStreamAgentAttentionBroadcaster>();
     builder.Services.AddSingleton<IAgentAttentionService, AgentAttentionService>();
     builder.Services.AddHostedService<AgentAttentionSweepService>();
+    // SPEC-20261020-agent-board-v2: kanban card projection + read markers.
+    builder.Services.AddScoped<IAgentBoardService, AgentBoardService>();
+    builder.Services.AddScoped<IAgentBoardReadMarkerRepository, EfCoreAgentBoardReadMarkerRepository>();
     builder.Services.AddScoped<IWorkspaceCheckpointService, WorkspaceCheckpointService>();
     builder.Services.AddSingleton<IAgentSessionScanner, AgentSessionScanner>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
@@ -2330,6 +2333,24 @@ void MapSettingsAndChatEndpoints()
                 ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return Results.Ok(new { states = await attention.SnapshotAsync(parsed, ct) });
     });
+
+    // SPEC-20261020-agent-board-v2 RF-001: kanban cards (needs_you/working/
+    // done/idle) + per-user unread + deep-links.
+    api.MapGet("agents/board", async (
+        string? scope, HttpContext context, IAgentBoardService board, CancellationToken ct) =>
+        Results.Ok(await board.GetSnapshotAsync(
+            string.IsNullOrWhiteSpace(scope) ? defaultScope : scope,
+            BoardUserId(context), take: 20, ct)));
+
+    api.MapPost("agents/board/cards/{id}/read", async (
+        string id, HttpContext context, IAgentBoardService board, CancellationToken ct) =>
+    {
+        await board.MarkReadAsync(BoardUserId(context), id, ct);
+        return Results.NoContent();
+    });
+
+    static string BoardUserId(HttpContext context) =>
+        context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
 
     // SPEC-20261007 RF-001: human reply path — answers a Needs You
     // escalation/decision; resolves the original message.
