@@ -46,7 +46,8 @@ public sealed class AgentBoardService : IAgentBoardService
 
     private static readonly Regex PrUrlPattern = new(
         @"https://github\.com/[\w.\-]+/[\w.\-]+/pull/\d+",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.NonBacktracking,
+        TimeSpan.FromMilliseconds(200));
 
     public async Task<AgentBoardSnapshot> GetSnapshotAsync(
         string scope, string userId, int take = 20,
