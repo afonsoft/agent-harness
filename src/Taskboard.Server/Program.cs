@@ -501,6 +501,12 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261006-agent-dashboard-sessions-checkpoints: dashboard aggregation,
     // CLI session scan/resume and worktree checkpoints.
     builder.Services.AddScoped<IDelegationDashboardService, DelegationDashboardService>();
+    // SPEC-20261020-agent-attention-model: single attention store — producers
+    // (delegation lifecycle, mailbox, hooks) → evaluator → SSE broadcast.
+    builder.Services.AddScoped<IAgentSessionStateRepository, EfCoreAgentSessionStateRepository>();
+    builder.Services.AddSingleton<IAgentAttentionBroadcaster, EventStreamAgentAttentionBroadcaster>();
+    builder.Services.AddSingleton<IAgentAttentionService, AgentAttentionService>();
+    builder.Services.AddHostedService<AgentAttentionSweepService>();
     builder.Services.AddScoped<IWorkspaceCheckpointService, WorkspaceCheckpointService>();
     builder.Services.AddSingleton<IAgentSessionScanner, AgentSessionScanner>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
@@ -2312,6 +2318,18 @@ void MapSettingsAndChatEndpoints()
         string? scope, IDelegationDashboardService dashboard, CancellationToken ct) =>
         Results.Ok(await dashboard.GetAsync(
             string.IsNullOrWhiteSpace(scope) ? defaultScope : scope, take: 20, ct)));
+
+    // SPEC-20261020-agent-attention-model RF-008: attention state snapshot —
+    // `?keys=task:t1,scope:s1` filters; empty returns all live sessions.
+    api.MapGet("agents/attention", async (
+        string? keys, IAgentAttentionService attention, CancellationToken ct) =>
+    {
+        var parsed = string.IsNullOrWhiteSpace(keys)
+            ? null
+            : (IReadOnlyCollection<string>)keys.Split(
+                ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return Results.Ok(new { states = await attention.SnapshotAsync(parsed, ct) });
+    });
 
     // SPEC-20261007 RF-001: human reply path — answers a Needs You
     // escalation/decision; resolves the original message.

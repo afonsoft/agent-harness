@@ -1,4 +1,7 @@
+using Microsoft.Extensions.Logging;
 using Taskboard;
+using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Delegation;
 using Taskboard.Dtos;
@@ -17,16 +20,46 @@ public sealed class DelegationService : IDelegationService
 
     private readonly IDelegationTaskRepository _tasks;
     private readonly IAgentMailboxRepository _mailbox;
+    private readonly IAgentAttentionService? _attention;
+    private readonly ILogger<DelegationService>? _logger;
     private readonly TimeProvider _time;
 
     public DelegationService(
         IDelegationTaskRepository tasks,
         IAgentMailboxRepository mailbox,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IAgentAttentionService? attention = null,
+        ILogger<DelegationService>? logger = null)
     {
         _tasks = tasks;
         _mailbox = mailbox;
+        _attention = attention;
+        _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
+    }
+
+    /// <summary>SPEC-20261020-agent-attention-model: lifecycle/mailbox signal emit — fire-and-log.</summary>
+    private async Task EmitAttentionAsync(
+        string sessionKey, string cli, AgentAttentionState state,
+        AttentionSignalKind kind, string? reason, string? evidence,
+        CancellationToken ct)
+    {
+        if (_attention is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _attention.PublishAsync(
+                new AttentionSignal(sessionKey, cli, kind, state, reason, evidence), ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Attention is advisory — never break the delegation path on a signal failure.
+            _logger?.LogWarning(ex, "attention signal failed for {SessionKey}", sessionKey);
+        }
     }
 
     public async Task<DelegationTaskDto> CreateTaskAsync(
@@ -141,8 +174,18 @@ public sealed class DelegationService : IDelegationService
         return swept;
     }
 
-    public Task<DelegationTaskDto?> BeginRunAsync(string id, DateTime now, CancellationToken ct = default) =>
-        _tasks.MarkRunningAsync(id, now, ct);
+    public async Task<DelegationTaskDto?> BeginRunAsync(string id, DateTime now, CancellationToken ct = default)
+    {
+        var task = await _tasks.MarkRunningAsync(id, now, ct).ConfigureAwait(false);
+        if (task is not null)
+        {
+            await EmitAttentionAsync(
+                $"task:{task.Id}", task.CliName, AgentAttentionState.Working,
+                AttentionSignalKind.Lifecycle, "task running", null, ct).ConfigureAwait(false);
+        }
+
+        return task;
+    }
 
     public async Task<DelegationTaskDto?> FinishRunAsync(
         string id, bool succeeded, string? detail, CancellationToken ct = default)
@@ -168,26 +211,66 @@ public sealed class DelegationService : IDelegationService
                 $"task {task.Id} ({task.CliName}) {(succeeded ? "done" : "failed")}: {Truncate(detail, 500)}",
                 kind),
             CancellationToken.None).ConfigureAwait(false);
+        await EmitAttentionAsync(
+            $"task:{task.Id}", task.CliName,
+            succeeded ? AgentAttentionState.Done : AgentAttentionState.Blocked,
+            AttentionSignalKind.Lifecycle,
+            succeeded ? "worker_done" : $"failed: {Truncate(detail, 200)}",
+            null, CancellationToken.None).ConfigureAwait(false);
         return task;
     }
 
-    public Task<DelegationTaskDto?> MarkStaleAsync(string id, string reason, CancellationToken ct = default) =>
-        _tasks.FinalizeAsync(
+    public async Task<DelegationTaskDto?> MarkStaleAsync(string id, string reason, CancellationToken ct = default)
+    {
+        var task = await _tasks.FinalizeAsync(
             id, DelegationTaskStatus.Stale, reason,
-            _time.GetUtcNow().UtcDateTime, ct);
+            _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+        if (task is not null)
+        {
+            await EmitAttentionAsync(
+                $"task:{task.Id}", task.CliName, AgentAttentionState.Blocked,
+                AttentionSignalKind.Lifecycle, $"stale: {Truncate(reason, 200)}",
+                null, ct).ConfigureAwait(false);
+        }
 
-    public Task<DelegationTaskDto?> CancelTaskAsync(string id, string reason, CancellationToken ct = default) =>
-        _tasks.FinalizeAsync(
+        return task;
+    }
+
+    public async Task<DelegationTaskDto?> CancelTaskAsync(string id, string reason, CancellationToken ct = default)
+    {
+        var task = await _tasks.FinalizeAsync(
             id, DelegationTaskStatus.Cancelled, reason,
-            _time.GetUtcNow().UtcDateTime, ct);
+            _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+        if (task is not null)
+        {
+            await EmitAttentionAsync(
+                $"task:{task.Id}", task.CliName, AgentAttentionState.Exited,
+                AttentionSignalKind.Lifecycle, $"cancelled: {Truncate(reason, 200)}",
+                null, ct).ConfigureAwait(false);
+        }
+
+        return task;
+    }
 
     public Task HeartbeatAsync(string id, CancellationToken ct = default) =>
         _tasks.HeartbeatAsync(id, _time.GetUtcNow().UtcDateTime, ct);
 
-    public Task<MailboxMessageDto> PostAsync(PostMailboxMessageRequest request, CancellationToken ct = default) =>
-        _mailbox.AddAsync(request, ct);
+    public async Task<MailboxMessageDto> PostAsync(
+        PostMailboxMessageRequest request, CancellationToken ct = default)
+    {
+        var message = await _mailbox.AddAsync(request, ct).ConfigureAwait(false);
+        if (string.Equals(message.Kind, AgentMailboxKinds.Escalation, StringComparison.Ordinal))
+        {
+            await EmitAttentionAsync(
+                $"scope:{message.Scope}", message.FromAgent, AgentAttentionState.Blocked,
+                AttentionSignalKind.Mailbox, "escalation",
+                Truncate(message.Payload, 200), ct).ConfigureAwait(false);
+        }
 
-    public Task<MailboxMessageDto> PostDecisionAsync(
+        return message;
+    }
+
+    public async Task<MailboxMessageDto> PostDecisionAsync(
         string scope, string fromAgent, string question, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(question))
@@ -196,10 +279,15 @@ public sealed class DelegationService : IDelegationService
                 TaskboardDomainErrorCodes.InvalidValue, "question is required");
         }
 
-        return _mailbox.AddAsync(
+        var message = await _mailbox.AddAsync(
             new PostMailboxMessageRequest(
                 scope, fromAgent, "@all", question.Trim(), AgentMailboxKinds.Decision),
-            ct);
+            ct).ConfigureAwait(false);
+        await EmitAttentionAsync(
+            $"scope:{message.Scope}", message.FromAgent, AgentAttentionState.WaitingYou,
+            AttentionSignalKind.Mailbox, "decision",
+            Truncate(question.Trim(), 200), ct).ConfigureAwait(false);
+        return message;
     }
 
     public async Task<IReadOnlyList<MailboxMessageDto>> ReadInboxAsync(
