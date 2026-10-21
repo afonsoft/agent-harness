@@ -2699,6 +2699,54 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("VerificationReports", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Entities.Harness.WorktreeCard", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RepoPath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StatusCommentedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkspaceStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorktreePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepoPath");
+
+                    b.HasIndex("WorktreePath")
+                        .IsUnique();
+
+                    b.ToTable("WorktreeCards", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Entities.Harness.WorktreeSession", b =>
                 {
                     b.Property<string>("Id")
