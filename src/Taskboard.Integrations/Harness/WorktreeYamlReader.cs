@@ -56,14 +56,15 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
         string repositoryPath, WorktreeYamlDoc doc)
     {
         var configured = _configuration[ConfigPolicyKey];
-        if (WorktreeSetupPolicies.IsValid(configured ?? string.Empty))
+        if (configured is not null && WorktreeSetupPolicies.IsValid(configured))
         {
-            return configured!;
+            return configured;
         }
 
-        return WorktreeSetupPolicies.IsValid(doc.AgentStartupPolicy ?? string.Empty)
-            ? doc.AgentStartupPolicy!
-            : WorktreeSetupPolicies.WaitForSetup;
+        return doc.AgentStartupPolicy is { } policy
+            && WorktreeSetupPolicies.IsValid(policy)
+                ? policy
+                : WorktreeSetupPolicies.WaitForSetup;
     }
 
     /// <summary><c>Taskboard:Worktree:Setup</c> — scalar or
@@ -164,7 +165,7 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
         YamlMappingNode map, string key, int cap)
     {
         var items = new List<string>();
-        foreach (var node in SequenceOf(map, "exclude"))
+        foreach (var node in SequenceOf(map, key))
         {
             if (node is YamlScalarNode scalar
                 && scalar.Value is not null
@@ -249,7 +250,7 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
     {
         var trimmed = raw?.Trim();
         if (string.IsNullOrEmpty(trimmed)
-            || trimmed!.Length > MaxCommandLength
+            || trimmed.Length > MaxCommandLength
             || trimmed.Contains('\n') || trimmed.Contains('\r'))
         {
             return null;

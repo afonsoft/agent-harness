@@ -165,8 +165,8 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
         var shared = doc.Shared
             .Select(e => new WorktreeSharedResolution(
                 e.Path,
-                WorktreeSharedModes.IsValid(e.Mode ?? "")
-                    ? e.Mode!
+                e.Mode is { } mode && WorktreeSharedModes.IsValid(mode)
+                    ? mode
                     : WorktreeSharedModes.Copy,
                 WorktreeSharedSources.RepoYaml,
                 e.Invalid))

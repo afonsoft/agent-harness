@@ -11,15 +11,10 @@ public interface IWorktreeSessionRepository
 {
     Task<WorktreeSessionDto> CreateAsync(
         string runId,
-        string repositoryPath,
-        string baseBranch,
-        string path,
-        string branch,
+        WorktreeSessionPaths paths,
         bool retainOnFailure,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? sharedPathsApplied = null,
-        string? setupState = null,
-        string? setupLogTail = null);
+        WorktreeProvisionOutcome? provisioning = null);
 
     Task<WorktreeSessionDto?> GetByRunIdAsync(string runId, CancellationToken cancellationToken = default);
 

@@ -106,50 +106,53 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 .Select(e => e.Path)
                 .ToList();
 
-        // SPEC-20261021-worktree-setup-scripts RF-002/RF-004: run the yaml
-        // `setup:` commands after shared paths. wait-for-setup (default)
-        // awaits the outcome before the session exists — the worker dispatch
-        // only proceeds with a terminal state in the preamble; start-
-        // immediately lets the runner finish in background ("running").
-        string? setupState = null;
-        string? setupLogTail = null;
-        if (_yamlReader is not null && _setupRunner is not null)
-        {
-            var doc = _yamlReader.Read(repositoryPath);
-            var commands = _yamlReader.EffectiveSetupCommands(repositoryPath, doc);
-            if (commands.Count > 0)
-            {
-                var policy = _yamlReader.EffectiveStartupPolicy(repositoryPath, doc);
-                if (policy == WorktreeSetupPolicies.StartImmediately)
-                {
-                    _setupRunner.RunSetupInBackground(repositoryPath, path, commands);
-                    setupState = WorktreeSetupStates.Running;
-                }
-                else
-                {
-                    var result = await _setupRunner.RunSetupAsync(
-                        repositoryPath, path, commands, cancellationToken)
-                        .ConfigureAwait(false);
-                    setupState = result.State;
-                    setupLogTail = WorktreeSetupRunner.PreambleTail(result.LogTail);
-                }
-            }
-        }
+        var (setupState, setupLogTail) = await RunWorktreeSetupAsync(
+            repositoryPath, path, cancellationToken).ConfigureAwait(false);
 
         var session = await _sessions.CreateAsync(
             runId,
-            repositoryPath,
-            resolvedBase,
-            path,
-            branch,
+            new WorktreeSessionPaths(repositoryPath, resolvedBase, path, branch),
             retainOnFailure,
             cancellationToken,
-            sharedPathsApplied: sharedApplied,
-            setupState: setupState,
-            setupLogTail: setupLogTail);
+            new WorktreeProvisionOutcome(sharedApplied, setupState, setupLogTail));
 
         _logger.LogInformation("Worktree {Path} on branch {Branch} created for run {RunId}.", path, branch, runId);
         return session;
+    }
+
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-002/RF-004: runs the yaml
+    /// <c>setup:</c> list after shared paths. <c>wait-for-setup</c>
+    /// (default) awaits the outcome so the dispatch preamble carries a
+    /// terminal state; <c>start-immediately</c> lets the runner finish in
+    /// background — the card keeps flipping via SignalR.
+    /// </summary>
+    private async Task<(string? State, string? LogTail)> RunWorktreeSetupAsync(
+        string repositoryPath, string worktreePath, CancellationToken cancellationToken)
+    {
+        if (_yamlReader is null || _setupRunner is null)
+        {
+            return (null, null);
+        }
+
+        var doc = _yamlReader.Read(repositoryPath);
+        var commands = _yamlReader.EffectiveSetupCommands(repositoryPath, doc);
+        if (commands.Count == 0)
+        {
+            return (null, null);
+        }
+
+        if (_yamlReader.EffectiveStartupPolicy(repositoryPath, doc)
+                == WorktreeSetupPolicies.StartImmediately)
+        {
+            _setupRunner.RunSetupInBackground(repositoryPath, worktreePath, commands);
+            return (WorktreeSetupStates.Running, null);
+        }
+
+        var result = await _setupRunner.RunSetupAsync(
+            repositoryPath, worktreePath, commands, cancellationToken)
+            .ConfigureAwait(false);
+        return (result.State, WorktreeSetupRunner.PreambleTail(result.LogTail));
     }
 
     public async Task<WorktreeSessionDto?> GetAsync(string runId, CancellationToken cancellationToken = default)

@@ -15,10 +15,11 @@ public class WorktreeSessionTests
         var session = WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId: "run_01j7abcde",
-            repositoryPath: "/home/ubuntu/repos/agent-harness",
-            baseBranch: "main",
-            path: "/home/ubuntu/.agent-harness/worktrees/run_01j7abcde",
-            branch: "feature/agent-run_01j7abcde-fix-login-error");
+            new WorktreeSessionPaths(
+                "/home/ubuntu/repos/agent-harness",
+                "main",
+                "/home/ubuntu/.agent-harness/worktrees/run_01j7abcde",
+                "feature/agent-run_01j7abcde-fix-login-error"));
 
         session.Status.ShouldBe(WorktreeStatus.Active);
         session.RunId.ShouldBe("run_01j7abcde");
@@ -36,10 +37,7 @@ public class WorktreeSessionTests
         Should.Throw<DomainException>(() => WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId: " ",
-            repositoryPath: "/repo",
-            baseBranch: "main",
-            path: "/wt",
-            branch: "b"));
+            new WorktreeSessionPaths("/repo", "main", "/wt", "b")));
     }
 
     [Fact]
@@ -48,10 +46,7 @@ public class WorktreeSessionTests
         Should.Throw<DomainException>(() => WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId: "run_1",
-            repositoryPath: "/repo",
-            baseBranch: "main",
-            path: "",
-            branch: "b"));
+            new WorktreeSessionPaths("/repo", "main", "", "b")));
     }
 
     // Covers RF-003: CommitAsync → CommitSha registrado na sessão
@@ -132,10 +127,7 @@ public class WorktreeSessionTests
         var session = WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId: "run_1",
-            repositoryPath: "/repo",
-            baseBranch: "main",
-            path: "/wt",
-            branch: "b",
+            new WorktreeSessionPaths("/repo", "main", "/wt", "b"),
             retainOnFailure: true);
 
         session.RetainOnFailure.ShouldBeTrue();
@@ -144,8 +136,5 @@ public class WorktreeSessionTests
     private static WorktreeSession NovaSessao() => WorktreeSession.Create(
         WorktreeSessionId.NewGuid(),
         runId: "run_1",
-        repositoryPath: "/repo",
-        baseBranch: "main",
-        path: "/wt/run_1",
-        branch: "feature/agent-run_1-x");
+        new WorktreeSessionPaths("/repo", "main", "/wt/run_1", "feature/agent-run_1-x"));
 }

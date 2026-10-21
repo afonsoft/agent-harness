@@ -52,3 +52,11 @@ public sealed record WorktreeYamlSharedEntry(string Path, string? Mode, bool Inv
 
 /// <summary>One <c>defaultTabs:</c> entry.</summary>
 public sealed record WorktreeYamlTab(string Name, string Command);
+
+/// <summary>Provisioning outcome snapshot persisted on a worktree session or
+/// delegation task — which shared paths were materialized plus the setup
+/// lifecycle state and its scrubbed log tail (≤4KB).</summary>
+public sealed record WorktreeProvisionOutcome(
+    IReadOnlyList<string>? SharedPathsApplied,
+    string? SetupState,
+    string? SetupLogTail);

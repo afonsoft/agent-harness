@@ -19,25 +19,17 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
 
     public async Task<WorktreeSessionDto> CreateAsync(
         string runId,
-        string repositoryPath,
-        string baseBranch,
-        string path,
-        string branch,
+        WorktreeSessionPaths paths,
         bool retainOnFailure,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? sharedPathsApplied = null,
-        string? setupState = null,
-        string? setupLogTail = null)
+        WorktreeProvisionOutcome? provisioning = null)
     {
         // Upsert: RunId is unique — a retried run whose worktree directory was
         // lost reactivates the same row instead of violating the index.
         var existing = await FindAsync(runId, cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
-            existing.Reactivate(
-                baseBranch, path, branch, retainOnFailure,
-                sharedPathsApplied: sharedPathsApplied,
-                setupState: setupState, setupLogTail: setupLogTail);
+            existing.Reactivate(paths, retainOnFailure, provisioning: provisioning);
             await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return ToDto(existing);
         }
@@ -45,13 +37,9 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
         var entity = WorktreeSession.Create(
             WorktreeSessionId.NewGuid(),
             runId,
-            repositoryPath,
-            baseBranch,
-            path,
-            branch,
+            paths,
             retainOnFailure,
-            sharedPathsApplied: sharedPathsApplied,
-            setupState: setupState, setupLogTail: setupLogTail);
+            provisioning: provisioning);
 
         await _context.WorktreeSessions.AddAsync(entity, cancellationToken).ConfigureAwait(false);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
