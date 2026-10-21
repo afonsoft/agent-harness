@@ -154,6 +154,37 @@ Open the **Board** (`/`) to view GitHub issues as a Kanban board. Drag an issue 
 - Multi-tab PTY terminal and CLI Agents admin page with install logs.
 - Terminal mobile UX (E23): focus mode expands the shell to the full viewport (top bar and page chrome hidden, compact tab strip kept) and a touch-only virtual keybar provides Esc, arrows, Tab/Shift+Tab, Home/End/PgUp/PgDn, sticky Ctrl and paste for phone keyboards.
 
+## Compared to Orca
+
+[Orca](https://github.com/stablyai/orca) is the closest reference point — a desktop/mobile **fleet manager for coding agents** (Electron + relay/cloud), where Harness is a local-first .NET **service** with the same orchestration heart. The 2026-10-20 gap analysis (`.specs/COMPARISON-20261020-orca-delegation-board.md`) drove eight migration specs — all shipped: board-v2, attention-model, orchestration-contract-v2, feed-notifications, session-history-parity, agent-hibernation, provider-quota-usage, worktree-shared-context. Re-analysis vs current `main` below:
+
+| Capability | Orca | Harness | Status |
+|---|---|---|---|
+| Delegation contract | Run→Task→Dispatch→Delivery, ack FIFO, ask/reply, task-bound gates, retain/release, launch prefs | Same durable contract (orchestration-v2) | parity |
+| Status detection | OSC titles + managed agent hooks + idle heuristics | Unified `AgentSessionState` store + Needs You | parity |
+| Agent board | Kanban cards, filters, unread feed, deep-links | Board v2 + attention glyphs + feed w/ prefs+sound | parity |
+| Hibernation | Auto-sleep done+idle ≥30min, resume-on-focus, guards | Same + Keep-alive pin, per-user threshold, stats | parity |
+| Provider quota | Per-provider windows + status-bar warn @80% | api/cli/local collectors, hysteresis, plan limits UI | parity (no throttle) |
+| Shared context | Settings + `orca.yaml` + `.worktreeinclude` + auto-detect | `.worktreeinclude` + `.harness/worktree.yaml` + config + auto-detect | parity |
+| Worktree cards | `worktree set --comment --workspace-status` | `worktree_set_status` tool + card API + SignalR patch | parity (UI badge = P3) |
+| Session stores | Per-CLI transcript scan + native resume | Scanner ×6 CLIs + index + search/resume parity | parity |
+| Session restore | Daemon-owned PTYs survive quit + layout/scrollback restore | Detached PTYs + session index; no layout/scrollback persist | **partial** |
+| CLI coverage | ~30 pickers, per-agent depth tiers (usage/hot-swap/hooks/status/history) | 13 pickers; deep tiers: usage claude/codex, hooks claude/codex, history ×6 | **pending** |
+| Worktree setup | `scripts.setup`/`archive` + `wait-for-setup` + `--setup` flag; `defaultTabs`, `issueCommand`, `environmentRecipes` | Shared-path copy only — no setup commands | **pending** |
+| Multi-account | Codex/Claude hot-swap: isolated homes, status-bar chip, per-account usage, config mirror | Single credential per provider | **pending** |
+| Automations | prompt+provider+repo/workspace/project+host, `--precheck` probe, missed-run grace, `--reuse-session`, `--extra-agent-args` | Generic `/jobs` scheduler — not agent-targeted | **pending** |
+| Remote hosts | Paired servers (`--on ssh:`/`runtime:`), revocable client tokens, `orca serve`, mobile QR pairing | Local only (Cloud module stub) | **pending** |
+| Review | Per-line AI/human **attribution**, annotate-ai-diff, jira/linear | Diff viewer + compare + GitHub/jira | **pending** |
+| Secrets | `ai-vault` + `ai-vault-search` | Plaintext token prefs | **pending** |
+| Artifacts | Artifacts store (blob offload) | Deliverables metadata only | **pending** |
+| Terminal | Tabs+panes+splits, ghostty/warp themes, per-terminal cgroup mem caps | Tabs (focus mode, touch keybar) | **partial** |
+| Notifications | OS notifications + Dock badge + custom sound files | In-app feed + sound categories | **partial** |
+| Computer use | `orca computer` — a11y-tree control of native apps | `browser_use` only | **pending** |
+| Project groups | Multi-repo folder workspaces | Single-repo selector | **pending** |
+| Mobile | Orca Mobile + QR pairing | Responsive Blazor | n/a |
+
+**Remaining gaps, ranked** (post-reanalysis): ① worktree **setup/archive scripts** + startup policy — the natural continuation of the shared-context spec; ② **agent-targeted automations** (precheck, grace, reuse-session, extra-agent-args); ③ **multi-account hot-swap** for claude/codex; ④ **remote/federated hosts** + pairing; ⑤ **review surface** — per-line attribution + diff annotations; ⑥ **artifact store** for large worker outputs; ⑦ **secrets vault**; ⑧ **quota-driven throttling** on dispatch; ⑨ terminal splits + OS-level notifications; ⑩ project groups, more CLI depth tiers, computer-use.
+
 ## Build Order
 
 See [`.specs/CAPABILITY-MAP.md`](.specs/CAPABILITY-MAP.md).

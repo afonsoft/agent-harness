@@ -140,6 +140,37 @@ Abra o **Board** (`/`) para visualizar as issues do GitHub como um board Kanban.
 - Terminal PTY multi-abas e página de admin de CLIs com logs de instalação.
 - UX mobile do terminal (E23): modo foco expande o shell para o viewport completo (barra superior e chrome da página ocultos, tab strip compacta mantida) e uma barra de teclas virtual só em dispositivos touch oferece Esc, setas, Tab/Shift+Tab, Home/End/PgUp/PgDn, Ctrl sticky e colar para teclados de celular.
 
+## Comparado com o Orca
+
+O [Orca](https://github.com/stablyai/orca) é a referência mais próxima — um **gerenciador de frota de agentes de código** para desktop/mobile (Electron + relay/cloud), enquanto o Harness é um **serviço** .NET local-first com o mesmo coração de orquestração. A análise de gaps de 2026-10-20 (`.specs/COMPARISON-20261020-orca-delegation-board.md`) gerou oito specs de migração — todas entregues: board-v2, attention-model, orchestration-contract-v2, feed-notifications, session-history-parity, agent-hibernation, provider-quota-usage, worktree-shared-context. Re-análise contra o `main` atual abaixo:
+
+| Capacidade | Orca | Harness | Status |
+|---|---|---|---|
+| Contrato de delegação | Run→Task→Dispatch→Delivery, ack FIFO, ask/reply, gates por task, retain/release, launch prefs | Mesmo contrato durável (orchestration-v2) | paridade |
+| Detecção de status | Títulos OSC + hooks gerenciados + heurísticas de idle | Store unificado `AgentSessionState` + Needs You | paridade |
+| Board de agentes | Cards kanban, filtros, feed com unread, deep-links | Board v2 + glyphs de atenção + feed com prefs+som | paridade |
+| Hibernação | Auto-sleep done+idle ≥30min, resume-on-focus, guards | Idem + pin Keep-alive, threshold por usuário, stats | paridade |
+| Quota de provider | Janelas por provider + warn @80% na status bar | Coletores api/cli/local, histerese, UI de plan limits | paridade (sem throttle) |
+| Contexto compartilhado | Settings + `orca.yaml` + `.worktreeinclude` + auto-detect | `.worktreeinclude` + `.harness/worktree.yaml` + config + auto-detect | paridade |
+| Cards de worktree | `worktree set --comment --workspace-status` | Tool `worktree_set_status` + API de card + patch SignalR | paridade (badge UI = P3) |
+| Session stores | Scan de transcripts por CLI + resume nativo | Scanner ×6 CLIs + index + paridade de busca/resume | paridade |
+| Session restore | PTYs do daemon sobrevivem ao quit + restaura layout/scrollback | PTYs detached + session index; sem persistir layout/scrollback | **parcial** |
+| Cobertura de CLIs | ~30 pickers, tiers de profundidade por agente (usage/hot-swap/hooks/status/history) | 13 pickers; tiers profundos: usage claude/codex, hooks claude/codex, history ×6 | **pendente** |
+| Setup de worktree | `scripts.setup`/`archive` + `wait-for-setup` + flag `--setup`; `defaultTabs`, `issueCommand`, `environmentRecipes` | Só cópia de paths — sem comandos de setup | **pendente** |
+| Multi-conta | Hot-swap Codex/Claude: homes isoladas, chip na status bar, usage por conta, espelho de config | Uma credencial por provider | **pendente** |
+| Automações | prompt+provider+repo/workspace/project+host, probe `--precheck`, grace de missed-run, `--reuse-session`, `--extra-agent-args` | `/jobs` genérico — não mira agentes | **pendente** |
+| Hosts remotos | Servidores pareados (`--on ssh:`/`runtime:`), tokens revogáveis por cliente, `orca serve`, pairing mobile por QR | Só local (módulo Cloud stub) | **pendente** |
+| Review | **Atribuição** por linha AI/humano, annotate-ai-diff, jira/linear | Diff viewer + compare + GitHub/jira | **pendente** |
+| Secrets | `ai-vault` + `ai-vault-search` | Tokens em plaintext nas prefs | **pendente** |
+| Artefatos | Store de artifacts (blob offload) | Só metadados de deliverables | **pendente** |
+| Terminal | Tabs+panes+splits, temas ghostty/warp, cap de memória cgroup por terminal | Tabs (modo foco, keybar touch) | **parcial** |
+| Notificações | Notificações de SO + badge no Dock + arquivos de som customizados | Feed in-app + categorias de som | **parcial** |
+| Computer use | `orca computer` — controle de apps nativos via a11y tree | Só `browser_use` | **pendente** |
+| Project groups | Workspaces multi-repo (folder workspaces) | Seletor de repo único | **pendente** |
+| Mobile | Orca Mobile + pairing por QR | Blazor responsivo | n/a |
+
+**Gaps restantes, ranqueados** (pós-re-análise): ① **scripts de setup/archive** de worktree + política de startup — continuação natural da spec de shared-context; ② **automações mirando agentes** (precheck, grace, reuse-session, extra-agent-args); ③ **hot-swap multi-conta** para claude/codex; ④ **hosts remotos/federados** + pairing; ⑤ **superfície de review** — atribuição por linha + anotações no diff; ⑥ **artifact store** para saídas grandes de workers; ⑦ **cofre de secrets**; ⑧ **throttling guiado por quota** no dispatch; ⑨ splits de terminal + notificações de SO; ⑩ project groups, mais tiers de CLI, computer-use.
+
 ## Ordem de Build
 
 Veja [`.specs/CAPABILITY-MAP.md`](.specs/CAPABILITY-MAP.md).
