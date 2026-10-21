@@ -140,6 +140,27 @@ Abra o **Board** (`/`) para visualizar as issues do GitHub como um board Kanban.
 - Terminal PTY multi-abas e página de admin de CLIs com logs de instalação.
 - UX mobile do terminal (E23): modo foco expande o shell para o viewport completo (barra superior e chrome da página ocultos, tab strip compacta mantida) e uma barra de teclas virtual só em dispositivos touch oferece Esc, setas, Tab/Shift+Tab, Home/End/PgUp/PgDn, Ctrl sticky e colar para teclados de celular.
 
+## Comparado com LangChain
+
+Categorias diferentes, mas vale mapear — o [LangChain](https://github.com/langchain-ai/langchain) é um **framework** Python in-process para construir agentes LLM (`agents`, `chat_models`, `tools`, `runnables`), com orquestração no [LangGraph](https://github.com/langchain-ai/langgraph) e agentes de mais alto nível no [Deep Agents](https://docs.langchain.com/oss/python/deepagents/). O Harness é um **serviço** local-first que orquestra CLIs de agentes de código de ponta a ponta — o contrato durável `Run → Task → Dispatch → Delivery`, isolamento por worktree, hibernação e rastreamento de quota não existem como primitivas de biblioteca do lado deles; troca de modelos e retrieval não existem como primitivas de serviço do nosso.
+
+| Capacidade | Ecossistema LangChain | Harness | Lacuna |
+|---|---|---|---|
+| Extensão do loop do agente | `agents/middleware`: summarization, context_editing, tool_retry, model_fallback, redação de pii | Preambles de worker estáticos, interceptação por gates/aprovações | **emprestar** — hooks de middleware por dispatch |
+| Saída estruturada | `structured_output` + output_parsers → respostas validadas por schema | Contrato JSON `worker_done`, relatórios em texto livre | **emprestar** — validar relatórios de worker por schema |
+| Retrieval | `embeddings`, `vectorstores`, `document_loaders`, `indexing`, splitters | `ProjectMemory` + compilador de contexto com budget de tokens | **emprestar** — embeddings sobre memória/transcripts |
+| Subagentes | DeepAgents `subagents`/`async_subagents`, backends de quarentena de contexto | DAG `delegate_fanout` + mailbox + worktrees paralelas | paridade (substrato diferente) |
+| Artefatos grandes | store `_blob_offload` | Apenas metadados de deliverables | **emprestar** — artifact store para payloads de dispatch |
+| HITL | middleware `human_in_the_loop`; `interrupt`/resume em qualquer ponto do LangGraph | Gates de aprovação/decisão, mailbox ask/reply, Needs You | paridade (o nosso é pontual) |
+| Durabilidade | checkpointer do LangGraph — snapshots de estado do grafo + time travel | Run→Task→Dispatch→Delivery durável + checkpoints de worktree + hibernação | paridade (contrato de mensagem vs estado de grafo) |
+| Observabilidade | tracing + evals LangSmith, `callbacks`/`tracers` | Feed SignalR, eventos do cockpit, custos FinOps | **emprestar** — harness de eval/replay |
+| Controle de modelo | `init_chat_model` + `model-profiles` + `rate_limiters` token-bucket | Launch prefs (model/effort) + **observação** de quota do provider | **emprestar** — throttle a partir dos sinais de quota |
+| Gestão de processos | — (biblioteca, sem sessões de SO) | Sessões PTY, hibernate/kill/respawn, paridade de resume | só no Harness |
+| Isolamento de workspace | — | Worktree por run + contexto gitignored compartilhado + checkpoints | só no Harness |
+| Quotas de provider | — | coletores api/cli/local, histerese de warning, plan limits | só no Harness |
+
+**Candidatos de roadmap emprestados** (em ordem aproximada de valor): relatórios de worker validados por schema, middleware de dispatch (sumarizar contextos longos, redação de PII, budgets de ferramentas), recall de memória por embeddings, artifact store para saídas grandes de workers, throttling guiado por quota, ferramentas de eval/replay.
+
 ## Ordem de Build
 
 Veja [`.specs/CAPABILITY-MAP.md`](.specs/CAPABILITY-MAP.md).
