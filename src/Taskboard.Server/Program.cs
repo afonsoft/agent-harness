@@ -4377,6 +4377,13 @@ void MapAgentsEndpoints()
         IAgentHibernationService hibernation, CancellationToken ct) =>
         Results.Ok(await hibernation.SavePrefsAsync(SessionsUserId(context), body, ct)));
 
+    // SPEC P3: hibernation stats — hibernated/pinned counts, auto-resumed
+    // total, estimated RSS saved (per-CLI heuristic, not a measurement).
+    agents.MapGet("hibernation/stats", async (
+        HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        Results.Ok(await hibernation.GetStatsAsync(SessionsUserId(context), ct)));
+
     static string SessionsUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
 

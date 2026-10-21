@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using Shouldly;
 using Xunit;
 
@@ -97,5 +98,36 @@ public class DashboardEndpointsTests : IClassFixture<TaskboardWebApplicationFact
         var response = await client.GetAsync($"/api/agents/sessions?take={take}");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    // SPEC-20261020-agent-hibernation P2/P3: prefs + stats endpoints.
+    [Fact]
+    public async Task Dado_Autenticado_Quando_GetHibernationStats_Entao_200ComShape()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/agents/hibernation/stats");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("hibernatedCount");
+        body.ShouldContain("autoResumedTotal");
+        body.ShouldContain("estimatedRssSavedMb");
+    }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_GetPutHibernationPrefs_Entao_ClampaThreshold()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var get = await client.GetAsync("/api/agents/sessions/hibernation-prefs");
+        get.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await get.Content.ReadAsStringAsync()).ShouldContain("idleThresholdMinutes");
+
+        // Out-of-range threshold clamps server-side (RF-010: 5–1440).
+        var put = await client.PutAsJsonAsync("/api/agents/sessions/hibernation-prefs",
+            new { idleThresholdMinutes = 99999, autoResumeOnFocus = true });
+        put.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await put.Content.ReadAsStringAsync()).ShouldContain("1440");
     }
 }

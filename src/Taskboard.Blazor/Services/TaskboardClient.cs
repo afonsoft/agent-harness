@@ -813,6 +813,12 @@ public sealed class TaskboardClient
             : null;
     }
 
+    /// <summary>P3: hibernation stats — counts + estimated RSS saved.</summary>
+    public async Task<HibernationStatsDto?> GetHibernationStatsAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<HibernationStatsDto>(
+            "/api/agents/hibernation/stats", cancellationToken);
+
     /// <summary>RF-008 (P3): delete-from-history — null on success, else the
     /// server error code (session-live/not-deletable/not-found).</summary>
     public async Task<string?> DeleteSessionAsync(

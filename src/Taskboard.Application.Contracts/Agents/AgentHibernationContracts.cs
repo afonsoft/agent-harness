@@ -67,6 +67,13 @@ public sealed record FocusOutcome(
 public sealed record HibernationPrefsDto(
     int IdleThresholdMinutes, bool AutoResumeOnFocus);
 
+/// <summary>P3: hibernation stats — counts + heuristic memory saved.</summary>
+public sealed record HibernationStatsDto(
+    int HibernatedCount,
+    int PinnedCount,
+    int AutoResumedTotal,
+    int EstimatedRssSavedMb);
+
 /// <summary>RF-007: env markers injected into a respawned session's process.</summary>
 public static class HibernationEnv
 {
@@ -134,4 +141,9 @@ public interface IAgentHibernationService
     /// <summary>RF-009: pin/unpin — pinned sessions never hibernate.</summary>
     Task<bool> SetPinnedAsync(
         string userId, string sessionKey, bool pinned, CancellationToken ct = default);
+
+    /// <summary>P3: hibernation stats — hibernated/pinned counts, total
+    /// auto-resumed, estimated RSS saved (per-CLI heuristic).</summary>
+    Task<HibernationStatsDto> GetStatsAsync(
+        string userId, CancellationToken ct = default);
 }

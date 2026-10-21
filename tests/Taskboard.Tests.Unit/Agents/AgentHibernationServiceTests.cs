@@ -209,6 +209,56 @@ public class AgentHibernationServiceTests
         AgentCliResumeSupport.ResumeArgv("devin", "x").ShouldBeNull();
     }
 
+    // ---------- P3: registry completeness + stats ----------
+
+    [Fact]
+    public void Dado_Registry_Quando_Inspecionado_Entao_CobreTodosOsClisConhecidos()
+    {
+        // Every scanner-known CLI has an explicit entry — none fall through to
+        // the conservative unknown branch by accident.
+        foreach (var cli in new[] { "claude", "codex", "opencode", "gemini", "agy", "devin" })
+        {
+            AgentCliResumeSupport.EstimatedRssMb(cli).ShouldBeGreaterThanOrEqualTo(0);
+            // supportsResume true only for the four with native resume.
+            AgentCliResumeSupport.SupportsResume(cli)
+                .ShouldBe(cli is "claude" or "codex" or "opencode" or "gemini");
+        }
+    }
+
+    [Fact]
+    public void Dado_CliSuportado_Quando_EstimatedRss_Entao_EstimativaPositiva()
+    {
+        AgentCliResumeSupport.EstimatedRssMb("claude").ShouldBeGreaterThan(0);
+        AgentCliResumeSupport.EstimatedRssMb("codex").ShouldBeGreaterThan(0);
+        AgentCliResumeSupport.EstimatedRssMb("opencode").ShouldBeGreaterThan(0);
+        AgentCliResumeSupport.EstimatedRssMb("gemini").ShouldBeGreaterThan(0);
+        AgentCliResumeSupport.EstimatedRssMb("devin").ShouldBe(0);
+        AgentCliResumeSupport.EstimatedRssMb("desconhecido").ShouldBe(0);
+        AgentCliResumeSupport.EstimatedRssMb(null).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Dado_Records_Quando_GetStats_Entao_ContagensERssEstimado()
+    {
+        var h = new Harness();
+        h.Records.Rows["term:a"] = new AgentHibernationDto(
+            "term:a", "local", "claude", true, Now, Now,
+            ["claude", "--resume", "n1"], "n1", "/w", 2, false);
+        h.Records.Rows["term:b"] = new AgentHibernationDto(
+            "term:b", "local", "codex", true, Now, Now,
+            ["codex", "resume", "n2"], "n2", "/w", 0, true);
+        h.Records.Rows["term:c"] = new AgentHibernationDto(
+            "term:c", "local", "claude", false, Now, Now, [], "n3", "/w", 0, true);
+
+        var stats = await h.Service.GetStatsAsync("local");
+
+        stats.HibernatedCount.ShouldBe(2);
+        stats.PinnedCount.ShouldBe(2);
+        stats.AutoResumedTotal.ShouldBe(2);
+        // claude 180 + codex 150 — pin-only rows don't count toward savings.
+        stats.EstimatedRssSavedMb.ShouldBe(330);
+    }
+
     // ---------- guards ----------
 
     [Fact]

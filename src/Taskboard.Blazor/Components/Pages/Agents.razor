@@ -381,6 +381,21 @@
                     @onclick="() => LoadSessionsAsync(rebuild: true)" Disabled="_sessionsLoading">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
+            @if (_hibStats is { HibernatedCount: > 0 } or { AutoResumedTotal: > 0 })
+            {
+                <span class="small text-body-secondary ms-auto"
+                      title="Hibernation stats — estimated RSS saved is a per-CLI heuristic">
+                    @_hibStats.HibernatedCount hibernated
+                    @if (_hibStats.AutoResumedTotal > 0)
+                    {
+                        <text> · @_hibStats.AutoResumedTotal auto-resumed</text>
+                    }
+                    @if (_hibStats.EstimatedRssSavedMb > 0)
+                    {
+                        <text> · ~@_hibStats.EstimatedRssSavedMb MB saved</text>
+                    }
+                </span>
+            }
         </div>
 
         @if (_sessionsLoading && _sessionIndex is null)
@@ -1179,6 +1194,9 @@
         }
     }
 
+    // P3: stats for the sessions toolbar (hibernated/auto-resumed/est. MB).
+    private HibernationStatsDto? _hibStats;
+
     // RF-006: focusing a hibernated row — server auto-resumes when the pref
     // allows; otherwise the row stays resumable for the explicit Resume button.
     private string? _focusingKey;
@@ -1358,6 +1376,9 @@
                 _sessionIndex = index;
                 _hiddenClis = [.. index.Chips.Where(c => c.Hidden).Select(c => c.Cli)];
             }
+
+            // P3: stats ride the same refresh — advisory, never blocks the list.
+            _hibStats = await Client.GetHibernationStatsAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
