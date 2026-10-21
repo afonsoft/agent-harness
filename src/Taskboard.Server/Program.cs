@@ -499,6 +499,10 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261005-delegation-dag-mailbox: DAG tasks + agent mailbox + dispatcher.
     builder.Services.AddScoped<IDelegationTaskRepository, EfCoreDelegationTaskRepository>();
     builder.Services.AddScoped<IAgentMailboxRepository, EfCoreAgentMailboxRepository>();
+    // SPEC-20261020-v2: run/dispatch/delivery persistence.
+    builder.Services.AddScoped<IDelegationRunRepository, EfCoreDelegationRunRepository>();
+    builder.Services.AddScoped<IDispatchRepository, EfCoreDispatchRepository>();
+    builder.Services.AddScoped<IDeliveryRepository, EfCoreDeliveryRepository>();
     builder.Services.AddScoped<IDelegationService, DelegationService>();
     builder.Services.AddScoped<IPromotedLegPrService, PromotedLegPrService>();
     builder.Services.AddHostedService<DelegationDispatcherService>();
@@ -658,6 +662,9 @@ void RegisterWorkspaceAndChatServices()
             new DelegateCompareTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentSendTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentInboxTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261020-v2 RF-001/RF-003: durable run inspection + delivery check/ack.
+            new AgentCheckTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateRunShowTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261006 RF-004/RF-005: decision gate + worktree checkpoints.
             new AgentDecideTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointTool(sp.GetRequiredService<IServiceScopeFactory>()),

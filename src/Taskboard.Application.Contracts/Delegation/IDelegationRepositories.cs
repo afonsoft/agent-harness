@@ -38,6 +38,12 @@ public interface IDelegationTaskRepository
 
     /// <summary>Attach the worktree run-id created by the fan-out tool.</summary>
     Task<DelegationTaskDto?> AttachWorktreeAsync(string id, string worktreeRunId, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-002: point the task at its in-flight dispatch (null clears).</summary>
+    Task<DelegationTaskDto?> AttachDispatchAsync(string id, string? dispatchId, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-007: failed/stale/cancelled → pending for a new dispatch attempt.</summary>
+    Task<DelegationTaskDto?> ReactivateForRetryAsync(string id, CancellationToken ct = default);
 }
 
 /// <summary>SPEC-20261005: persistence of agent mailbox messages.</summary>
@@ -60,5 +66,76 @@ public interface IAgentMailboxRepository
     Task<IReadOnlyList<MailboxMessageDto>> ListByScopeAsync(
         string scope, int take = 50, CancellationToken ct = default);
 
+    /// <summary>
+    /// SPEC-20261020-v2 RF-003: messages never handed out in a delivery
+    /// (<c>DeliveryId IS NULL</c>) for the given recipients, oldest first;
+    /// optionally restricted to the given kinds.
+    /// </summary>
+    Task<IReadOnlyList<MailboxMessageDto>> ListUndeliveredForRecipientAsync(
+        string scope, IReadOnlyCollection<string> recipients, int take = 50,
+        IReadOnlyCollection<string>? types = null, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-003: stamp a delivery batch on messages.</summary>
+    Task AssignDeliveryAsync(
+        IReadOnlyCollection<string> ids, string deliveryId, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-003: fetch messages by id preserving delivery order.</summary>
+    Task<IReadOnlyList<MailboxMessageDto>> ListByIdsAsync(
+        IReadOnlyCollection<string> ids, CancellationToken ct = default);
+
     Task MarkReadAsync(IReadOnlyCollection<string> ids, DateTime readAt, CancellationToken ct = default);
+}
+
+/// <summary>SPEC-20261020-v2 RF-001: persistence of coordination runs.</summary>
+public interface IDelegationRunRepository
+{
+    Task<DelegationRunDto?> GetAsync(string id, CancellationToken ct = default);
+
+    /// <summary>The open run of a scope — a scope has at most one.</summary>
+    Task<DelegationRunDto?> GetOpenByScopeAsync(string scope, CancellationToken ct = default);
+
+    Task<DelegationRunDto> AddAsync(
+        string scope, string objective, string coordinatorKey, CancellationToken ct = default);
+
+    Task<DelegationRunDto?> SettleAsync(string id, DateTime now, CancellationToken ct = default);
+    Task<DelegationRunDto?> AbortAsync(string id, DateTime now, CancellationToken ct = default);
+}
+
+/// <summary>SPEC-20261020-v2 RF-002: persistence of dispatch attempts.</summary>
+public interface IDispatchRepository
+{
+    Task<DispatchDto?> GetAsync(string id, CancellationToken ct = default);
+
+    /// <summary>All attempts of a task, oldest first.</summary>
+    Task<IReadOnlyList<DispatchDto>> ListByTaskAsync(string taskId, CancellationToken ct = default);
+
+    /// <summary>Non-terminal dispatches of a run (pending/dispatched).</summary>
+    Task<IReadOnlyList<DispatchDto>> ListOpenByRunAsync(string runId, CancellationToken ct = default);
+
+    /// <summary>Highest attempt number of a task — 0 when none.</summary>
+    Task<int> LatestAttemptAsync(string taskId, CancellationToken ct = default);
+
+    Task<DispatchDto> AddAsync(CreateDispatchRequest request, CancellationToken ct = default);
+
+    /// <summary>Transition to <paramref name="state"/> via the entity guards.</summary>
+    Task<DispatchDto?> TransitionAsync(
+        string id, DispatchState state, string? archivedOutput, DateTime now,
+        CancellationToken ct = default);
+}
+
+/// <summary>SPEC-20261020-v2 RF-003: persistence of mailbox delivery batches.</summary>
+public interface IDeliveryRepository
+{
+    Task<DeliveryDto?> GetAsync(string id, CancellationToken ct = default);
+
+    /// <summary>The oldest unacked delivery of a run — replay source.</summary>
+    Task<DeliveryDto?> GetOldestUnackedAsync(string runId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<DeliveryDto>> ListByRunAsync(
+        string runId, int take = 50, CancellationToken ct = default);
+
+    Task<DeliveryDto> AddAsync(
+        string runId, IReadOnlyList<string> messageIds, CancellationToken ct = default);
+
+    Task<DeliveryDto?> AckAsync(string id, DateTime now, CancellationToken ct = default);
 }

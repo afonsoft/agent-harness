@@ -23,7 +23,72 @@ public sealed record DelegationTaskDto(
     DateTime? StartedAt,
     DateTime? FinishedAt,
     DateTime? LastHeartbeatAt,
-    string Kind = "task");
+    string Kind = "task",
+    string? RunId = null,
+    string? ActiveDispatchId = null);
+
+/// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
+public sealed record DelegationRunDto(
+    string Id,
+    string Scope,
+    string Objective,
+    string CoordinatorKey,
+    DelegationRunStatus Status,
+    DateTime CreatedAtUtc,
+    DateTime? SettledAtUtc);
+
+/// <summary>SPEC-20261020-v2 RF-002: wire shape of a dispatch attempt.</summary>
+public sealed record DispatchDto(
+    string Id,
+    string TaskId,
+    string RunId,
+    string WorkerKey,
+    int Attempt,
+    DispatchState State,
+    string PreambleJson,
+    string? TerminalHandle,
+    string? ArchivedOutput,
+    DateTime CreatedAtUtc,
+    DateTime? DispatchedAtUtc,
+    DateTime? SettledAtUtc,
+    DateTime? ReleasedAtUtc);
+
+/// <summary>SPEC-20261020-v2 RF-003: wire shape of a mailbox delivery batch.</summary>
+public sealed record DeliveryDto(
+    string Id,
+    string RunId,
+    IReadOnlyList<string> MessageIds,
+    DateTime CreatedAtUtc,
+    DateTime? AckedAtUtc);
+
+/// <summary>SPEC-20261020-v2 RF-003: agent_check request — ack/peek/all/wait/types.</summary>
+public sealed record CheckDeliveriesRequest(
+    string Scope,
+    IReadOnlyCollection<string> Recipients,
+    string? AckDeliveryId = null,
+    bool Peek = false,
+    bool All = false,
+    IReadOnlyCollection<string>? Types = null,
+    bool Wait = false,
+    TimeSpan? Timeout = null);
+
+/// <summary>SPEC-20261020-v2 RF-003: one delivery page returned by agent_check.</summary>
+public sealed record DeliveryCheckResult(
+    DeliveryDto? Delivery,
+    IReadOnlyList<MailboxMessageDto> Messages,
+    int PendingCount = 0,
+    IReadOnlyList<DeliveryDto>? Deliveries = null,
+    bool TimedOut = false);
+
+/// <summary>SPEC-20261020-v2 RF-001: delegate_run_show payload.</summary>
+public sealed record DelegationRunShowDto(
+    DelegationRunDto Run,
+    IReadOnlyList<DelegationTaskDto> Tasks,
+    IReadOnlyList<DispatchDto> OpenDispatches,
+    IReadOnlyList<DeliveryDto> UnackedDeliveries);
+
+/// <summary>SPEC-20261020-v2 RF-007: retry receipt — same task, attempt+1 dispatch.</summary>
+public sealed record RetryTaskResult(DelegationTaskDto Task, DispatchDto Dispatch);
 
 /// <summary>Wire shape of a mailbox message.</summary>
 public sealed record MailboxMessageDto(
@@ -34,7 +99,9 @@ public sealed record MailboxMessageDto(
     string Kind,
     string Payload,
     DateTime CreatedAt,
-    DateTime? ReadAt);
+    DateTime? ReadAt,
+    string? DeliveryId = null,
+    string? DispatchId = null);
 
 /// <summary>Create request for a delegation task (tool → service boundary).</summary>
 public sealed record CreateDelegationTaskRequest(
@@ -48,7 +115,17 @@ public sealed record CreateDelegationTaskRequest(
     bool UseWorktree = false,
     string? RepositoryPath = null,
     string? BaseCommitSha = null,
-    string? Kind = null);
+    string? Kind = null,
+    string? RunId = null);
+
+/// <summary>SPEC-20261020-v2 RF-002: create request for a dispatch attempt.</summary>
+public sealed record CreateDispatchRequest(
+    string TaskId,
+    string RunId,
+    string WorkerKey,
+    int Attempt,
+    string PreambleJson,
+    string? Id = null);
 
 /// <summary>SPEC-20261009 RF-002: one row of the merged delegation activity feed.</summary>
 public sealed record DelegationEventDto(
@@ -71,7 +148,9 @@ public sealed record PostMailboxMessageRequest(
     string FromAgent,
     string ToAgent,
     string Payload,
-    string Kind = AgentMailboxKinds.Text);
+    string Kind = AgentMailboxKinds.Text,
+    string? TaskId = null,
+    string? DispatchId = null);
 
 /// <summary>SPEC-20261007 RF-001: human reply to a mailbox message (body required; from defaults to "human").</summary>
 public sealed record MailboxReplyRequest(string? Body, string? From);

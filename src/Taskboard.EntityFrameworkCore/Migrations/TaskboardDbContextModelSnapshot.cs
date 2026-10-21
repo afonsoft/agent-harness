@@ -1456,6 +1456,14 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DeliveryId")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DispatchId")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FromAgent")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -1489,14 +1497,62 @@ namespace Taskboard.EntityFrameworkCore.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Scope", "DeliveryId");
+
                     b.HasIndex("Scope", "ToAgent", "ReadAt");
 
                     b.ToTable("AgentMailboxMessages", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.DelegationRun", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CoordinatorKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Objective")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SettledAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Scope", "Status");
+
+                    b.ToTable("DelegationRuns", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.DelegationTask", b =>
                 {
                     b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActiveDispatchId")
                         .HasMaxLength(96)
                         .HasColumnType("TEXT");
 
@@ -1554,6 +1610,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(96)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RunId")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Scope")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -1591,6 +1651,105 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.HasIndex("Scope", "CreatedAt");
 
                     b.ToTable("DelegationTasks", (string)null);
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.Delivery", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AckedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessagesJson")
+                        .IsRequired()
+                        .HasMaxLength(8192)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("Messages");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId", "AckedAtUtc");
+
+                    b.ToTable("Deliveries", (string)null);
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.Dispatch", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ArchivedOutput")
+                        .HasMaxLength(32768)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DispatchedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreambleJson")
+                        .IsRequired()
+                        .HasMaxLength(16000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReleasedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SettledAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TerminalHandle")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WorkerKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId", "State");
+
+                    b.HasIndex("TaskId", "Attempt");
+
+                    b.ToTable("Dispatches", (string)null);
                 });
 
             modelBuilder.Entity("Taskboard.Domain.Entities.Harness.ModelPriceRate", b =>

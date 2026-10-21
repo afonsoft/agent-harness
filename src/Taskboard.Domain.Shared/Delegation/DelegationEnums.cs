@@ -12,6 +12,28 @@ public enum DelegationTaskStatus
     Cancelled,
 }
 
+/// <summary>Lifecycle of a coordination run (SPEC-20261020-orchestration-contract-v2 RF-001).</summary>
+public enum DelegationRunStatus
+{
+    Open,
+    Settled,
+    Aborted,
+}
+
+/// <summary>
+/// Lifecycle of a dispatch — one attempt of a delegation task
+/// (SPEC-20261020-orchestration-contract-v2 RF-002).
+/// </summary>
+public enum DispatchState
+{
+    Pending,
+    Dispatched,
+    Settled,
+    Released,
+    Retained,
+    Abandoned,
+}
+
 /// <summary>Message kinds of the agent mailbox (SPEC-20261005 RF-002).</summary>
 public static class AgentMailboxKinds
 {

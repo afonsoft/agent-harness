@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.Delegation;
 
 namespace Taskboard.Tests.Unit.Chat;
 
@@ -17,6 +18,13 @@ internal static class TestScopeFactory
     public static IServiceScopeFactory WithDefs(IAgentCliDefinitionRepository defs) =>
         new ServiceCollection()
             .AddSingleton(defs)
+            .BuildServiceProvider()
+            .GetRequiredService<IServiceScopeFactory>();
+
+    /// <summary>SPEC-20261020-v2: scope factory resolving a delegation-service substitute.</summary>
+    public static IServiceScopeFactory WithDelegation(IDelegationService service) =>
+        new ServiceCollection()
+            .AddSingleton(service)
             .BuildServiceProvider()
             .GetRequiredService<IServiceScopeFactory>();
 }

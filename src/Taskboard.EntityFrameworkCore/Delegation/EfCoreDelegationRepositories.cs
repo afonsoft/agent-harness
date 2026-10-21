@@ -70,7 +70,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.UseWorktree,
             request.RepositoryPath,
             request.BaseCommitSha,
-            request.Kind);
+            request.Kind,
+            request.RunId);
         _context.DelegationTasks.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -115,6 +116,24 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         string id, string worktreeRunId, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.AttachWorktree(worktreeRunId), ct).ConfigureAwait(false);
 
+    public async Task<DelegationTaskDto?> AttachDispatchAsync(
+        string id, string? dispatchId, CancellationToken ct = default) =>
+        await TransitionAsync(id, t =>
+        {
+            if (dispatchId is null)
+            {
+                t.ClearDispatch();
+            }
+            else
+            {
+                t.AttachDispatch(dispatchId);
+            }
+        }, ct).ConfigureAwait(false);
+
+    public async Task<DelegationTaskDto?> ReactivateForRetryAsync(
+        string id, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.ReactivateForRetry(), ct).ConfigureAwait(false);
+
     private async Task<DelegationTaskDto?> TransitionAsync(
         string id, Action<DelegationTask> transition, CancellationToken ct)
     {
@@ -136,7 +155,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         new(t.Id, t.Scope, t.Prompt, t.CliName, t.DependsOn, t.RetryOf, t.FanoutGroupId,
             t.UseWorktree, t.WorktreeRunId, t.WorkspacePath, t.RepositoryPath, t.BaseCommitSha,
             t.Status, t.ResultSummary, t.Error,
-            t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind);
+            t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
+            t.RunId, t.ActiveDispatchId);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>
@@ -153,7 +173,8 @@ public sealed class EfCoreAgentMailboxRepository : IAgentMailboxRepository
         PostMailboxMessageRequest request, CancellationToken ct = default)
     {
         var entity = AgentMailboxMessage.Create(
-            request.Scope, request.FromAgent, request.ToAgent, request.Payload, request.Kind);
+            request.Scope, request.FromAgent, request.ToAgent, request.Payload,
+            request.Kind, request.DispatchId);
         _context.AgentMailboxMessages.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -204,6 +225,72 @@ public sealed class EfCoreAgentMailboxRepository : IAgentMailboxRepository
         .Select(ToDto)
         .ToList();
 
+    public async Task<IReadOnlyList<MailboxMessageDto>> ListUndeliveredForRecipientAsync(
+        string scope, IReadOnlyCollection<string> recipients, int take = 50,
+        IReadOnlyCollection<string>? types = null, CancellationToken ct = default)
+    {
+        if (recipients.Count == 0)
+        {
+            return [];
+        }
+
+        var query = _context.AgentMailboxMessages
+            .Where(m => m.Scope == scope && m.DeliveryId == null && recipients.Contains(m.ToAgent));
+        if (types is { Count: > 0 })
+        {
+            query = query.Where(m => types.Contains(m.Kind));
+        }
+
+        return (await query
+            .OrderBy(m => m.CreatedAt)
+            .Take(take)
+            .ToListAsync(ct)
+            .ConfigureAwait(false))
+            .Select(ToDto)
+            .ToList();
+    }
+
+    public async Task AssignDeliveryAsync(
+        IReadOnlyCollection<string> ids, string deliveryId, CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var messages = await _context.AgentMailboxMessages
+            .Where(m => ids.Contains(m.Id))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        foreach (var message in messages)
+        {
+            message.AssignDelivery(deliveryId);
+        }
+
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<MailboxMessageDto>> ListByIdsAsync(
+        IReadOnlyCollection<string> ids, CancellationToken ct = default)
+    {
+        if (ids.Count == 0)
+        {
+            return [];
+        }
+
+        var messages = await _context.AgentMailboxMessages
+            .Where(m => ids.Contains(m.Id))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        var order = ids
+            .Select((id, i) => (id, i))
+            .ToDictionary(x => x.id, x => x.i, StringComparer.Ordinal);
+        return messages
+            .OrderBy(m => order.TryGetValue(m.Id, out var i) ? i : int.MaxValue)
+            .Select(ToDto)
+            .ToList();
+    }
+
     public async Task MarkReadAsync(
         IReadOnlyCollection<string> ids, DateTime readAt, CancellationToken ct = default)
     {
@@ -225,5 +312,6 @@ public sealed class EfCoreAgentMailboxRepository : IAgentMailboxRepository
     }
 
     private static MailboxMessageDto ToDto(AgentMailboxMessage m) =>
-        new(m.Id, m.Scope, m.FromAgent, m.ToAgent, m.Kind, m.Payload, m.CreatedAt, m.ReadAt);
+        new(m.Id, m.Scope, m.FromAgent, m.ToAgent, m.Kind, m.Payload, m.CreatedAt, m.ReadAt,
+            m.DeliveryId, m.DispatchId);
 }

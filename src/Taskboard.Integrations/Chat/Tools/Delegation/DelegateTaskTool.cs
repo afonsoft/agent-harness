@@ -84,6 +84,33 @@ public sealed class DelegateTaskTool(
         var retryOf = ReadString(arguments, "retry_of");
         var scope = DelegationToolSupport.ScopeOf(context);
 
+        if (retryOf is not null)
+        {
+            // SPEC-20261020-v2 RF-007: retry = attempt+1 on the same task.
+            try
+            {
+                await using var retryScope = scopeFactory.CreateAsyncScope();
+                var retryService = retryScope.ServiceProvider.GetRequiredService<IDelegationService>();
+                var retried = await retryService.RetryTaskAsync(scope, retryOf, cancellationToken)
+                    .ConfigureAwait(false);
+                context.Activity?.Report("delegated_task", retried.Task.Id);
+                return DelegationToolSupport.Ok(new
+                {
+                    taskId = retried.Task.Id,
+                    status = retried.Task.Status.ToString().ToLowerInvariant(),
+                    cli = retried.Task.CliName,
+                    scope = retried.Task.Scope,
+                    dispatchId = retried.Dispatch.Id,
+                    attempt = retried.Dispatch.Attempt,
+                    retried = true,
+                });
+            }
+            catch (DomainException ex)
+            {
+                return DelegationToolSupport.Error(ex.Message, "retry refused");
+            }
+        }
+
         DelegationTaskDto task;
         try
         {
@@ -127,6 +154,8 @@ public sealed class DelegateTaskTool(
             status = task.Status.ToString().ToLowerInvariant(),
             cli = task.CliName,
             scope = task.Scope,
+            runId = task.RunId,
+            activeDispatchId = task.ActiveDispatchId,
             dependsOn = task.DependsOn,
             retryOf = task.RetryOf,
             useWorktree = task.UseWorktree,

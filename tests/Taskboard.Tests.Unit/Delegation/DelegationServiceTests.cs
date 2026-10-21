@@ -18,11 +18,15 @@ public class DelegationServiceTests
 {
     private readonly IDelegationTaskRepository _tasks = Substitute.For<IDelegationTaskRepository>();
     private readonly IAgentMailboxRepository _mailbox = Substitute.For<IAgentMailboxRepository>();
+    private readonly IDelegationRunRepository _runs = Substitute.For<IDelegationRunRepository>();
+    private readonly IDispatchRepository _dispatches = Substitute.For<IDispatchRepository>();
+    private readonly IDeliveryRepository _deliveries = Substitute.For<IDeliveryRepository>();
     private readonly DelegationService _service;
 
     public DelegationServiceTests()
     {
-        _service = new DelegationService(_tasks, _mailbox, TimeProvider.System);
+        _service = new DelegationService(
+            _tasks, _mailbox, _runs, _dispatches, _deliveries, TimeProvider.System);
     }
 
     private static DelegationTaskDto TaskDto(
@@ -61,16 +65,27 @@ public class DelegationServiceTests
     }
 
     [Fact]
-    public async Task Dado_RetryDeTaskFalha_Quando_CriaTask_Entao_Cria()
+    public async Task Dado_RetryDeTaskFalha_Quando_CriaTask_Entao_ReativaMesmoTask()
     {
+        // SPEC-20261020-v2 RF-007: retry_of não cria task nova — reativa a mesma
+        // e registra um dispatch attempt+1.
         _tasks.ListByIdsAsync(Arg.Any<IReadOnlyCollection<string>>(), "conv-1", Arg.Any<CancellationToken>())
             .Returns([TaskDto("task-1", status: DelegationTaskStatus.Failed)]);
-        _tasks.AddAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
-            .Returns(ci => TaskDto("task-2"));
+        _dispatches.LatestAttemptAsync("task-1", Arg.Any<CancellationToken>()).Returns(1);
+        _dispatches.AddAsync(Arg.Any<CreateDispatchRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new DispatchDto(
+                "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
+                ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
+                null, null, DateTime.UtcNow, null, null, null));
+        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<CancellationToken>())
+            .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
 
         var task = await _service.CreateTaskAsync(Request(retryOf: "task-1"));
 
-        task.Id.ShouldBe("task-2");
+        task.Id.ShouldBe("task-1");
+        task.Status.ShouldBe(DelegationTaskStatus.Pending);
+        await _tasks.DidNotReceive().AddAsync(
+            Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ---- dependency resolution ----
