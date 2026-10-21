@@ -184,10 +184,9 @@ public sealed class DelegateFanoutTool(
                 baseBranch,
                 $"fanout-{task.Id[^Math.Min(8, task.Id.Length)..]}",
                 retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-            task = (await service.AttachWorktreeAsync(
-                    task.Id, session.RunId, session.SharedPathsApplied,
-                    session.SetupState, session.SetupLogTail,
-                    cancellationToken).ConfigureAwait(false)) ?? task;
+            task = (await DelegationToolSupport.AttachSessionAsync(
+                    service, task.Id, session, cancellationToken)
+                .ConfigureAwait(false)) ?? task;
             return LegOf(task, session.Path, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

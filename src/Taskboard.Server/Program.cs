@@ -2782,9 +2782,8 @@ void MapSettingsAndChatEndpoints()
             task.Id, clone.Path, "main",
             $"issue-{request.IssueNumber}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
             retainOnFailure: false, ct);
-        task = (await delegation.AttachWorktreeAsync(
-            task.Id, session.RunId, session.SharedPathsApplied,
-            session.SetupState, session.SetupLogTail, ct)) ?? task;
+        task = (await DelegationToolSupport.AttachSessionAsync(
+            delegation, task.Id, session, ct)) ?? task;
         return Results.Ok(new { task });
     });
 

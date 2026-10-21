@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
+using Taskboard.Dtos;
 using Taskboard.Integrations.Harness;
 
 namespace Taskboard.Integrations.Chat.Tools.Delegation;
@@ -10,7 +11,7 @@ namespace Taskboard.Integrations.Chat.Tools.Delegation;
 /// repo-path/git-base capture, recipient computation for inbox reads and the
 /// common error envelopes.
 /// </summary>
-internal static class DelegationToolSupport
+public static class DelegationToolSupport
 {
     public static string ScopeOf(ChatToolContext context) =>
         string.IsNullOrWhiteSpace(context.ConversationId) ? "harness" : context.ConversationId!;
@@ -78,4 +79,17 @@ internal static class DelegationToolSupport
 
         return recipients;
     }
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts: one-line attach — propagates the
+    /// session's shared paths + setup outcome into the task so the worker
+    /// preamble can echo them.
+    /// </summary>
+    public static Task<DelegationTaskDto?> AttachSessionAsync(
+        IDelegationService service,
+        string taskId,
+        WorktreeSessionDto session,
+        CancellationToken ct) =>
+        service.AttachWorktreeAsync(
+            taskId, session.RunId, session.SharedPathsApplied,
+            session.SetupState, session.SetupLogTail, ct);
 }
