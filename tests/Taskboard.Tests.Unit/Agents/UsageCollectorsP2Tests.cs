@@ -132,7 +132,7 @@ public class UsageCollectorsP2Tests
         var sut = new LocalTokenEstimateCollector(
             sp, config, "claude", AgentCliKind.Claude);
 
-        var windows = await sut.CollectAsync();
+        var windows = await sut.CollectAsync("local");
 
         // defaults: 700k fiveHour + 7M weekly.
         var five = windows.Single(w => w.WindowKind == ProviderWindowKinds.FiveHour);
@@ -161,12 +161,13 @@ public class UsageCollectorsP2Tests
         var sut = new LocalTokenEstimateCollector(
             sp, config, "claude", AgentCliKind.Claude);
 
-        var windows = await sut.CollectAsync();
+        var windows = await sut.CollectAsync("local");
 
-        var daily = windows.Single();
-        daily.WindowKind.ShouldBe(ProviderWindowKinds.Daily);
+        // per-key merge: config adds `daily` over the default windows.
+        var daily = windows.Single(w => w.WindowKind == ProviderWindowKinds.Daily);
         daily.UsedPct.ShouldBe(90);
         daily.Limit.ShouldBe(100_000);
+        windows.ShouldContain(w => w.WindowKind == ProviderWindowKinds.FiveHour);
     }
 
     [Fact]
@@ -179,7 +180,7 @@ public class UsageCollectorsP2Tests
             sp, new ConfigurationBuilder().Build(),
             "gemini", AgentCliKind.Kimi);
 
-        (await sut.CollectAsync()).ShouldBeEmpty();
+        (await sut.CollectAsync("local")).ShouldBeEmpty();
     }
 
     // ---------- measured vs estimated precedence (service) ----------

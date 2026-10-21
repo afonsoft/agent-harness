@@ -28,7 +28,7 @@ public sealed class ClaudeUsageCollector : IProviderUsageCollector
     public string Provider => "claude";
 
     public async Task<IReadOnlyList<ProviderUsageWindowDto>> CollectAsync(
-        CancellationToken ct = default)
+        string userId, CancellationToken ct = default)
     {
         var result = await _runner.RunAsync(
             "claude", _workdir, ["/usage"], Timeout, ct);

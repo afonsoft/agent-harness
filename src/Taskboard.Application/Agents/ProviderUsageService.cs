@@ -1,7 +1,10 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Domain.Entities;
+using Taskboard.Repositories;
 
 namespace Taskboard.Application.Agents;
 
@@ -33,7 +36,8 @@ public sealed class ProviderUsageService : IProviderUsageService
     }
 
     /// <inheritdoc/>
-    public async Task<int> CollectOnceAsync(string userId, CancellationToken ct = default)
+    public async Task<int> CollectOnceAsync(
+        string userId, string? provider = null, CancellationToken ct = default)
     {
         await using var scope = _services.CreateAsyncScope();
         var repo = scope.ServiceProvider.GetRequiredService<IProviderUsageRepository>();
@@ -42,10 +46,16 @@ public sealed class ProviderUsageService : IProviderUsageService
         var upserted = 0;
         foreach (var collector in _collectors)
         {
+            if (provider is not null
+                && !collector.Provider.Equals(provider, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             IReadOnlyList<ProviderUsageWindowDto> samples;
             try
             {
-                samples = await collector.CollectAsync(ct).ConfigureAwait(false);
+                samples = await collector.CollectAsync(userId, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -69,10 +79,11 @@ public sealed class ProviderUsageService : IProviderUsageService
 
                 var prior = await repo.GetAsync(
                     sample.Provider, sample.WindowKind, ct).ConfigureAwait(false);
-                // RF-003 fallback chain: an estimate never overwrites a fresh
-                // measured row — it only fills gaps or replaces stale data.
-                if (sample.Confidence == ProviderUsageConfidences.Estimated
-                    && prior is { Confidence: ProviderUsageConfidences.Measured } p
+                // RF-003 source precedence: a lower-priority sample never
+                // overwrites a fresh higher-priority row — api > cli >
+                // local_estimate. It only fills gaps or replaces stale data.
+                if (prior is { } p
+                    && SourcePriority(p.Source) > SourcePriority(sample.Source)
                     && p.SampledAtUtc >= DateTime.UtcNow - StaleAfter)
                 {
                     continue;
@@ -114,6 +125,108 @@ public sealed class ProviderUsageService : IProviderUsageService
         string provider, CancellationToken ct = default) =>
         (await GetRosterAsync(ct).ConfigureAwait(false))
             .FirstOrDefault(r => r.Provider == provider);
+
+    /// <inheritdoc/>
+    public async Task<PlanLimitsViewDto> GetPlanLimitsAsync(
+        string userId, CancellationToken ct = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var users = scope.ServiceProvider
+            .GetRequiredService<IRepository<UserPreference>>();
+        var user = (await users.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault();
+        var saved = ProviderPlanLimits.ParseJson(user?.PlanLimitsJson);
+
+        var providers = saved.Keys
+            .Concat(ProviderPlanLimits.Defaults.Keys
+                .Select(k => k.Split(':')[0]))
+            .Concat(ConfiguredLimits().Keys.Select(k => k.Split(':')[0]))
+            .Distinct(StringComparer.Ordinal);
+        var effective = new Dictionary<string, IReadOnlyDictionary<string, long>>(
+            StringComparer.Ordinal);
+        foreach (var provider in providers)
+        {
+            var merged = ProviderPlanLimits.EffectiveFor(
+                provider, ConfiguredLimits(), saved);
+            if (merged.Count > 0)
+            {
+                effective[provider] = merged;
+            }
+        }
+
+        return new PlanLimitsViewDto(saved, effective);
+    }
+
+    /// <inheritdoc/>
+    public async Task<PlanLimitsViewDto> SavePlanLimitsAsync(
+            string userId,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> budgets,
+            CancellationToken ct = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var users = scope.ServiceProvider
+            .GetRequiredService<IRepository<UserPreference>>();
+        var user = (await users.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault();
+
+        var clean = budgets
+            .Where(p => p.Value is { Count: > 0 })
+            .ToDictionary(
+                p => p.Key,
+                p => (IReadOnlyDictionary<string, long>)p.Value
+                    .Where(kv => kv.Value > 0)
+                    .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal),
+                StringComparer.Ordinal);
+
+        if (user is null)
+        {
+            await users.AddAsync(new UserPreference(Guid.Empty)
+            {
+                PlanLimitsJson = ProviderPlanLimits.ToJson(clean),
+            }, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            user.PlanLimitsJson = ProviderPlanLimits.ToJson(clean);
+            await users.UpdateAsync(user, ct).ConfigureAwait(false);
+        }
+
+        await users.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        return await GetPlanLimitsAsync(userId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>RF-003 chain order — higher source priority wins on fresh rows.</summary>
+    internal static int SourcePriority(string source) => source switch
+    {
+        ProviderUsageSources.Api => 3,
+        ProviderUsageSources.Cli => 2,
+        ProviderUsageSources.LocalEstimate => 1,
+        _ => 0,
+    };
+
+    /// <summary>Taskboard:PlanLimits flat "provider:kind" map (root config).</summary>
+    private IReadOnlyDictionary<string, long> ConfiguredLimits()
+    {
+        var configuration = _services.GetService<IConfiguration>();
+        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        if (configuration is null)
+        {
+            return result;
+        }
+
+        foreach (var providerSection in configuration
+                     .GetSection("Taskboard:PlanLimits").GetChildren())
+        {
+            foreach (var kv in providerSection.GetChildren())
+            {
+                if (long.TryParse(kv.Value, out var budget) && budget > 0)
+                {
+                    result[$"{providerSection.Key}:{kv.Key}"] = budget;
+                }
+            }
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// RF-007 hysteresis: ≥100 → exhausted once (WarnLevel 2); ≥80 → warning

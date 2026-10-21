@@ -256,6 +256,7 @@ public sealed class AgentHibernationService : IAgentHibernationService
             await users.UpdateAsync(user, ct).ConfigureAwait(false);
         }
 
+        await users.SaveChangesAsync(ct).ConfigureAwait(false);
         return clamped;
     }
 

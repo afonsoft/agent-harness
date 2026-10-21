@@ -2803,6 +2803,9 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<bool>("HideEmptySessionGroups")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("PlanLimitsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Theme")
                         .IsRequired()
                         .HasMaxLength(32)

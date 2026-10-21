@@ -16,12 +16,18 @@
                 @entry.Provider@(pct is null ? "" : $" {pct:F0}%")@(entry.Stale ? " ·stale" : "")
             </span>
         }
+        <button type="button" class="btn btn-link btn-sm p-0 text-body-secondary"
+                title="Refresh quota samples now"
+                disabled="@_refreshing" @onclick="RefreshNowAsync">
+            <Icon Name="IconName.ArrowClockwise" />
+        </button>
     </div>
 }
 
 @code {
     private IReadOnlyList<ProviderUsageRosterEntryDto>? _roster;
     private CancellationTokenSource? _poll;
+    private bool _refreshing;
 
     protected override async Task OnInitializedAsync()
     {
@@ -56,6 +62,25 @@
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // advisory — a failed poll keeps the last roster.
+        }
+    }
+
+    /// <summary>P3: manual refresh — same tick as the job, then reload.</summary>
+    private async Task RefreshNowAsync()
+    {
+        _refreshing = true;
+        try
+        {
+            await Client.RefreshUsageAsync();
+            await LoadAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // advisory — the strip just keeps the last roster.
+        }
+        finally
+        {
+            _refreshing = false;
         }
     }
 

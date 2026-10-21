@@ -42,7 +42,8 @@ public sealed class ProviderUsageCollectJob : BackgroundService
     {
         try
         {
-            var count = await _usage.CollectOnceAsync("local", ct).ConfigureAwait(false);
+            var count = await _usage.CollectOnceAsync(
+                "local", provider: null, ct).ConfigureAwait(false);
             if (count > 0)
             {
                 _logger.LogInformation("Sampled {Count} provider usage window(s).", count);

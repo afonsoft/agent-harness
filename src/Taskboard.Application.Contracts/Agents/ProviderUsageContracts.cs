@@ -59,7 +59,7 @@ public interface IProviderUsageCollector
     string Provider { get; }
 
     Task<IReadOnlyList<ProviderUsageWindowDto>> CollectAsync(
-        CancellationToken ct = default);
+        string userId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -68,9 +68,11 @@ public interface IProviderUsageCollector
 /// </summary>
 public interface IProviderUsageService
 {
-    /// <summary>One collect tick — every registered collector, tolerant of
-    /// individual failures. Returns windows upserted.</summary>
-    Task<int> CollectOnceAsync(string userId, CancellationToken ct = default);
+    /// <summary>One collect tick — every registered collector (or only
+    /// <paramref name="provider"/>'s when given), tolerant of individual
+    /// failures. Returns windows upserted.</summary>
+    Task<int> CollectOnceAsync(
+        string userId, string? provider = null, CancellationToken ct = default);
 
     /// <summary>RF-005: roster grouped by provider; n/a windows never
     /// persist; stale when freshest sample >15min.</summary>
@@ -80,4 +82,21 @@ public interface IProviderUsageService
     /// <summary>RF-005: one provider's detail — null when never sampled.</summary>
     Task<ProviderUsageRosterEntryDto?> GetProviderAsync(
         string provider, CancellationToken ct = default);
+
+    /// <summary>P3 RF-009: plan budgets view — <c>Saved</c> is what the user
+    /// persisted; <c>Effective</c> merges prefs → config → defaults.</summary>
+    Task<PlanLimitsViewDto> GetPlanLimitsAsync(
+        string userId, CancellationToken ct = default);
+
+    /// <summary>P3 RF-009: persists the user's plan budgets; returns the
+    /// updated view.</summary>
+    Task<PlanLimitsViewDto> SavePlanLimitsAsync(
+        string userId,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> budgets,
+        CancellationToken ct = default);
 }
+
+/// <summary>P3 RF-009: plan-limit view for the Settings editor.</summary>
+public sealed record PlanLimitsViewDto(
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Saved,
+    IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Effective);
