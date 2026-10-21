@@ -317,16 +317,30 @@
 <div class="tab-pane" role="tabpanel" aria-label="Sessions" hidden="@(_activeTab != "sessions")">
 <div class="card">
     <div class="card-body">
-        @* RF-003: picker primeiro — só depois de escolher o CLI a tabela aparece
-           (últimas 30 via ?take=30). Custom defs não têm store scaneado → chips
-           desabilitados com tooltip. *@
+        @* SPEC-20261020-session-history-parity RF-005: one chip per discovered
+           CLI (with count) — click filters, the eye persists visibility;
+           custom defs have no scanned store → disabled chips. *@
         <div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="Session source CLI">
-            @foreach (var src in SessionSources)
+            <button type="button" class="btn btn-sm @(_selectedCli is null ? "btn-primary" : "btn-outline-secondary")"
+                    aria-pressed="@(_selectedCli is null ? "true" : "false")"
+                    @onclick="() => SelectSessionCliAsync(null)">All</button>
+            @foreach (var chip in SessionChips)
             {
-                var id = src;
-                <button type="button" class="btn btn-sm @(id == _selectedCli ? "btn-primary" : "btn-outline-secondary")"
-                        aria-pressed="@(id == _selectedCli ? "true" : "false")" data-cli="@id"
-                        @onclick="() => SelectSessionCliAsync(id)">@id</button>
+                var id = chip.Cli;
+                <span class="btn-group btn-group-sm" role="group" aria-label="@id sessions">
+                    <button type="button"
+                            class="btn @(id == _selectedCli ? "btn-primary" : chip.Hidden ? "btn-outline-secondary opacity-50" : "btn-outline-secondary")"
+                            aria-pressed="@(id == _selectedCli ? "true" : "false")" data-cli="@id"
+                            @onclick="() => SelectSessionCliAsync(id == _selectedCli ? null : id)">
+                        @id <span class="badge text-bg-secondary ms-1">@chip.Count</span>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary"
+                            title="@(chip.Hidden ? $"Show {id} sessions" : $"Hide {id} sessions")"
+                            aria-label="@(chip.Hidden ? $"Show {id}" : $"Hide {id}")"
+                            @onclick="() => ToggleCliHiddenAsync(id, !chip.Hidden)">
+                        <Icon Name="@(chip.Hidden ? IconName.EyeSlash : IconName.Eye)" />
+                    </button>
+                </span>
             }
             @foreach (var def in _customDefs)
             {
@@ -335,59 +349,106 @@
             }
         </div>
 
-        <div class="d-flex align-items-center justify-content-between mb-2">
-            <h2 class="h6 fw-semibold mb-0">CLI Sessions</h2>
-            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="LoadSessionsAsync" Disabled="_sessionsLoading || _selectedCli is null">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <h2 class="h6 fw-semibold mb-0 me-auto">CLI Sessions</h2>
+            <input type="search" class="form-control form-control-sm" style="max-width: 16rem;"
+                   placeholder="Filter title, dir or branch…" aria-label="Filter sessions"
+                   value="@_sessionQuery" @oninput="OnSessionQueryInput" />
+            <select class="form-select form-select-sm w-auto" aria-label="Group sessions by"
+                    value="@_sessionGroup" @onchange="OnSessionGroupChanged">
+                <option value="cli">Group: CLI</option>
+                <option value="project">Group: Project</option>
+                <option value="day">Group: Day</option>
+            </select>
+            <select class="form-select form-select-sm w-auto" aria-label="Sort sessions by"
+                    value="@_sessionSort" @onchange="OnSessionSortChanged">
+                <option value="modified">Sort: Modified</option>
+                <option value="created">Sort: Created</option>
+                <option value="title">Sort: Title</option>
+                <option value="duration">Sort: Duration</option>
+            </select>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="hideEmptySessionGroups"
+                       checked="@_hideEmptyGroups" @onchange="OnHideEmptyChanged" />
+                <label class="form-check-label small" for="hideEmptySessionGroups">Hide empty</label>
+            </div>
+            <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                    @onclick="() => LoadSessionsAsync(rebuild: true)" Disabled="_sessionsLoading">
                 <Icon Name="IconName.ArrowClockwise" class="me-1" /> Refresh
             </Button>
         </div>
-        @if (_selectedCli is null)
+
+        @if (_sessionsLoading && _sessionIndex is null)
         {
-            <p class="small text-body-secondary mb-0">Select a CLI above to list its on-disk sessions (last 30).</p>
+            <p class="small text-body-secondary mb-0">Scanning transcripts…</p>
         }
-        else if (_sessions.Count == 0)
+        else if (_sessionIndex is null || _sessionIndex.Total == 0)
         {
-            <p class="small text-body-secondary mb-0">
-                @(_sessionsLoading ? "Scanning transcripts…" : $"No on-disk sessions found for '{_selectedCli}' under $HOME.")
-            </p>
+            <p class="small text-body-secondary mb-0">No on-disk sessions found under $HOME.</p>
         }
         else
         {
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                    <thead>
-                        <tr>
-                            <th>CLI</th>
-                            <th>Session</th>
-                            <th>Directory</th>
-                            <th>Modified</th>
-                            <th class="text-end">Resume</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var session in _sessions)
-                        {
-                            <tr @key="session.SourcePath">
-                                <td class="fw-semibold">@session.Cli</td>
-                                <td class="small"><code>@session.SessionId</code></td>
-                                <td class="small text-body-secondary text-truncate" style="max-width: 24rem;" title="@session.SourcePath">
-                                    @(session.WorkingDirectory ?? session.SourcePath)
-                                </td>
-                                <td class="small">@session.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td class="text-end">
-                                    @if (session.ResumeCommand is not null)
+            @foreach (var group in _sessionIndex.Groups)
+            {
+                <section class="mb-3" aria-label="@group.Label">
+                    <h3 class="h6 text-body-secondary mb-1">@group.Label
+                        <span class="badge text-bg-secondary ms-1">@group.Count</span></h3>
+                    @if (group.Count == 0)
+                    {
+                        <p class="small text-body-secondary fst-italic mb-0">No sessions.</p>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <tbody>
+                                    @foreach (var session in group.Sessions)
                                     {
-                                        <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(session.ResumeCommand)"
-                                           title="@session.ResumeCommand">
-                                            <Icon Name="IconName.Play" class="me-1" /> Resume
-                                        </a>
+                                        <tr @key="session.TranscriptPath">
+                                            <td>
+                                                <div class="fw-semibold text-truncate" style="max-width: 24rem;"
+                                                     title="@session.Title">@session.Title</div>
+                                                <div class="small text-body-secondary">
+                                                    <code>@session.SessionId</code>
+                                                    @if (session.RepoName is not null)
+                                                    {
+                                                        <span class="ms-2">@session.RepoName</span>
+                                                    }
+                                                    @if (session.Branch is not null)
+                                                    {
+                                                        <span class="ms-1"><Icon Name="IconName.Git" class="me-1" />@session.Branch</span>
+                                                    }
+                                                </div>
+                                            </td>
+                                            <td class="small text-body-secondary text-truncate" style="max-width: 18rem;"
+                                                title="@(session.Cwd ?? session.TranscriptPath)">
+                                                @(session.Cwd ?? session.TranscriptPath)
+                                            </td>
+                                            <td class="small text-nowrap">
+                                                @session.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm")
+                                                @if (session.MessageCount is not null)
+                                                {
+                                                    <span class="badge text-bg-light ms-1">@session.MessageCount msgs</span>
+                                                }
+                                                <span class="badge text-bg-light ms-1">@FormatSize(session.SizeBytes)</span>
+                                            </td>
+                                            <td class="text-end">
+                                                @if (session.ResumeCommand is not null)
+                                                {
+                                                    <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(session.ResumeCommand)"
+                                                       title="@session.ResumeCommand">
+                                                        <Icon Name="IconName.Play" class="me-1" /> Resume
+                                                    </a>
+                                                }
+                                            </td>
+                                        </tr>
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+            }
         }
     </div>
 </div>
@@ -768,8 +829,15 @@
     private bool _showIdle;
     private readonly HashSet<string> _knownClis = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _filterDebounce;
-    private IReadOnlyList<AgentSessionInfoDto> _sessions = [];
+    // SPEC-20261020-session-history-parity: grouped index + per-CLI visibility.
+    private AgentSessionsIndexDto? _sessionIndex;
     private bool _sessionsLoading;
+    private string _sessionGroup = "cli";
+    private string _sessionSort = "modified";
+    private string? _sessionQuery;
+    private bool _hideEmptyGroups = true;
+    private IReadOnlyList<string> _hiddenClis = [];
+    private CancellationTokenSource? _sessionQueryDebounce;
 
     // SPEC-20261010-agents-page-tabs RF-001/RF-003: tabs + picker-first sessions.
     private static readonly (string Id, string Label)[] AgentsTabs =
@@ -784,8 +852,12 @@
     // Sources scanned by AgentSessionScanner.Include (same slugs `?cli=` uses).
     private static readonly string[] SessionSources =
         ["claude", "codex", "opencode", "gemini", "agy", "devin"];
-    private const int SessionsTake = 30;
     private string? _selectedCli;
+
+    /// <summary>Chips = index-discovered CLIs, or the known sources pre-load.</summary>
+    private IEnumerable<SessionCliChipDto> SessionChips =>
+        _sessionIndex?.Chips
+        ?? SessionSources.Select(s => new SessionCliChipDto(s, 0, _hiddenClis.Contains(s)));
 
     // SPEC-20261007 RF-001/RF-004: mailbox replies + fan-out compare modal.
     private string? _openReplyId;
@@ -826,6 +898,11 @@
         {
             _selectedCli = SessionSources.First(s =>
                 string.Equals(s, cli, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // session-history-parity: the index lists all CLIs — no picker-first.
+        if (_activeTab == "sessions")
+        {
             await LoadSessionsAsync();
         }
 
@@ -871,6 +948,10 @@
             ? $"?tab={id}&cli={_selectedCli}"
             : $"?tab={id}";
         Navigation.NavigateTo($"/agents{query}", replace: true);
+        if (id == "sessions" && _sessionIndex is null)
+        {
+            _ = LoadSessionsAsync();
+        }
     }
 
     /// <summary>WAI-ARIA tabs keyboard model: ←/→ cycle, Home/End jump.</summary>
@@ -897,12 +978,88 @@
         }
     }
 
-    private async Task SelectSessionCliAsync(string cli)
+    private async Task SelectSessionCliAsync(string? cli)
     {
         _selectedCli = cli;
-        Navigation.NavigateTo($"/agents?tab=sessions&cli={cli}", replace: true);
+        Navigation.NavigateTo(
+            cli is null ? "/agents?tab=sessions" : $"/agents?tab=sessions&cli={cli}",
+            replace: true);
         await LoadSessionsAsync();
     }
+
+    /// <summary>RF-005: eye on each chip persists hidden via sessions/prefs.</summary>
+    private async Task ToggleCliHiddenAsync(string cli, bool hidden)
+    {
+        var set = _hiddenClis.ToHashSet(StringComparer.Ordinal);
+        _ = hidden ? set.Add(cli) : set.Remove(cli);
+        _hiddenClis = [.. set];
+        if (hidden && _selectedCli == cli)
+        {
+            _selectedCli = null;
+        }
+
+        try
+        {
+            await Client.SaveSessionViewPrefsAsync(
+                new SessionViewPrefsDto(_hideEmptyGroups, _hiddenClis));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+        }
+
+        await LoadSessionsAsync();
+    }
+
+    private async Task OnHideEmptyChanged(ChangeEventArgs e)
+    {
+        _hideEmptyGroups = e.Value is bool b && b;
+        try
+        {
+            await Client.SaveSessionViewPrefsAsync(
+                new SessionViewPrefsDto(_hideEmptyGroups, _hiddenClis));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+        }
+
+        await LoadSessionsAsync();
+    }
+
+    private async Task OnSessionQueryInput(ChangeEventArgs e)
+    {
+        _sessionQuery = e.Value?.ToString();
+        _sessionQueryDebounce?.Cancel();
+        _sessionQueryDebounce?.Dispose();
+        _sessionQueryDebounce = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, _sessionQueryDebounce.Token);
+            await LoadSessionsAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task OnSessionGroupChanged(ChangeEventArgs e)
+    {
+        _sessionGroup = e.Value?.ToString() ?? "cli";
+        await LoadSessionsAsync();
+    }
+
+    private async Task OnSessionSortChanged(ChangeEventArgs e)
+    {
+        _sessionSort = e.Value?.ToString() ?? "modified";
+        await LoadSessionsAsync();
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1_048_576 => $"{bytes / 1_048_576.0:F1} MB",
+        >= 1_024 => $"{bytes / 1_024.0:F1} KB",
+        _ => $"{bytes} B",
+    };
 
     // RF-005: debounced so typing does not fire a request per keystroke.
     private async Task OnFilterChangedAsync()
@@ -1043,22 +1200,23 @@
         }
     }
 
-    private async Task LoadSessionsAsync()
+    private async Task LoadSessionsAsync(bool rebuild = false)
     {
-        if (_selectedCli is null)
-        {
-            _sessions = [];
-            return;
-        }
-
         _sessionsLoading = true;
         try
         {
-            _sessions = await Client.GetAgentSessionsAsync(_selectedCli, take: SessionsTake);
+            var index = await Client.GetSessionIndexAsync(
+                _selectedCli, _sessionGroup, _sessionSort, _sessionQuery,
+                hideEmpty: _hideEmptyGroups, rebuild: rebuild);
+            if (index is not null)
+            {
+                _sessionIndex = index;
+                _hiddenClis = [.. index.Chips.Where(c => c.Hidden).Select(c => c.Cli)];
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _sessions = [];
+            _sessionIndex ??= new AgentSessionsIndexDto([], 0, [], _hideEmptyGroups);
         }
         finally
         {

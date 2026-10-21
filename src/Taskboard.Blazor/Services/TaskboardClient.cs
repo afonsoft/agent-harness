@@ -728,20 +728,40 @@ public sealed class TaskboardClient
         return response?.Events ?? [];
     }
 
-    /// <summary>SPEC-20261006 RF-002/RF-003: resumable on-disk CLI sessions.
-    /// SPEC-20261010-agents-page-tabs RF-003/RF-004: `cli` + `take` filters.</summary>
-    public async Task<IReadOnlyList<AgentSessionInfoDto>> GetAgentSessionsAsync(
-        string? cli = null, int? take = null, CancellationToken cancellationToken = default)
+    /// <summary>SPEC-20261020-session-history-parity RF-002: grouped enriched
+    /// index — cli/group/sort/q/hideEmpty + optional rebuild.</summary>
+    public async Task<AgentSessionsIndexDto?> GetSessionIndexAsync(
+        string? cli = null, string? group = null, string? sort = null,
+        string? q = null, bool? hideEmpty = null, bool rebuild = false,
+        CancellationToken cancellationToken = default)
     {
         var query = string.Join('&', new[]
             {
                 string.IsNullOrWhiteSpace(cli) ? null : $"cli={Uri.EscapeDataString(cli)}",
-                take is null ? null : $"take={take}",
+                string.IsNullOrWhiteSpace(group) ? null : $"group={group}",
+                string.IsNullOrWhiteSpace(sort) ? null : $"sort={sort}",
+                string.IsNullOrWhiteSpace(q) ? null : $"q={Uri.EscapeDataString(q)}",
+                hideEmpty is null ? null : $"hideEmpty={hideEmpty.Value}",
+                rebuild ? "rebuild=true" : null,
             }.Where(p => p is not null));
-        var response = await _httpClient.GetFromJsonAsync<AgentSessionsResponse>(
+        return await _httpClient.GetFromJsonAsync<AgentSessionsIndexDto>(
             $"/api/agents/sessions{(query.Length == 0 ? "" : $"?{query}")}",
             cancellationToken);
-        return response?.Sessions ?? [];
+    }
+
+    /// <summary>RF-005: per-user sessions-view prefs (hidden CLIs + hideEmpty).</summary>
+    public async Task<SessionViewPrefsDto?> GetSessionViewPrefsAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<SessionViewPrefsDto>(
+            "/api/agents/sessions/prefs", cancellationToken);
+
+    /// <summary>RF-005: upserts the sessions-view prefs.</summary>
+    public async Task SaveSessionViewPrefsAsync(
+        SessionViewPrefsDto prefs, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            "/api/agents/sessions/prefs", prefs, cancellationToken);
+        response.EnsureSuccessStatusCode();
     }
 
     /// <summary>Defs de CLI customizadas (SPEC-20260928-ai-code-generic-cli RF-002).</summary>
@@ -1173,8 +1193,6 @@ public sealed class TaskboardClient
     private sealed record IssueHistoryResponse(List<Taskboard.GitHub.IssueHistoryItemDto> Items);
 
     private sealed record InstalledAgentsResponse(List<AgentInfo> Agents);
-
-    private sealed record AgentSessionsResponse(List<AgentSessionInfoDto> Sessions);
 
     private sealed record FanoutCompareResponse(string GroupId, List<FanoutCompareLegDto> Legs);
 

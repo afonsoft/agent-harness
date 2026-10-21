@@ -41,6 +41,10 @@ public sealed class AgentSessionScanner : IAgentSessionScanner
     }
 
     /// <inheritdoc />
+    public IReadOnlyList<string> SupportedClis { get; } =
+        ["claude", "codex", "opencode", "gemini", "agy", "devin"];
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<AgentSessionInfoDto>> ScanAsync(
         string? cli = null, int takePerCli = 50, CancellationToken ct = default)
     {

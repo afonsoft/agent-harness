@@ -21,6 +21,13 @@ public sealed record AgentSessionInfoDto(
 public interface IAgentSessionScanner
 {
     /// <summary>
+    /// Canonical CLI slugs the scanner knows how to read
+    /// (SPEC-20261020-session-history-parity RF-005: chips enumerate all of
+    /// them even when a CLI has no sessions on disk).
+    /// </summary>
+    IReadOnlyList<string> SupportedClis { get; }
+
+    /// <summary>
     /// Lists sessions newest-first. <paramref name="cli"/> (optional) filters to
     /// one CLI binary name; missing directories yield an empty list, never errors.
     /// </summary>
