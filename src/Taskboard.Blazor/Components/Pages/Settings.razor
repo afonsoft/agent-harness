@@ -482,6 +482,13 @@
                     <button type="button" class="btn btn-primary btn-sm" @onclick="SaveHibernationPrefsAsync" disabled="@_hibPrefsSaving">
                         @(_hibPrefsSaving ? "Saving…" : "Save hibernation preferences")
                     </button>
+                    @if (_hibStats is not null)
+                    {
+                        <p class="small text-body-secondary mt-2 mb-0">
+                            @_hibStats.HibernatedCount hibernated · @_hibStats.PinnedCount pinned ·
+                            @_hibStats.AutoResumedTotal auto-resumed · ~@_hibStats.EstimatedRssSavedMb MB saved (est.)
+                        </p>
+                    }
                     @if (_hibPrefsError is not null)
                     {
                         <div class="alert alert-danger small mt-2 mb-0">@_hibPrefsError</div>
@@ -1421,6 +1428,7 @@
     private int _hibThresholdMinutes = 30;
     private bool _hibPrefsSaving;
     private string? _hibPrefsError;
+    private HibernationStatsDto? _hibStats;
     private readonly Dictionary<AgentType, bool> _enabledState = new();
     private readonly Dictionary<AgentType, bool> _originalEnabledState = new();
 
@@ -1780,6 +1788,8 @@
                 _hibAutoResume = prefs.AutoResumeOnFocus;
                 _hibThresholdMinutes = prefs.IdleThresholdMinutes;
             }
+
+            _hibStats = await Client.GetHibernationStatsAsync();
         }
         catch
         {

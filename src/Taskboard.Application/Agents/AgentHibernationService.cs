@@ -259,6 +259,21 @@ public sealed class AgentHibernationService : IAgentHibernationService
         return clamped;
     }
 
+    /// <inheritdoc/>
+    public async Task<HibernationStatsDto> GetStatsAsync(
+        string userId, CancellationToken ct = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var records = scope.ServiceProvider.GetRequiredService<IAgentHibernationRepository>();
+        var all = await records.ListAsync(userId, ct).ConfigureAwait(false);
+        return new HibernationStatsDto(
+            all.Count(r => r.IsHibernated),
+            all.Count(r => r.Pinned),
+            all.Sum(r => r.AutoResumedCount),
+            all.Where(r => r.IsHibernated)
+                .Sum(r => AgentCliResumeSupport.EstimatedRssMb(r.Cli)));
+    }
+
     /// <summary>RF-010: effective threshold — user pref, clamped 5–1440, default 30.</summary>
     internal static async Task<HibernationPrefsDto> ReadPrefsAsync(
         IServiceProvider sp, CancellationToken ct)
