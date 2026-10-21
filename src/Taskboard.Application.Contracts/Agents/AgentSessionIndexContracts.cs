@@ -77,6 +77,47 @@ public interface IAgentTranscriptSearcher
         CancellationToken ct = default);
 }
 
+/// <summary>RF-007 (P3): resume a CLI session inside the native ACP chat.</summary>
+public sealed record NativeChatResumeRequest(string Cli, string SessionId, string? Cwd);
+
+/// <summary>RF-007 (P3): the created agent thread + its attention key.</summary>
+public sealed record NativeChatResumeResult(string ThreadId, string SessionKey);
+
+/// <summary>RF-008 (P3): outcome of a history delete.</summary>
+public enum SessionDeleteResult
+{
+    Deleted,
+    NotFound,
+    Live,
+    NotDeletable,
+    OutsideHome,
+}
+
+/// <summary>
+/// RF-008 + §3: filesystem ops over session artifacts — confined to $HOME,
+/// testable in isolation.
+/// </summary>
+public interface ISessionFileActions
+{
+    bool IsUnderHome(string path);
+    bool Exists(string path);
+    Task DeleteAsync(string path, CancellationToken ct = default);
+    /// <summary>Opens the path with the platform handler (xdg-open/open/explorer).</summary>
+    Task<bool> OpenAsync(string path, CancellationToken ct = default);
+}
+
+/// <summary>RF-008 (P3): delete-from-history with the spec guards.</summary>
+public interface ISessionActionService
+{
+    /// <summary>Deletes the transcript file of a non-live, file-per-session
+    /// CLI (claude/codex); audited via a session_deleted feed item.</summary>
+    Task<SessionDeleteResult> DeleteAsync(
+        string userId, string cli, string sessionId, CancellationToken ct = default);
+
+    /// <summary>Opens a transcript file or cwd with the platform handler.</summary>
+    Task<bool> OpenPathAsync(string path, CancellationToken ct = default);
+}
+
 /// <summary>RF-002/RF-005: grouped index page + chips + the hideEmpty flag.</summary>
 public sealed record AgentSessionsIndexDto(
     IReadOnlyList<SessionGroupDto> Groups,

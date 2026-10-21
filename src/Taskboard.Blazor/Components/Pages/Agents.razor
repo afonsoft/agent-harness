@@ -460,7 +460,8 @@
                                                         <Icon Name="IconName.Play" class="me-1" /> Resume
                                                     </a>
                                                 }
-                                                <SessionActionsMenu Entry="session" />
+                                                <SessionActionsMenu Entry="session"
+                                                    OnDeleted="() => LoadSessionsAsync(rebuild: true)" />
                                             </td>
                                         </tr>
                                     }

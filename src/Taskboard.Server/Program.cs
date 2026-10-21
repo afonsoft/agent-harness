@@ -549,6 +549,11 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261020-session-history-parity P2: live-join catalog + transcript rg.
     builder.Services.AddSingleton<ILiveAgentSessionCatalog, Taskboard.Server.Services.LiveAgentSessionCatalog>();
     builder.Services.AddSingleton<IAgentTranscriptSearcher, AgentTranscriptSearcher>();
+    // SPEC-20261020-session-history-parity P3: file actions + delete/open +
+    // native-chat resume.
+    builder.Services.AddSingleton<ISessionFileActions, SessionFileActions>();
+    builder.Services.AddScoped<ISessionActionService, SessionActionService>();
+    builder.Services.AddScoped<Taskboard.Server.Services.SessionNativeChatService>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -4279,6 +4284,39 @@ void MapAgentsEndpoints()
         IAgentSessionIndexService index, CancellationToken ct) =>
         Results.Ok(await index.SaveViewPrefsAsync(SessionsUserId(context), body, ct)));
 
+    // SPEC RF-008: delete-from-history — file-per-session CLIs only, never
+    // live sessions, transcript confined to $HOME, audited via session_deleted.
+    agents.MapDelete("sessions/{cli}/{sessionId}", async (
+        string cli, string sessionId, HttpContext context,
+        ISessionActionService actions, CancellationToken ct) =>
+    {
+        var result = await actions.DeleteAsync(SessionsUserId(context), cli, sessionId, ct);
+        return result switch
+        {
+            SessionDeleteResult.Deleted => Results.NoContent(),
+            SessionDeleteResult.NotFound => Results.NotFound(new { error = "session-not-found" }),
+            SessionDeleteResult.Live => Results.Conflict(new { error = "session-live" }),
+            SessionDeleteResult.NotDeletable => Results.BadRequest(new { error = "session-not-deletable" }),
+            _ => Results.BadRequest(new { error = "session-outside-home" }),
+        };
+    });
+
+    // SPEC P3: platform open handler for a transcript file or cwd.
+    agents.MapPost("sessions/open", async (
+        SessionOpenRequest body, ISessionActionService actions, CancellationToken ct) =>
+        await actions.OpenPathAsync(body.Path, ct)
+            ? Results.Accepted()
+            : Results.BadRequest(new { error = "path-not-openable" }));
+
+    // SPEC RF-007: resume a CLI session inside the native ACP chat — creates
+    // an agent thread bound to the session cwd, primes the native session id
+    // and starts the session for replay.
+    agents.MapPost("sessions/native-chat", async (
+        NativeChatResumeRequest body,
+        Taskboard.Server.Services.SessionNativeChatService native,
+        CancellationToken ct) =>
+        Results.Ok(await native.StartAsync(body, ct)));
+
     static string SessionsUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
 
@@ -5206,6 +5244,9 @@ public partial class Program
     /// <summary>SPEC-20261004-redis-hybrid-cache: cache-mode facts surfaced to
     /// the post-Build boot log (connstring never included).</summary>
     private sealed record CacheBootInfo(string? RedisInstance, TimeSpan DefaultExpiration, bool LocalClamped);
+
+    /// <summary>SPEC P3: open-with-platform-handler request.</summary>
+    private sealed record SessionOpenRequest(string Path);
 
     /// <summary>SPEC-20261020-session-history-parity RF-002: sessions index
     /// query bound via [AsParameters] (keeps the handler under S107).</summary>
