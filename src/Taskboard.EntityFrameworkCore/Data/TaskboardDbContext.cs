@@ -65,6 +65,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<UserFeedPreference> UserFeedPreferences => Set<UserFeedPreference>();
     public DbSet<SessionCliVisibility> SessionCliVisibilities => Set<SessionCliVisibility>();
     public DbSet<Taskboard.Domain.Agents.AgentHibernation> AgentHibernations => Set<Taskboard.Domain.Agents.AgentHibernation>();
+    public DbSet<Taskboard.Domain.Agents.ProviderUsageWindow> ProviderUsageWindows => Set<Taskboard.Domain.Agents.ProviderUsageWindow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

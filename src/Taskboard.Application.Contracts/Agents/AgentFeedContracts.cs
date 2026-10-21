@@ -140,7 +140,9 @@ public static class AgentFeedDefaults
 {
     public static FeedCategoryPreference For(AgentFeedKind kind) => kind switch
     {
-        AgentFeedKind.Attention or AgentFeedKind.Question => new(true, true, true),
+        AgentFeedKind.Attention or AgentFeedKind.Question
+            or AgentFeedKind.QuotaWarning or AgentFeedKind.QuotaExhausted =>
+            new(true, true, true),
         AgentFeedKind.Completion or AgentFeedKind.Failure => new(true, false, true),
         _ => new(false, false, true),
     };

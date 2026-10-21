@@ -32,4 +32,10 @@ public enum AgentFeedKind
 
     /// <summary>Hibernated session respawned via native resume (SPEC agent-hibernation RF-007).</summary>
     SessionResumed,
+
+    /// <summary>Provider quota window crossed 80% (SPEC provider-quota-usage RF-007).</summary>
+    QuotaWarning,
+
+    /// <summary>Provider quota window crossed 100% — switch CLI suggested (SPEC provider-quota-usage RF-007).</summary>
+    QuotaExhausted,
 }

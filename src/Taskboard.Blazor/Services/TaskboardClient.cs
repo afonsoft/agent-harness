@@ -819,6 +819,21 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<HibernationStatsDto>(
             "/api/agents/hibernation/stats", cancellationToken);
 
+    /// <summary>SPEC-20261020-provider-quota-usage RF-005: quota roster.</summary>
+    public async Task<IReadOnlyList<ProviderUsageRosterEntryDto>?> GetUsageRosterAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<IReadOnlyList<ProviderUsageRosterEntryDto>>(
+            "/api/usage/providers", cancellationToken);
+
+    /// <summary>Manual collect tick — same path as the background job.</summary>
+    public async Task<bool> RefreshUsageAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync(
+            "/api/usage/refresh", content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     /// <summary>RF-008 (P3): delete-from-history — null on success, else the
     /// server error code (session-live/not-deletable/not-found).</summary>
     public async Task<string?> DeleteSessionAsync(
