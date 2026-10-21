@@ -571,6 +571,17 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddScoped<IProviderUsageRepository, EfCoreProviderUsageRepository>();
     builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
         new ClaudeUsageCollector(sp.GetRequiredService<IProcessRunner>()));
+    builder.Services.AddSingleton<IProviderUsageCollector>(
+        _ => new CodexUsageCollector());
+    builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
+        new CopilotUsageCollector(sp.GetRequiredService<IProcessRunner>()));
+    // RF-003 fallback: local token estimates fill gaps/stale measured data.
+    builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
+        new LocalTokenEstimateCollector(sp, sp.GetRequiredService<IConfiguration>(),
+            "claude", AgentCliKind.Claude));
+    builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
+        new LocalTokenEstimateCollector(sp, sp.GetRequiredService<IConfiguration>(),
+            "codex", AgentCliKind.Codex));
     builder.Services.AddSingleton<IProviderUsageService, ProviderUsageService>();
     builder.Services.AddHostedService<ProviderUsageCollectJob>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();

@@ -62,4 +62,12 @@ public interface ICliMetricsRepository
 
     /// <summary>Deletes raw session rows older than the cutoff; aggregates stay (RF-008).</summary>
     Task<int> PurgeSessionsOlderThanAsync(DateTime cutoffUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SPEC-20261020-provider-quota-usage RF-003: sum of in+out+cached tokens
+    /// for sessions of <paramref name="kind"/> started at or after
+    /// <paramref name="fromUtc"/> — feeds the local_estimate fallback.
+    /// </summary>
+    Task<long> SumTokensAsync(
+        AgentCliKind kind, DateTime fromUtc, CancellationToken cancellationToken = default);
 }

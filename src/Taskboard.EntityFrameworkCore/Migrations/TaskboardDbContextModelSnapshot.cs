@@ -412,6 +412,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RecentPctsJson")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("ResetsAtUtc")
                         .HasColumnType("TEXT");
 

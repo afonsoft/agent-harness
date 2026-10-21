@@ -19,6 +19,8 @@ public sealed class ProviderUsageWindowConfiguration
         builder.Property(x => x.Source).IsRequired().HasMaxLength(16);
         builder.Property(x => x.Confidence).IsRequired().HasMaxLength(16);
         builder.Property(x => x.RawJson).HasMaxLength(2048);
+        // 10 doubles × ~8 chars — 128 is generous headroom.
+        builder.Property(x => x.RecentPctsJson).HasMaxLength(128);
 
         // One row per (provider, window) — upsert target.
         builder.HasIndex(x => new { x.Provider, x.WindowKind }).IsUnique();

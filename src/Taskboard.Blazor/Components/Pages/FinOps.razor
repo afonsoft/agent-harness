@@ -172,6 +172,76 @@
                 </div>
             }
 
+            @* SPEC-20261020-provider-quota-usage RF-008: quota windows per
+               provider with trend sparkline + manual refresh. *@
+            @if (_usageRoster is { Count: > 0 } roster)
+            {
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="h6 fw-semibold mb-0">Quota &amp; limits</h2>
+                    <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small"
+                            @onclick="RefreshUsageNowAsync" Disabled="_usageRefreshing">
+                        <Icon Name="IconName.ArrowClockwise" class="me-1" />
+                        @(_usageRefreshing ? "Sampling…" : "Refresh now")
+                    </Button>
+                </div>
+                <div class="table-responsive mt-2 mb-4">
+                    <table class="table table-sm tabular-nums align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Provider</th><th>Window</th>
+                                <th style="width: 30%">Used</th>
+                                <th class="text-end">Resets</th>
+                                <th class="text-end">Source</th>
+                                <th class="text-end">Trend</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in roster.SelectMany(
+                                r => r.Windows.Select(w => (r.Provider, r.Stale, w))))
+                            {
+                                <tr>
+                                    <td>@row.Provider</td>
+                                    <td><code class="small">@row.w.WindowKind</code></td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="progress flex-fill" style="height: 8px">
+                                                <div class="progress-bar @QuotaBarClass(row.w.UsedPct, row.Stale)"
+                                                     style="width: @((row.w.UsedPct ?? 0).ToString("F0", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                            </div>
+                                            <span class="small">@(row.w.UsedPct is { } p ? $"{p:F0}%" : "—")</span>
+                                        </div>
+                                    </td>
+                                    <td class="text-end small text-nowrap">
+                                        @(row.w.ResetsAtUtc is { } r ? UiFormat.CompactDateTime(r) : "—")
+                                    </td>
+                                    <td class="text-end">
+                                        <span class="badge text-bg-secondary" title="@row.w.Confidence">
+                                            @row.w.Source@(row.Stale ? " ·stale" : "")
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        @if (row.w.RecentPcts is { Count: > 1 } trend)
+                                        {
+                                            <div class="d-inline-flex align-items-end gap-1" style="height: 18px"
+                                                 title="@string.Join(" → ", trend.Select(t => $"{t:F0}%"))">
+                                                @foreach (var t in trend)
+                                                {
+                                                    <div class="bg-info rounded-top" style="width: 4px; height: @(Math.Max(t, 2).ToString("F0", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-body-secondary">—</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
                     <h2 class="h6 fw-semibold">Cost by agent</h2>
@@ -393,8 +463,10 @@
     private string _runIdQuery = string.Empty;
     private FinOpsSummaryDto? _summary;
     private IReadOnlyList<CliMetricSourceDto> _sources = [];
+    private IReadOnlyList<ProviderUsageRosterEntryDto>? _usageRoster;
     private RunTelemetryDto? _telemetry;
     private bool _loading;
+    private bool _usageRefreshing;
 
     protected override async Task OnInitializedAsync() => await RefreshAsync();
 
@@ -411,6 +483,7 @@
         {
             var summaryTask = Client.GetFinOpsSummaryAsync(_period);
             var sourcesTask = Client.GetCliMetricSourcesAsync();
+            var rosterTask = Client.GetUsageRosterAsync();
 
             try
             {
@@ -432,12 +505,48 @@
                 _sources = [];
                 await ToastService.NotifyAsync(new(ToastType.Warning, $"Failed to load CLI source health: {ex.Message}"));
             }
+
+            // Quota roster is advisory — a failing call hides the section.
+            try
+            {
+                _usageRoster = await rosterTask;
+            }
+            catch (Exception)
+            {
+                _usageRoster = null;
+            }
         }
         finally
         {
             _loading = false;
         }
     }
+
+    /// <summary>RF-008: POST /api/usage/refresh then reload the roster.</summary>
+    private async Task RefreshUsageNowAsync()
+    {
+        _usageRefreshing = true;
+        try
+        {
+            await Client.RefreshUsageAsync();
+            _usageRoster = await Client.GetUsageRosterAsync();
+        }
+        catch (Exception ex)
+        {
+            await ToastService.NotifyAsync(
+                new(ToastType.Warning, $"Quota refresh failed: {ex.Message}"));
+        }
+        finally
+        {
+            _usageRefreshing = false;
+        }
+    }
+
+    private static string QuotaBarClass(double? pct, bool stale) =>
+        stale ? "bg-secondary"
+            : pct >= 80 ? "bg-danger"
+            : pct >= 50 ? "bg-warning"
+            : "bg-success";
 
     private async Task OnRunKeyUpAsync(KeyboardEventArgs args)
     {
