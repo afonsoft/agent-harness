@@ -57,17 +57,22 @@ public class DashboardEndpointsTests : IClassFixture<TaskboardWebApplicationFact
 
         var response = await client.GetAsync("/api/agents/sessions");
 
+        // session-history-parity RF-002: grouped index payload.
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadAsStringAsync()).ShouldContain("sessions");
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain("groups");
+        body.ShouldContain("chips");
+        body.ShouldContain("hideEmpty");
     }
 
-    // SPEC-20261010-agents-page-tabs RF-003/RF-004: cli + take filters.
+    // SPEC-20261010-agents-page-tabs RF-003/RF-004 +
+    // session-history-parity RF-002: cli/group/sort query params.
     [Fact]
     public async Task Dado_CliValidoETake_Quando_GetSessions_Entao_200()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
 
-        var response = await client.GetAsync("/api/agents/sessions?cli=claude&take=30");
+        var response = await client.GetAsync("/api/agents/sessions?cli=claude&group=cli&sort=modified");
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
     }

@@ -29,11 +29,15 @@ public class AgentSessionIndexServiceTests : IDisposable
     private readonly ServiceProvider _provider;
     private readonly IAgentSessionScanner _scanner =
         Substitute.For<IAgentSessionScanner>();
+    private readonly IAgentSessionGitProbe _gitProbe =
+        Substitute.For<IAgentSessionGitProbe>();
 
     public AgentSessionIndexServiceTests()
     {
         _scanner.SupportedClis
             .Returns(["claude", "codex", "opencode", "gemini", "agy", "devin"]);
+        _gitProbe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<(string?, string?)>((null, null)));
         _visibility.ListHiddenAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<string>>([]));
         _users.ListAsync(Arg.Any<CancellationToken>())
@@ -54,7 +58,7 @@ public class AgentSessionIndexServiceTests : IDisposable
     }
 
     private AgentSessionIndexService NewService(IAgentSessionScanner? scanner = null) =>
-        new(_provider, scanner ?? new AgentSessionScanner(_root));
+        new(_provider, scanner ?? new AgentSessionScanner(_root), _gitProbe);
 
     private string WriteClaudeSession(string id, params string[] lines)
     {

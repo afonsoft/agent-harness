@@ -544,6 +544,8 @@ void RegisterAcpAndAgentServices()
     // per-CLI visibility. The index service is a singleton (60s rebuild gate).
     builder.Services.AddScoped<ISessionCliVisibilityRepository, EfCoreSessionCliVisibilityRepository>();
     builder.Services.AddSingleton<IAgentSessionIndexService, AgentSessionIndexService>();
+    builder.Services.AddSingleton<IAgentSessionGitProbe>(sp =>
+        new AgentSessionGitProbe(sp.GetRequiredService<IGitCommandRunner>()));
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -4234,34 +4236,33 @@ void MapAgentsEndpoints()
     // SPEC-20261006 RF-002/RF-003 + SPEC-20261020-session-history-parity
     // RF-002: enriched grouped index — cli/group/sort/q/hideEmpty/rebuild.
     agents.MapGet("sessions", async (
-        string? cli, string? group, string? sort, string? q, bool? hideEmpty,
-        bool? rebuild, HttpContext context,
+        [AsParameters] SessionIndexQuery query, HttpContext context,
         IAgentSessionIndexService index, CancellationToken ct) =>
     {
-        if (cli is { Length: > 0 } &&
-            (cli.Length > 32 || !cli.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')))
+        if (query.Cli is { Length: > 0 } &&
+            (query.Cli.Length > 32 || !query.Cli.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')))
         {
             return Results.BadRequest(new { error = "invalid-cli" });
         }
 
-        if (group is not (null or "cli" or "project" or "day"))
+        if (query.Group is not (null or "cli" or "project" or "day"))
         {
             return Results.BadRequest(new { error = "invalid-group" });
         }
 
-        if (sort is not (null or "modified" or "created" or "title" or "duration"))
+        if (query.Sort is not (null or "modified" or "created" or "title" or "duration"))
         {
             return Results.BadRequest(new { error = "invalid-sort" });
         }
 
-        if (rebuild == true)
+        if (query.Rebuild == true)
         {
             index.Invalidate();
         }
 
         return Results.Ok(await index.GetAsync(
-            SessionsUserId(context), cli, group ?? "cli", sort ?? "modified",
-            q, hideEmpty, ct));
+            SessionsUserId(context), query.Cli, query.Group ?? "cli",
+            query.Sort ?? "modified", query.Q, query.HideEmpty, ct));
     });
 
     // SPEC RF-005: per-user view prefs — hidden CLIs + hideEmpty default.
@@ -5201,5 +5202,11 @@ public partial class Program
     /// <summary>SPEC-20261004-redis-hybrid-cache: cache-mode facts surfaced to
     /// the post-Build boot log (connstring never included).</summary>
     private sealed record CacheBootInfo(string? RedisInstance, TimeSpan DefaultExpiration, bool LocalClamped);
+
+    /// <summary>SPEC-20261020-session-history-parity RF-002: sessions index
+    /// query bound via [AsParameters] (keeps the handler under S107).</summary>
+    private sealed record SessionIndexQuery(
+        string? Cli, string? Group, string? Sort, string? Q,
+        bool? HideEmpty, bool? Rebuild);
 
 }

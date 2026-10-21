@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -22,12 +21,13 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
 {
     private const int TranscriptHeadBytes = 64 * 1024;
     private static readonly TimeSpan IndexTtl = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan GitCacheTtl = TimeSpan.FromMinutes(5);
     private static readonly Regex AnsiPattern =
         new("\x1B\\[[0-9;?]*[A-Za-z]", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex MarkdownNoise =
         new("[*_`#>\\[\\]]", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+    private static readonly Regex WhitespaceRun =
+        new("\\s+", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     /// <summary>CLIs with a native-chat (ACP) adapter — RF §6.1.</summary>
     private static readonly HashSet<string> NativeChatClis =
@@ -35,6 +35,7 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
 
     private readonly IServiceProvider _services;
     private readonly IAgentSessionScanner _scanner;
+    private readonly IAgentSessionGitProbe _gitProbe;
     private readonly ILogger<AgentSessionIndexService>? _logger;
     private readonly TimeProvider _time;
 
@@ -46,11 +47,13 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
     public AgentSessionIndexService(
         IServiceProvider services,
         IAgentSessionScanner scanner,
+        IAgentSessionGitProbe gitProbe,
         TimeProvider? timeProvider = null,
         ILogger<AgentSessionIndexService>? logger = null)
     {
         _services = services;
         _scanner = scanner;
+        _gitProbe = gitProbe;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
@@ -269,37 +272,10 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
                     continue;
                 }
 
-                JsonDocument doc;
-                try
+                var title = TryParseTitleLine(trimmed);
+                if (title is not null)
                 {
-                    doc = JsonDocument.Parse(trimmed);
-                }
-                catch (JsonException)
-                {
-                    // Pretty-printed .json stores (opencode/gemini) yield
-                    // fragments per line — skip unparseable lines.
-                    continue;
-                }
-
-                using (doc)
-                {
-                    var candidate = ExtractUserText(doc.RootElement);
-                    if (candidate is null)
-                    {
-                        continue;
-                    }
-
-                    // RF-006: the title is the first non-empty *line* of the
-                    // first user message — everything after \n is dropped.
-                    var firstLine = candidate.Split('\n')[0];
-                    var clean = MarkdownNoise.Replace(AnsiPattern.Replace(firstLine, " "), "");
-                    clean = Regex.Replace(clean, "\\s+", " ").Trim();
-                    if (clean.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    return clean.Length > 80 ? clean[..80] : clean;
+                    return title;
                 }
             }
         }
@@ -309,6 +285,43 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         }
 
         return null;
+    }
+
+    /// <summary>Parses one transcript line and derives the title, or null.</summary>
+    private static string? TryParseTitleLine(string trimmed)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(trimmed);
+        }
+        catch (JsonException)
+        {
+            // Pretty-printed .json stores (opencode/gemini) yield
+            // fragments per line — skip unparseable lines.
+            return null;
+        }
+
+        using (doc)
+        {
+            var candidate = ExtractUserText(doc.RootElement);
+            if (candidate is null)
+            {
+                return null;
+            }
+
+            // RF-006: the title is the first non-empty *line* of the
+            // first user message — everything after \n is dropped.
+            var firstLine = candidate.Split('\n')[0];
+            var clean = MarkdownNoise.Replace(AnsiPattern.Replace(firstLine, " "), "");
+            clean = WhitespaceRun.Replace(clean, " ").Trim();
+            if (clean.Length == 0)
+            {
+                return null;
+            }
+
+            return clean.Length > 80 ? clean[..80] : clean;
+        }
     }
 
     /// <summary>Pulls the first user-authored text out of a transcript line.</summary>
@@ -404,42 +417,9 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             return (hit.RepoName, hit.Branch);
         }
 
-        var root = await RunGitAsync(cwd, "rev-parse --show-toplevel", ct).ConfigureAwait(false);
-        var repo = root is { Length: > 0 } ? Path.GetFileName(root.TrimEnd('/', '\\')) : null;
-        var branch = root is null
-            ? null
-            : await RunGitAsync(cwd, "branch --show-current", ct).ConfigureAwait(false);
-        _gitCache[cwd] = (repo, branch, _time.GetUtcNow());
-        return (repo, branch);
-    }
-
-    private async Task<string?> RunGitAsync(string cwd, string args, CancellationToken ct)
-    {
-        try
-        {
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            linked.CancelAfter(GitTimeout);
-            var psi = new ProcessStartInfo("git", $"-C \"{cwd}\" {args}")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            using var proc = Process.Start(psi);
-            if (proc is null)
-            {
-                return null;
-            }
-
-            var output = await proc.StandardOutput
-                .ReadToEndAsync(linked.Token).ConfigureAwait(false);
-            await proc.WaitForExitAsync(linked.Token).ConfigureAwait(false);
-            return proc.ExitCode == 0 ? output.Trim() : null;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-        {
-            return null;
-        }
+        var probe = await _gitProbe.ProbeAsync(cwd, ct).ConfigureAwait(false);
+        _gitCache[cwd] = (probe.RepoName, probe.Branch, _time.GetUtcNow());
+        return probe;
     }
 
     // ---- group / sort ----

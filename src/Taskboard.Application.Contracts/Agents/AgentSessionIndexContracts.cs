@@ -34,6 +34,18 @@ public sealed record SessionGroupDto(
 /// <summary>RF-005: per-CLI visibility chip — every discovered CLI + count.</summary>
 public sealed record SessionCliChipDto(string Cli, int Count, bool Hidden);
 
+/// <summary>
+/// RF-001: bounded git probe for a session's working directory — implemented
+/// in Integrations over <c>GitCommandRunner</c> (ArgumentList, 2s timeout).
+/// Application must not reference Integrations, hence the contract here.
+/// </summary>
+public interface IAgentSessionGitProbe
+{
+    /// <summary>Returns (repoName, branch) — both null when cwd isn't a repo.</summary>
+    Task<(string? RepoName, string? Branch)> ProbeAsync(
+        string cwd, CancellationToken ct = default);
+}
+
 /// <summary>RF-002/RF-005: grouped index page + chips + the hideEmpty flag.</summary>
 public sealed record AgentSessionsIndexDto(
     IReadOnlyList<SessionGroupDto> Groups,

@@ -329,7 +329,7 @@
                 var id = chip.Cli;
                 <span class="btn-group btn-group-sm" role="group" aria-label="@id sessions">
                     <button type="button"
-                            class="btn @(id == _selectedCli ? "btn-primary" : chip.Hidden ? "btn-outline-secondary opacity-50" : "btn-outline-secondary")"
+                            class="btn @CliChipClass(id, chip.Hidden)"
                             aria-pressed="@(id == _selectedCli ? "true" : "false")" data-cli="@id"
                             @onclick="() => SelectSessionCliAsync(id == _selectedCli ? null : id)">
                         @id <span class="badge text-bg-secondary ms-1">@chip.Count</span>
@@ -1005,6 +1005,7 @@
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // prefs persist is best-effort — the optimistic local state stays.
         }
 
         await LoadSessionsAsync();
@@ -1020,6 +1021,7 @@
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // prefs persist is best-effort — the optimistic local state stays.
         }
 
         await LoadSessionsAsync();
@@ -1028,8 +1030,11 @@
     private async Task OnSessionQueryInput(ChangeEventArgs e)
     {
         _sessionQuery = e.Value?.ToString();
-        _sessionQueryDebounce?.Cancel();
-        _sessionQueryDebounce?.Dispose();
+        if (_sessionQueryDebounce is not null)
+        {
+            await _sessionQueryDebounce.CancelAsync();
+            _sessionQueryDebounce.Dispose();
+        }
         _sessionQueryDebounce = new CancellationTokenSource();
         try
         {
@@ -1039,7 +1044,18 @@
         }
         catch (OperationCanceledException)
         {
+            // superseded keystroke — the latest debounce wins.
         }
+    }
+
+    private string CliChipClass(string cli, bool hidden)
+    {
+        if (cli == _selectedCli)
+        {
+            return "btn-primary";
+        }
+
+        return hidden ? "btn-outline-secondary opacity-50" : "btn-outline-secondary";
     }
 
     private async Task OnSessionGroupChanged(ChangeEventArgs e)
