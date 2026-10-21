@@ -2736,3 +2736,12 @@ html[data-terminal-focus] .terminal-focus-exit {
         border-radius: 0.375rem;
         background: var(--bs-secondary-bg, #161b22);
     }
+
+/* SPEC-20261020-provider-quota-usage RF-006: warn badge pulse ≥80%. */
+@keyframes usage-pulse-kf {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+.usage-pulse {
+    animation: usage-pulse-kf 1.6s ease-in-out infinite;
+}

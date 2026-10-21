@@ -1,0 +1,89 @@
+@* SPEC-20261020-provider-quota-usage RF-006: status strip — one badge per
+   provider with max(UsedPct); <50% muted, 50–80% amber, ≥80% red pulsing,
+   stale when the freshest sample is >15min. Polls the roster every 60s. *@
+@using Taskboard.Application.Contracts.Agents
+@inject TaskboardClient Client
+@implements IDisposable
+
+@if (_roster is { Count: > 0 })
+{
+    <div class="provider-usage-strip d-flex flex-wrap align-items-center gap-2">
+        @foreach (var entry in _roster)
+        {
+            var pct = MaxPct(entry);
+            <span class="badge @BadgeClass(pct, entry.Stale) @PulseClass(pct)"
+                  title="@Tooltip(entry)">
+                @entry.Provider@(pct is null ? "" : $" {pct:F0}%")@(entry.Stale ? " ·stale" : "")
+            </span>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<ProviderUsageRosterEntryDto>? _roster;
+    private CancellationTokenSource? _poll;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _poll = new CancellationTokenSource();
+        _ = PollAsync(_poll.Token);
+    }
+
+    private async Task PollAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // disposed — normal shutdown.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _roster = await Client.GetUsageRosterAsync();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // advisory — a failed poll keeps the last roster.
+        }
+    }
+
+    private static double? MaxPct(ProviderUsageRosterEntryDto entry) =>
+        entry.Windows.Select(w => w.UsedPct).Where(p => p is not null).Max();
+
+    private static string BadgeClass(double? pct, bool stale) =>
+        stale ? "text-bg-secondary"
+            : pct >= 80 ? "text-bg-danger"
+            : pct >= 50 ? "text-bg-warning"
+            : "text-bg-secondary";
+
+    private static string PulseClass(double? pct) =>
+        pct >= 80 ? "usage-pulse" : "";
+
+    private static string Tooltip(ProviderUsageRosterEntryDto entry)
+    {
+        var lines = entry.Windows.Select(w =>
+            $"· {w.WindowKind}: {(w.UsedPct is { } p ? $"{p:F0}%" : "n/a")}" +
+            $"{(w.ResetsAtUtc is { } r ? $" — resets {r:MMM d HH:mm}Z" : "")}" +
+            $" [{w.Source}/{w.Confidence}]");
+        return $"{entry.Provider}\n{string.Join("\n", lines)}" +
+            $"{(entry.Stale ? "\nstale — last sample >15min" : "")}";
+    }
+
+    public void Dispose()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+    }
+}

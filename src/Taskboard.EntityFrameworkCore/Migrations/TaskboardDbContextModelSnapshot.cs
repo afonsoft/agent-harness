@@ -389,6 +389,64 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentSessionStateTransitions", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.ProviderUsageWindow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Confidence")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Limit")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawJson")
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResetsAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SampledAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("Used")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("UsedPct")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("WarnLevel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WindowKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SampledAtUtc");
+
+                    b.HasIndex("Provider", "WindowKind")
+                        .IsUnique();
+
+                    b.ToTable("ProviderUsageWindows", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.SessionCliVisibility", b =>
                 {
                     b.Property<string>("Id")

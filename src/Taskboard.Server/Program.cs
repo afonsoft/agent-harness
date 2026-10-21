@@ -567,6 +567,12 @@ void RegisterAcpAndAgentServices()
         sp.GetRequiredService<Taskboard.Server.Services.AgentPtyLifecycle>());
     builder.Services.AddSingleton<IAgentHibernationService, AgentHibernationService>();
     builder.Services.AddHostedService<AgentHibernationJob>();
+    // SPEC-20261020-provider-quota-usage: collectors + roster + warn pipeline.
+    builder.Services.AddScoped<IProviderUsageRepository, EfCoreProviderUsageRepository>();
+    builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
+        new ClaudeUsageCollector(sp.GetRequiredService<IProcessRunner>()));
+    builder.Services.AddSingleton<IProviderUsageService, ProviderUsageService>();
+    builder.Services.AddHostedService<ProviderUsageCollectJob>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -4383,6 +4389,28 @@ void MapAgentsEndpoints()
         HttpContext context,
         IAgentHibernationService hibernation, CancellationToken ct) =>
         Results.Ok(await hibernation.GetStatsAsync(SessionsUserId(context), ct)));
+
+    // SPEC-20261020-provider-quota-usage RF-005: current roster grouped by
+    // provider (stale >15min) + per-provider detail + manual refresh.
+    var usage = api.MapGroup("usage").RequireAuthorization();
+    usage.MapGet("providers", async (
+        IProviderUsageService usage, CancellationToken ct) =>
+        Results.Ok(await usage.GetRosterAsync(ct)));
+
+    usage.MapGet("providers/{provider}", async (
+        string provider, IProviderUsageService usage, CancellationToken ct) =>
+        await usage.GetProviderAsync(provider, ct) is { } entry
+            ? Results.Ok(entry)
+            : Results.NotFound(new { error = "provider-unknown" }));
+
+    usage.MapPost("refresh", async (
+        HttpContext context,
+        IProviderUsageService usage, CancellationToken ct) =>
+        Results.Ok(new
+        {
+            upserted = await usage.CollectOnceAsync(
+                SessionsUserId(context), ct),
+        }));
 
     static string SessionsUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
