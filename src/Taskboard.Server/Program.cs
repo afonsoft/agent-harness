@@ -525,6 +525,10 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<IAgentHookTokenService, AgentHookTokenService>();
     builder.Services.AddSingleton<IAgentHookInstaller, AgentHookInstaller>();
     builder.Services.AddHostedService<AgentAttentionSweepService>();
+    // SPEC-20261020-agents-feed-notifications: global feed + unread markers.
+    builder.Services.AddScoped<IAgentFeedRepository, EfCoreAgentFeedRepository>();
+    builder.Services.AddScoped<IUserFeedReadRepository, EfCoreUserFeedReadRepository>();
+    builder.Services.AddScoped<IAgentFeedService, AgentFeedService>();
     // SPEC-20261020-agent-board-v2: kanban card projection + read markers.
     builder.Services.AddScoped<IAgentBoardService, AgentBoardService>();
     builder.Services.AddScoped<IAgentBoardReadMarkerRepository, EfCoreAgentBoardReadMarkerRepository>();
@@ -2417,6 +2421,36 @@ void MapSettingsAndChatEndpoints()
         await board.MarkReadAsync(BoardUserId(context), id, ct);
         return Results.NoContent();
     });
+
+    // SPEC-20261020-agents-feed-notifications RF-003: paged feed + unread badge.
+    api.MapGet("agents/feed", async (
+        string? before, int? limit, HttpContext context, IAgentFeedService feed,
+        CancellationToken ct) =>
+        Results.Ok(await feed.GetPageAsync(
+            BoardUserId(context), before, limit ?? 50, ct)));
+
+    api.MapGet("agents/feed/unread-count", async (
+        HttpContext context, IAgentFeedService feed, CancellationToken ct) =>
+        Results.Ok(await feed.GetUnreadCountAsync(BoardUserId(context), ct)));
+
+    // SPEC RF-004: idempotent read-state ops — read-all also clears manual unread.
+    api.MapPost("agents/feed/{id}/read", async (
+        string id, HttpContext context, IAgentFeedService feed, CancellationToken ct) =>
+    {
+        await feed.MarkReadAsync(BoardUserId(context), id, ct);
+        return Results.NoContent();
+    });
+
+    api.MapPost("agents/feed/{id}/unread", async (
+        string id, HttpContext context, IAgentFeedService feed, CancellationToken ct) =>
+    {
+        await feed.MarkUnreadAsync(BoardUserId(context), id, ct);
+        return Results.NoContent();
+    });
+
+    api.MapPost("agents/feed/read-all", async (
+        HttpContext context, IAgentFeedService feed, CancellationToken ct) =>
+        Results.Ok(new { cleared = await feed.MarkAllReadAsync(BoardUserId(context), ct) }));
 
     static string BoardUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";

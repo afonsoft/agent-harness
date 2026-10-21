@@ -97,6 +97,11 @@
     <NavLink class="nav-link" href="agents" aria-label="@L.T("nav.agents")" data-label="@L.T("nav.agents")" title='@RailTitle(L.T("nav.agents"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.Robot" />
         <span class="nav-label">@L.T("nav.agents")</span>
+        @* SPEC-20261020-agents-feed-notifications RF-005: attention-unread badge (poll 30s). *@
+        @if (_feedAttention > 0)
+        {
+            <Badge Color="BadgeColor.Danger" Class="ms-auto feed-badge" title="@($"{_feedAttention} need attention")">@_feedAttention</Badge>
+        }
     </NavLink>
     <NavLink class="nav-link" href="finops" aria-label="@L.T("nav.finops")" data-label="@L.T("nav.finops")" title='@RailTitle(L.T("nav.finops"))' @onclick="CloseSidebarAsync">
         <Icon Name="IconName.CurrencyDollar" />
@@ -131,6 +136,12 @@
     private string? _repoWarning;
     private IReadOnlyList<ChatConversationDto> _chatHistory = [];
 
+    // SPEC-20261020-agents-feed-notifications RF-005: menu badge — attention
+    // unread count, refreshed on init/location-change and every 30s.
+    private int _feedAttention;
+    private PeriodicTimer? _feedTimer;
+    private readonly CancellationTokenSource _feedTimerCts = new();
+
     /// <summary>Repo name without the owner prefix, shown under the rail icon.</summary>
     private string RepoShortName =>
         RepoService.Selected?.Split('/') is { Length: > 0 } parts
@@ -144,6 +155,40 @@
         await RepoService.EnsureLoadedAsync();
         _repoInput = RepoService.Selected ?? string.Empty;
         await LoadChatHistoryAsync();
+        await RefreshFeedBadgeAsync();
+        _feedTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        _ = PollFeedBadgeAsync();
+    }
+
+    private async Task RefreshFeedBadgeAsync()
+    {
+        try
+        {
+            var counts = await Client.GetAgentFeedUnreadCountAsync();
+            _feedAttention = counts?.Attention ?? 0;
+        }
+        catch
+        {
+            // badge is advisory — a feed API failure must not break the nav
+            _feedAttention = 0;
+        }
+    }
+
+    private async Task PollFeedBadgeAsync()
+    {
+        try
+        {
+            while (_feedTimer is not null
+                && await _feedTimer.WaitForNextTickAsync(_feedTimerCts.Token))
+            {
+                await RefreshFeedBadgeAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // disposed
+        }
     }
 
     /// <summary>Reloads the last-10 list whenever the chat surface is reached —
@@ -252,5 +297,8 @@
     {
         RepoService.Changed -= OnRepoChangedAsync;
         Nav.LocationChanged -= OnLocationChanged;
+        _feedTimerCts.Cancel();
+        _feedTimer?.Dispose();
+        _feedTimerCts.Dispose();
     }
 }

@@ -574,6 +574,43 @@ public sealed class TaskboardClient
             $"/api/agents/board/cards/{Uri.EscapeDataString(cardId)}/read",
             content: null, cancellationToken);
 
+    // ---- SPEC-20261020-agents-feed-notifications ----
+
+    /// <summary>RF-003: one page of the persistent agents feed (cursor-desc).</summary>
+    public async Task<FeedPageDto?> GetAgentFeedPageAsync(
+        string? beforeCursor = null, int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var url = "/api/agents/feed?limit=" + limit
+            + (string.IsNullOrWhiteSpace(beforeCursor)
+                ? ""
+                : $"&before={Uri.EscapeDataString(beforeCursor)}");
+        return await _httpClient.GetFromJsonAsync<FeedPageDto>(url, cancellationToken);
+    }
+
+    /// <summary>RF-003/RF-005: {total, attention} badge counts.</summary>
+    public async Task<FeedUnreadCountDto?> GetAgentFeedUnreadCountAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<FeedUnreadCountDto>(
+            "/api/agents/feed/unread-count", cancellationToken);
+
+    /// <summary>RF-004: idempotent read-state ops on a feed item.</summary>
+    public async Task MarkAgentFeedItemReadAsync(
+        string itemId, CancellationToken cancellationToken = default) =>
+        await _httpClient.PostAsync(
+            $"/api/agents/feed/{Uri.EscapeDataString(itemId)}/read",
+            content: null, cancellationToken);
+
+    public async Task MarkAgentFeedItemUnreadAsync(
+        string itemId, CancellationToken cancellationToken = default) =>
+        await _httpClient.PostAsync(
+            $"/api/agents/feed/{Uri.EscapeDataString(itemId)}/unread",
+            content: null, cancellationToken);
+
+    public async Task MarkAllAgentFeedReadAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.PostAsync("/api/agents/feed/read-all", content: null, cancellationToken);
+
     /// <summary>SPEC-20261006 RF-001: agent dashboard columns (scope = conversation; default 'harness').</summary>
     public async Task<AgentDashboardDto?> GetDelegationDashboardAsync(
         string? scope = null, CancellationToken cancellationToken = default) =>
