@@ -63,6 +63,9 @@ public interface IAgentFeedRepository
     /// <summary>Read flags for a batch of items: itemId → manuallyUnread.</summary>
     Task<IReadOnlyDictionary<string, bool>> UnreadFlagsAsync(
         string userId, IReadOnlyCollection<string> itemIds, CancellationToken ct = default);
+
+    /// <summary>RF-009: retention — deletes items older than the cutoff (and their read rows).</summary>
+    Task<int> DeleteOlderThanAsync(DateTime cutoffUtc, CancellationToken ct = default);
 }
 
 /// <summary>SPEC RF-004: per-user read markers on feed items.</summary>
@@ -87,6 +90,61 @@ public sealed record AgentFeedPushDto(
     string Kind,
     AgentFeedItemDto? Item,
     FeedUnreadCountDto UnreadCounts);
+
+/// <summary>SPEC RF-006: one category's {badge, sound, persist} toggles.</summary>
+public sealed record FeedCategoryPreference(bool Badge, bool Sound, bool Persist);
+
+/// <summary>
+/// SPEC RF-006: full preference map for a user — every
+/// <see cref="AgentFeedKind"/> present (defaults merged over stored rows).
+/// </summary>
+public sealed record AgentFeedPreferencesDto(
+    IReadOnlyDictionary<AgentFeedKind, FeedCategoryPreference> Categories);
+
+/// <summary>SPEC RF-006: persistence of per-user per-category overrides.</summary>
+public interface IUserFeedPreferenceRepository
+{
+    Task<IReadOnlyDictionary<AgentFeedKind, FeedCategoryPreference>> GetForUserAsync(
+        string userId, CancellationToken ct = default);
+
+    Task UpsertAsync(
+        string userId, AgentFeedKind kind, FeedCategoryPreference pref,
+        CancellationToken ct = default);
+}
+
+/// <summary>
+/// SPEC RF-006: merged preference resolution — stored overrides over
+/// <see cref="AgentFeedDefaults"/>; results cached per user and invalidated
+/// on write.
+/// </summary>
+public interface IAgentFeedPreferenceService
+{
+    /// <summary>Effective preference for one (user, kind).</summary>
+    Task<FeedCategoryPreference> ResolveAsync(
+        string userId, AgentFeedKind kind, CancellationToken ct = default);
+
+    /// <summary>Full merged map — defaults for categories without a row.</summary>
+    Task<AgentFeedPreferencesDto> GetForUserAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>Upserts the given categories; others keep their stored/default value.</summary>
+    Task<AgentFeedPreferencesDto> SaveForUserAsync(
+        string userId, IReadOnlyDictionary<AgentFeedKind, FeedCategoryPreference> categories,
+        CancellationToken ct = default);
+}
+
+/// <summary>
+/// SPEC RF-006: spec defaults — attention/question badge+sound; completion/
+/// failure badge only; worktree/pr persist only. Everything persists.
+/// </summary>
+public static class AgentFeedDefaults
+{
+    public static FeedCategoryPreference For(AgentFeedKind kind) => kind switch
+    {
+        AgentFeedKind.Attention or AgentFeedKind.Question => new(true, true, true),
+        AgentFeedKind.Completion or AgentFeedKind.Failure => new(true, false, true),
+        _ => new(false, false, true),
+    };
+}
 
 /// <summary>
 /// SPEC RF-010: broadcast channel for feed updates. Implemented server-side

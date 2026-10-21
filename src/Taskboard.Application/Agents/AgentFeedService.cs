@@ -18,17 +18,20 @@ public sealed class AgentFeedService : IAgentFeedService
     private readonly IAgentFeedRepository _items;
     private readonly IUserFeedReadRepository _reads;
     private readonly IAgentFeedNotifier? _notifier;
+    private readonly IAgentFeedPreferenceService? _prefs;
     private readonly TimeProvider _time;
     private readonly ILogger<AgentFeedService>? _logger;
 
     public AgentFeedService(
         IAgentFeedRepository items, IUserFeedReadRepository reads,
         IAgentFeedNotifier? notifier = null,
+        IAgentFeedPreferenceService? prefs = null,
         TimeProvider? timeProvider = null, ILogger<AgentFeedService>? logger = null)
     {
         _items = items;
         _reads = reads;
         _notifier = notifier;
+        _prefs = prefs;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
@@ -38,6 +41,27 @@ public sealed class AgentFeedService : IAgentFeedService
     {
         var atUtc = request.AtUtc ?? _time.GetUtcNow().UtcDateTime;
 
+        // RF-006: category preference — persist=false produces an ephemeral
+        // item (pushed for toast/sound, never stored); badge=false strips
+        // NeedsAttention so the category stays out of the attention badge.
+        var pref = _prefs is null
+            ? AgentFeedDefaults.For(request.Kind)
+            : await _prefs.ResolveAsync(request.UserId, request.Kind, ct).ConfigureAwait(false);
+        if (!pref.Persist)
+        {
+            var ephemeral = new AgentFeedItemDto(
+                $"eph-{Guid.NewGuid():N}", request.Kind, request.Title, request.Body,
+                request.DeepLink, request.SessionKey, request.Cli, request.IssueNumber,
+                atUtc, request.NeedsAttention, 0, false);
+            await PushSafeAsync(
+                request.UserId,
+                counts => Task.FromResult(new AgentFeedPushDto("ephemeral", ephemeral, counts)),
+                ct).ConfigureAwait(false);
+            return ephemeral;
+        }
+
+        var needsAttention = request.NeedsAttention && pref.Badge;
+
         // RF-008: dedup window — same (kind, sessionKey, deepLink) merges.
         var dedup = await _items.FindDedupAsync(
             request.UserId, request.Kind, request.SessionKey, request.DeepLink,
@@ -45,7 +69,8 @@ public sealed class AgentFeedService : IAgentFeedService
 
         var item = dedup is not null
             ? await _items.MergeRepeatAsync(dedup.Id, atUtc, ct).ConfigureAwait(false)
-            : await _items.AddAsync(request, atUtc, ct).ConfigureAwait(false);
+            : await _items.AddAsync(
+                request with { NeedsAttention = needsAttention }, atUtc, ct).ConfigureAwait(false);
 
         // RF-010: live push — fire-and-log, never blocks the write.
         if (item is not null)

@@ -1,6 +1,9 @@
+using BlazorBootstrap;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
+using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 
 namespace Taskboard.Blazor.Services;
@@ -19,11 +22,15 @@ public sealed class AgentFeedNotificationsService : IAsyncDisposable
     internal const string UserId = "local";
 
     private readonly NavigationManager _nav;
+    private readonly IJSRuntime _js;
+    private readonly ToastService _toast;
+    private readonly TaskboardClient _client;
     private readonly ILogger<AgentFeedNotificationsService> _logger;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private HubConnection? _hub;
     private bool _started;
+    private IReadOnlyDictionary<AgentFeedKind, FeedCategoryPreference> _prefs = new Dictionary<AgentFeedKind, FeedCategoryPreference>();
 
     /// <summary>Raised for every <c>agent.feed</c> push.</summary>
     public event Func<AgentFeedPushDto, Task>? FeedPushed;
@@ -33,9 +40,15 @@ public sealed class AgentFeedNotificationsService : IAsyncDisposable
 
     public AgentFeedNotificationsService(
         NavigationManager nav,
+        IJSRuntime js,
+        ToastService toast,
+        TaskboardClient client,
         ILogger<AgentFeedNotificationsService> logger)
     {
         _nav = nav;
+        _js = js;
+        _toast = toast;
+        _client = client;
         _logger = logger;
     }
 
@@ -56,10 +69,14 @@ public sealed class AgentFeedNotificationsService : IAsyncDisposable
                 .WithAutomaticReconnect([TimeSpan.Zero, TimeSpan.FromSeconds(2),
                     TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)])
                 .Build();
-            _hub.On<AgentFeedPushDto>(EventName, push =>
+            _hub.On<AgentFeedPushDto>(EventName, async push =>
             {
+                _ = HandlePushEffectsAsync(push);
                 var handler = FeedPushed;
-                return handler?.Invoke(push) ?? Task.CompletedTask;
+                if (handler is not null)
+                {
+                    await handler.Invoke(push);
+                }
             });
             _hub.Reconnected += async _ =>
             {
@@ -80,10 +97,70 @@ public sealed class AgentFeedNotificationsService : IAsyncDisposable
             {
                 _logger.LogWarning(ex, "agent-feed hub unavailable — badge degrades to REST");
             }
+
+            await RefreshPrefsAsync();
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>RF-006: reload merged prefs — call after saving in /settings.</summary>
+    public async Task RefreshPrefsAsync()
+    {
+        try
+        {
+            var prefs = await _client.GetAgentFeedPreferencesAsync();
+            if (prefs is not null)
+            {
+                _prefs = prefs.Categories;
+            }
+        }
+        catch
+        {
+            // defaults suffice — prefs fetch is advisory
+        }
+    }
+
+    /// <summary>
+    /// RF-006/RF-007: side effects per push — ephemeral items toast (never in
+    /// feed); attention/question items chime when the category's sound pref
+    /// is on and the global mute is off.
+    /// </summary>
+    private async Task HandlePushEffectsAsync(AgentFeedPushDto push)
+    {
+        if (push.Item is not { } item)
+        {
+            return;
+        }
+
+        var pref = _prefs.TryGetValue(item.Kind, out var p)
+            ? p
+            : AgentFeedDefaults.For(item.Kind);
+
+        if (push.Kind == "ephemeral")
+        {
+            try
+            {
+                await _toast.NotifyAsync(new ToastMessage(ToastType.Info, item.Title));
+            }
+            catch
+            {
+                // toast surface unavailable — ignore
+            }
+        }
+
+        if (pref.Sound && (item.Kind is AgentFeedKind.Attention or AgentFeedKind.Question))
+        {
+            try
+            {
+                await _js.InvokeVoidAsync("taskboardNotify.playFeedChime");
+            }
+            catch
+            {
+                // muted / audio unsupported — degrade silently
+            }
         }
     }
 

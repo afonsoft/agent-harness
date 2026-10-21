@@ -338,6 +338,38 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentSessionStateTransitions", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.UserFeedPreference", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Badge")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Persist")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Sound")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserFeedPreferences", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.UserFeedRead", b =>
                 {
                     b.Property<string>("Id")

@@ -611,6 +611,25 @@ public sealed class TaskboardClient
         CancellationToken cancellationToken = default) =>
         await _httpClient.PostAsync("/api/agents/feed/read-all", content: null, cancellationToken);
 
+    /// <summary>RF-006: merged per-category notification preferences.</summary>
+    public async Task<AgentFeedPreferencesDto?> GetAgentFeedPreferencesAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<AgentFeedPreferencesDto>(
+            "/api/agents/feed/preferences", cancellationToken);
+
+    /// <summary>RF-006: upserts the given categories (others keep their value).</summary>
+    public async Task<AgentFeedPreferencesDto?> SaveAgentFeedPreferencesAsync(
+        IReadOnlyDictionary<AgentFeedKind, FeedCategoryPreference> categories,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PutAsJsonAsync(
+            "/api/agents/feed/preferences",
+            new AgentFeedPreferencesDto(categories),
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<AgentFeedPreferencesDto>(cancellationToken);
+    }
+
     /// <summary>SPEC-20261006 RF-001: agent dashboard columns (scope = conversation; default 'harness').</summary>
     public async Task<AgentDashboardDto?> GetDelegationDashboardAsync(
         string? scope = null, CancellationToken cancellationToken = default) =>

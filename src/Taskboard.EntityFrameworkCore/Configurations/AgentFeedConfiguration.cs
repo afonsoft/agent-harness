@@ -44,3 +44,20 @@ public sealed class UserFeedReadConfiguration : IEntityTypeConfiguration<UserFee
         builder.HasIndex(r => r.UserId);
     }
 }
+
+/// <summary>SPEC RF-006: per-user per-category preference override.</summary>
+public sealed class UserFeedPreferenceConfiguration : IEntityTypeConfiguration<UserFeedPreference>
+{
+    public void Configure(EntityTypeBuilder<UserFeedPreference> builder)
+    {
+        builder.ToTable("UserFeedPreferences");
+
+        builder.Property(p => p.Id).HasMaxLength(160);
+        builder.HasKey(p => p.Id);
+
+        builder.Property(p => p.UserId).IsRequired().HasMaxLength(128);
+        builder.Property(p => p.Kind).IsRequired().HasConversion<string>().HasMaxLength(24);
+
+        builder.HasIndex(p => p.UserId);
+    }
+}

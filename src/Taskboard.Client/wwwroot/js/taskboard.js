@@ -208,6 +208,53 @@ window.taskboardNotify = {
         } catch (e) { /* storage indisponível — default global segue */ }
     },
 
+    // ---- SPEC-20261020-agents-feed-notifications RF-007: feed chime ----
+
+    // Mute global do feed (por browser): 'true' silencia o chime —
+    // independe das preferências por categoria.
+    getFeedMuted: function () {
+        try {
+            return localStorage.getItem('harness.feed.muted') === 'true';
+        } catch (e) {
+            return false;
+        }
+    },
+
+    setFeedMuted: function (muted) {
+        try {
+            if (muted) {
+                localStorage.setItem('harness.feed.muted', 'true');
+            } else {
+                localStorage.removeItem('harness.feed.muted');
+            }
+        } catch (e) { /* storage indisponível */ }
+    },
+
+    // Som único curto com debounce de 5s por aba (RF-007) — respeita mute.
+    _feedChimeAt: 0,
+    _feedChimeAudio: null,
+    playFeedChime: function () {
+        try {
+            if (this.getFeedMuted()) {
+                return;
+            }
+            var now = Date.now();
+            if (now - this._feedChimeAt < 5000) {
+                return;
+            }
+            this._feedChimeAt = now;
+            if (!this._feedChimeAudio) {
+                this._feedChimeAudio = new Audio('/sounds/feed-chime.wav');
+            }
+            var audio = this._feedChimeAudio;
+            audio.currentTime = 0;
+            var p = audio.play();
+            if (p && p.catch) {
+                p.catch(function () { /* autoplay blocked — degrade silently */ });
+            }
+        } catch (e) { /* áudio indisponível */ }
+    },
+
     // ---- SPEC-20261005 RF-009: Web Push (browser-fully-closed delivery) ----
 
     _vapidB64ToBytes: function (b64) {

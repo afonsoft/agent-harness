@@ -7,6 +7,7 @@
 @inject IGitHubService GitHubService
 @inject IJSRuntime JS
 @inject ChatNotificationsService ChatNotifications
+@inject AgentFeedNotificationsService FeedNotifications
 @implements IDisposable
 
 <PageTitle>Settings - Harness</PageTitle>
@@ -382,6 +383,73 @@
                                 </div>
                             }
                         </div>
+                    }
+                </div>
+
+                @* SPEC-20261020-agents-feed-notifications RF-006/RF-007:
+                   per-category {badge,sound,persist} + global mute. *@
+                <div class="form-section mt-4">
+                    <h2 class="form-section-title">Agents notifications</h2>
+                    <p class="small text-body-secondary">
+                        What each feed category does. <em>Persist</em> off means the item never
+                        reaches the feed — you get a toast and, if enabled, a chime.
+                        <em>Badge</em> feeds the attention count on the Agents menu.
+                    </p>
+                    <div class="setting-row">
+                        <div>
+                            <div class="fw-medium">Mute feed sounds</div>
+                            <div class="small text-body-secondary">Global mute for this browser — overrides the per-category sound toggles.</div>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" role="switch" class="form-check-input" checked="@_feedMuted" @onchange="ToggleFeedMutedAsync" aria-label="Mute feed sounds" />
+                        </div>
+                    </div>
+                    @if (_feedPrefs.Count > 0)
+                    {
+                        <div class="table-responsive mt-2">
+                            <table class="table table-sm align-middle mb-2">
+                                <thead>
+                                    <tr>
+                                        <th>Category</th>
+                                        <th class="text-center">Badge</th>
+                                        <th class="text-center">Sound</th>
+                                        <th class="text-center">Persist</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var kind in Enum.GetValues<AgentFeedKind>())
+                                    {
+                                        var k = kind;
+                                        var pref = _feedPrefs[k];
+                                        <tr @key="k">
+                                            <td class="text-capitalize">@k.ToString().ToLowerInvariant()</td>
+                                            <td class="text-center">
+                                                <input type="checkbox" class="form-check-input" checked="@pref.Badge"
+                                                       @onchange="e => _feedPrefs[k] = pref with { Badge = (bool)e.Value! }"
+                                                       aria-label="@k badge" />
+                                            </td>
+                                            <td class="text-center">
+                                                <input type="checkbox" class="form-check-input" checked="@pref.Sound"
+                                                       @onchange="e => _feedPrefs[k] = pref with { Sound = (bool)e.Value! }"
+                                                       aria-label="@k sound" />
+                                            </td>
+                                            <td class="text-center">
+                                                <input type="checkbox" class="form-check-input" checked="@pref.Persist"
+                                                       @onchange="e => _feedPrefs[k] = pref with { Persist = (bool)e.Value! }"
+                                                       aria-label="@k persist" />
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="SaveFeedPrefsAsync" disabled="@_feedPrefsSaving">
+                            @(_feedPrefsSaving ? "Saving…" : "Save notification preferences")
+                        </button>
+                        @if (_feedPrefsError is not null)
+                        {
+                            <div class="alert alert-danger small mt-2 mb-0">@_feedPrefsError</div>
+                        }
                     }
                 </div>
 
@@ -1307,6 +1375,13 @@
     private string? _gitHubToken;
     private string? _originalGitHubToken;
     private IReadOnlyList<AgentPreferenceDto> _agents = [];
+
+    // SPEC-20261020-agents-feed-notifications RF-006/RF-007: per-category
+    // {badge,sound,persist} + per-browser global mute.
+    private Dictionary<AgentFeedKind, FeedCategoryPreference> _feedPrefs = new();
+    private bool _feedMuted;
+    private bool _feedPrefsSaving;
+    private string? _feedPrefsError;
     private readonly Dictionary<AgentType, bool> _enabledState = new();
     private readonly Dictionary<AgentType, bool> _originalEnabledState = new();
 
@@ -1594,6 +1669,63 @@
         await LoadChatStateAsync();
         await LoadSkillsStatusAsync();
         await LoadMcpStatusAsync();
+        await LoadFeedPrefsAsync();
+    }
+
+    private async Task LoadFeedPrefsAsync()
+    {
+        try
+        {
+            var prefs = await Client.GetAgentFeedPreferencesAsync();
+            if (prefs is not null)
+            {
+                _feedPrefs = new Dictionary<AgentFeedKind, FeedCategoryPreference>(prefs.Categories);
+            }
+
+            _feedMuted = await JS.InvokeAsync<bool>("taskboardNotify.getFeedMuted");
+        }
+        catch
+        {
+            // prefs/mute advisory — defaults suffice
+        }
+    }
+
+    private async Task ToggleFeedMutedAsync(ChangeEventArgs e)
+    {
+        _feedMuted = (bool)e.Value!;
+        try
+        {
+            await JS.InvokeVoidAsync("taskboardNotify.setFeedMuted", _feedMuted);
+        }
+        catch
+        {
+            // storage indisponível — o toggle volta ao default na próxima carga
+        }
+    }
+
+    private async Task SaveFeedPrefsAsync()
+    {
+        _feedPrefsSaving = true;
+        _feedPrefsError = null;
+        try
+        {
+            var saved = await Client.SaveAgentFeedPreferencesAsync(_feedPrefs);
+            if (saved is not null)
+            {
+                _feedPrefs = new Dictionary<AgentFeedKind, FeedCategoryPreference>(saved.Categories);
+            }
+
+            await FeedNotifications.RefreshPrefsAsync();
+            await ToastService.NotifyAsync(new(ToastType.Success, "Notification preferences saved"));
+        }
+        catch (Exception ex)
+        {
+            _feedPrefsError = $"Could not save preferences: {ex.Message}";
+        }
+        finally
+        {
+            _feedPrefsSaving = false;
+        }
     }
 
     private async Task LoadSkillsStatusAsync()
