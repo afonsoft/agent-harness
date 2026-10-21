@@ -70,3 +70,30 @@ Harness side: `.specs/*`, `src/Taskboard.*/**` current main.
 7. `SPEC-20261020-provider-quota-usage` — janelas de quota por provider + reset + alerta 80%.
 8. `SPEC-20261020-worktree-shared-context` — dirs/arquivos gitignored compartilhados + comentário/
    status de card por worktree (checkpoint leve).
+
+## 5. Re-analysis 2026-10-21 — post-implementation
+
+All eight migrations above shipped (PRs #601–#610). Re-analyzed current
+`stablyai/orca` source + docs for the remaining gaps now documented in
+`README.md` "Compared to Orca":
+
+| # | Gap | Spec |
+|---|---|---|
+| ① | Worktree setup/archive scripts + `wait-for-setup` + `defaultTabs` + `issueCommand` | `SPEC-20261021-worktree-setup-scripts` |
+| ② | Agent-targeted automations (precheck, missed-run grace, reuse-session, extra-agent-args) | `SPEC-20261021-agent-automations` |
+| ③ | Multi-account hot-swap (claude/codex isolated homes, per-account usage) | `SPEC-20261021-provider-account-hot-swap` |
+| ④ | Remote/federated hosts + pairing (`--on ssh:`, `serve`, revocable tokens) | `SPEC-20261021-remote-hosts` |
+| ⑤ | Review surface — per-line AI/human attribution + diff annotations | `SPEC-20261021-review-attribution` |
+| ⑥ | Artifact store (blob offload for large worker outputs) | `SPEC-20261021-artifact-store` |
+| ⑦ | Secrets vault (encrypted credential store) | `SPEC-20261021-secrets-vault` |
+| ⑧ | Quota-driven throttling on dispatch | `SPEC-20261021-quota-throttling` |
+| ⑨ | Terminal splits + OS-level notifications + custom sounds | `SPEC-20261021-terminal-ux-notifications` |
+| ⑩ | Project groups, CLI depth tiers, computer-use | `SPEC-20261021-project-groups`, `SPEC-20261021-cli-depth-tiers`, `SPEC-20261021-computer-use` |
+
+Parity confirmed: delegation contract v2, attention model, board v2 + feed,
+hibernation, provider quota observation, shared context, worktree cards,
+session stores. Partial: session restore (no layout/scrollback persist),
+terminal (tabs only), notifications (in-app only).
+
+Suggested build order for the next wave: ① → ② → ⑧ (orchestration depth)
+→ ⑥ → ⑦ (storage/security) → ⑤ (review) → ③ → ⑨ (UX) → ④ → ⑩ (scale).
