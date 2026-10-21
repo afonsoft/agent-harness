@@ -71,7 +71,9 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.RepositoryPath,
             request.BaseCommitSha,
             request.Kind,
-            request.RunId);
+            request.RunId,
+            request.Model,
+            request.Effort);
         _context.DelegationTasks.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -134,6 +136,14 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         string id, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.ReactivateForRetry(), ct).ConfigureAwait(false);
 
+    public async Task<DelegationTaskDto?> MarkBlockedAsync(
+        string id, string? reason, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.MarkBlocked(reason), ct).ConfigureAwait(false);
+
+    public async Task<DelegationTaskDto?> UnblockAsync(
+        string id, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.Unblock(), ct).ConfigureAwait(false);
+
     private async Task<DelegationTaskDto?> TransitionAsync(
         string id, Action<DelegationTask> transition, CancellationToken ct)
     {
@@ -148,6 +158,23 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         return ToDto(entity);
     }
 
+    /// <inheritdoc/>
+    public async Task<DelegationTaskDto?> ClearActiveDispatchAsync(
+        string id, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.ClearDispatch(), ct).ConfigureAwait(false);
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default)
+    {
+        var entities = await _context.DelegationTasks
+            .Where(t => t.Scope == scope)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.DelegationTasks.RemoveRange(entities);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return entities.Count;
+    }
+
     private static DelegationTaskDto? ToDtoOrNull(DelegationTask? t) =>
         t is null ? null : ToDto(t);
 
@@ -156,7 +183,7 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.UseWorktree, t.WorktreeRunId, t.WorkspacePath, t.RepositoryPath, t.BaseCommitSha,
             t.Status, t.ResultSummary, t.Error,
             t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
-            t.RunId, t.ActiveDispatchId);
+            t.RunId, t.ActiveDispatchId, t.Model, t.Effort);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>
@@ -309,6 +336,18 @@ public sealed class EfCoreAgentMailboxRepository : IAgentMailboxRepository
         }
 
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default)
+    {
+        var entities = await _context.AgentMailboxMessages
+            .Where(m => m.Scope == scope)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.AgentMailboxMessages.RemoveRange(entities);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return entities.Count;
     }
 
     private static MailboxMessageDto ToDto(AgentMailboxMessage m) =>

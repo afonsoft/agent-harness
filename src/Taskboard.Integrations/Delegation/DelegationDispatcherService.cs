@@ -252,7 +252,11 @@ public sealed class DelegationDispatcherService : BackgroundService
             Scope: null,
             Instructions: $"(delegated task {task.Id})\n\n{task.Prompt}",
             AgentType: agentType,
-            OmitModelFlag: true,
+            // SPEC-20261020-v2 RF-008: launch prefs — absent prefs keep the
+            // historical "no model flag, default tier" behavior.
+            ModelTier: AgentLaunchEffort.ToTier(task.Effort) ?? AgentModelTier.Normal,
+            ResolvedModelName: task.Model,
+            OmitModelFlag: task.Model is null,
             ExistingWorktreeRunId: workdir.SessionRunId);
 
         if (!await _orchestration.EnqueueAsync(request, ct).ConfigureAwait(false))
@@ -317,7 +321,9 @@ public sealed class DelegationDispatcherService : BackgroundService
         }
 
         var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
-        var invocation = CustomCliRunner.BuildInvocation(found, task.Prompt, model: null);
+        // SPEC-20261020-v2 RF-008: model flows through the def's ModelFlag —
+        // effort was already refused at create-time for custom defs.
+        var invocation = CustomCliRunner.BuildInvocation(found, task.Prompt, model: task.Model);
         var result = await ChatProcessRunner.RunAsync(
             resolved, invocation.Argv, workdir.Path, CustomCliTimeout, ct, invocation.Stdin)
             .ConfigureAwait(false);

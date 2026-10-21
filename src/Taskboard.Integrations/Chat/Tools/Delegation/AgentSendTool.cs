@@ -17,7 +17,8 @@ public sealed class AgentSendTool(IServiceScopeFactory scopeFactory) : IChatTool
 {
     public string Name => "agent_send";
     public string Description =>
-        "Send a mailbox message to an agent or broadcast (@all/@idle) inside "
+        "[deprecated — prefer agent_ask/agent_reply contract flows] Send a "
+        + "mailbox message to an agent or broadcast (@all/@idle) inside "
         + "this conversation — coordinate with delegated tasks. Read replies "
         + "with agent_inbox.";
     public string ParametersJson => """

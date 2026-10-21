@@ -1504,6 +1504,58 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentMailboxMessages", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.DelegationGate", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OptionsJson")
+                        .HasMaxLength(4096)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Resolution")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Scope", "Status");
+
+                    b.HasIndex("TaskId", "Status");
+
+                    b.ToTable("DelegationGates", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.DelegationRun", b =>
                 {
                     b.Property<string>("Id")
@@ -1574,6 +1626,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("DependsOn");
 
+                    b.Property<string>("Effort")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Error")
                         .HasMaxLength(4096)
                         .HasColumnType("TEXT");
@@ -1591,6 +1647,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("LastHeartbeatAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Prompt")
@@ -1750,6 +1810,69 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.HasIndex("TaskId", "Attempt");
 
                     b.ToTable("Dispatches", (string)null);
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.PendingQuestion", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Answer")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromAgent")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessageId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OptionsJson")
+                        .HasMaxLength(4096)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique();
+
+                    b.HasIndex("Scope", "Status");
+
+                    b.ToTable("PendingQuestions", (string)null);
                 });
 
             modelBuilder.Entity("Taskboard.Domain.Entities.Harness.ModelPriceRate", b =>

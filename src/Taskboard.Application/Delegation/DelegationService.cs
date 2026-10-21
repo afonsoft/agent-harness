@@ -26,6 +26,8 @@ public sealed class DelegationService : IDelegationService
     private readonly IDelegationRunRepository _runs;
     private readonly IDispatchRepository _dispatches;
     private readonly IDeliveryRepository _deliveries;
+    private readonly IPendingQuestionRepository _questions;
+    private readonly IDelegationGateRepository _gates;
     private readonly IAgentAttentionService? _attention;
     private readonly ILogger<DelegationService>? _logger;
     private readonly TimeProvider _time;
@@ -36,6 +38,8 @@ public sealed class DelegationService : IDelegationService
         IDelegationRunRepository runs,
         IDispatchRepository dispatches,
         IDeliveryRepository deliveries,
+        IPendingQuestionRepository questions,
+        IDelegationGateRepository gates,
         TimeProvider? timeProvider = null,
         IAgentAttentionService? attention = null,
         ILogger<DelegationService>? logger = null)
@@ -45,6 +49,8 @@ public sealed class DelegationService : IDelegationService
         _runs = runs;
         _dispatches = dispatches;
         _deliveries = deliveries;
+        _questions = questions;
+        _gates = gates;
         _attention = attention;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
@@ -409,6 +415,19 @@ public sealed class DelegationService : IDelegationService
         PostMailboxMessageRequest request, CancellationToken ct = default)
     {
         var effective = request;
+        // RF-009: lifecycle kinds without task identity never go to group
+        // addresses (@all/@idle/@<cli>/@worktree:*). A worker_done/heartbeat
+        // carrying taskId/dispatchId is a completion report — allowed.
+        if (request.Kind is AgentMailboxKinds.WorkerDone or AgentMailboxKinds.Heartbeat
+                or AgentMailboxKinds.Decision
+            && request.ToAgent.StartsWith('@')
+            && request.TaskId is null && request.DispatchId is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"lifecycle kind {request.Kind} cannot target group address {request.ToAgent}");
+        }
+
         if (request.Kind is AgentMailboxKinds.WorkerDone or AgentMailboxKinds.Heartbeat)
         {
             // RF-002: completion authority = dispatchId + taskId juntos. Legacy
@@ -635,6 +654,322 @@ public sealed class DelegationService : IDelegationService
         return request.Types is { Count: > 0 } types
             ? pending.Where(m => types.Contains(m.Kind)).ToList()
             : pending;
+    }
+
+    // ---- RF-004: ask/reply ----
+
+    private static readonly TimeSpan DefaultAskTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan AskPoll = TimeSpan.FromSeconds(1);
+
+    public async Task<PendingQuestionDto> AskQuestionAsync(
+        AskQuestionRequest request, CancellationToken ct = default)
+    {
+        var scope = string.IsNullOrWhiteSpace(request.Scope) ? "harness" : request.Scope.Trim();
+
+        PendingQuestionDto question;
+        if (request.ResumeMessageId is { } resumeId)
+        {
+            var existing = await _questions.GetByMessageAsync(resumeId, ct).ConfigureAwait(false);
+            if (existing is null || !string.Equals(existing.Scope, scope, StringComparison.Ordinal))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"unknown question message: {resumeId}");
+            }
+
+            question = existing.Status switch
+            {
+                PendingQuestionStatus.Answered => existing,
+                PendingQuestionStatus.Pending => existing,
+                _ => await _questions.ResumeAsync(existing.Id, ct).ConfigureAwait(false) ?? existing,
+            };
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(request.Question))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue, "question is required");
+            }
+
+            var run = await EnsureRunAsync(scope, null, null, ct).ConfigureAwait(false);
+            var message = await _mailbox.AddAsync(
+                new PostMailboxMessageRequest(
+                    scope, request.FromAgent, request.ToAgent ?? "@all",
+                    Truncate(request.Question, DetailMaxLength), AgentMailboxKinds.Question),
+                ct).ConfigureAwait(false);
+            question = await _questions.AddAsync(
+                scope, run.Id, message.Id, request.FromAgent,
+                Truncate(request.Question, DetailMaxLength),
+                request.Options is { Count: > 0 } opts ? JsonSerializer.Serialize(opts) : null,
+                ct).ConfigureAwait(false);
+        }
+
+        if (question.Status is PendingQuestionStatus.Answered)
+        {
+            return question;
+        }
+
+        var deadline = _time.GetUtcNow().UtcDateTime + (request.Timeout ?? DefaultAskTimeout);
+        while (true)
+        {
+            var current = await _questions.GetAsync(question.Id, ct).ConfigureAwait(false) ?? question;
+            if (current.Status is PendingQuestionStatus.Answered)
+            {
+                return current;
+            }
+
+            if (_time.GetUtcNow().UtcDateTime >= deadline)
+            {
+                return await _questions.TimeOutAsync(question.Id, _time.GetUtcNow().UtcDateTime, ct)
+                    .ConfigureAwait(false) ?? current;
+            }
+
+            await Task.Delay(AskPoll, ct).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<PendingQuestionDto> ReplyQuestionAsync(
+        string scope, string messageId, string answer, string? fromAgent = null,
+        CancellationToken ct = default)
+    {
+        var question = await _questions.GetByMessageAsync(messageId, ct).ConfigureAwait(false);
+        if (question is null || !string.Equals(question.Scope, scope, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"unknown question message: {messageId}");
+        }
+
+        if (question.Status is not PendingQuestionStatus.Pending)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"question_not_pending: {question.Id} is {question.Status}");
+        }
+
+        var answered = await _questions.AnswerAsync(
+            question.Id, answer, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+        await _mailbox.AddAsync(
+            new PostMailboxMessageRequest(
+                scope, fromAgent ?? "assistant", question.FromAgent,
+                Truncate(answer, DetailMaxLength), AgentMailboxKinds.Answer),
+            ct).ConfigureAwait(false);
+        return answered ?? question with { Status = PendingQuestionStatus.Answered, Answer = answer };
+    }
+
+    // ---- RF-005: task-bound gates ----
+
+    public async Task<DelegationGateDto> CreateGateAsync(
+        string scope, string taskId, string question,
+        IReadOnlyList<string>? options = null, CancellationToken ct = default)
+    {
+        var task = await _tasks.GetAsync(taskId, ct).ConfigureAwait(false);
+        if (task is null || !string.Equals(task.Scope, scope, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue, $"unknown task: {taskId}");
+        }
+
+        if (task.Status is DelegationTaskStatus.Done or DelegationTaskStatus.Failed
+            or DelegationTaskStatus.Stale or DelegationTaskStatus.Cancelled)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"cannot gate a terminal task ({task.Status})");
+        }
+
+        var gate = await _gates.AddAsync(
+            taskId, scope, question,
+            options is { Count: > 0 } opts ? JsonSerializer.Serialize(opts) : null,
+            ct).ConfigureAwait(false);
+        await _tasks.MarkBlockedAsync(taskId, $"gate {gate.Id}: {question}", ct)
+            .ConfigureAwait(false);
+        return gate;
+    }
+
+    public async Task<DelegationGateDto> ResolveGateAsync(
+        string scope, string gateId, string resolution, CancellationToken ct = default)
+    {
+        var gate = await _gates.GetAsync(gateId, ct).ConfigureAwait(false);
+        if (gate is null || !string.Equals(gate.Scope, scope, StringComparison.Ordinal))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue, $"unknown gate: {gateId}");
+        }
+
+        var resolved = await _gates.ResolveAsync(
+            gateId, resolution, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false)
+            ?? gate;
+
+        // Release the task only when no open sibling gates remain.
+        if (!await _gates.HasOpenForTaskAsync(gate.TaskId, ct).ConfigureAwait(false))
+        {
+            await _tasks.UnblockAsync(gate.TaskId, ct).ConfigureAwait(false);
+            await ResolveDependenciesAsync(ct).ConfigureAwait(false);
+        }
+
+        return resolved;
+    }
+
+    public async Task<IReadOnlyList<DelegationGateDto>> ListGatesAsync(
+        string scope, string? taskId = null, CancellationToken ct = default) =>
+        taskId is not null
+            ? (await _gates.ListByTaskAsync(taskId, ct).ConfigureAwait(false))
+                .Where(g => string.Equals(g.Scope, scope, StringComparison.Ordinal))
+                .ToList()
+            : await _gates.ListByScopeAsync(scope, ct).ConfigureAwait(false);
+
+    public async Task<DelegationTaskDto?> BlockTaskAsync(
+        string scope, string taskId, string? resultJson = null, CancellationToken ct = default)
+    {
+        var task = await _tasks.GetAsync(taskId, ct).ConfigureAwait(false);
+        if (task is null || !string.Equals(task.Scope, scope, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return await _tasks.MarkBlockedAsync(
+            taskId, Truncate(resultJson, DetailMaxLength), ct).ConfigureAwait(false);
+    }
+
+    // ---- SPEC-20261020-v2 RF-006: worker dispatch lifecycle ----
+
+    public Task<DispatchDto?> GetDispatchAsync(string dispatchId, CancellationToken ct = default) =>
+        _dispatches.GetAsync(dispatchId, ct);
+
+    public async Task<string?> ReadDispatchOutputAsync(
+        string dispatchId, int lineLimit = 200, CancellationToken ct = default)
+    {
+        var dispatch = await _dispatches.GetAsync(dispatchId, ct).ConfigureAwait(false);
+        if (dispatch?.ArchivedOutput is null)
+        {
+            return null;
+        }
+
+        var lines = dispatch.ArchivedOutput.Split('\n');
+        if (lineLimit <= 0 || lines.Length <= lineLimit)
+        {
+            return dispatch.ArchivedOutput;
+        }
+
+        return string.Join('\n', lines[^lineLimit..]);
+    }
+
+    public async Task<DispatchDto?> ReleaseDispatchAsync(
+        string scope, string dispatchId, string? archivedOutput = null,
+        CancellationToken ct = default) =>
+        await TransitionDispatchForScopeAsync(
+            scope, dispatchId, DispatchState.Released,
+            archivedOutput is null ? null : Truncate(archivedOutput, DetailMaxLength),
+            ct).ConfigureAwait(false);
+
+    public async Task<DispatchDto?> RetainDispatchAsync(
+        string scope, string dispatchId, CancellationToken ct = default) =>
+        await TransitionDispatchForScopeAsync(
+            scope, dispatchId, DispatchState.Retained, null, ct).ConfigureAwait(false);
+
+    public async Task<DispatchDto?> AbandonDispatchAsync(
+        string scope, string dispatchId, CancellationToken ct = default)
+    {
+        var transitioned = await TransitionDispatchForScopeAsync(
+            scope, dispatchId, DispatchState.Abandoned, null, ct).ConfigureAwait(false);
+        if (transitioned is not null)
+        {
+            await ClearActiveDispatchAsync(transitioned.TaskId, dispatchId, ct).ConfigureAwait(false);
+        }
+
+        return transitioned;
+    }
+
+    /// <summary>Scope-guarded dispatch transition + active-dispatch cleanup on release.</summary>
+    private async Task<DispatchDto?> TransitionDispatchForScopeAsync(
+        string scope, string dispatchId, DispatchState state, string? archivedOutput,
+        CancellationToken ct)
+    {
+        var dispatch = await _dispatches.GetAsync(dispatchId, ct).ConfigureAwait(false);
+        if (dispatch is null)
+        {
+            return null;
+        }
+
+        var run = await _runs.GetAsync(dispatch.RunId, ct).ConfigureAwait(false);
+        if (run is null || !string.Equals(run.Scope, scope, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var transitioned = await _dispatches.TransitionAsync(
+            dispatchId, state, archivedOutput, _time.GetUtcNow().UtcDateTime, ct)
+            .ConfigureAwait(false);
+        if (state is DispatchState.Released && transitioned is not null)
+        {
+            await ClearActiveDispatchAsync(transitioned.TaskId, dispatchId, ct).ConfigureAwait(false);
+        }
+
+        return transitioned;
+    }
+
+    private async Task ClearActiveDispatchAsync(
+        string taskId, string dispatchId, CancellationToken ct)
+    {
+        var task = await _tasks.GetAsync(taskId, ct).ConfigureAwait(false);
+        if (task?.ActiveDispatchId == dispatchId)
+        {
+            await _tasks.ClearActiveDispatchAsync(taskId, ct).ConfigureAwait(false);
+        }
+    }
+
+    // ---- SPEC-20261020-v2 RF-010: delegate_reset ----
+
+    public async Task<ResetRunResult> ResetRunAsync(
+        string scope, bool tasks, bool messages, bool force = false, CancellationToken ct = default)
+    {
+        if (!tasks && !messages)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "nothing to reset — pass --tasks, --messages or --all");
+        }
+
+        var run = await _runs.GetOpenByScopeAsync(scope, ct).ConfigureAwait(false);
+
+        if (run is not null && !force)
+        {
+            var open = await _dispatches.ListOpenByRunAsync(run.Id, ct).ConfigureAwait(false);
+            if (open.Count > 0)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"run has {open.Count} open dispatch(es) — pass --force to reset anyway");
+            }
+        }
+
+        var tasksDeleted = 0;
+        var messagesDeleted = 0;
+        if (tasks)
+        {
+            if (run is not null)
+            {
+                await _dispatches.DeleteByRunAsync(run.Id, ct).ConfigureAwait(false);
+            }
+
+            await _gates.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+            tasksDeleted = await _tasks.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+        }
+
+        if (messages)
+        {
+            if (run is not null)
+            {
+                await _deliveries.DeleteByRunAsync(run.Id, ct).ConfigureAwait(false);
+            }
+
+            await _questions.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+            messagesDeleted = await _mailbox.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+        }
+
+        return new ResetRunResult(tasksDeleted, messagesDeleted);
     }
 
     /// <summary>RF-002: preamble given to the worker — spec, ids, mailbox addr, contract.</summary>

@@ -26,7 +26,10 @@ public class DelegationServiceTests
     public DelegationServiceTests()
     {
         _service = new DelegationService(
-            _tasks, _mailbox, _runs, _dispatches, _deliveries, TimeProvider.System);
+            _tasks, _mailbox, _runs, _dispatches, _deliveries,
+            Substitute.For<IPendingQuestionRepository>(),
+            Substitute.For<IDelegationGateRepository>(),
+            TimeProvider.System);
     }
 
     private static DelegationTaskDto TaskDto(

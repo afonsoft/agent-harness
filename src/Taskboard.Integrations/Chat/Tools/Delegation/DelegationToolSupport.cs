@@ -69,6 +69,11 @@ internal static class DelegationToolSupport
         foreach (var task in await service.ListTasksAsync(scope, take: 200, ct).ConfigureAwait(false))
         {
             recipients.Add(task.Id);
+            // RF-009: worktree tasks get a group address their dispatch can read.
+            if (task.WorktreeRunId is { } wt)
+            {
+                recipients.Add($"@worktree:{wt}");
+            }
         }
 
         return recipients;

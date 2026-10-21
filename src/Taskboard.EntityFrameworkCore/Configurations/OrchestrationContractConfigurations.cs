@@ -71,3 +71,57 @@ public sealed class DeliveryConfiguration : IEntityTypeConfiguration<Delivery>
         builder.HasIndex(d => new { d.RunId, d.AckedAtUtc });
     }
 }
+
+/// <summary>SPEC-20261020-orchestration-contract-v2 RF-004.</summary>
+public sealed class PendingQuestionConfiguration : IEntityTypeConfiguration<PendingQuestion>
+{
+    public void Configure(EntityTypeBuilder<PendingQuestion> builder)
+    {
+        builder.ToTable("PendingQuestions");
+
+        builder.Property(q => q.Id).HasMaxLength(96);
+        builder.HasKey(q => q.Id);
+
+        builder.Property(q => q.Scope).IsRequired().HasMaxLength(128);
+        builder.Property(q => q.RunId).IsRequired().HasMaxLength(96);
+        builder.Property(q => q.MessageId).IsRequired().HasMaxLength(96);
+        builder.Property(q => q.FromAgent).IsRequired().HasMaxLength(128);
+        builder.Property(q => q.Question).IsRequired().HasMaxLength(4000);
+        builder.Property(q => q.OptionsJson).HasMaxLength(4096);
+        builder.Property(q => q.Answer).HasMaxLength(4000);
+
+        builder.Property(q => q.Status)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(16);
+
+        builder.HasIndex(q => q.MessageId).IsUnique();
+        builder.HasIndex(q => new { q.Scope, q.Status });
+    }
+}
+
+/// <summary>SPEC-20261020-orchestration-contract-v2 RF-005.</summary>
+public sealed class DelegationGateConfiguration : IEntityTypeConfiguration<DelegationGate>
+{
+    public void Configure(EntityTypeBuilder<DelegationGate> builder)
+    {
+        builder.ToTable("DelegationGates");
+
+        builder.Property(g => g.Id).HasMaxLength(96);
+        builder.HasKey(g => g.Id);
+
+        builder.Property(g => g.TaskId).IsRequired().HasMaxLength(96);
+        builder.Property(g => g.Scope).IsRequired().HasMaxLength(128);
+        builder.Property(g => g.Question).IsRequired().HasMaxLength(4000);
+        builder.Property(g => g.OptionsJson).HasMaxLength(4096);
+        builder.Property(g => g.Resolution).HasMaxLength(4000);
+
+        builder.Property(g => g.Status)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(16);
+
+        builder.HasIndex(g => new { g.TaskId, g.Status });
+        builder.HasIndex(g => new { g.Scope, g.Status });
+    }
+}

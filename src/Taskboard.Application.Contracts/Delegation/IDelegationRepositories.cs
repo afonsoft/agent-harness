@@ -44,6 +44,18 @@ public interface IDelegationTaskRepository
 
     /// <summary>SPEC-20261020-v2 RF-007: failed/stale/cancelled → pending for a new dispatch attempt.</summary>
     Task<DelegationTaskDto?> ReactivateForRetryAsync(string id, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-005/RF-010: non-terminal → blocked with a structured reason.</summary>
+    Task<DelegationTaskDto?> MarkBlockedAsync(string id, string? reason, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-005: blocked → pending so the DAG verdict re-evaluates.</summary>
+    Task<DelegationTaskDto?> UnblockAsync(string id, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-006: drops ActiveDispatchId when the active attempt is abandoned/released.</summary>
+    Task<DelegationTaskDto?> ClearActiveDispatchAsync(string id, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --tasks — returns the deleted count.</summary>
+    Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default);
 }
 
 /// <summary>SPEC-20261005: persistence of agent mailbox messages.</summary>
@@ -84,6 +96,9 @@ public interface IAgentMailboxRepository
         IReadOnlyCollection<string> ids, CancellationToken ct = default);
 
     Task MarkReadAsync(IReadOnlyCollection<string> ids, DateTime readAt, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --messages — returns the deleted count.</summary>
+    Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default);
 }
 
 /// <summary>SPEC-20261020-v2 RF-001: persistence of coordination runs.</summary>
@@ -121,6 +136,9 @@ public interface IDispatchRepository
     Task<DispatchDto?> TransitionAsync(
         string id, DispatchState state, string? archivedOutput, DateTime now,
         CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --tasks — all dispatches of a run.</summary>
+    Task<int> DeleteByRunAsync(string runId, CancellationToken ct = default);
 }
 
 /// <summary>SPEC-20261020-v2 RF-003: persistence of mailbox delivery batches.</summary>
@@ -138,4 +156,53 @@ public interface IDeliveryRepository
         string runId, IReadOnlyList<string> messageIds, CancellationToken ct = default);
 
     Task<DeliveryDto?> AckAsync(string id, DateTime now, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --messages — all deliveries of a run.</summary>
+    Task<int> DeleteByRunAsync(string runId, CancellationToken ct = default);
+}
+
+/// <summary>SPEC-20261020-v2 RF-004: persistence of worker questions.</summary>
+public interface IPendingQuestionRepository
+{
+    Task<PendingQuestionDto?> GetAsync(string id, CancellationToken ct = default);
+
+    /// <summary>The question carried by a mailbox message — ask/reply/resume join key.</summary>
+    Task<PendingQuestionDto?> GetByMessageAsync(string messageId, CancellationToken ct = default);
+
+    Task<PendingQuestionDto> AddAsync(
+        string scope, string runId, string messageId, string fromAgent,
+        string question, string? optionsJson, CancellationToken ct = default);
+
+    /// <summary>pending → answered. Throws <c>question_not_pending</c> otherwise.</summary>
+    Task<PendingQuestionDto?> AnswerAsync(
+        string id, string answer, DateTime now, CancellationToken ct = default);
+
+    /// <summary>pending → timed out (asker gave up this round).</summary>
+    Task<PendingQuestionDto?> TimeOutAsync(string id, DateTime now, CancellationToken ct = default);
+
+    /// <summary>timed-out → pending again for --resume; answered → question_not_pending.</summary>
+    Task<PendingQuestionDto?> ResumeAsync(string id, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --messages — all questions of a scope.</summary>
+    Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default);
+}
+
+/// <summary>SPEC-20261020-v2 RF-005: persistence of task-bound gates.</summary>
+public interface IDelegationGateRepository
+{
+    Task<DelegationGateDto?> GetAsync(string id, CancellationToken ct = default);
+    Task<IReadOnlyList<DelegationGateDto>> ListByTaskAsync(string taskId, CancellationToken ct = default);
+    Task<IReadOnlyList<DelegationGateDto>> ListByScopeAsync(string scope, CancellationToken ct = default);
+    Task<bool> HasOpenForTaskAsync(string taskId, CancellationToken ct = default);
+
+    Task<DelegationGateDto> AddAsync(
+        string taskId, string scope, string question, string? optionsJson,
+        CancellationToken ct = default);
+
+    /// <summary>open → resolved. Throws when already resolved.</summary>
+    Task<DelegationGateDto?> ResolveAsync(
+        string id, string resolution, DateTime now, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --tasks — all gates of a scope.</summary>
+    Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default);
 }

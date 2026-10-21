@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
 
 namespace Taskboard.Tests.Unit.Chat;
@@ -27,4 +28,32 @@ internal static class TestScopeFactory
             .AddSingleton(service)
             .BuildServiceProvider()
             .GetRequiredService<IServiceScopeFactory>();
+
+    /// <summary>SPEC-20261020-v2 P3: delegation + launch resolver for launch-pref tests.</summary>
+    public static IServiceScopeFactory WithDelegationAndLaunch(
+        IDelegationService service, IAgentLaunchResolver resolver) =>
+        new ServiceCollection()
+            .AddSingleton(service)
+            .AddSingleton(resolver)
+            .BuildServiceProvider()
+            .GetRequiredService<IServiceScopeFactory>();
+
+    /// <summary>Shared chat-tool context for tool unit tests.</summary>
+    public static ChatToolContext Ctx(string? defaultAgentCli = "codex") =>
+        new(
+            WorkspacePath: Path.GetTempPath(),
+            ProviderId: Guid.NewGuid(),
+            ProviderBaseUrl: "http://provider.test",
+            ProviderApiKey: "sk",
+            ImageModel: "",
+            SearchBackend: "none",
+            SearchUrl: "",
+            SearchApiKey: "",
+            ConversationId: "conv-1",
+            Model: "m1",
+            DelegationDepth: 0,
+            Activity: null,
+            ToolSet: null,
+            DefaultAgentCli: defaultAgentCli,
+            DefaultAgentModel: null);
 }

@@ -33,7 +33,9 @@ public sealed class DelegateTaskTool(
           "retry_of":{"type":"string","description":"Task id to retry (must be failed/stale/cancelled)"},
           "use_worktree":{"type":"boolean","description":"Run inside a fresh git worktree (requires repository_path)"},
           "repository_path":{"type":"string","description":"Git repo path (absolute or workspace-relative) — enables worktree isolation and the stale-base guard"},
-          "base_branch":{"type":"string","description":"Base branch for the worktree (default: repo default)"}
+          "base_branch":{"type":"string","description":"Base branch for the worktree (default: repo default)"},
+          "model":{"type":"string","description":"Requested launch model — resolved against the CLI's capability"},
+          "effort":{"type":"string","description":"Requested launch effort: low|normal|high"}
         },"required":["prompt"]}
         """;
 
@@ -82,7 +84,28 @@ public sealed class DelegateTaskTool(
 
         var dependsOn = ReadStringList(arguments, "depends_on");
         var retryOf = ReadString(arguments, "retry_of");
+        var model = ReadString(arguments, "model");
+        var effort = ReadString(arguments, "effort");
         var scope = DelegationToolSupport.ScopeOf(context);
+
+        // SPEC-20261020-v2 RF-008: resolve launch prefs up-front — unknown
+        // capability is an explicit error, never silently dropped.
+        LaunchResolution? launch = null;
+        if (model is not null || effort is not null)
+        {
+            try
+            {
+                await using var resolveScope = scopeFactory.CreateAsyncScope();
+                var resolver = resolveScope.ServiceProvider
+                    .GetRequiredService<IAgentLaunchResolver>();
+                launch = await resolver.ResolveLaunchAsync(cli, model, effort, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (DomainException ex)
+            {
+                return DelegationToolSupport.Error(ex.Message, "launch preference refused");
+            }
+        }
 
         if (retryOf is not null)
         {
@@ -121,7 +144,7 @@ public sealed class DelegateTaskTool(
                     prompt, cli, scope, context.WorkspacePath,
                     dependsOn.Count == 0 ? null : dependsOn,
                     retryOf, FanoutGroupId: null, useWorktree,
-                    repoPath, baseSha),
+                    repoPath, baseSha, Kind: null, RunId: null, model, effort),
                 cancellationToken).ConfigureAwait(false);
 
             if (useWorktree)
@@ -160,6 +183,13 @@ public sealed class DelegateTaskTool(
             retryOf = task.RetryOf,
             useWorktree = task.UseWorktree,
             worktreeRunId = task.WorktreeRunId,
+            launch = launch is null
+                ? null
+                : new
+                {
+                    requested = new { model, effort },
+                    effective = new { model = launch.EffectiveModel, effort = launch.EffectiveEffort },
+                },
         });
     }
 
