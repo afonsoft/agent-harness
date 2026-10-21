@@ -248,6 +248,8 @@ app.MapHub<TerminalHub>("/terminal-hub").RequireAuthorization();
 app.MapHub<HarnessCockpitHub>("/harness-cockpit-hub").RequireAuthorization();
 // SPEC-20261005-chat-background-resume RF-008: run.completed broadcast.
 app.MapHub<ChatRunHub>("/chat-run-hub").RequireAuthorization();
+// SPEC-20261020-agents-feed-notifications RF-010: agent.feed push per user.
+app.MapHub<AgentFeedHub>("/agent-feed-hub").RequireAuthorization();
 
 // SPEC-20260917-vscode-web-workspace RF-006: /vscode mount handling lives in
 // middleware (not an endpoint) because endpoint routing ignores the trailing
@@ -528,6 +530,7 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261020-agents-feed-notifications: global feed + unread markers.
     builder.Services.AddScoped<IAgentFeedRepository, EfCoreAgentFeedRepository>();
     builder.Services.AddScoped<IUserFeedReadRepository, EfCoreUserFeedReadRepository>();
+    builder.Services.AddSingleton<IAgentFeedNotifier, SignalRAgentFeedNotifier>();
     builder.Services.AddScoped<IAgentFeedService, AgentFeedService>();
     // SPEC-20261020-agent-board-v2: kanban card projection + read markers.
     builder.Services.AddScoped<IAgentBoardService, AgentBoardService>();

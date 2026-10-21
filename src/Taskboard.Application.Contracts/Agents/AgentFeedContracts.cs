@@ -79,6 +79,29 @@ public interface IUserFeedReadRepository
 }
 
 /// <summary>
+/// SPEC RF-010: SignalR <c>agent.feed</c> push payload — a new/merged
+/// <paramref name="Item"/>, a read-state <paramref name="Kind"/>="patch", plus
+/// the user's current unread counts either way.
+/// </summary>
+public sealed record AgentFeedPushDto(
+    string Kind,
+    AgentFeedItemDto? Item,
+    FeedUnreadCountDto UnreadCounts);
+
+/// <summary>
+/// SPEC RF-010: broadcast channel for feed updates. Implemented server-side
+/// via SignalR; the service calls it fire-and-log so a push failure never
+/// breaks the write it follows.
+/// </summary>
+public interface IAgentFeedNotifier
+{
+    /// <summary>Group name of a user's feed — <c>feed:{userId}</c>.</summary>
+    static string GroupFor(string userId) => $"feed:{userId}";
+
+    Task PushAsync(string userId, AgentFeedPushDto push, CancellationToken ct = default);
+}
+
+/// <summary>
 /// SPEC RF-001…RF-005: produce feed items (dedup merge), page, unread counts
 /// and read-state ops. Writes never block the producing transition.
 /// </summary>
