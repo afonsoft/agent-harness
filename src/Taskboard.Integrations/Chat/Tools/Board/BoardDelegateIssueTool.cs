@@ -104,6 +104,7 @@ public sealed class BoardDelegateIssueTool(
                 retainOnFailure: false, cancellationToken).ConfigureAwait(false);
             task = (await delegation.AttachWorktreeAsync(
                     task.Id, session.RunId, session.SharedPathsApplied,
+                    session.SetupState, session.SetupLogTail,
                     cancellationToken).ConfigureAwait(false)) ?? task;
 
             await github.UpdateIssueColumnAsync(

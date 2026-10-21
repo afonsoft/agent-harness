@@ -18,7 +18,7 @@ public interface IDelegationService
     /// </summary>
     Task<DelegationTaskDto> CreateTaskAsync(CreateDelegationTaskRequest request, CancellationToken ct = default);
 
-    Task<DelegationTaskDto?> AttachWorktreeAsync(string taskId, string worktreeRunId, IReadOnlyList<string>? sharedPathsApplied = null, CancellationToken ct = default);
+    Task<DelegationTaskDto?> AttachWorktreeAsync(string taskId, string worktreeRunId, IReadOnlyList<string>? sharedPathsApplied = null, string? setupState = null, string? setupLogTail = null, CancellationToken ct = default);
 
     Task<IReadOnlyList<DelegationTaskDto>> ListTasksAsync(string scope, int take = 50, CancellationToken ct = default);
     Task<IReadOnlyList<DelegationTaskDto>> ListOpenAsync(CancellationToken ct = default);

@@ -25,7 +25,9 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
         string branch,
         bool retainOnFailure,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<string>? sharedPathsApplied = null)
+        IReadOnlyList<string>? sharedPathsApplied = null,
+        string? setupState = null,
+        string? setupLogTail = null)
     {
         // Upsert: RunId is unique — a retried run whose worktree directory was
         // lost reactivates the same row instead of violating the index.
@@ -34,7 +36,8 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
         {
             existing.Reactivate(
                 baseBranch, path, branch, retainOnFailure,
-                sharedPathsApplied: sharedPathsApplied);
+                sharedPathsApplied: sharedPathsApplied,
+                setupState: setupState, setupLogTail: setupLogTail);
             await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return ToDto(existing);
         }
@@ -47,7 +50,8 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
             path,
             branch,
             retainOnFailure,
-            sharedPathsApplied: sharedPathsApplied);
+            sharedPathsApplied: sharedPathsApplied,
+            setupState: setupState, setupLogTail: setupLogTail);
 
         await _context.WorktreeSessions.AddAsync(entity, cancellationToken).ConfigureAwait(false);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -127,5 +131,7 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
             session.SharedPathsJson is { Length: > 0 } json
                 ? System.Text.Json.JsonSerializer
                     .Deserialize<List<string>>(json) ?? []
-                : []);
+                : [],
+            session.SetupState,
+            session.SetupLogTail);
 }

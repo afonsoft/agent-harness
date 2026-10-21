@@ -301,7 +301,8 @@ public sealed class DelegationPlanCreator(IServiceScopeFactory scopeFactory)
             $"plan-{task.Id[^Math.Min(8, task.Id.Length)..]}",
             retainOnFailure: false, ct).ConfigureAwait(false);
         return (await plan.Service.AttachWorktreeAsync(
-            task.Id, session.RunId, session.SharedPathsApplied, ct)
+            task.Id, session.RunId, session.SharedPathsApplied,
+            session.SetupState, session.SetupLogTail, ct)
             .ConfigureAwait(false)) ?? task;
     }
 

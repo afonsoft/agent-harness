@@ -32,6 +32,21 @@ public sealed class WorktreeCard : Entity<Guid>
     /// <summary>Last time comment/status was written (UTC).</summary>
     public DateTime StatusCommentedAtUtc { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-003: lifecycle of the yaml
+    /// <c>setup:</c> commands — <c>pending|running|ok|failed|skipped</c>.
+    /// </summary>
+    public string SetupState { get; private set; } = global::Taskboard.Harness.WorktreeSetupStates.Skipped;
+
+    /// <summary>Exit code of the failing setup command (null when ok/skipped).</summary>
+    public int? SetupExitCode { get; private set; }
+
+    /// <summary>Scrubbed tail of the setup output (≤64KB).</summary>
+    public string? SetupLog { get; private set; }
+
+    public DateTime? SetupStartedAtUtc { get; private set; }
+    public DateTime? SetupFinishedAtUtc { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
@@ -64,6 +79,46 @@ public sealed class WorktreeCard : Entity<Guid>
         WorkspaceStatus = status;
         TaskId = taskId ?? TaskId;
         StatusCommentedAtUtc = UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// SPEC-20261021 RF-003: setup lifecycle write — <c>running</c> stamps
+    /// <see cref="SetupStartedAtUtc"/>, a terminal state stamps
+    /// <see cref="SetupFinishedAtUtc"/> + exit code + scrubbed log tail.
+    /// </summary>
+    public void SetSetup(
+        string state, int? exitCode, string? logTail, DateTime now)
+    {
+        if (!global::Taskboard.Harness.WorktreeSetupStates.IsValid(state))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"setup state must be one of pending|running|ok|failed|skipped — got '{state}'.");
+        }
+
+        SetupState = state;
+        if (state == global::Taskboard.Harness.WorktreeSetupStates.Running)
+        {
+            SetupStartedAtUtc = now;
+            SetupFinishedAtUtc = null;
+            SetupExitCode = null;
+            SetupLog = logTail;
+        }
+        else if (global::Taskboard.Harness.WorktreeSetupStates.IsTerminal(state))
+        {
+            SetupFinishedAtUtc = now;
+            SetupExitCode = exitCode;
+            SetupLog = logTail;
+            SetupStartedAtUtc ??= now;
+        }
+        else
+        {
+            // pending — lifecycle declared but not started yet.
+            SetupFinishedAtUtc = null;
+            SetupExitCode = null;
+        }
+
+        UpdatedAt = now;
     }
 
     private static string? NormalizeComment(string? comment)

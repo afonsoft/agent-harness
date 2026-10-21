@@ -45,6 +45,38 @@ public sealed class EfCoreWorktreeCardRepository : IWorktreeCardRepository
         return ToDto(entity);
     }
 
+    /// <inheritdoc />
+    public async Task<WorktreeCardDto> SetSetupAsync(
+        string worktreePath,
+        string repoPath,
+        string state,
+        int? exitCode,
+        string? logTail,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var entity = await _context.WorktreeCards
+            .FirstOrDefaultAsync(c => c.WorktreePath == worktreePath, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (entity is null)
+        {
+            entity = WorktreeCard.Create(
+                worktreePath, repoPath, null, WorkspaceStatus.Unknown, null, now);
+            await _context.WorktreeCards.AddAsync(entity, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        entity.SetSetup(
+            state, exitCode,
+            logTail is { Length: > MaxSetupLogBytes } tail
+                ? tail[^MaxSetupLogBytes..]
+                : logTail,
+            now);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
     public async Task<WorktreeCardDto?> GetAsync(
         string worktreePath, CancellationToken cancellationToken = default)
     {
@@ -70,6 +102,12 @@ public sealed class EfCoreWorktreeCardRepository : IWorktreeCardRepository
         return entities.Select(ToDto).ToList();
     }
 
+    /// <summary>Card keeps a ≤64KB scrubbed tail (RF-003).</summary>
+    private const int MaxSetupLogBytes = 64 * 1024;
+
+    /// <summary>DTO tail — enough for the card UI + preamble echo.</summary>
+    private const int LogTailBytes = 4 * 1024;
+
     private static WorktreeCardDto ToDto(WorktreeCard c) => new(
         c.WorktreePath,
         c.RepoPath,
@@ -77,5 +115,12 @@ public sealed class EfCoreWorktreeCardRepository : IWorktreeCardRepository
         c.WorkspaceStatus,
         c.TaskId,
         c.StatusCommentedAtUtc,
-        c.UpdatedAt);
+        c.UpdatedAt,
+        c.SetupState,
+        c.SetupExitCode,
+        c.SetupStartedAtUtc,
+        c.SetupFinishedAtUtc,
+        c.SetupLog is { Length: > LogTailBytes } log
+            ? log[^LogTailBytes..]
+            : c.SetupLog);
 }

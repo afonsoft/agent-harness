@@ -106,4 +106,56 @@ public class WorktreeCardServiceTests
 
         card.WorktreePath.ShouldBe("/wt"); // write survives a dead notifier
     }
+
+    // ---------- SPEC-20261021-worktree-setup-scripts: SetSetupAsync ----------
+
+    [Fact]
+    public async Task Dado_SetupState_Quando_SetSetup_Entao_PersisteENotifica()
+    {
+        _cards.SetSetupAsync(
+                "/wt", "/repo", "running", null, null,
+                Arg.Any<CancellationToken>())
+            .Returns(new WorktreeCardDto(
+                "/wt", "/repo", null, WorkspaceStatus.Unknown, null,
+                DateTime.UtcNow, DateTime.UtcNow, "running"));
+
+        var card = await Sut().SetSetupAsync("/wt", "/repo", "running", null, null);
+
+        card.SetupState.ShouldBe("running");
+        await _cards.Received(1).SetSetupAsync(
+            "/wt", "/repo", "running", null, null, Arg.Any<CancellationToken>());
+        await _notifier.Received(1).PushAsync(card, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("", "/repo")]
+    [InlineData("/wt", " ")]
+    public async Task Dado_PathVazio_Quando_SetSetup_Entao_InvalidValue(
+        string worktree, string repo)
+    {
+        var ex = await Should.ThrowAsync<DomainException>(
+            () => Sut().SetSetupAsync(worktree, repo, "running", null, null));
+
+        ex.Message.ShouldContain("required");
+        await _cards.DidNotReceive().SetSetupAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_NotifierFalha_Quando_SetSetup_Entao_WriteNaoPerdido()
+    {
+        _cards.SetSetupAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new WorktreeCardDto(
+                "/wt", "/repo", null, WorkspaceStatus.Unknown, null,
+                DateTime.UtcNow, DateTime.UtcNow, "ok", 0));
+        _notifier.PushAsync(Arg.Any<WorktreeCardDto>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new IOException("hub down"));
+
+        var card = await Sut().SetSetupAsync("/wt", "/repo", "ok", 0, "tail");
+
+        card.SetupState.ShouldBe("ok");
+    }
 }

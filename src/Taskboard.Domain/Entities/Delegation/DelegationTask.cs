@@ -50,6 +50,17 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// </summary>
     public string SharedPathsJson { get; private set; } = "[]";
 
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-004: snapshot of the worktree
+    /// setup outcome at attach — echoed in the worker preamble so the worker
+    /// knows whether install steps already ran (<c>ok</c>), are still running
+    /// (<c>running</c>), or failed.
+    /// </summary>
+    public string? SetupState { get; private set; }
+
+    /// <summary>Scrubbed tail of the setup log (≤4KB) for the preamble.</summary>
+    public string? SetupLogTail { get; private set; }
+
     public string WorkspacePath { get; private set; } = string.Empty;
     public string? RepositoryPath { get; private set; }
 
@@ -143,13 +154,22 @@ public sealed class DelegationTask : AggregateRoot<string>
         Status is DelegationTaskStatus.Failed or DelegationTaskStatus.Stale
             or DelegationTaskStatus.Cancelled;
 
-    public void AttachWorktree(string runId, IReadOnlyList<string>? sharedPathsApplied = null)
+    public void AttachWorktree(
+        string runId,
+        IReadOnlyList<string>? sharedPathsApplied = null,
+        string? setupState = null,
+        string? setupLogTail = null)
     {
         WorktreeRunId = runId;
         if (sharedPathsApplied is not null)
         {
             SharedPathsJson = JsonSerializer.Serialize(sharedPathsApplied);
         }
+
+        SetupState = setupState;
+        SetupLogTail = setupLogTail is { Length: > 4096 } tail
+            ? tail[^4096..]
+            : setupLogTail;
     }
 
     /// <summary>SPEC-20261020-v2 RF-002: point at the in-flight dispatch attempt.</summary>

@@ -450,7 +450,9 @@ public class GitWorktreeManagerTests : IDisposable
             string branch,
             bool retainOnFailure,
             CancellationToken cancellationToken = default,
-            IReadOnlyList<string>? sharedPathsApplied = null)
+            IReadOnlyList<string>? sharedPathsApplied = null,
+            string? setupState = null,
+            string? setupLogTail = null)
         {
             var existing = Items.FirstOrDefault(s => s.RunId == runId);
             if (existing is not null)
@@ -464,6 +466,8 @@ public class GitWorktreeManagerTests : IDisposable
                     CommitSha = null,
                     RetainOnFailure = retainOnFailure,
                     SharedPathsApplied = sharedPathsApplied ?? [],
+                    SetupState = setupState,
+                    SetupLogTail = setupLogTail,
                     UpdatedAt = DateTime.UtcNow,
                     Version = existing.Version + 1,
                 };
@@ -484,7 +488,9 @@ public class GitWorktreeManagerTests : IDisposable
                 DateTime.UtcNow,
                 DateTime.UtcNow,
                 1,
-                sharedPathsApplied);
+                sharedPathsApplied,
+                setupState,
+                setupLogTail);
             Items.Add(dto);
             return Task.FromResult(dto);
         }

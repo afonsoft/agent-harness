@@ -27,6 +27,8 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     private readonly IGitCommandRunner _git;
     private readonly IWorktreeSessionRepository _sessions;
     private readonly ISharedPathProvisioner? _sharedPaths;
+    private readonly IWorktreeYamlReader? _yamlReader;
+    private readonly IWorktreeSetupRunner? _setupRunner;
     private readonly string _worktreeRoot;
     private readonly ILogger<GitWorktreeManager> _logger;
 
@@ -35,13 +37,17 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         IWorktreeSessionRepository sessions,
         string worktreeRoot,
         ILogger<GitWorktreeManager> logger,
-        ISharedPathProvisioner? sharedPaths = null)
+        ISharedPathProvisioner? sharedPaths = null,
+        IWorktreeYamlReader? yamlReader = null,
+        IWorktreeSetupRunner? setupRunner = null)
     {
         _git = git;
         _sessions = sessions;
         _worktreeRoot = worktreeRoot;
         _logger = logger;
         _sharedPaths = sharedPaths;
+        _yamlReader = yamlReader;
+        _setupRunner = setupRunner;
     }
 
     public async Task<WorktreeSessionDto> CreateWorktreeAsync(
@@ -100,6 +106,36 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 .Select(e => e.Path)
                 .ToList();
 
+        // SPEC-20261021-worktree-setup-scripts RF-002/RF-004: run the yaml
+        // `setup:` commands after shared paths. wait-for-setup (default)
+        // awaits the outcome before the session exists — the worker dispatch
+        // only proceeds with a terminal state in the preamble; start-
+        // immediately lets the runner finish in background ("running").
+        string? setupState = null;
+        string? setupLogTail = null;
+        if (_yamlReader is not null && _setupRunner is not null)
+        {
+            var doc = _yamlReader.Read(repositoryPath);
+            var commands = _yamlReader.EffectiveSetupCommands(repositoryPath, doc);
+            if (commands.Count > 0)
+            {
+                var policy = _yamlReader.EffectiveStartupPolicy(repositoryPath, doc);
+                if (policy == WorktreeSetupPolicies.StartImmediately)
+                {
+                    _setupRunner.RunSetupInBackground(repositoryPath, path, commands);
+                    setupState = WorktreeSetupStates.Running;
+                }
+                else
+                {
+                    var result = await _setupRunner.RunSetupAsync(
+                        repositoryPath, path, commands, cancellationToken)
+                        .ConfigureAwait(false);
+                    setupState = result.State;
+                    setupLogTail = WorktreeSetupRunner.PreambleTail(result.LogTail);
+                }
+            }
+        }
+
         var session = await _sessions.CreateAsync(
             runId,
             repositoryPath,
@@ -108,7 +144,9 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
             branch,
             retainOnFailure,
             cancellationToken,
-            sharedPathsApplied: sharedApplied);
+            sharedPathsApplied: sharedApplied,
+            setupState: setupState,
+            setupLogTail: setupLogTail);
 
         _logger.LogInformation("Worktree {Path} on branch {Branch} created for run {RunId}.", path, branch, runId);
         return session;

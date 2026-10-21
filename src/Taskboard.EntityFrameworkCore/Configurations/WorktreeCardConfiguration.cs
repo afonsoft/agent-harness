@@ -38,6 +38,16 @@ public sealed class WorktreeCardConfiguration : IEntityTypeConfiguration<Worktre
             .HasMaxLength(128);
 
         builder.Property(c => c.StatusCommentedAtUtc);
+
+        builder.Property(c => c.SetupState)
+            .IsRequired()
+            .HasMaxLength(16);
+
+        builder.Property(c => c.SetupExitCode);
+        builder.Property(c => c.SetupLog);
+        builder.Property(c => c.SetupStartedAtUtc);
+        builder.Property(c => c.SetupFinishedAtUtc);
+
         builder.Property(c => c.CreatedAt);
         builder.Property(c => c.UpdatedAt);
     }

@@ -72,6 +72,42 @@ public sealed class WorktreeCardService : IWorktreeCardService
         return card;
     }
 
+    /// <inheritdoc />
+    public async Task<WorktreeCardDto> SetSetupAsync(
+        string worktreePath,
+        string repoPath,
+        string state,
+        int? exitCode,
+        string? logTail,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(worktreePath) || string.IsNullOrWhiteSpace(repoPath))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "worktreePath and repoPath are required.");
+        }
+
+        var card = await _cards.SetSetupAsync(
+            worktreePath.Trim(), repoPath.Trim(), state, exitCode, logTail,
+            cancellationToken).ConfigureAwait(false);
+
+        if (_notifier is not null)
+        {
+            try
+            {
+                await _notifier.PushAsync(card, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                // Push is best-effort — the write already succeeded.
+            }
+        }
+
+        return card;
+    }
+
     public Task<WorktreeCardDto?> GetAsync(
         string worktreePath, CancellationToken cancellationToken = default) =>
         _cards.GetAsync(worktreePath, cancellationToken);

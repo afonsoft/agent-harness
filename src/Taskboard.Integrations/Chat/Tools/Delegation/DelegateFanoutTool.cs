@@ -186,6 +186,7 @@ public sealed class DelegateFanoutTool(
                 retainOnFailure: false, cancellationToken).ConfigureAwait(false);
             task = (await service.AttachWorktreeAsync(
                     task.Id, session.RunId, session.SharedPathsApplied,
+                    session.SetupState, session.SetupLogTail,
                     cancellationToken).ConfigureAwait(false)) ?? task;
             return LegOf(task, session.Path, null);
         }

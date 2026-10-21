@@ -24,6 +24,15 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
     /// </summary>
     public string SharedPathsJson { get; private set; } = "[]";
 
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-003: setup outcome snapshot at
+    /// provisioning — <c>ok|failed|running|skipped</c> (null = no setup ran).
+    /// </summary>
+    public string? SetupState { get; private set; }
+
+    /// <summary>Scrubbed tail of the setup log (≤4KB).</summary>
+    public string? SetupLogTail { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
@@ -40,7 +49,9 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         string branch,
         bool retainOnFailure,
         DateTime now,
-        IReadOnlyList<string>? sharedPathsApplied = null)
+        IReadOnlyList<string>? sharedPathsApplied = null,
+        string? setupState = null,
+        string? setupLogTail = null)
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(runId))
@@ -77,6 +88,8 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         RetainOnFailure = retainOnFailure;
         SharedPathsJson = System.Text.Json.JsonSerializer.Serialize(
             sharedPathsApplied ?? []);
+        SetupState = setupState;
+        SetupLogTail = setupLogTail;
         CreatedAt = UpdatedAt = now;
     }
 
@@ -89,9 +102,12 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         string branch,
         bool retainOnFailure = false,
         DateTime? now = null,
-        IReadOnlyList<string>? sharedPathsApplied = null)
+        IReadOnlyList<string>? sharedPathsApplied = null,
+        string? setupState = null,
+        string? setupLogTail = null)
         => new(id, runId, repositoryPath, baseBranch, path, branch,
-            retainOnFailure, now ?? DateTime.UtcNow, sharedPathsApplied);
+            retainOnFailure, now ?? DateTime.UtcNow, sharedPathsApplied,
+            setupState, setupLogTail);
 
     /// <summary>
     /// Reactivates the session for a retried run whose previous worktree
@@ -100,7 +116,8 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
     /// </summary>
     public void Reactivate(
         string baseBranch, string path, string branch, bool retainOnFailure,
-        DateTime? now = null, IReadOnlyList<string>? sharedPathsApplied = null)
+        DateTime? now = null, IReadOnlyList<string>? sharedPathsApplied = null,
+        string? setupState = null, string? setupLogTail = null)
     {
         if (string.IsNullOrWhiteSpace(baseBranch)
             || string.IsNullOrWhiteSpace(path)
@@ -116,6 +133,8 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         CommitSha = null;
         SharedPathsJson = System.Text.Json.JsonSerializer.Serialize(
             sharedPathsApplied ?? []);
+        SetupState = setupState;
+        SetupLogTail = setupLogTail;
         Status = WorktreeStatus.Active;
         Touch(now);
     }
