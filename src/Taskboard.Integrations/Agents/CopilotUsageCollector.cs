@@ -29,7 +29,7 @@ public sealed class CopilotUsageCollector : IProviderUsageCollector
     public string Provider => "copilot";
 
     public async Task<IReadOnlyList<ProviderUsageWindowDto>> CollectAsync(
-        CancellationToken ct = default)
+        string userId, CancellationToken ct = default)
     {
         var result = await _runner.RunAsync(
             "gh", _workdir, ["api", "copilot_internal/user"], Timeout, ct);

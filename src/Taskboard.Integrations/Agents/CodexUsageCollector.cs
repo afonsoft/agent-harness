@@ -30,7 +30,7 @@ public sealed class CodexUsageCollector : IProviderUsageCollector
     public string Provider => "codex";
 
     public async Task<IReadOnlyList<ProviderUsageWindowDto>> CollectAsync(
-        CancellationToken ct = default)
+        string userId, CancellationToken ct = default)
     {
         var newest = NewestRollout();
         if (newest is null)

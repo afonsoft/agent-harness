@@ -495,6 +495,66 @@
                     }
                 </div>
 
+                @* SPEC-20261020-provider-quota-usage P3 RF-009: user-editable
+                   plan budgets for the local_estimate fallback — token budget
+                   per provider window; blank keeps the default. *@
+                <div class="form-section mt-4">
+                    <h2 class="form-section-title">Quota plan limits</h2>
+                    <p class="small text-body-secondary">
+                        Token budgets used by the <code>local_estimate</code> fallback when a provider's
+                        measured quota is unavailable. Leave a field blank to keep the conservative default.
+                    </p>
+                    @if (_planLimitsEffective.Count > 0)
+                    {
+                        <div class="table-responsive mb-2">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Provider</th>
+                                        @foreach (var kind in new[] { "fiveHour", "daily", "weekly", "monthly" })
+                                        {
+                                            <th class="text-end"><code class="small">@kind</code></th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var provider in _planLimitsEffective.Keys.OrderBy(k => k))
+                                    {
+                                        <tr>
+                                            <td class="small fw-medium">@provider</td>
+                                            @foreach (var kind in new[] { "fiveHour", "daily", "weekly", "monthly" })
+                                            {
+                                                var effective = _planLimitsEffective[provider]
+                                                    .TryGetValue(kind, out var e) ? e : (long?)null;
+                                                var saved = _planLimits.TryGetValue(provider, out var b)
+                                                    && b.TryGetValue(kind, out var s) ? s : (long?)null;
+                                                <td class="text-end" style="width: 9rem">
+                                                    <input type="number" class="form-control form-control-sm text-end"
+                                                           min="0" step="1000" aria-label="@($"{provider} {kind} budget")"
+                                                           placeholder="@(effective?.ToString() ?? "—")"
+                                                           value="@(saved?.ToString() ?? "")"
+                                                           @onchange="e => OnPlanLimitChanged(provider, kind, e.Value)" />
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="SavePlanLimitsAsync" disabled="@_planLimitsSaving">
+                            @(_planLimitsSaving ? "Saving…" : "Save plan limits")
+                        </button>
+                    }
+                    else
+                    {
+                        <p class="small text-body-secondary">No plan limits configured.</p>
+                    }
+                    @if (_planLimitsError is not null)
+                    {
+                        <div class="alert alert-danger small mt-2 mb-0">@_planLimitsError</div>
+                    }
+                </div>
+
                 </div>
                 <div class="tab-pane" role="tabpanel" aria-label="Chat" hidden="@(_activeTab != "chat")">
                 <div class="form-section">
@@ -1429,6 +1489,11 @@
     private bool _hibPrefsSaving;
     private string? _hibPrefsError;
     private HibernationStatsDto? _hibStats;
+    private Dictionary<string, Dictionary<string, long>> _planLimits = new();
+    private IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> _planLimitsEffective =
+        new Dictionary<string, IReadOnlyDictionary<string, long>>();
+    private bool _planLimitsSaving;
+    private string? _planLimitsError;
     private readonly Dictionary<AgentType, bool> _enabledState = new();
     private readonly Dictionary<AgentType, bool> _originalEnabledState = new();
 
@@ -1718,6 +1783,7 @@
         await LoadMcpStatusAsync();
         await LoadFeedPrefsAsync();
         await LoadHibernationPrefsAsync();
+        await LoadPlanLimitsAsync();
     }
 
     private async Task LoadFeedPrefsAsync()
@@ -1820,6 +1886,77 @@
         finally
         {
             _hibPrefsSaving = false;
+        }
+    }
+
+    // SPEC-20261020-provider-quota-usage P3 RF-009: plan budgets editor.
+    private async Task LoadPlanLimitsAsync()
+    {
+        try
+        {
+            var view = await Client.GetUsagePlanLimitsAsync();
+            if (view is not null)
+            {
+                ApplyPlanLimitsView(view);
+            }
+        }
+        catch
+        {
+            // advisory — the section renders empty rather than erroring out.
+        }
+    }
+
+    private void ApplyPlanLimitsView(PlanLimitsViewDto view)
+    {
+        _planLimits = view.Saved.ToDictionary(p => p.Key,
+            p => new Dictionary<string, long>(p.Value));
+        _planLimitsEffective = view.Effective;
+    }
+
+    private void OnPlanLimitChanged(string provider, string kind, object? value)
+    {
+        if (!_planLimits.TryGetValue(provider, out var budgets))
+        {
+            budgets = new Dictionary<string, long>();
+            _planLimits[provider] = budgets;
+        }
+
+        if (value is string raw && long.TryParse(raw, out var budget) && budget > 0)
+        {
+            budgets[kind] = budget;
+        }
+        else
+        {
+            budgets.Remove(kind); // blank/invalid → back to the default.
+        }
+    }
+
+    private async Task SavePlanLimitsAsync()
+    {
+        _planLimitsSaving = true;
+        _planLimitsError = null;
+        try
+        {
+            var view = await Client.SaveUsagePlanLimitsAsync(
+                _planLimits.ToDictionary(
+                    p => p.Key,
+                    p => (IReadOnlyDictionary<string, long>)p.Value));
+            if (view is null)
+            {
+                _planLimitsError = "Could not save plan limits.";
+                return;
+            }
+
+            ApplyPlanLimitsView(view);
+            await ToastService.NotifyAsync(new(ToastType.Success, "Plan limits saved"));
+        }
+        catch (Exception ex)
+        {
+            _planLimitsError = $"Could not save plan limits: {ex.Message}";
+        }
+        finally
+        {
+            _planLimitsSaving = false;
         }
     }
 

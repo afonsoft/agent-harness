@@ -70,4 +70,72 @@ public class ProviderUsageEndpointsTests : IClassFixture<TaskboardWebApplication
         var roster = await client.GetAsync("/api/usage/providers");
         roster.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
+
+    // ---------- P3: plan-limits + provider-filtered refresh ----------
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_GetPlanLimits_Entao_401()
+    {
+        var response = await _client.GetAsync("/api/usage/plan-limits");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_PutPlanLimits_Entao_401()
+    {
+        var response = await _client.PutAsJsonAsync("/api/usage/plan-limits",
+            new { budgets = new Dictionary<string, object>() });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_Autenticado_Quando_PutPlanLimits_Entao_RoundTrip()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var put = await client.PutAsJsonAsync("/api/usage/plan-limits",
+            new
+            {
+                budgets = new Dictionary<string, Dictionary<string, long>>
+                {
+                    ["claude"] = new() { ["daily"] = 321_000, ["bad"] = -1 },
+                },
+            });
+
+        put.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rawPut = await put.Content.ReadAsStringAsync();
+        var view = JsonNode.Parse(rawPut)!.AsObject();
+        view["saved"].ShouldNotBeNull("RAW PUT: " + rawPut);
+        // saved echoes only positive user values; effective merges defaults.
+        view!["saved"]!["claude"]!["daily"]!.GetValue<long>()
+            .ShouldBe(321_000);
+        view["saved"]!["claude"]!.AsObject().ContainsKey("bad").ShouldBeFalse();
+        view["effective"]!["claude"]!["fiveHour"]!.GetValue<long>()
+            .ShouldBeGreaterThan(0);
+
+        var get = await client.GetAsync("/api/usage/plan-limits");
+        get.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var round = await get.Content.ReadFromJsonAsync<JsonObject>();
+        round!["saved"]!["claude"]!["daily"]!.GetValue<long>()
+            .ShouldBe(321_000);
+
+        // Keep the shared factory DB clean for sibling tests.
+        await client.PutAsJsonAsync("/api/usage/plan-limits",
+            new { budgets = new Dictionary<string, object>() });
+    }
+
+    [Fact]
+    public async Task Dado_FiltroProvider_Quando_Refresh_Entao_Tolerante()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsync(
+            "/api/usage/refresh?provider=codex", null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body!["upserted"].ShouldNotBeNull();
+    }
 }

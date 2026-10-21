@@ -5,6 +5,8 @@ using Shouldly;
 using Taskboard.Agents;
 using Taskboard.Application.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Domain.Entities;
+using Taskboard.Repositories;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.Agents;
@@ -220,16 +222,53 @@ internal sealed class FakeCollector(
     public string Provider { get; } = provider;
     public int Calls;
     public Task<IReadOnlyList<ProviderUsageWindowDto>> CollectAsync(
-        CancellationToken ct = default)
+        string userId, CancellationToken ct = default)
     {
         Calls++;
         return Task.FromResult(produce());
     }
 }
 
+internal sealed class FakeUsersRepository : IRepository<UserPreference>
+{
+    public readonly List<UserPreference> Rows = new();
+
+    public IQueryable<UserPreference> Query => Rows.AsQueryable();
+
+    public Task<UserPreference?> GetAsync<TKey>(
+        TKey id, CancellationToken cancellationToken = default)
+        where TKey : notnull =>
+        Task.FromResult(Rows.FirstOrDefault(r => Equals(r.Id, id)));
+
+    public Task<IReadOnlyList<UserPreference>> ListAsync(
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<UserPreference>>(Rows);
+
+    public Task AddAsync(UserPreference entity, CancellationToken cancellationToken = default)
+    {
+        Rows.Add(entity);
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateAsync(UserPreference entity, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask; // in-place mutation — ListAsync already reflects it.
+
+    public Task DeleteAsync(UserPreference entity, CancellationToken cancellationToken = default)
+    {
+        Rows.Remove(entity);
+        return Task.CompletedTask;
+    }
+
+    public void Untrack(UserPreference entity) { }
+
+    public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+}
+
 internal sealed class UsageTestHarness
 {
     public readonly FakeUsageRepository Repo = new();
+    public readonly FakeUsersRepository Users = new();
     public readonly IAgentFeedService Feed = Substitute.For<IAgentFeedService>();
     public readonly List<IProviderUsageCollector> Collectors = new();
 
@@ -242,6 +281,7 @@ internal sealed class UsageTestHarness
     {
         var services = new ServiceCollection()
             .AddScoped<IProviderUsageRepository>(_ => Repo)
+            .AddScoped<IRepository<UserPreference>>(_ => Users)
             .AddScoped(_ => Feed)
             .BuildServiceProvider();
         return new ProviderUsageService(services, Collectors,

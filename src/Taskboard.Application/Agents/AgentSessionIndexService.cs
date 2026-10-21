@@ -312,6 +312,7 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             await users.UpdateAsync(user, ct).ConfigureAwait(false);
         }
 
+        await users.SaveChangesAsync(ct).ConfigureAwait(false);
         return await GetViewPrefsAsync(userId, ct).ConfigureAwait(false);
     }
 

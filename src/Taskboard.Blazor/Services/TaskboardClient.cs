@@ -825,13 +825,36 @@ public sealed class TaskboardClient
         await _httpClient.GetFromJsonAsync<IReadOnlyList<ProviderUsageRosterEntryDto>>(
             "/api/usage/providers", cancellationToken);
 
-    /// <summary>Manual collect tick — same path as the background job.</summary>
+    /// <summary>Manual collect tick — same path as the background job;
+    /// <paramref name="provider"/> narrows the tick to one provider.</summary>
     public async Task<bool> RefreshUsageAsync(
+        string? provider = null, CancellationToken cancellationToken = default)
+    {
+        var url = provider is null
+            ? "/api/usage/refresh"
+            : $"/api/usage/refresh?provider={Uri.EscapeDataString(provider)}";
+        using var response = await _httpClient.PostAsync(
+            url, content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>P3 RF-009: plan budgets view — saved vs effective.</summary>
+    public async Task<PlanLimitsViewDto?> GetUsagePlanLimitsAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<PlanLimitsViewDto>(
+            "/api/usage/plan-limits", cancellationToken);
+
+    /// <summary>P3 RF-009: persist plan budgets; returns the updated view.</summary>
+    public async Task<PlanLimitsViewDto?> SaveUsagePlanLimitsAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> budgets,
         CancellationToken cancellationToken = default)
     {
-        using var response = await _httpClient.PostAsync(
-            "/api/usage/refresh", content: null, cancellationToken);
-        return response.IsSuccessStatusCode;
+        using var response = await _httpClient.PutAsJsonAsync(
+            "/api/usage/plan-limits", new { budgets }, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<PlanLimitsViewDto>(
+                cancellationToken)
+            : null;
     }
 
     /// <summary>RF-008 (P3): delete-from-history — null on success, else the

@@ -569,6 +569,14 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddHostedService<AgentHibernationJob>();
     // SPEC-20261020-provider-quota-usage: collectors + roster + warn pipeline.
     builder.Services.AddScoped<IProviderUsageRepository, EfCoreProviderUsageRepository>();
+    builder.Services.AddHttpClient("usage-anthropic", static client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(10);
+        client.BaseAddress = new Uri("https://api.anthropic.com/");
+    });
+    builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
+        new AnthropicUsageCollector(sp.GetRequiredService<IHttpClientFactory>()
+            .CreateClient("usage-anthropic")));
     builder.Services.AddSingleton<IProviderUsageCollector>(sp =>
         new ClaudeUsageCollector(sp.GetRequiredService<IProcessRunner>()));
     builder.Services.AddSingleton<IProviderUsageCollector>(
@@ -4420,8 +4428,24 @@ void MapAgentsEndpoints()
         Results.Ok(new
         {
             upserted = await usage.CollectOnceAsync(
-                SessionsUserId(context), ct),
+                SessionsUserId(context),
+                context.Request.Query["provider"] is { Count: > 0 } p ? p[0] : null,
+                ct),
         }));
+
+    // SPEC P3 RF-009: user-editable plan budgets for the local_estimate
+    // fallback — saved prefs override Taskboard:PlanLimits config.
+    usage.MapGet("plan-limits", async (
+        HttpContext context,
+        IProviderUsageService usage, CancellationToken ct) =>
+        Results.Ok(await usage.GetPlanLimitsAsync(SessionsUserId(context), ct)));
+
+    usage.MapPut("plan-limits", async (
+        HttpContext context,
+        PlanLimitsBody body,
+        IProviderUsageService usage, CancellationToken ct) =>
+        Results.Ok(await usage.SavePlanLimitsAsync(
+            SessionsUserId(context), body.Budgets, ct)));
 
     static string SessionsUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
@@ -5356,6 +5380,11 @@ public partial class Program
 
     /// <summary>SPEC-20261020-agent-hibernation RF-009: pin toggle body.</summary>
     private sealed record SessionPinRequest(bool Pinned);
+
+    /// <summary>SPEC-20261020-provider-quota-usage RF-009: plan budgets PUT
+    /// body — provider → windowKind → token budget.</summary>
+    private sealed record PlanLimitsBody(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Budgets);
 
     /// <summary>SPEC-20261020-session-history-parity RF-002: sessions index
     /// query bound via [AsParameters] (keeps the handler under S107).</summary>
