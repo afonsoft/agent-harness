@@ -17,23 +17,7 @@ namespace Taskboard.Tests.Unit.Chat;
 /// </summary>
 public class OrchestrationContractP3ToolsTests
 {
-    private static ChatToolContext Ctx() =>
-        new(
-            WorkspacePath: Path.GetTempPath(),
-            ProviderId: Guid.NewGuid(),
-            ProviderBaseUrl: "http://provider.test",
-            ProviderApiKey: "sk",
-            ImageModel: "",
-            SearchBackend: "none",
-            SearchUrl: "",
-            SearchApiKey: "",
-            ConversationId: "conv-1",
-            Model: "m1",
-            DelegationDepth: 0,
-            Activity: null,
-            ToolSet: null,
-            DefaultAgentCli: "codex",
-            DefaultAgentModel: null);
+    private static ChatToolContext Ctx() => TestScopeFactory.Ctx();
 
     private static JsonElement Args(string json) => JsonSerializer.Deserialize<JsonElement>(json);
 

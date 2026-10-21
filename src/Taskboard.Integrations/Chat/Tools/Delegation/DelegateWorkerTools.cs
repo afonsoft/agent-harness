@@ -3,19 +3,63 @@ using Microsoft.Extensions.DependencyInjection;
 using Taskboard;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
+using Taskboard.Dtos;
 
 namespace Taskboard.Integrations.Chat.Tools.Delegation;
+
+/// <summary>Shared scope/id plumbing for the delegate_worker_* tools (SPEC-20261020-v2 RF-006).</summary>
+internal static class WorkerToolSupport
+{
+    public delegate Task<DispatchDto?> DispatchAction(
+        IDelegationService service, string scope, string dispatchId, CancellationToken ct);
+
+    /// <summary>Reads the dispatch arg, runs <paramref name="action"/> scope-guarded.</summary>
+    public static async Task<ChatToolResult> RunDispatchActionAsync(
+        IServiceScopeFactory scopeFactory, JsonElement arguments, ChatToolContext context,
+        DispatchAction action, string errorHint, CancellationToken ct)
+    {
+        var id = AgentAskTool.ReadString(arguments, "dispatch");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return DelegationToolSupport.Error("dispatch is required", "missing args");
+        }
+
+        await using var diScope = scopeFactory.CreateAsyncScope();
+        var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
+        try
+        {
+            var dispatch = await action(
+                service, DelegationToolSupport.ScopeOf(context), id, ct).ConfigureAwait(false);
+            if (dispatch is null)
+            {
+                return DelegationToolSupport.Error(
+                    $"unknown dispatch: {id}", "dispatch not found");
+            }
+
+            return DelegationToolSupport.Ok(new
+            {
+                dispatchId = dispatch.Id,
+                dispatch.TaskId,
+                state = dispatch.State.ToString().ToLowerInvariant(),
+                hasOutput = dispatch.ArchivedOutput is not null,
+            });
+        }
+        catch (DomainException ex)
+        {
+            return DelegationToolSupport.Error(ex.Message, errorHint);
+        }
+    }
+}
 
 /// <summary>SPEC-20261020-v2 RF-006: dispatch inspection.</summary>
 public sealed class DelegateWorkerShowTool(IServiceScopeFactory scopeFactory) : IChatTool
 {
     public string Name => "delegate_worker_show";
     public string Description =>
-        "Show a worker dispatch — state, attempt, preamble, terminal handle and "
-        + "timestamps.";
+        "Show a worker dispatch — state, attempt, preamble, terminal handle and timestamps.";
     public string ParametersJson => """
         {"type":"object","properties":{
-          "dispatch":{"type":"string","description":"Dispatch id (disp-*) or task id"}
+          "dispatch":{"type":"string","description":"Dispatch id (disp-*)"}
         },"required":["dispatch"]}
         """;
 
@@ -34,7 +78,6 @@ public sealed class DelegateWorkerShowTool(IServiceScopeFactory scopeFactory) : 
 
         await using var diScope = scopeFactory.CreateAsyncScope();
         var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
-
         var dispatch = await service.GetDispatchAsync(id, cancellationToken).ConfigureAwait(false);
         if (dispatch is null)
         {
@@ -138,40 +181,14 @@ public sealed class DelegateWorkerReleaseTool(IServiceScopeFactory scopeFactory)
     public ChatCapabilityKind Kind => ChatCapabilityKind.AgentDelegation;
     public bool RequiresConfirmation => false;
 
-    public async Task<ChatToolResult> ExecuteAsync(
+    public Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
     {
-        var id = AgentAskTool.ReadString(arguments, "dispatch");
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return DelegationToolSupport.Error("dispatch is required", "missing args");
-        }
-
-        await using var diScope = scopeFactory.CreateAsyncScope();
-        var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
-        try
-        {
-            var dispatch = await service.ReleaseDispatchAsync(
-                DelegationToolSupport.ScopeOf(context), id,
-                AgentAskTool.ReadString(arguments, "output"), cancellationToken)
-                .ConfigureAwait(false);
-            if (dispatch is null)
-            {
-                return DelegationToolSupport.Error($"unknown dispatch: {id}", "dispatch not found");
-            }
-
-            return DelegationToolSupport.Ok(new
-            {
-                dispatchId = dispatch.Id,
-                dispatch.TaskId,
-                state = dispatch.State.ToString().ToLowerInvariant(),
-                hasOutput = dispatch.ArchivedOutput is not null,
-            });
-        }
-        catch (DomainException ex)
-        {
-            return DelegationToolSupport.Error(ex.Message, "release refused");
-        }
+        var output = AgentAskTool.ReadString(arguments, "output");
+        return WorkerToolSupport.RunDispatchActionAsync(
+            scopeFactory, arguments, context,
+            (s, scope, id, ct) => s.ReleaseDispatchAsync(scope, id, output, ct),
+            "release refused", cancellationToken);
     }
 }
 
@@ -192,48 +209,12 @@ public sealed class DelegateWorkerRetainTool(IServiceScopeFactory scopeFactory) 
     public ChatCapabilityKind Kind => ChatCapabilityKind.AgentDelegation;
     public bool RequiresConfirmation => false;
 
-    public async Task<ChatToolResult> ExecuteAsync(
+    public Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
-        await TransitionAsync(
-            scopeFactory, arguments, context, cancellationToken,
-            (s, scope, id, ct) => s.RetainDispatchAsync(scope, id, ct), "retain refused")
-            .ConfigureAwait(false);
-
-    internal static async Task<ChatToolResult> TransitionAsync(
-        IServiceScopeFactory scopeFactory, JsonElement arguments, ChatToolContext context,
-        CancellationToken ct,
-        Func<IDelegationService, string, string, CancellationToken, Task<Taskboard.Dtos.DispatchDto?>> transition,
-        string errorHint)
-    {
-        var id = AgentAskTool.ReadString(arguments, "dispatch");
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            return DelegationToolSupport.Error("dispatch is required", "missing args");
-        }
-
-        await using var diScope = scopeFactory.CreateAsyncScope();
-        var service = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
-        try
-        {
-            var dispatch = await transition(
-                service, DelegationToolSupport.ScopeOf(context), id, ct).ConfigureAwait(false);
-            if (dispatch is null)
-            {
-                return DelegationToolSupport.Error($"unknown dispatch: {id}", "dispatch not found");
-            }
-
-            return DelegationToolSupport.Ok(new
-            {
-                dispatchId = dispatch.Id,
-                dispatch.TaskId,
-                state = dispatch.State.ToString().ToLowerInvariant(),
-            });
-        }
-        catch (DomainException ex)
-        {
-            return DelegationToolSupport.Error(ex.Message, errorHint);
-        }
-    }
+        WorkerToolSupport.RunDispatchActionAsync(
+            scopeFactory, arguments, context,
+            (s, scope, id, ct) => s.RetainDispatchAsync(scope, id, ct),
+            "retain refused", cancellationToken);
 }
 
 /// <summary>SPEC-20261020-v2 RF-006: non-released → abandoned (worker left mid-run).</summary>
@@ -255,9 +236,10 @@ public sealed class DelegateWorkerAbandonTool(IServiceScopeFactory scopeFactory)
 
     public Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
-        DelegateWorkerRetainTool.TransitionAsync(
-            scopeFactory, arguments, context, cancellationToken,
-            (s, scope, id, ct) => s.AbandonDispatchAsync(scope, id, ct), "abandon refused");
+        WorkerToolSupport.RunDispatchActionAsync(
+            scopeFactory, arguments, context,
+            (s, scope, id, ct) => s.AbandonDispatchAsync(scope, id, ct),
+            "abandon refused", cancellationToken);
 }
 
 /// <summary>
@@ -298,11 +280,7 @@ public sealed class DelegateResetTool(IServiceScopeFactory scopeFactory) : IChat
             var result = await service.ResetRunAsync(
                 DelegationToolSupport.ScopeOf(context), tasks, messages, force, cancellationToken)
                 .ConfigureAwait(false);
-            return DelegationToolSupport.Ok(new
-            {
-                result.TasksDeleted,
-                result.MessagesDeleted,
-            });
+            return DelegationToolSupport.Ok(new { result.TasksDeleted, result.MessagesDeleted });
         }
         catch (DomainException ex)
         {

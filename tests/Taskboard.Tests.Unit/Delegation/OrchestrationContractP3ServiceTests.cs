@@ -1,7 +1,6 @@
 using NSubstitute;
 using Shouldly;
 using Taskboard;
-using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Delegation;
@@ -18,45 +17,18 @@ namespace Taskboard.Tests.Unit.Delegation;
 /// </summary>
 public class OrchestrationContractP3ServiceTests
 {
-    private readonly IDelegationTaskRepository _tasks = Substitute.For<IDelegationTaskRepository>();
-    private readonly IAgentMailboxRepository _mailbox = Substitute.For<IAgentMailboxRepository>();
-    private readonly IDelegationRunRepository _runs = Substitute.For<IDelegationRunRepository>();
-    private readonly IDispatchRepository _dispatches = Substitute.For<IDispatchRepository>();
-    private readonly IDeliveryRepository _deliveries = Substitute.For<IDeliveryRepository>();
-    private readonly IPendingQuestionRepository _questions = Substitute.For<IPendingQuestionRepository>();
-    private readonly IDelegationGateRepository _gates = Substitute.For<IDelegationGateRepository>();
-    private readonly DelegationService _service;
-
-    public OrchestrationContractP3ServiceTests()
-    {
-        _service = new DelegationService(
-            _tasks, _mailbox, _runs, _dispatches, _deliveries,
-            _questions, _gates, TimeProvider.System);
-    }
-
-    private static DelegationRunDto Run(string scope = "conv-1") =>
-        new("run-1", scope, "obj", "assistant", DelegationRunStatus.Open, DateTime.UtcNow, null);
-
-    private static DispatchDto Dispatch(
-        string id = "disp-1", DispatchState state = DispatchState.Settled,
-        string taskId = "task-1", string? output = null) =>
-        new(id, taskId, "run-1", "codex", 1, state, "{}", null, output,
-            DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow, null);
-
-    private static DelegationTaskDto Task(string id, string? activeDispatchId = null) =>
-        new(id, "conv-1", "prompt", "codex", [], null, null, false, null,
-            "/ws", null, null, DelegationTaskStatus.Running, null, null,
-            DateTime.UtcNow, null, null, null, RunId: "run-1",
-            ActiveDispatchId: activeDispatchId);
+    private readonly DelegationServiceStubs _s = new();
+    private DelegationService Service => _s.Service;
 
     // ---- RF-006: show/read ----
 
     [Fact]
     public async Task Dado_DispatchExistente_Quando_Show_Entao_RetornaDispatch()
     {
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>()).Returns(Dispatch());
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto());
 
-        var result = await _service.GetDispatchAsync("disp-1");
+        var result = await Service.GetDispatchAsync("disp-1");
 
         result.ShouldNotBeNull();
         result.State.ShouldBe(DispatchState.Settled);
@@ -66,10 +38,10 @@ public class OrchestrationContractP3ServiceTests
     public async Task Dado_ArquivoCom50Linhas_Quando_ReadComLimit10_Entao_RetornaUltimas10()
     {
         var output = string.Join('\n', Enumerable.Range(1, 50).Select(i => $"linha {i}"));
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
-            .Returns(Dispatch(output: output));
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto(output: output));
 
-        var result = await _service.ReadDispatchOutputAsync("disp-1", lineLimit: 10);
+        var result = await Service.ReadDispatchOutputAsync("disp-1", lineLimit: 10);
 
         result.ShouldNotBeNull();
         result.ShouldBe(string.Join('\n', Enumerable.Range(41, 10).Select(i => $"linha {i}")));
@@ -78,10 +50,10 @@ public class OrchestrationContractP3ServiceTests
     [Fact]
     public async Task Dado_DispatchSemOutput_Quando_Read_Entao_Null()
     {
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
-            .Returns(Dispatch(output: null));
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto(output: null));
 
-        var result = await _service.ReadDispatchOutputAsync("disp-1");
+        var result = await Service.ReadDispatchOutputAsync("disp-1");
 
         result.ShouldBeNull();
     }
@@ -91,46 +63,54 @@ public class OrchestrationContractP3ServiceTests
     [Fact]
     public async Task Dado_DispatchSettled_Quando_ReleaseComOutput_Entao_ArquivaELimpaActive()
     {
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>()).Returns(Dispatch());
-        _runs.GetAsync("run-1", Arg.Any<CancellationToken>()).Returns(Run());
-        _dispatches.TransitionAsync(
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto());
+        _s.Runs.GetAsync("run-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.RunDto());
+        _s.Dispatches.TransitionAsync(
                 "disp-1", DispatchState.Released, "log final", Arg.Any<DateTime>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Dispatch(state: DispatchState.Released, output: "log final"));
-        _tasks.GetAsync("task-1", Arg.Any<CancellationToken>())
-            .Returns(Task("task-1", activeDispatchId: "disp-1"));
+            .Returns(DelegationServiceStubs.DispatchDto(
+                state: DispatchState.Released, output: "log final"));
+        _s.Tasks.GetAsync("task-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.TaskDto(
+                "task-1", DelegationTaskStatus.Running, activeDispatchId: "disp-1"));
 
-        var result = await _service.ReleaseDispatchAsync("conv-1", "disp-1", "log final");
+        var result = await Service.ReleaseDispatchAsync("conv-1", "disp-1", "log final");
 
         result.ShouldNotBeNull();
         result.State.ShouldBe(DispatchState.Released);
-        await _tasks.Received(1).ClearActiveDispatchAsync("task-1", Arg.Any<CancellationToken>());
+        await _s.Tasks.Received(1).ClearActiveDispatchAsync("task-1", Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Dado_DispatchDeOutroScope_Quando_Release_Entao_Null()
     {
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>()).Returns(Dispatch());
-        _runs.GetAsync("run-1", Arg.Any<CancellationToken>()).Returns(Run(scope: "outro"));
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto());
+        _s.Runs.GetAsync("run-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.RunDto(scope: "outro"));
 
-        var result = await _service.ReleaseDispatchAsync("conv-1", "disp-1");
+        var result = await Service.ReleaseDispatchAsync("conv-1", "disp-1");
 
         result.ShouldBeNull();
-        await _dispatches.DidNotReceiveWithAnyArgs()
+        await _s.Dispatches.DidNotReceiveWithAnyArgs()
             .TransitionAsync(default!, default, default, default, default);
     }
 
     [Fact]
     public async Task Dado_DispatchSettled_Quando_Retain_Entao_Retained()
     {
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>()).Returns(Dispatch());
-        _runs.GetAsync("run-1", Arg.Any<CancellationToken>()).Returns(Run());
-        _dispatches.TransitionAsync(
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto());
+        _s.Runs.GetAsync("run-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.RunDto());
+        _s.Dispatches.TransitionAsync(
                 "disp-1", DispatchState.Retained, null, Arg.Any<DateTime>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Dispatch(state: DispatchState.Retained));
+            .Returns(DelegationServiceStubs.DispatchDto(state: DispatchState.Retained));
 
-        var result = await _service.RetainDispatchAsync("conv-1", "disp-1");
+        var result = await Service.RetainDispatchAsync("conv-1", "disp-1");
 
         result.ShouldNotBeNull();
         result.State.ShouldBe(DispatchState.Retained);
@@ -139,21 +119,23 @@ public class OrchestrationContractP3ServiceTests
     [Fact]
     public async Task Dado_DispatchDispatched_Quando_Abandon_Entao_AbandonedELimpaActive()
     {
-        _dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
-            .Returns(Dispatch(state: DispatchState.Dispatched));
-        _runs.GetAsync("run-1", Arg.Any<CancellationToken>()).Returns(Run());
-        _dispatches.TransitionAsync(
+        _s.Dispatches.GetAsync("disp-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.DispatchDto(state: DispatchState.Dispatched));
+        _s.Runs.GetAsync("run-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.RunDto());
+        _s.Dispatches.TransitionAsync(
                 "disp-1", DispatchState.Abandoned, null, Arg.Any<DateTime>(),
                 Arg.Any<CancellationToken>())
-            .Returns(Dispatch(state: DispatchState.Abandoned));
-        _tasks.GetAsync("task-1", Arg.Any<CancellationToken>())
-            .Returns(Task("task-1", activeDispatchId: "disp-1"));
+            .Returns(DelegationServiceStubs.DispatchDto(state: DispatchState.Abandoned));
+        _s.Tasks.GetAsync("task-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.TaskDto(
+                "task-1", DelegationTaskStatus.Running, activeDispatchId: "disp-1"));
 
-        var result = await _service.AbandonDispatchAsync("conv-1", "disp-1");
+        var result = await Service.AbandonDispatchAsync("conv-1", "disp-1");
 
         result.ShouldNotBeNull();
         result.State.ShouldBe(DispatchState.Abandoned);
-        await _tasks.Received(1).ClearActiveDispatchAsync("task-1", Arg.Any<CancellationToken>());
+        await _s.Tasks.Received(1).ClearActiveDispatchAsync("task-1", Arg.Any<CancellationToken>());
     }
 
     // ---- RF-010: reset ----
@@ -161,39 +143,41 @@ public class OrchestrationContractP3ServiceTests
     [Fact]
     public async Task Dado_RunComDispatchAberto_Quando_ResetSemForce_Entao_Recusa()
     {
-        _runs.GetOpenByScopeAsync("conv-1", Arg.Any<CancellationToken>()).Returns(Run());
-        _dispatches.ListOpenByRunAsync("run-1", Arg.Any<CancellationToken>())
-            .Returns([Dispatch(state: DispatchState.Dispatched)]);
+        _s.Runs.GetOpenByScopeAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.RunDto());
+        _s.Dispatches.ListOpenByRunAsync("run-1", Arg.Any<CancellationToken>())
+            .Returns([DelegationServiceStubs.DispatchDto(state: DispatchState.Dispatched)]);
 
         var ex = await Should.ThrowAsync<DomainException>(
-            () => _service.ResetRunAsync("conv-1", tasks: true, messages: false));
+            () => Service.ResetRunAsync("conv-1", tasks: true, messages: false));
 
         ex.Message.ShouldContain("--force");
-        await _tasks.DidNotReceiveWithAnyArgs().DeleteByScopeAsync(default!, default);
+        await _s.Tasks.DidNotReceiveWithAnyArgs().DeleteByScopeAsync(default!, default);
     }
 
     [Fact]
     public async Task Dado_RunComDispatchAberto_Quando_ResetComForce_Entao_Apaga()
     {
-        _runs.GetOpenByScopeAsync("conv-1", Arg.Any<CancellationToken>()).Returns(Run());
-        _tasks.DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>()).Returns(3);
-        _mailbox.DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>()).Returns(7);
+        _s.Runs.GetOpenByScopeAsync("conv-1", Arg.Any<CancellationToken>())
+            .Returns(DelegationServiceStubs.RunDto());
+        _s.Tasks.DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>()).Returns(3);
+        _s.Mailbox.DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>()).Returns(7);
 
-        var result = await _service.ResetRunAsync("conv-1", tasks: true, messages: true, force: true);
+        var result = await Service.ResetRunAsync("conv-1", tasks: true, messages: true, force: true);
 
         result.TasksDeleted.ShouldBe(3);
         result.MessagesDeleted.ShouldBe(7);
-        await _dispatches.Received(1).DeleteByRunAsync("run-1", Arg.Any<CancellationToken>());
-        await _deliveries.Received(1).DeleteByRunAsync("run-1", Arg.Any<CancellationToken>());
-        await _gates.Received(1).DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>());
-        await _questions.Received(1).DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>());
+        await _s.Dispatches.Received(1).DeleteByRunAsync("run-1", Arg.Any<CancellationToken>());
+        await _s.Deliveries.Received(1).DeleteByRunAsync("run-1", Arg.Any<CancellationToken>());
+        await _s.Gates.Received(1).DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>());
+        await _s.Questions.Received(1).DeleteByScopeAsync("conv-1", Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task Dado_NenhumFlag_Quando_Reset_Entao_Recusa()
     {
         var ex = await Should.ThrowAsync<DomainException>(
-            () => _service.ResetRunAsync("conv-1", tasks: false, messages: false));
+            () => Service.ResetRunAsync("conv-1", tasks: false, messages: false));
 
         ex.Message.ShouldContain("nothing to reset");
     }
