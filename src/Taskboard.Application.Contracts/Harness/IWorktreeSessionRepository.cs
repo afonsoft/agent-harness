@@ -16,7 +16,8 @@ public interface IWorktreeSessionRepository
         string path,
         string branch,
         bool retainOnFailure,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<string>? sharedPathsApplied = null);
 
     Task<WorktreeSessionDto?> GetByRunIdAsync(string runId, CancellationToken cancellationToken = default);
 

@@ -26,6 +26,7 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 
     private readonly IGitCommandRunner _git;
     private readonly IWorktreeSessionRepository _sessions;
+    private readonly ISharedPathProvisioner? _sharedPaths;
     private readonly string _worktreeRoot;
     private readonly ILogger<GitWorktreeManager> _logger;
 
@@ -33,12 +34,14 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         IGitCommandRunner git,
         IWorktreeSessionRepository sessions,
         string worktreeRoot,
-        ILogger<GitWorktreeManager> logger)
+        ILogger<GitWorktreeManager> logger,
+        ISharedPathProvisioner? sharedPaths = null)
     {
         _git = git;
         _sessions = sessions;
         _worktreeRoot = worktreeRoot;
         _logger = logger;
+        _sharedPaths = sharedPaths;
     }
 
     public async Task<WorktreeSessionDto> CreateWorktreeAsync(
@@ -86,6 +89,17 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
 
         var branch = await AddWorktreeWithUniqueBranchAsync(repositoryPath, path, resolvedBase, runId, taskSlug, cancellationToken);
 
+        // SPEC-20261020-worktree-shared-context: materialize gitignored shared
+        // paths (node_modules/.env/...) before the session row — the preamble
+        // echoes sharedPathsApplied so the worker skips redundant installs.
+        var sharedApplied = _sharedPaths is null
+            ? []
+            : (await _sharedPaths.ProvisionAsync(repositoryPath, path, cancellationToken)
+                .ConfigureAwait(false))
+                .Where(e => e.Applied)
+                .Select(e => e.Path)
+                .ToList();
+
         var session = await _sessions.CreateAsync(
             runId,
             repositoryPath,
@@ -93,7 +107,8 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
             path,
             branch,
             retainOnFailure,
-            cancellationToken);
+            cancellationToken,
+            sharedPathsApplied: sharedApplied);
 
         _logger.LogInformation("Worktree {Path} on branch {Branch} created for run {RunId}.", path, branch, runId);
         return session;

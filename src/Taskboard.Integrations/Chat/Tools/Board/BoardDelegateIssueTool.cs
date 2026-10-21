@@ -102,8 +102,9 @@ public sealed class BoardDelegateIssueTool(
                 task.Id, clone.Path, "main",
                 $"issue-{issue.Number}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
                 retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-            task = (await delegation.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
-                .ConfigureAwait(false)) ?? task;
+            task = (await delegation.AttachWorktreeAsync(
+                    task.Id, session.RunId, session.SharedPathsApplied,
+                    cancellationToken).ConfigureAwait(false)) ?? task;
 
             await github.UpdateIssueColumnAsync(
                 repo!, issue.Number,

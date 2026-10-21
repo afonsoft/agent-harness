@@ -1938,6 +1938,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SharedPathsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("TEXT");
 
@@ -2734,6 +2738,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<string>("RunId")
                         .IsRequired()
                         .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SharedPathsJson")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Status")

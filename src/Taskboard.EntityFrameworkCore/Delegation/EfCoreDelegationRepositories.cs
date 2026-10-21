@@ -115,8 +115,10 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         await TransitionAsync(id, t => t.Heartbeat(now), ct).ConfigureAwait(false);
 
     public async Task<DelegationTaskDto?> AttachWorktreeAsync(
-        string id, string worktreeRunId, CancellationToken ct = default) =>
-        await TransitionAsync(id, t => t.AttachWorktree(worktreeRunId), ct).ConfigureAwait(false);
+        string id, string worktreeRunId,
+        IReadOnlyList<string>? sharedPathsApplied = null,
+        CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.AttachWorktree(worktreeRunId, sharedPathsApplied), ct).ConfigureAwait(false);
 
     public async Task<DelegationTaskDto?> AttachDispatchAsync(
         string id, string? dispatchId, CancellationToken ct = default) =>
@@ -183,7 +185,7 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.UseWorktree, t.WorktreeRunId, t.WorkspacePath, t.RepositoryPath, t.BaseCommitSha,
             t.Status, t.ResultSummary, t.Error,
             t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
-            t.RunId, t.ActiveDispatchId, t.Model, t.Effort);
+            t.RunId, t.ActiveDispatchId, t.Model, t.Effort, t.SharedPathsApplied);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>

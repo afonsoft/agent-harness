@@ -608,7 +608,14 @@ void RegisterWorkspaceAndChatServices()
         sp.GetRequiredService<IWorktreeSessionRepository>(),
         // SPEC-20260919-harness-workspace-isolation: default ~/repos (Taskboard:WorktreeRoot).
         WorktreePaths.ResolveRoot(builder.Configuration["Taskboard:WorktreeRoot"], homeDir),
-        sp.GetRequiredService<ILogger<GitWorktreeManager>>()));
+        sp.GetRequiredService<ILogger<GitWorktreeManager>>(),
+        sp.GetService<ISharedPathProvisioner>()));
+    // SPEC-20261020-worktree-shared-context P1: gitignored shared paths into
+    // new worktrees (.worktreeinclude + auto-detect).
+    builder.Services.AddSingleton<ISharedPathProvisioner>(sp =>
+        new SharedPathProvisioner(
+            sp.GetRequiredService<IProcessRunner>(),
+            sp.GetRequiredService<ILogger<SharedPathProvisioner>>()));
     builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
     builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
         sp.GetRequiredService<IGitCommandRunner>(),
@@ -2723,7 +2730,8 @@ void MapSettingsAndChatEndpoints()
             task.Id, clone.Path, "main",
             $"issue-{request.IssueNumber}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
             retainOnFailure: false, ct);
-        task = (await delegation.AttachWorktreeAsync(task.Id, session.RunId, ct)) ?? task;
+        task = (await delegation.AttachWorktreeAsync(
+            task.Id, session.RunId, session.SharedPathsApplied, ct)) ?? task;
         return Results.Ok(new { task });
     });
 
