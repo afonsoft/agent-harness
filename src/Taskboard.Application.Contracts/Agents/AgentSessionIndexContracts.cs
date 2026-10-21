@@ -30,6 +30,10 @@ public sealed record SessionIndexEntryDto(
     DateTime? HibernatedAtUtc,
     /// <summary>Runtime key (<c>term:{id}</c>) the resume endpoint targets.</summary>
     string? HibernationKey,
+    /// <summary>RF-009: pinned ("keep alive") — never hibernates.</summary>
+    bool Pinned,
+    /// <summary>Runtime key (<c>term:{id}</c>) of the live session — pin target.</summary>
+    string? LiveKey,
     /// <summary>RF-002: ≤160c snippet when the row matched a transcript rg search.</summary>
     string? MatchSnippet = null);
 

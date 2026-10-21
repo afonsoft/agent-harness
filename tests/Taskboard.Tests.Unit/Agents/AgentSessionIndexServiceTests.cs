@@ -31,6 +31,8 @@ public class AgentSessionIndexServiceTests : IDisposable
         Substitute.For<IAgentSessionScanner>();
     private readonly IAgentSessionGitProbe _gitProbe =
         Substitute.For<IAgentSessionGitProbe>();
+    private readonly IAgentHibernationRepository _hibernation =
+        Substitute.For<IAgentHibernationRepository>();
 
     public AgentSessionIndexServiceTests()
     {
@@ -42,9 +44,12 @@ public class AgentSessionIndexServiceTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<string>>([]));
         _users.ListAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<UserPreference>>([]));
+        _hibernation.ListAsync(ct: Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentHibernationDto>>([]));
         var services = new ServiceCollection();
         services.AddSingleton(_visibility);
         services.AddSingleton(_users);
+        services.AddSingleton(_hibernation);
         _provider = services.BuildServiceProvider();
     }
 
@@ -278,7 +283,8 @@ public class AgentSessionIndexServiceTests : IDisposable
         string id, int modified, bool live, string cli = "claude") =>
         new(cli, id, $"t-{id}", "/tmp/x", null, null,
             DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(modified),
-            null, 0, "/tmp/x.jsonl", "x --resume", false, live, false, null, null);
+            null, 0, "/tmp/x.jsonl", "x --resume", false, live, false, null, null,
+            false, null);
 
     // ---- RF-003 (P2): live-join ----
 
@@ -324,6 +330,63 @@ public class AgentSessionIndexServiceTests : IDisposable
         var index = await NewService().GetAsync(User);
 
         index.Groups.SelectMany(g => g.Sessions).Single().Live.ShouldBeFalse();
+    }
+
+    // ---- hibernation P2: pin/live-key join ----
+
+    [Fact]
+    public async Task Dado_LiveMatch_Quando_Index_Entao_LiveKeyDoRuntime()
+    {
+        WriteClaudeSession(Guid.NewGuid().ToString(),
+            """{"type":"user","message":{"content":"hello"}}""");
+        var catalog = Substitute.For<ILiveAgentSessionCatalog>();
+        catalog.Snapshot().Returns([
+            new LiveAgentSessionDto("term:k9", "claude", "/proj/a")]);
+
+        var index = await NewService(live: catalog).GetAsync(User);
+
+        var row = index.Groups.SelectMany(g => g.Sessions).Single();
+        row.Live.ShouldBeTrue();
+        row.LiveKey.ShouldBe("term:k9");
+    }
+
+    [Fact]
+    public async Task Dado_PinRecord_Quando_Index_Entao_RowPinnedSemZzz()
+    {
+        var id = Guid.NewGuid().ToString();
+        WriteClaudeSession(id,
+            """{"type":"user","message":{"content":"hello"}}""");
+        _hibernation.ListAsync(ct: Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentHibernationDto>>([
+                new AgentHibernationDto("term:k1", "local", "claude", false,
+                    DateTime.UtcNow, DateTime.UtcNow, [], id, "/proj/a", 0, true)]));
+
+        var index = await NewService().GetAsync(User);
+
+        var row = index.Groups.SelectMany(g => g.Sessions).Single();
+        row.Pinned.ShouldBeTrue();
+        row.Hibernated.ShouldBeFalse();
+        row.HibernationKey.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_HibernadaEPinned_Quando_Index_Entao_ZzzEPin()
+    {
+        var id = Guid.NewGuid().ToString();
+        WriteClaudeSession(id,
+            """{"type":"user","message":{"content":"hello"}}""");
+        _hibernation.ListAsync(ct: Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<AgentHibernationDto>>([
+                new AgentHibernationDto("term:k1", "local", "claude", true,
+                    DateTime.UtcNow, DateTime.UtcNow, ["claude", "--resume", id],
+                    id, "/proj/a", 0, true)]));
+
+        var index = await NewService().GetAsync(User);
+
+        var row = index.Groups.SelectMany(g => g.Sessions).Single();
+        row.Hibernated.ShouldBeTrue();
+        row.Pinned.ShouldBeTrue();
+        row.HibernationKey.ShouldBe("term:k1");
     }
 
     // ---- RF-002 (P2): transcript search ----

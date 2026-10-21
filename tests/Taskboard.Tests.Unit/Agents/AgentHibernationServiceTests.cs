@@ -7,7 +7,9 @@ using Taskboard.Application.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Delegation;
+using Taskboard.Domain.Entities;
 using Taskboard.Dtos;
+using Taskboard.Repositories;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.Agents;
@@ -52,11 +54,12 @@ public class AgentHibernationServiceTests
             return Task.CompletedTask;
         }
 
-        public Task PinOnlyAsync(string k, string u, string cli, string? cwd,
-            DateTime at, CancellationToken ct = default)
+        public Task PinOnlyAsync(string k, string u, string cli,
+            string? nativeId, string? cwd, DateTime at,
+            CancellationToken ct = default)
         {
             Rows.TryAdd(k, new AgentHibernationDto(k, u, cli, false, at, at, [],
-                null, cwd, 0, true));
+                nativeId, cwd, 0, true));
             return Task.CompletedTask;
         }
 
@@ -137,6 +140,8 @@ public class AgentHibernationServiceTests
             Substitute.For<IAgentSessionIndexService>();
         public readonly IAgentAttentionService Attention =
             Substitute.For<IAgentAttentionService>();
+        public readonly IRepository<UserPreference> Users =
+            Substitute.For<IRepository<UserPreference>>();
         public readonly AgentHibernationService Service;
 
         public Harness()
@@ -146,6 +151,7 @@ public class AgentHibernationServiceTests
                 .AddScoped<IAgentHibernationRepository>(_ => Records)
                 .AddScoped(_ => Dispatches)
                 .AddScoped(_ => Feed)
+                .AddScoped(_ => Users)
                 .AddScoped<IAgentHibernationGuard, ResumeSupportGuard>()
                 .AddScoped<IAgentHibernationGuard, AttentionGuard>()
                 .AddScoped<IAgentHibernationGuard, PinnedGuard>()
@@ -154,6 +160,8 @@ public class AgentHibernationServiceTests
 
             Dispatches.ListOpenForSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
                 .Returns(Array.Empty<DispatchDto>());
+            Users.ListAsync(Arg.Any<CancellationToken>())
+                .Returns(Array.Empty<UserPreference>());
 
             Service = new AgentHibernationService(services, Terminator, Respawner,
                 Index, Attention, NullLogger<AgentHibernationService>.Instance);
@@ -173,7 +181,7 @@ public class AgentHibernationServiceTests
             string cwd = "/repo/w") =>
             new(cli, nativeId, "t", cwd, null, null, Now, Now, null, 0,
                 "/x.jsonl", $"{cli} --resume {nativeId}", false, true,
-                false, null, null);
+                false, null, null, false, null);
     }
 
     // ---------- registry ----------
@@ -460,5 +468,152 @@ public class AgentHibernationServiceTests
 
         n.ShouldBe(0);
         h.Terminator.Killed.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_PinEmViva_Quando_Pin_Entao_GuardaNativeSessionId()
+    {
+        var h = new Harness();
+        h.Index.ResolveByLiveKeyAsync(Key, Arg.Any<CancellationToken>())
+            .Returns(h.IndexRow("native-7"));
+
+        await h.Service.SetPinnedAsync("local", Key, pinned: true);
+
+        h.Records.Rows[Key].NativeSessionId.ShouldBe("native-7");
+    }
+
+    // ---------- P2: focus (RF-006) ----------
+
+    private static AgentHibernationDto HibernatedRow(
+        int autoResumed = 0, bool pinned = false) =>
+        new(Key, "local", "claude", true, Now, Now,
+            ["claude", "--resume", "n1"], "n1", "/w", autoResumed, pinned);
+
+    [Fact]
+    public async Task Dado_HibernadaComAutoResume_Quando_Focus_Entao_ResumaAuto()
+    {
+        var h = new Harness();
+        h.Records.Rows[Key] = HibernatedRow();
+
+        var outcome = await h.Service.FocusAsync("local", Key);
+
+        outcome.ShouldBe(new FocusOutcome(Hibernated: true, Resumed: true, Resumable: false));
+        h.Respawner.Calls.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Dado_HibernadaSemAutoResume_Quando_Focus_Entao_ResumableSemRespawn()
+    {
+        var h = new Harness();
+        h.Records.Rows[Key] = HibernatedRow();
+        h.Users.ListAsync(Arg.Any<CancellationToken>())
+            .Returns([new UserPreference(Guid.NewGuid()) { AutoResumeOnFocus = false }]);
+
+        var outcome = await h.Service.FocusAsync("local", Key);
+
+        outcome.Hibernated.ShouldBeTrue();
+        outcome.Resumed.ShouldBeFalse();
+        outcome.Resumable.ShouldBeTrue();
+        h.Respawner.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_NaoHibernada_Quando_Focus_Entao_SemAcao()
+    {
+        var h = new Harness();
+
+        var outcome = await h.Service.FocusAsync("local", Key);
+
+        outcome.ShouldBe(new FocusOutcome(false, false, false));
+        h.Respawner.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dado_AutoResume_Quando_Focus_Entao_IncrementaAutoResumedCount()
+    {
+        var h = new Harness();
+        h.Records.Rows[Key] = HibernatedRow(autoResumed: 2);
+
+        await h.Service.FocusAsync("local", Key);
+
+        h.Records.Rows[Key].AutoResumedCount.ShouldBe(3);
+        h.Records.Rows[Key].IsHibernated.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_RespawnFalha_Quando_Focus_Entao_ResumableComReason()
+    {
+        var h = new Harness();
+        h.Records.Rows[Key] = HibernatedRow();
+        h.Respawner.NextResult = false;
+
+        var outcome = await h.Service.FocusAsync("local", Key);
+
+        outcome.Hibernated.ShouldBeTrue();
+        outcome.Resumed.ShouldBeFalse();
+        outcome.Resumable.ShouldBeTrue();
+        outcome.Reason.ShouldNotBeNull();
+    }
+
+    // ---------- P2: prefs (RF-006/RF-010) ----------
+
+    [Fact]
+    public async Task Dado_SemPrefs_Quando_GetPrefs_Entao_Defaults30ETrue()
+    {
+        var h = new Harness();
+
+        var prefs = await h.Service.GetPrefsAsync("local");
+
+        prefs.ShouldBe(new HibernationPrefsDto(30, true));
+    }
+
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(2000, 1440)]
+    [InlineData(45, 45)]
+    public async Task Dado_PrefForaDaFaixa_Quando_GetPrefs_Entao_Clampa(
+        int stored, int expected)
+    {
+        var h = new Harness();
+        h.Users.ListAsync(Arg.Any<CancellationToken>())
+            .Returns([new UserPreference(Guid.NewGuid())
+            {
+                AgentIdleThresholdMinutes = stored,
+            }]);
+
+        var prefs = await h.Service.GetPrefsAsync("local");
+
+        prefs.IdleThresholdMinutes.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task Dado_SemPref_Quando_SavePrefs_Entao_CriaComClamp()
+    {
+        var h = new Harness();
+
+        var saved = await h.Service.SavePrefsAsync(
+            "local", new HibernationPrefsDto(2, false));
+
+        saved.ShouldBe(new HibernationPrefsDto(5, false));
+        await h.Users.Received(1).AddAsync(
+            Arg.Is<UserPreference>(u =>
+                u.AgentIdleThresholdMinutes == 5 && !u.AutoResumeOnFocus),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_PrefExistente_Quando_SavePrefs_Entao_AtualizaMesmaLinha()
+    {
+        var h = new Harness();
+        var user = new UserPreference(Guid.NewGuid()) { AgentIdleThresholdMinutes = 30 };
+        h.Users.ListAsync(Arg.Any<CancellationToken>()).Returns([user]);
+
+        await h.Service.SavePrefsAsync("local", new HibernationPrefsDto(90, false));
+
+        user.AgentIdleThresholdMinutes.ShouldBe(90);
+        user.AutoResumeOnFocus.ShouldBeFalse();
+        await h.Users.Received(1).UpdateAsync(user, Arg.Any<CancellationToken>());
+        await h.Users.DidNotReceive().AddAsync(
+            Arg.Any<UserPreference>(), Arg.Any<CancellationToken>());
     }
 }

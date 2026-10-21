@@ -45,7 +45,8 @@ public sealed class AgentHibernation : Entity<string>
 
     /// <summary>RF-009: pin marker for a live session — not hibernated.</summary>
     public static AgentHibernation PinOnly(
-        string sessionKey, string userId, string cli, string? cwd, DateTime atUtc) =>
+        string sessionKey, string userId, string cli, string? nativeSessionId,
+        string? cwd, DateTime atUtc) =>
         new(sessionKey)
         {
             UserId = userId,
@@ -53,6 +54,7 @@ public sealed class AgentHibernation : Entity<string>
             IsHibernated = false,
             HibernatedAtUtc = atUtc,
             IdleAtUtc = atUtc,
+            NativeSessionId = nativeSessionId,
             Cwd = cwd,
             Pinned = true,
         };

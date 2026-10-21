@@ -453,6 +453,41 @@
                     }
                 </div>
 
+                @* SPEC-20261020-agent-hibernation RF-006/RF-010: auto-resume
+                   toggle + per-user idle threshold (5–1440min, default 30). *@
+                <div class="form-section mt-4">
+                    <h2 class="form-section-title">Agent hibernation</h2>
+                    <p class="small text-body-secondary">
+                        Done/idle sessions pause after the threshold and resume with the CLI's
+                        native <code>--resume</code>. Pinned ("keep alive") sessions never hibernate.
+                    </p>
+                    <div class="setting-row">
+                        <div>
+                            <div class="fw-medium">Auto-resume on focus</div>
+                            <div class="small text-body-secondary">Focusing a hibernated session wakes it automatically.</div>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" role="switch" class="form-check-input" checked="@_hibAutoResume"
+                                   @onchange="e => _hibAutoResume = (bool)e.Value!" aria-label="Auto-resume on focus" />
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
+                            <div class="fw-medium">Agent idle threshold</div>
+                            <div class="small text-body-secondary">Minutes before a done/idle session hibernates (5–1440; default 30).</div>
+                        </div>
+                        <input type="number" class="form-control" style="max-width: 8rem;"
+                               min="5" max="1440" @bind="_hibThresholdMinutes" aria-label="Agent idle threshold minutes" />
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveHibernationPrefsAsync" disabled="@_hibPrefsSaving">
+                        @(_hibPrefsSaving ? "Saving…" : "Save hibernation preferences")
+                    </button>
+                    @if (_hibPrefsError is not null)
+                    {
+                        <div class="alert alert-danger small mt-2 mb-0">@_hibPrefsError</div>
+                    }
+                </div>
+
                 </div>
                 <div class="tab-pane" role="tabpanel" aria-label="Chat" hidden="@(_activeTab != "chat")">
                 <div class="form-section">
@@ -1382,6 +1417,10 @@
     private bool _feedMuted;
     private bool _feedPrefsSaving;
     private string? _feedPrefsError;
+    private bool _hibAutoResume = true;
+    private int _hibThresholdMinutes = 30;
+    private bool _hibPrefsSaving;
+    private string? _hibPrefsError;
     private readonly Dictionary<AgentType, bool> _enabledState = new();
     private readonly Dictionary<AgentType, bool> _originalEnabledState = new();
 
@@ -1670,6 +1709,7 @@
         await LoadSkillsStatusAsync();
         await LoadMcpStatusAsync();
         await LoadFeedPrefsAsync();
+        await LoadHibernationPrefsAsync();
     }
 
     private async Task LoadFeedPrefsAsync()
@@ -1725,6 +1765,51 @@
         finally
         {
             _feedPrefsSaving = false;
+        }
+    }
+
+    // SPEC-20261020-agent-hibernation RF-006/RF-010: per-user prefs —
+    // auto-resume toggle + idle threshold; the server clamps 5–1440.
+    private async Task LoadHibernationPrefsAsync()
+    {
+        try
+        {
+            var prefs = await Client.GetHibernationPrefsAsync();
+            if (prefs is not null)
+            {
+                _hibAutoResume = prefs.AutoResumeOnFocus;
+                _hibThresholdMinutes = prefs.IdleThresholdMinutes;
+            }
+        }
+        catch
+        {
+            // advisory — defaults suffice
+        }
+    }
+
+    private async Task SaveHibernationPrefsAsync()
+    {
+        _hibPrefsSaving = true;
+        _hibPrefsError = null;
+        try
+        {
+            var saved = await Client.SaveHibernationPrefsAsync(
+                new HibernationPrefsDto(_hibThresholdMinutes, _hibAutoResume));
+            if (saved is not null)
+            {
+                _hibAutoResume = saved.AutoResumeOnFocus;
+                _hibThresholdMinutes = saved.IdleThresholdMinutes;
+            }
+
+            await ToastService.NotifyAsync(new(ToastType.Success, "Hibernation preferences saved"));
+        }
+        catch (Exception ex)
+        {
+            _hibPrefsError = $"Could not save preferences: {ex.Message}";
+        }
+        finally
+        {
+            _hibPrefsSaving = false;
         }
     }
 

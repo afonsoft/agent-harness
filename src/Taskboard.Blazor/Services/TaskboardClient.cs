@@ -780,6 +780,39 @@ public sealed class TaskboardClient
         return response.IsSuccessStatusCode;
     }
 
+    /// <summary>RF-006: focus a session card/row — the server auto-resumes a
+    /// hibernated session when the user pref allows, else reports resumable.</summary>
+    public async Task<FocusOutcome?> FocusSessionAsync(
+        string sessionKey, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync(
+            $"/api/agents/sessions/{Uri.EscapeDataString(sessionKey)}/focus",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<FocusOutcome>(
+                cancellationToken)
+            : null;
+    }
+
+    /// <summary>RF-006/RF-010: per-user hibernation prefs (auto-resume + idle
+    /// threshold minutes).</summary>
+    public async Task<HibernationPrefsDto?> GetHibernationPrefsAsync(
+        CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<HibernationPrefsDto>(
+            "/api/agents/sessions/hibernation-prefs", cancellationToken);
+
+    /// <summary>Saves hibernation prefs — the server clamps the threshold.</summary>
+    public async Task<HibernationPrefsDto?> SaveHibernationPrefsAsync(
+        HibernationPrefsDto prefs, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PutAsJsonAsync(
+            "/api/agents/sessions/hibernation-prefs", prefs, cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<HibernationPrefsDto>(
+                cancellationToken)
+            : null;
+    }
+
     /// <summary>RF-008 (P3): delete-from-history — null on success, else the
     /// server error code (session-live/not-deletable/not-found).</summary>
     public async Task<string?> DeleteSessionAsync(

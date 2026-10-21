@@ -426,7 +426,28 @@
                                                             zzz
                                                         </span>
                                                     }
-                                                    @session.Title
+                                                    @if (session.Pinned)
+                                                    {
+                                                        <Icon Name="IconName.PinAngleFill" class="me-1 text-info"
+                                                              title="Pinned — keep alive, never hibernates" />
+                                                    }
+                                                    @if (session is { Hibernated: true, HibernationKey: not null })
+                                                    {
+                                                        @* RF-006: focusing the row asks the server to
+                                                           auto-resume (or stays resumable when the
+                                                           pref is off — the Resume button remains). *@
+                                                        <button type="button"
+                                                                class="btn btn-link p-0 border-0 align-baseline text-start fw-semibold"
+                                                                @onclick="() => FocusHibernatedAsync(session.HibernationKey)"
+                                                                disabled="@(_focusingKey is not null)"
+                                                                title="Focus — auto-resumes when enabled in settings">
+                                                            @session.Title
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        @session.Title
+                                                    }
                                                 </div>
                                                 <div class="small text-body-secondary">
                                                     <code>@session.SessionId</code>
@@ -486,7 +507,8 @@
                                                     </a>
                                                 }
                                                 <SessionActionsMenu Entry="session"
-                                                    OnDeleted="() => LoadSessionsAsync(rebuild: true)" />
+                                                    OnDeleted="() => LoadSessionsAsync(rebuild: true)"
+                                                    OnPinnedChanged="() => LoadSessionsAsync(rebuild: false)" />
                                             </td>
                                         </tr>
                                     }
@@ -1154,6 +1176,32 @@
         finally
         {
             _resumingKey = null;
+        }
+    }
+
+    // RF-006: focusing a hibernated row — server auto-resumes when the pref
+    // allows; otherwise the row stays resumable for the explicit Resume button.
+    private string? _focusingKey;
+
+    private async Task FocusHibernatedAsync(string sessionKey)
+    {
+        _focusingKey = sessionKey;
+        try
+        {
+            var outcome = await Client.FocusSessionAsync(sessionKey);
+            if (outcome is { Resumed: true })
+            {
+                await LoadSessionsAsync(rebuild: true);
+            }
+            else if (outcome is { Resumable: true })
+            {
+                await ToastService.NotifyAsync(new(ToastType.Info,
+                    "Auto-resume off — press Resume to wake this session"));
+            }
+        }
+        finally
+        {
+            _focusingKey = null;
         }
     }
 
