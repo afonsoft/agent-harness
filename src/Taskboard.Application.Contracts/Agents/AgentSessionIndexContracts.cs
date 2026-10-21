@@ -23,6 +23,13 @@ public sealed record SessionIndexEntryDto(
     bool HasNativeChat,
     /// <summary>True while the session is live in the attention model.</summary>
     bool Live,
+    /// <summary>SPEC-20261020-agent-hibernation: session killed for hibernation
+    /// — drives the zzz glyph and the Resume action.</summary>
+    bool Hibernated,
+    /// <summary>When the session hibernated (for "hibernated &lt;age&gt; ago").</summary>
+    DateTime? HibernatedAtUtc,
+    /// <summary>Runtime key (<c>term:{id}</c>) the resume endpoint targets.</summary>
+    string? HibernationKey,
     /// <summary>RF-002: ≤160c snippet when the row matched a transcript rg search.</summary>
     string? MatchSnippet = null);
 
@@ -156,6 +163,14 @@ public interface IAgentSessionIndexService
 
     /// <summary>Forces an index rebuild on the next Get.</summary>
     void Invalidate();
+
+    /// <summary>
+    /// SPEC-20261020-agent-hibernation RF-006: resolves a live session key
+    /// (<c>term:{id}</c> / <c>issue:{threadId}</c>) to the newest matching index
+    /// row — the row's SessionId is the native resume id for the CLI.
+    /// </summary>
+    Task<SessionIndexEntryDto?> ResolveByLiveKeyAsync(
+        string sessionKey, CancellationToken ct = default);
 
     Task<SessionViewPrefsDto> GetViewPrefsAsync(string userId, CancellationToken ct = default);
 

@@ -53,7 +53,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     internal const int DefaultScrollbackChars = 64_000;
 
     private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
-    private readonly Func<string?, IReadOnlyList<string>?, IPtySession> _sessionFactory;
+    private readonly Func<string?, IReadOnlyList<string>?, IReadOnlyDictionary<string, string>?, IPtySession> _sessionFactory;
     private readonly ILogger<TerminalSessionManager> _logger;
     private readonly TimeSpan _idleTimeout;
     private readonly TimeSpan _orphanTimeout;
@@ -65,7 +65,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     private readonly Taskboard.Application.Contracts.Agents.IAgentAttentionService? _attention;
 
     public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger, IConfiguration? configuration = null, Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null, Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null)
-        : this((workdir, command) => sessionFactory.Create(workdir, command: command), logger,
+        : this((workdir, command, env) => sessionFactory.Create(workdir, command: command, environment: env), logger,
             scrollbackChars: ParseScrollbackChars(configuration))
     {
         _outputSink = outputSink;
@@ -78,7 +78,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             : null;
 
     internal TerminalSessionManager(
-        Func<string?, IReadOnlyList<string>?, IPtySession> sessionFactory,
+        Func<string?, IReadOnlyList<string>?, IReadOnlyDictionary<string, string>?, IPtySession> sessionFactory,
         ILogger<TerminalSessionManager> logger,
         TimeSpan? idleTimeout = null,
         TimeSpan? sweepInterval = null,
@@ -189,7 +189,7 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                     $"Maximum of {MaxSessionsPerUser} terminal sessions per user.");
             }
 
-            var session = _sessionFactory(workdir, command);
+            var session = _sessionFactory(workdir, command, null);
             var entry = new SessionEntry
             {
                 Session = session,
@@ -313,6 +313,104 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         if (TryGetOwned(userKey, connectionId, sessionId, out var entry))
         {
             await entry.Session.ResizeAsync(cols, rows).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Whether a live session exists under <paramref name="sessionId"/>.</summary>
+    public bool IsAlive(string sessionId) =>
+        _sessions.TryGetValue(sessionId, out var entry) && entry.Session.IsRunning;
+
+    /// <summary>
+    /// SPEC-20261020-agent-hibernation RF-002: kills a session regardless of the
+    /// owning connection — graceful tree kill + PTY release via dispose.
+    /// Returns false when nothing was registered under the id.
+    /// </summary>
+    public async Task<bool> KillAsync(string sessionId)
+    {
+        if (!_sessions.TryRemove(sessionId, out var entry))
+        {
+            return false;
+        }
+
+        _logger.LogInformation(
+            "Terminal session {SessionId} killed for hibernation.", sessionId);
+        await NotifyAsync(entry, sessionId, "hibernated").ConfigureAwait(false);
+        await DisposeEntryAsync(entry).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// SPEC-20261020-agent-hibernation RF-007: respawns a hibernated session
+    /// detached — no owning connection; the tab reattaches on focus via
+    /// <see cref="ReattachAsync"/>/<see cref="OpenAsync"/> (same id → same
+    /// <c>term:{id}</c> attention key). Env markers ride the PTY process.
+    /// Idempotent: an id already live is reused, never duplicated.
+    /// </summary>
+    public Task<bool> RespawnDetachedAsync(
+        string userKey,
+        string sessionId,
+        string? workdir,
+        IReadOnlyList<string> command,
+        IReadOnlyDictionary<string, string>? environment = null)
+    {
+        lock (_gate)
+        {
+            var id = NormalizeSessionId(sessionId);
+            if (id is null)
+            {
+                return Task.FromResult(false);
+            }
+
+            if (_sessions.TryGetValue(id, out var bound) && bound.Session.IsRunning)
+            {
+                return Task.FromResult(bound.UserKey == userKey);
+            }
+
+            if (_sessions.TryRemove(id, out var stale))
+            {
+                _ = DisposeEntryAsync(stale);
+            }
+
+            var count = 0;
+            foreach (var existing in _sessions.Values)
+            {
+                if (existing.UserKey == userKey)
+                {
+                    count++;
+                }
+            }
+
+            if (count >= MaxSessionsPerUser)
+            {
+                return Task.FromResult(false);
+            }
+
+            var session = _sessionFactory(workdir, command, environment);
+            var entry = new SessionEntry
+            {
+                Session = session,
+                UserKey = userKey,
+                ConnectionId = null,
+                OnOutput = (_, _) => Task.CompletedTask,
+                OnClosed = (_, _) => Task.CompletedTask,
+                Workdir = workdir,
+                AttentionKey = $"term:{id}",
+                Cli = command.Count > 0 ? command[0] : null,
+            };
+
+            var cliName = entry.Cli;
+            session.OutputReceived += chunk =>
+            {
+                AppendScrollback(entry, chunk);
+                _outputSink?.ObserveOutput($"term:{id}", cliName, chunk);
+            };
+            session.Exited += code => { _ = NotifyClosedAsync(id, "exited"); };
+
+            session.Start();
+            _sessions[id] = entry;
+            _logger.LogInformation(
+                "Terminal session {SessionId} respawned detached for {User}.", id, userKey);
+            return Task.FromResult(true);
         }
     }
 

@@ -78,3 +78,24 @@ public sealed class SessionCliVisibilityConfiguration : IEntityTypeConfiguration
         builder.HasIndex(v => v.UserId);
     }
 }
+
+/// <summary>SPEC-20261020-agent-hibernation RF-001: hibernation records.</summary>
+public sealed class AgentHibernationConfiguration : IEntityTypeConfiguration<AgentHibernation>
+{
+    public void Configure(EntityTypeBuilder<AgentHibernation> builder)
+    {
+        builder.ToTable("AgentHibernations");
+
+        builder.Property(h => h.Id).HasMaxLength(160);
+        builder.HasKey(h => h.Id);
+        builder.Ignore(h => h.SessionKey);
+
+        builder.Property(h => h.UserId).IsRequired().HasMaxLength(128);
+        builder.Property(h => h.Cli).IsRequired().HasMaxLength(32);
+        builder.Property(h => h.ResumeArgvJson).IsRequired().HasMaxLength(1024);
+        builder.Property(h => h.NativeSessionId).HasMaxLength(160);
+        builder.Property(h => h.Cwd).HasMaxLength(512);
+
+        builder.HasIndex(h => h.UserId);
+    }
+}

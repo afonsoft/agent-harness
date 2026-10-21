@@ -102,6 +102,57 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentFeedItems", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.AgentHibernation", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AutoResumedCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Cli")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Cwd")
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("HibernatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("IdleAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsHibernated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NativeSessionId")
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Pinned")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResumeArgvJson")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AgentHibernations", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.AgentLog", b =>
                 {
                     b.Property<long>("Id")

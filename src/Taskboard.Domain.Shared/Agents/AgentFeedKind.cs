@@ -26,4 +26,10 @@ public enum AgentFeedKind
 
     /// <summary>Session transcript removed from CLI history (SPEC session-history-parity RF-008).</summary>
     SessionDeleted,
+
+    /// <summary>Done/idle session killed for hibernation (SPEC agent-hibernation RF-002).</summary>
+    SessionHibernated,
+
+    /// <summary>Hibernated session respawned via native resume (SPEC agent-hibernation RF-007).</summary>
+    SessionResumed,
 }

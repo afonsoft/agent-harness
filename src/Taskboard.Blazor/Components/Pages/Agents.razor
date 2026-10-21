@@ -419,6 +419,13 @@
                                                               title="Live session" />
                                                         <span class="badge text-bg-success me-1">live</span>
                                                     }
+                                                    @if (session.Hibernated)
+                                                    {
+                                                        <span class="badge text-bg-secondary me-1"
+                                                              title="Hibernated — process paused, resumes via native CLI">
+                                                            zzz
+                                                        </span>
+                                                    }
                                                     @session.Title
                                                 </div>
                                                 <div class="small text-body-secondary">
@@ -445,7 +452,16 @@
                                                 @(session.Cwd ?? session.TranscriptPath)
                                             </td>
                                             <td class="small text-nowrap">
-                                                @session.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm")
+                                                @if (session.HibernatedAtUtc is { } hibernatedAt)
+                                                {
+                                                    <span class="text-body-secondary">
+                                                        hibernated @FormatAge(hibernatedAt) ago
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    @session.ModifiedAtUtc.ToString("yyyy-MM-dd HH:mm")
+                                                }
                                                 @if (session.MessageCount is not null)
                                                 {
                                                     <span class="badge text-bg-light ms-1">@session.MessageCount msgs</span>
@@ -453,7 +469,16 @@
                                                 <span class="badge text-bg-light ms-1">@FormatSize(session.SizeBytes)</span>
                                             </td>
                                             <td class="text-end text-nowrap">
-                                                @if (session.ResumeCommand is not null)
+                                                @if (session is { Hibernated: true, HibernationKey: not null })
+                                                {
+                                                    <button class="btn btn-sm btn-outline-success"
+                                                            @onclick="() => ResumeHibernatedAsync(session.HibernationKey)"
+                                                            disabled="@(_resumingKey is not null)"
+                                                            title="Respawn with native resume">
+                                                        <Icon Name="IconName.Play" class="me-1" /> Resume
+                                                    </button>
+                                                }
+                                                else if (session.ResumeCommand is not null)
                                                 {
                                                     <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(session.ResumeCommand)"
                                                        title="@session.ResumeCommand">
@@ -1105,6 +1130,32 @@
         >= 1_024 => $"{bytes / 1_024.0:F1} KB",
         _ => $"{bytes} B",
     };
+
+    // SPEC-20261020-agent-hibernation: "hibernated <age> ago" on index rows.
+    private string? _resumingKey;
+
+    private static string FormatAge(DateTime utc)
+    {
+        var age = DateTime.UtcNow - utc;
+        return age.TotalMinutes < 1 ? "just now"
+            : age.TotalHours < 1 ? $"{(int)age.TotalMinutes}m"
+            : age.TotalDays < 1 ? $"{(int)age.TotalHours}h"
+            : $"{(int)age.TotalDays}d";
+    }
+
+    private async Task ResumeHibernatedAsync(string sessionKey)
+    {
+        _resumingKey = sessionKey;
+        try
+        {
+            await Client.ResumeSessionAsync(sessionKey);
+            await LoadSessionsAsync(rebuild: true);
+        }
+        finally
+        {
+            _resumingKey = null;
+        }
+    }
 
     // RF-005: debounced so typing does not fire a request per keystroke.
     private async Task OnFilterChangedAsync()

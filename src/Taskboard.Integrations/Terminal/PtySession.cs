@@ -21,6 +21,7 @@ public sealed class PtySession : IPtySession
     private readonly int _cols;
     private readonly int _rows;
     private readonly IReadOnlyList<string>? _command;
+    private readonly IReadOnlyDictionary<string, string>? _environment;
 
     private Process? _process;
     private Task? _pumpTask;
@@ -37,9 +38,15 @@ public sealed class PtySession : IPtySession
     /// the PTY (e.g. <c>claude --acp</c>, <c>docker exec -it dev bash</c>) —
     /// each argument is single-quoted, never interpolated. Null → login bash.
     /// </param>
+    /// <param name="environment">
+    /// SPEC-20261020-agent-hibernation RF-007: extra env vars applied AFTER the
+    /// harness-env scrub — deliberate injection (e.g. <c>HARNESS_RESUMED</c>),
+    /// never inherited leakage.
+    /// </param>
     public PtySession(string homeDirectory, ILogger logger, int cols = 120, int rows = 30,
         Func<string, string?>? executableLocator = null, string? workingDirectory = null,
-        IReadOnlyList<string>? command = null)
+        IReadOnlyList<string>? command = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         _homeDirectory = homeDirectory;
         // SPEC-20260920 RF-006: explicit workdir (repo clone) only for new
@@ -51,6 +58,7 @@ public sealed class PtySession : IPtySession
         _rows = rows;
         _locator = executableLocator ?? Agents.PathSearch.FindExecutable;
         _command = command;
+        _environment = environment;
         _lastCols = cols;
         _lastRows = rows;
         LastActivityUtc = DateTimeOffset.UtcNow;
@@ -116,6 +124,14 @@ public sealed class PtySession : IPtySession
         startInfo.Environment["TERM"] = "xterm-256color";
         startInfo.Environment["HOME"] = _homeDirectory;
         WithoutHarnessEnv.Apply(startInfo.Environment, _workingDirectory);
+        // Deliberate harness-injected vars survive the scrub (RF-007).
+        if (_environment is not null)
+        {
+            foreach (var (key, value) in _environment)
+            {
+                startInfo.Environment[key] = value;
+            }
+        }
 
         _process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start terminal process.");

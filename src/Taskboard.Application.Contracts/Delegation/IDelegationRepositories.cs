@@ -127,6 +127,10 @@ public interface IDispatchRepository
     /// <summary>Non-terminal dispatches of a run (pending/dispatched).</summary>
     Task<IReadOnlyList<DispatchDto>> ListOpenByRunAsync(string runId, CancellationToken ct = default);
 
+    /// <summary>SPEC-20261020-agent-hibernation RF-003: open dispatches bound to a
+    /// terminal/session key (TerminalHandle) — a non-empty list is a hibernate guard.</summary>
+    Task<IReadOnlyList<DispatchDto>> ListOpenForSessionAsync(string sessionKey, CancellationToken ct = default);
+
     /// <summary>Highest attempt number of a task — 0 when none.</summary>
     Task<int> LatestAttemptAsync(string taskId, CancellationToken ct = default);
 
