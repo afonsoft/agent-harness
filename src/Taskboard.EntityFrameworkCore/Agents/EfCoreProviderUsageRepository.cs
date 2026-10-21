@@ -90,5 +90,5 @@ public sealed class EfCoreProviderUsageRepository : IProviderUsageRepository
     private static ProviderUsageWindowDto ToDto(ProviderUsageWindow w) =>
         new(w.Provider, w.WindowKind, w.Used, w.Limit, w.UsedPct,
             w.ResetsAtUtc, w.SampledAtUtc, w.Source, w.Confidence,
-            w.RawJson, w.WarnLevel);
+            w.RawJson, w.WarnLevel, w.DeserializeRecent());
 }

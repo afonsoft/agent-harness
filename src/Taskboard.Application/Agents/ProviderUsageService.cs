@@ -69,6 +69,15 @@ public sealed class ProviderUsageService : IProviderUsageService
 
                 var prior = await repo.GetAsync(
                     sample.Provider, sample.WindowKind, ct).ConfigureAwait(false);
+                // RF-003 fallback chain: an estimate never overwrites a fresh
+                // measured row — it only fills gaps or replaces stale data.
+                if (sample.Confidence == ProviderUsageConfidences.Estimated
+                    && prior is { Confidence: ProviderUsageConfidences.Measured } p
+                    && p.SampledAtUtc >= DateTime.UtcNow - StaleAfter)
+                {
+                    continue;
+                }
+
                 var stored = await repo.UpsertAsync(
                     Sanitize(sample), ct).ConfigureAwait(false);
                 upserted++;

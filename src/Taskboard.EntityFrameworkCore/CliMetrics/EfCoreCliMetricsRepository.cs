@@ -304,6 +304,23 @@ public sealed class EfCoreCliMetricsRepository : ICliMetricsRepository
             .ConfigureAwait(false);
     }
 
+    public async Task<long> SumTokensAsync(
+        AgentCliKind kind, DateTime fromUtc, CancellationToken cancellationToken = default)
+    {
+        var sums = await _context.CliSessionMetrics
+            .Where(s => s.Kind == kind && s.StartedAtUtc >= fromUtc)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Input = g.Sum(s => s.TokensInput ?? 0),
+                Output = g.Sum(s => s.TokensOutput ?? 0),
+                Cached = g.Sum(s => s.TokensCached ?? 0),
+            })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return sums is null ? 0 : sums.Input + sums.Output + sums.Cached;
+    }
+
     private sealed record UsageRow(
         AgentCliKind Kind, DateTime StartedAtUtc, int? MessageCount,
         long? TokensInput, long? TokensOutput, long? TokensCached);

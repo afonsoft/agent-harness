@@ -33,13 +33,16 @@ public sealed class ProviderUsageWindow : Entity<Guid>
     /// <summary>Warn hysteresis: 0 none, 1 quota_warning emitted,
     /// 2 quota_exhausted emitted. Re-arms below 75%.</summary>
     public int WarnLevel { get; private set; }
+    /// <summary>P2 RF-008: JSON array of the last ≤10 UsedPct samples.</summary>
+    public string? RecentPctsJson { get; private set; }
 
     public static ProviderUsageWindow Create(
         string provider, string windowKind,
         long? used, long? limit, double? usedPct,
         DateTime? resetsAtUtc, DateTime sampledAtUtc,
-        string source, string confidence, string? rawJson) =>
-        new(Guid.NewGuid())
+        string source, string confidence, string? rawJson)
+    {
+        var window = new ProviderUsageWindow(Guid.NewGuid())
         {
             Provider = provider,
             WindowKind = windowKind,
@@ -53,6 +56,9 @@ public sealed class ProviderUsageWindow : Entity<Guid>
             RawJson = rawJson,
             WarnLevel = 0,
         };
+        window.AppendPct(usedPct);
+        return window;
+    }
 
     /// <summary>Refresh from the latest sample; WarnLevel survives.</summary>
     public void Apply(
@@ -68,6 +74,43 @@ public sealed class ProviderUsageWindow : Entity<Guid>
         Source = source;
         Confidence = confidence;
         RawJson = rawJson;
+        AppendPct(usedPct);
+    }
+
+    /// <summary>Append a sampled pct, keeping the last 10 (sparkline).</summary>
+    private void AppendPct(double? pct)
+    {
+        if (pct is not { } value)
+        {
+            return;
+        }
+
+        var recent = DeserializeRecent();
+        recent.Add(value);
+        if (recent.Count > 10)
+        {
+            recent.RemoveRange(0, recent.Count - 10);
+        }
+
+        RecentPctsJson = System.Text.Json.JsonSerializer.Serialize(recent);
+    }
+
+    /// <summary>Tolerant parse of <see cref="RecentPctsJson"/> — garbage → empty.</summary>
+    public List<double> DeserializeRecent()
+    {
+        if (RecentPctsJson is not { Length: > 0 } raw)
+        {
+            return [];
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<double>>(raw) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
     }
 
     public void MarkWarned(int level) => WarnLevel = level;

@@ -10,6 +10,8 @@ public static class ProviderWindowKinds
     public const string FiveHour = "fiveHour";
     public const string Daily = "daily";
     public const string Weekly = "weekly";
+    /// <summary>P2: Copilot premium-request quota resets monthly.</summary>
+    public const string Monthly = "monthly";
     public const string Rate = "rate";
     /// <summary>RF-010 marker for providers without quota — never persisted.</summary>
     public const string Na = "n/a";

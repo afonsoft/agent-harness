@@ -17,7 +17,9 @@ public sealed record ProviderUsageWindowDto(
     /// <summary>measured | estimated.</summary>
     string Confidence,
     string? RawJson = null,
-    int WarnLevel = 0);
+    int WarnLevel = 0,
+    /// <summary>P2 RF-008: last ≤10 UsedPct samples — FinOps trend sparkline.</summary>
+    IReadOnlyList<double>? RecentPcts = null);
 
 /// <summary>RF-005: roster entry — one provider with its windows; stale when
 /// the freshest sample is older than 15min.</summary>
