@@ -194,4 +194,93 @@ public class OrchestrationContractToolsTests
         result.Refused.ShouldBeTrue();
         result.Json.ShouldContain("not retryable");
     }
+
+    // ---- P2: agent_ask / agent_reply / gates / task_update ----
+
+    [Fact]
+    public async Task Dado_Ask_Quando_Timeout_Entao_RetornaMessageIdTimedOut()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.AskQuestionAsync(Arg.Any<AskQuestionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new PendingQuestionDto(
+                "q-1", "conv-1", "run-1", "msg-1", "codex", "prosigo?", null,
+                Taskboard.Delegation.PendingQuestionStatus.TimedOut, null,
+                DateTime.UtcNow, DateTime.UtcNow));
+        var tool = new AgentAskTool(TestScopeFactory.WithDelegation(service));
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"question":"prosigo?","timeout_ms":500}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        using var doc = JsonDocument.Parse(result.Json);
+        doc.RootElement.GetProperty("messageId").GetString().ShouldBe("msg-1");
+        doc.RootElement.GetProperty("status").GetString().ShouldBe("timedout");
+    }
+
+    [Fact]
+    public async Task Dado_Reply_Quando_PerguntaPendente_Entao_Answered()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.ReplyQuestionAsync("conv-1", "msg-1", "sim", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new PendingQuestionDto(
+                "q-1", "conv-1", "run-1", "msg-1", "codex", "prosigo?", null,
+                Taskboard.Delegation.PendingQuestionStatus.Answered, "sim",
+                DateTime.UtcNow, DateTime.UtcNow));
+        var tool = new AgentReplyTool(TestScopeFactory.WithDelegation(service));
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"message_id":"msg-1","answer":"sim"}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("answered");
+    }
+
+    [Fact]
+    public async Task Dado_GateCreate_Quando_TaskExiste_Entao_GateId()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.CreateGateAsync("conv-1", "task-1", "aplicar?", Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
+            .Returns(new DelegationGateDto(
+                "gate-1", "task-1", "conv-1", "aplicar?", null,
+                Taskboard.Delegation.DelegationGateStatus.Open, null, DateTime.UtcNow, null));
+        var tool = new DelegateGateCreateTool(TestScopeFactory.WithDelegation(service));
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"task_id":"task-1","question":"aplicar?"}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("gate-1");
+    }
+
+    [Fact]
+    public async Task Dado_GateList_Quando_Scope_Entao_Lista()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.ListGatesAsync("conv-1", null, Arg.Any<CancellationToken>())
+            .Returns([new DelegationGateDto(
+                "gate-1", "task-1", "conv-1", "aplicar?", null,
+                Taskboard.Delegation.DelegationGateStatus.Open, null, DateTime.UtcNow, null)]);
+        var tool = new DelegateGateListTool(TestScopeFactory.WithDelegation(service));
+
+        var result = await tool.ExecuteAsync(Args("{}"), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("gate-1");
+    }
+
+    [Fact]
+    public async Task Dado_TaskUpdateBlocked_Quando_TaskExiste_Entao_Blocked()
+    {
+        var service = Substitute.For<IDelegationService>();
+        service.BlockTaskAsync("conv-1", "task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Task("task-1") with { Status = DelegationTaskStatus.Blocked });
+        var tool = new DelegateTaskUpdateTool(TestScopeFactory.WithDelegation(service));
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"id":"task-1","status":"blocked","result":"{\"r\":\"quota\"}"}"""),
+            Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("blocked");
+    }
 }

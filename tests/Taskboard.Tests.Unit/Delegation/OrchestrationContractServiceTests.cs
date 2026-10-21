@@ -20,12 +20,15 @@ public class OrchestrationContractServiceTests
     private readonly IDelegationRunRepository _runs = Substitute.For<IDelegationRunRepository>();
     private readonly IDispatchRepository _dispatches = Substitute.For<IDispatchRepository>();
     private readonly IDeliveryRepository _deliveries = Substitute.For<IDeliveryRepository>();
+    private readonly IPendingQuestionRepository _questions = Substitute.For<IPendingQuestionRepository>();
+    private readonly IDelegationGateRepository _gates = Substitute.For<IDelegationGateRepository>();
     private readonly DelegationService _service;
 
     public OrchestrationContractServiceTests()
     {
         _service = new DelegationService(
-            _tasks, _mailbox, _runs, _dispatches, _deliveries, TimeProvider.System);
+            _tasks, _mailbox, _runs, _dispatches, _deliveries,
+            _questions, _gates, TimeProvider.System);
     }
 
     private static DelegationTaskDto TaskDto(

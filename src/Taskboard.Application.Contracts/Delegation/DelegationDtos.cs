@@ -90,6 +90,42 @@ public sealed record DelegationRunShowDto(
 /// <summary>SPEC-20261020-v2 RF-007: retry receipt — same task, attempt+1 dispatch.</summary>
 public sealed record RetryTaskResult(DelegationTaskDto Task, DispatchDto Dispatch);
 
+/// <summary>SPEC-20261020-v2 RF-004: wire shape of a worker question.</summary>
+public sealed record PendingQuestionDto(
+    string Id,
+    string Scope,
+    string RunId,
+    string MessageId,
+    string FromAgent,
+    string Question,
+    string? OptionsJson,
+    PendingQuestionStatus Status,
+    string? Answer,
+    DateTime CreatedAtUtc,
+    DateTime? ResolvedAtUtc);
+
+/// <summary>SPEC-20261020-v2 RF-004: agent_ask request — resume re-blocks the same message.</summary>
+public sealed record AskQuestionRequest(
+    string Scope,
+    string FromAgent,
+    string Question,
+    IReadOnlyList<string>? Options = null,
+    TimeSpan? Timeout = null,
+    string? ResumeMessageId = null,
+    string? ToAgent = null);
+
+/// <summary>SPEC-20261020-v2 RF-005: wire shape of a task-bound gate.</summary>
+public sealed record DelegationGateDto(
+    string Id,
+    string TaskId,
+    string Scope,
+    string Question,
+    string? OptionsJson,
+    DelegationGateStatus Status,
+    string? Resolution,
+    DateTime CreatedAtUtc,
+    DateTime? ResolvedAtUtc);
+
 /// <summary>Wire shape of a mailbox message.</summary>
 public sealed record MailboxMessageDto(
     string Id,

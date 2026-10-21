@@ -135,7 +135,7 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
             .CreateAsyncScope();
         var delegation = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
         var original = await delegation.PostAsync(
-            new PostMailboxMessageRequest(scope, "codex", "@all", "stale", "heartbeat"));
+            new PostMailboxMessageRequest(scope, "codex", "assistant", "stale", "heartbeat"));
 
         var response = await client.PostAsync(
             $"/api/local/delegation/mailbox/{original.Id}/dismiss?scope={scope}", content: null);
@@ -277,7 +277,7 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
         var task = await delegation.CreateTaskAsync(
             new CreateDelegationTaskRequest("do stuff", "codex", scope, "/ws"));
         await delegation.PostAsync(
-            new PostMailboxMessageRequest(scope, "codex", "@all", "ping", "heartbeat"));
+            new PostMailboxMessageRequest(scope, "codex", task.Id, "ping", "heartbeat"));
 
         var response = await client.GetAsync($"/api/local/delegation/events?scope={scope}");
 

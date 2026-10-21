@@ -224,3 +224,151 @@ public sealed class EfCoreDeliveryRepository : IDeliveryRepository
     private static DeliveryDto ToDto(Delivery d) =>
         new(d.Id, d.RunId, d.MessageIds, d.CreatedAtUtc, d.AckedAtUtc);
 }
+
+/// <summary>SPEC-20261020-v2 RF-004.</summary>
+public sealed class EfCorePendingQuestionRepository : IPendingQuestionRepository
+{
+    private readonly TaskboardDbContext _context;
+
+    public EfCorePendingQuestionRepository(TaskboardDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<PendingQuestionDto?> GetAsync(string id, CancellationToken ct = default) =>
+        ToDtoOrNull(await _context.PendingQuestions.FindAsync([id], ct).ConfigureAwait(false));
+
+    public async Task<PendingQuestionDto?> GetByMessageAsync(
+        string messageId, CancellationToken ct = default) =>
+        ToDtoOrNull(await _context.PendingQuestions
+            .FirstOrDefaultAsync(q => q.MessageId == messageId, ct)
+            .ConfigureAwait(false));
+
+    public async Task<PendingQuestionDto> AddAsync(
+        string scope, string runId, string messageId, string fromAgent,
+        string question, string? optionsJson, CancellationToken ct = default)
+    {
+        var entity = PendingQuestion.Create(scope, runId, messageId, fromAgent, question, optionsJson);
+        _context.PendingQuestions.Add(entity);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    public async Task<PendingQuestionDto?> AnswerAsync(
+        string id, string answer, DateTime now, CancellationToken ct = default)
+    {
+        var entity = await _context.PendingQuestions.FindAsync([id], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        entity.MarkAnswered(answer, now);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    public async Task<PendingQuestionDto?> TimeOutAsync(
+        string id, DateTime now, CancellationToken ct = default)
+    {
+        var entity = await _context.PendingQuestions.FindAsync([id], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        entity.TimeOut(now);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    public async Task<PendingQuestionDto?> ResumeAsync(string id, CancellationToken ct = default)
+    {
+        var entity = await _context.PendingQuestions.FindAsync([id], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        entity.Resume();
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    private static PendingQuestionDto? ToDtoOrNull(PendingQuestion? q) =>
+        q is null ? null : ToDto(q);
+
+    private static PendingQuestionDto ToDto(PendingQuestion q) =>
+        new(q.Id, q.Scope, q.RunId, q.MessageId, q.FromAgent, q.Question,
+            q.OptionsJson, q.Status, q.Answer, q.CreatedAtUtc, q.ResolvedAtUtc);
+}
+
+/// <summary>SPEC-20261020-v2 RF-005.</summary>
+public sealed class EfCoreDelegationGateRepository : IDelegationGateRepository
+{
+    private readonly TaskboardDbContext _context;
+
+    public EfCoreDelegationGateRepository(TaskboardDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<DelegationGateDto?> GetAsync(string id, CancellationToken ct = default) =>
+        ToDtoOrNull(await _context.DelegationGates.FindAsync([id], ct).ConfigureAwait(false));
+
+    public async Task<IReadOnlyList<DelegationGateDto>> ListByTaskAsync(
+        string taskId, CancellationToken ct = default) =>
+        (await _context.DelegationGates
+            .Where(g => g.TaskId == taskId)
+            .OrderBy(g => g.CreatedAtUtc)
+            .ToListAsync(ct)
+            .ConfigureAwait(false))
+        .Select(ToDto)
+        .ToList();
+
+    public async Task<IReadOnlyList<DelegationGateDto>> ListByScopeAsync(
+        string scope, CancellationToken ct = default) =>
+        (await _context.DelegationGates
+            .Where(g => g.Scope == scope)
+            .OrderBy(g => g.CreatedAtUtc)
+            .ToListAsync(ct)
+            .ConfigureAwait(false))
+        .Select(ToDto)
+        .ToList();
+
+    public async Task<bool> HasOpenForTaskAsync(string taskId, CancellationToken ct = default) =>
+        await _context.DelegationGates
+            .AnyAsync(g => g.TaskId == taskId && g.Status == DelegationGateStatus.Open, ct)
+            .ConfigureAwait(false);
+
+    public async Task<DelegationGateDto> AddAsync(
+        string taskId, string scope, string question, string? optionsJson,
+        CancellationToken ct = default)
+    {
+        var entity = DelegationGate.Create(taskId, scope, question, optionsJson);
+        _context.DelegationGates.Add(entity);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    public async Task<DelegationGateDto?> ResolveAsync(
+        string id, string resolution, DateTime now, CancellationToken ct = default)
+    {
+        var entity = await _context.DelegationGates.FindAsync([id], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        entity.Resolve(resolution, now);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    private static DelegationGateDto? ToDtoOrNull(DelegationGate? g) =>
+        g is null ? null : ToDto(g);
+
+    private static DelegationGateDto ToDto(DelegationGate g) =>
+        new(g.Id, g.TaskId, g.Scope, g.Question, g.OptionsJson, g.Status,
+            g.Resolution, g.CreatedAtUtc, g.ResolvedAtUtc);
+}

@@ -195,5 +195,30 @@ public sealed class DelegationTask : AggregateRoot<string>
         FinishedAt = now ?? DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// SPEC-20261020-v2 RF-005/RF-010: non-terminal hold — a gate or an
+    /// external update parks the task until unblocked; the DAG verdict
+    /// re-evaluates it afterwards. Reason is stored structured.
+    /// </summary>
+    public void MarkBlocked(string? reason)
+    {
+        if (IsTerminal || Status is DelegationTaskStatus.Blocked)
+        {
+            return;
+        }
+
+        Status = DelegationTaskStatus.Blocked;
+        ResultSummary = string.IsNullOrWhiteSpace(reason) ? ResultSummary : reason.Trim();
+    }
+
+    /// <summary>Gate resolved — back to pending so the deps verdict decides.</summary>
+    public void Unblock()
+    {
+        if (Status is DelegationTaskStatus.Blocked)
+        {
+            Status = DelegationTaskStatus.Pending;
+        }
+    }
+
     public void Heartbeat(DateTime? now = null) => LastHeartbeatAt = now ?? DateTime.UtcNow;
 }

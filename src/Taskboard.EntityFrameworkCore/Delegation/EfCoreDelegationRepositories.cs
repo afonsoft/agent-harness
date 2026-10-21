@@ -134,6 +134,14 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         string id, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.ReactivateForRetry(), ct).ConfigureAwait(false);
 
+    public async Task<DelegationTaskDto?> MarkBlockedAsync(
+        string id, string? reason, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.MarkBlocked(reason), ct).ConfigureAwait(false);
+
+    public async Task<DelegationTaskDto?> UnblockAsync(
+        string id, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.Unblock(), ct).ConfigureAwait(false);
+
     private async Task<DelegationTaskDto?> TransitionAsync(
         string id, Action<DelegationTask> transition, CancellationToken ct)
     {

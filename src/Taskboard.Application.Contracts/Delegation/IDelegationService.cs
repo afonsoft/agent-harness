@@ -75,6 +75,44 @@ public interface IDelegationService
     Task<DeliveryCheckResult> CheckDeliveriesAsync(
         CheckDeliveriesRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// SPEC-20261020-v2 RF-004: blocking worker question — posts a
+    /// <c>question</c> mailbox message + pending-question row and polls until
+    /// answered or <paramref name="request"/>.Timeout elapses (→ timed_out,
+    /// resumable via <c>ResumeMessageId</c> re-blocking the same message).
+    /// </summary>
+    Task<PendingQuestionDto> AskQuestionAsync(
+        AskQuestionRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-004: coordinator answer — posts an <c>answer</c>
+    /// message to the asker and resolves the question. Throws
+    /// <c>question_not_pending</c> when the question is already resolved.
+    /// </summary>
+    Task<PendingQuestionDto> ReplyQuestionAsync(
+        string scope, string messageId, string answer, string? fromAgent = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-005: bind a gate to a task — the task is held
+    /// <c>blocked</c> until <see cref="ResolveGateAsync"/>.
+    /// </summary>
+    Task<DelegationGateDto> CreateGateAsync(
+        string scope, string taskId, string question,
+        IReadOnlyList<string>? options = null, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-005: resolve + release the task back to the DAG verdict.</summary>
+    Task<DelegationGateDto> ResolveGateAsync(
+        string scope, string gateId, string resolution, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-005: gates of a scope (optionally task-bound).</summary>
+    Task<IReadOnlyList<DelegationGateDto>> ListGatesAsync(
+        string scope, string? taskId = null, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-010: external block with a structured json reason.</summary>
+    Task<DelegationTaskDto?> BlockTaskAsync(
+        string scope, string taskId, string? resultJson = null, CancellationToken ct = default);
+
     Task<MailboxMessageDto> PostAsync(PostMailboxMessageRequest request, CancellationToken ct = default);
 
     /// <summary>Posts a system <c>decision</c> message to <c>@all</c> — the decision
