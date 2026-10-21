@@ -218,31 +218,15 @@ public sealed class DelegateTaskTool(
         DelegationTaskDto task, string repoPath, JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        if (isolation is null)
-        {
-            await service.CancelTaskAsync(task.Id, "worktree service unavailable", cancellationToken)
-                .ConfigureAwait(false);
-            return new(null, DelegationToolSupport.Error("worktree service unavailable", "no isolation"));
-        }
-
-        try
-        {
-            var session = await isolation.CreateWorktreeAsync(
-                task.Id, repoPath, ReadString(arguments, "base_branch") ?? "main",
-                $"delegation-{task.Id[^Math.Min(8, task.Id.Length)..]}",
-                retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-            task = (await DelegationToolSupport.AttachSessionAsync(
-                    service, task.Id, session, cancellationToken)
-                .ConfigureAwait(false)) ?? task;
-            return new(task, null);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            await service.CancelTaskAsync(task.Id, $"worktree create failed: {ex.Message}", cancellationToken)
-                .ConfigureAwait(false);
-            return new(null, DelegationToolSupport.Error(
-                $"worktree create failed: {ex.Message}", "worktree error"));
-        }
+        var (session, attached, error) = await DelegationToolSupport
+            .ProvisionAndAttachAsync(
+                isolation, service, task, repoPath,
+                ReadString(arguments, "base_branch") ?? "main",
+                "delegation", cancellationToken).ConfigureAwait(false);
+        return error is null
+            ? new(attached, null)
+            : new(null, DelegationToolSupport.Error(error,
+                error == "worktree service unavailable" ? "no isolation" : "worktree error"));
     }
 
     private sealed record RepoResult(string? RepoPath, string? BaseSha, ChatToolResult? Error);

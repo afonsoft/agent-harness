@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
+using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.Integrations.Harness;
 
@@ -92,4 +93,46 @@ public static class DelegationToolSupport
         service.AttachWorktreeAsync(
             taskId, session.RunId, session.SharedPathsApplied,
             session.SetupState, session.SetupLogTail, ct);
+
+    /// <summary>
+    /// Shared worktree provisioning envelope for the delegation tools:
+    /// creates the worktree, attaches the session (shared paths + setup
+    /// outcome) to the task, and cancels the task on failure instead of
+    /// leaking a half-provisioned leg.
+    /// </summary>
+    public static async Task<(WorktreeSessionDto? Session, DelegationTaskDto Task, string? Error)>
+        ProvisionAndAttachAsync(
+            IWorkspaceIsolationService? isolation,
+            IDelegationService service,
+            DelegationTaskDto task,
+            string repoPath,
+            string baseBranch,
+            string slugPrefix,
+            CancellationToken ct,
+            string? taskSlug = null)
+    {
+        if (isolation is null)
+        {
+            await service.CancelTaskAsync(
+                task.Id, "worktree service unavailable", ct).ConfigureAwait(false);
+            return (null, task, "worktree service unavailable");
+        }
+
+        try
+        {
+            var session = await isolation.CreateWorktreeAsync(
+                task.Id, repoPath, baseBranch,
+                taskSlug ?? $"{slugPrefix}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
+                retainOnFailure: false, ct).ConfigureAwait(false);
+            var attached = (await AttachSessionAsync(
+                service, task.Id, session, ct).ConfigureAwait(false)) ?? task;
+            return (session, attached, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var error = $"worktree create failed: {ex.Message}";
+            await service.CancelTaskAsync(task.Id, error, ct).ConfigureAwait(false);
+            return (null, task, error);
+        }
+    }
 }
