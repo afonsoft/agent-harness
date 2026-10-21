@@ -61,3 +61,20 @@ public sealed class UserFeedPreferenceConfiguration : IEntityTypeConfiguration<U
         builder.HasIndex(p => p.UserId);
     }
 }
+
+/// <summary>SPEC-20261020-session-history-parity RF-005: per-CLI hidden flag.</summary>
+public sealed class SessionCliVisibilityConfiguration : IEntityTypeConfiguration<SessionCliVisibility>
+{
+    public void Configure(EntityTypeBuilder<SessionCliVisibility> builder)
+    {
+        builder.ToTable("SessionCliVisibilities");
+
+        builder.Property(v => v.Id).HasMaxLength(160);
+        builder.HasKey(v => v.Id);
+
+        builder.Property(v => v.UserId).IsRequired().HasMaxLength(128);
+        builder.Property(v => v.Cli).IsRequired().HasMaxLength(32);
+
+        builder.HasIndex(v => v.UserId);
+    }
+}

@@ -75,8 +75,10 @@ public class AgentsTabsTests
         source.ShouldContain("replace: true");
     }
 
+    // SPEC-20261020-session-history-parity RF-005: chips de CLI (com count +
+    // eye de visibilidade) antes da lista agrupada — não há mais picker-first.
     [Fact]
-    public void Dado_AgentsRazor_Quando_LeFonte_Entao_SessionsPickerAntesDaTabela()
+    public void Dado_AgentsRazor_Quando_LeFonte_Entao_CliChipsAntesDosGrupos()
     {
         var source = Source();
         var paneStart = source.IndexOf("aria-label=\"Sessions\"", StringComparison.Ordinal);
@@ -85,21 +87,25 @@ public class AgentsTabsTests
         paneEnd.ShouldBeGreaterThan(paneStart);
 
         var pane = source[paneStart..paneEnd];
-        var picker = pane.IndexOf("SessionSources", StringComparison.Ordinal);
+        var chips = pane.IndexOf("SessionChips", StringComparison.Ordinal);
         var table = pane.IndexOf("<table", StringComparison.Ordinal);
-        picker.ShouldBeGreaterThanOrEqualTo(0);
-        table.ShouldBeGreaterThan(picker);
+        chips.ShouldBeGreaterThanOrEqualTo(0);
+        table.ShouldBeGreaterThan(chips);
         pane.ShouldContain("SelectSessionCliAsync");
+        pane.ShouldContain("ToggleCliHiddenAsync");
         pane.ShouldContain("_selectedCli is null");
     }
 
+    // session-history-parity RF-002/RF-005: controles de group/sort/hideEmpty;
+    // as seis fontes continuam como fallback dos chips pré-index.
     [Fact]
-    public void Dado_AgentsRazor_Quando_LeFonte_Entao_Take30ESeisFontes()
+    public void Dado_AgentsRazor_Quando_LeFonte_Entao_GroupSortHideEmptyESeisFontes()
     {
         var source = Source();
 
-        source.ShouldContain("SessionsTake = 30");
-        source.ShouldContain("take: SessionsTake");
+        source.ShouldContain("Group: CLI");
+        source.ShouldContain("Sort: Modified");
+        source.ShouldContain("hideEmptySessionGroups");
         source.ShouldContain("\"claude\", \"codex\", \"opencode\", \"gemini\", \"agy\", \"devin\"");
     }
 

@@ -338,6 +338,32 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentSessionStateTransitions", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.SessionCliVisibility", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Cli")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Hidden")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("SessionCliVisibilities", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.UserFeedPreference", b =>
                 {
                     b.Property<string>("Id")
@@ -2654,6 +2680,9 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<string>("GitHubToken")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("HideEmptySessionGroups")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Theme")
                         .IsRequired()

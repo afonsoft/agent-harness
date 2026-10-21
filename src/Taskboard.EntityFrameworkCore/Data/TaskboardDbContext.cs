@@ -63,6 +63,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<AgentFeedItem> AgentFeedItems => Set<AgentFeedItem>();
     public DbSet<UserFeedRead> UserFeedReads => Set<UserFeedRead>();
     public DbSet<UserFeedPreference> UserFeedPreferences => Set<UserFeedPreference>();
+    public DbSet<SessionCliVisibility> SessionCliVisibilities => Set<SessionCliVisibility>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
