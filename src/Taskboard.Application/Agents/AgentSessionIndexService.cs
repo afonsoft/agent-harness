@@ -36,6 +36,8 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
     private readonly IServiceProvider _services;
     private readonly IAgentSessionScanner _scanner;
     private readonly IAgentSessionGitProbe _gitProbe;
+    private readonly ILiveAgentSessionCatalog? _live;
+    private readonly IAgentTranscriptSearcher? _searcher;
     private readonly ILogger<AgentSessionIndexService>? _logger;
     private readonly TimeProvider _time;
 
@@ -48,12 +50,16 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         IServiceProvider services,
         IAgentSessionScanner scanner,
         IAgentSessionGitProbe gitProbe,
+        ILiveAgentSessionCatalog? live = null,
+        IAgentTranscriptSearcher? searcher = null,
         TimeProvider? timeProvider = null,
         ILogger<AgentSessionIndexService>? logger = null)
     {
         _services = services;
         _scanner = scanner;
         _gitProbe = gitProbe;
+        _live = live;
+        _searcher = searcher;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
@@ -67,6 +73,7 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         string sort = "modified",
         string? q = null,
         bool? hideEmpty = null,
+        bool transcript = false,
         CancellationToken ct = default)
     {
         var index = await EnsureIndexAsync(ct).ConfigureAwait(false);
@@ -74,23 +81,62 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         var hidden = prefs.HiddenClis.ToHashSet(StringComparer.Ordinal);
         var collapseEmpty = hideEmpty ?? prefs.HideEmpty;
 
-        IEnumerable<SessionIndexEntryDto> visible = index;
+        // RF-003: live-join — a scan row is live when a runtime session carries
+        // its native session id, or shares cli + working directory.
+        var live = _live?.Snapshot() ?? [];
+        var withLive = live.Count == 0
+            ? index
+            : index.Select(e => IsLive(e, live) ? e with { Live = true } : e)
+                .ToList();
+
+        IEnumerable<SessionIndexEntryDto> visible = withLive;
         if (!string.IsNullOrWhiteSpace(cli))
         {
             visible = visible.Where(e => string.Equals(e.Cli, cli, StringComparison.Ordinal));
         }
 
+        IReadOnlyDictionary<string, string>? snippets = null;
         if (!string.IsNullOrWhiteSpace(q))
         {
             var needle = q.Trim();
-            visible = visible.Where(e =>
+            var indexMatched = visible.Where(e =>
                 e.Title.Contains(needle, StringComparison.OrdinalIgnoreCase)
                 || (e.Cwd?.Contains(needle, StringComparison.OrdinalIgnoreCase) ?? false)
                 || (e.Branch?.Contains(needle, StringComparison.OrdinalIgnoreCase) ?? false)
-                || (e.RepoName?.Contains(needle, StringComparison.OrdinalIgnoreCase) ?? false));
+                || (e.RepoName?.Contains(needle, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+
+            if (transcript && _searcher is not null)
+            {
+                // RF-002: transcript hits extend the index match — a session
+                // whose title/cwd/branch misses q still rows in when `rg`
+                // finds the needle inside its transcript (≤100, 5s).
+                var paths = visible
+                    .Where(e => e.TranscriptPath is not null)
+                    .Select(e => e.TranscriptPath!)
+                    .ToList();
+                snippets = await _searcher
+                    .SearchAsync(paths, needle, maxMatches: 100, ct)
+                    .ConfigureAwait(false);
+                var byPath = indexMatched
+                    .Select(e => e.SessionId)
+                    .ToHashSet(StringComparer.Ordinal);
+                var extra = visible
+                    .Where(e => e.TranscriptPath is not null
+                        && snippets.ContainsKey(e.TranscriptPath)
+                        && !byPath.Contains(e.SessionId));
+                indexMatched.AddRange(extra);
+            }
+
+            visible = indexMatched;
         }
 
-        var filtered = visible.ToList();
+        var filtered = visible
+            .Select(e => e.TranscriptPath is not null
+                && snippets?.TryGetValue(e.TranscriptPath, out var s) == true
+                    ? e with { MatchSnippet = s }
+                    : e)
+            .ToList();
         // RF-005: chips cover every supported CLI (even with zero sessions)
         // plus any non-canonical slugs the scan surfaced.
         var known = _scanner.SupportedClis
@@ -124,6 +170,29 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             .ToList();
 
         return new AgentSessionsIndexDto(result, rows.Count, chips, collapseEmpty);
+    }
+
+    /// <summary>RF-003: native-session-id match, else cli + same cwd.</summary>
+    private static bool IsLive(
+        SessionIndexEntryDto row, IReadOnlyList<LiveAgentSessionDto> live) =>
+        live.Any(l =>
+            (l.NativeSessionId is not null
+                && string.Equals(l.NativeSessionId, row.SessionId, StringComparison.Ordinal))
+            || (l.Cli is not null
+                && string.Equals(l.Cli, row.Cli, StringComparison.OrdinalIgnoreCase)
+                && PathsEqual(l.Cwd, row.Cwd)));
+
+    private static bool PathsEqual(string? a, string? b)
+    {
+        if (a is null || b is null)
+        {
+            return false;
+        }
+
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
+            StringComparison.Ordinal);
     }
 
     public async Task<SessionViewPrefsDto> GetViewPrefsAsync(

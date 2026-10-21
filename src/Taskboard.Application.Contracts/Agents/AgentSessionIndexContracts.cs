@@ -22,7 +22,9 @@ public sealed record SessionIndexEntryDto(
     /// <summary>True when the CLI has a native-chat (ACP) adapter.</summary>
     bool HasNativeChat,
     /// <summary>True while the session is live in the attention model.</summary>
-    bool Live);
+    bool Live,
+    /// <summary>RF-002: ≤160c snippet when the row matched a transcript rg search.</summary>
+    string? MatchSnippet = null);
 
 /// <summary>RF-002: one group of the grouped index view.</summary>
 public sealed record SessionGroupDto(
@@ -44,6 +46,35 @@ public interface IAgentSessionGitProbe
     /// <summary>Returns (repoName, branch) — both null when cwd isn't a repo.</summary>
     Task<(string? RepoName, string? Branch)> ProbeAsync(
         string cwd, CancellationToken ct = default);
+}
+
+/// <summary>
+/// RF-003: a runtime session (terminal PTY or ACP) surfaced to the index for
+/// live-join — <paramref name="NativeSessionId"/> is the provider's own id
+/// (e.g. claude session uuid) when the runtime knows it.
+/// </summary>
+public sealed record LiveAgentSessionDto(
+    string SessionKey, string? Cli, string? Cwd, string? NativeSessionId = null);
+
+/// <summary>
+/// RF-003: inventory of live agent sessions for the live-glyph join —
+/// implemented in Server over TerminalSessionManager + AcpSessionClient.
+/// </summary>
+public interface ILiveAgentSessionCatalog
+{
+    IReadOnlyList<LiveAgentSessionDto> Snapshot();
+}
+
+/// <summary>
+/// RF-002: bounded transcript search — `rg` when on PATH, in-process
+/// streaming fallback. Paths are confined to $HOME; callers cap matches.
+/// </summary>
+public interface IAgentTranscriptSearcher
+{
+    /// <summary>path → ≤160c snippet of the first matching line.</summary>
+    Task<IReadOnlyDictionary<string, string>> SearchAsync(
+        IReadOnlyList<string> paths, string needle, int maxMatches,
+        CancellationToken ct = default);
 }
 
 /// <summary>RF-002/RF-005: grouped index page + chips + the hideEmpty flag.</summary>
@@ -79,6 +110,7 @@ public interface IAgentSessionIndexService
         string sort = "modified",
         string? q = null,
         bool? hideEmpty = null,
+        bool transcript = false,
         CancellationToken ct = default);
 
     /// <summary>Forces an index rebuild on the next Get.</summary>

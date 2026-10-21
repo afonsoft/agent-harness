@@ -354,6 +354,11 @@
             <input type="search" class="form-control form-control-sm" style="max-width: 16rem;"
                    placeholder="Filter title, dir or branch…" aria-label="Filter sessions"
                    value="@_sessionQuery" @oninput="OnSessionQueryInput" />
+            <div class="form-check mb-0" title="Search inside transcript files (rg, ≤5s)">
+                <input class="form-check-input" type="checkbox" id="searchTranscripts"
+                       checked="@_transcriptSearch" @onchange="OnTranscriptSearchChanged" />
+                <label class="form-check-label small" for="searchTranscripts">Transcripts</label>
+            </div>
             <select class="form-select form-select-sm w-auto" aria-label="Group sessions by"
                     value="@_sessionGroup" @onchange="OnSessionGroupChanged">
                 <option value="cli">Group: CLI</option>
@@ -407,7 +412,15 @@
                                         <tr @key="session.TranscriptPath">
                                             <td>
                                                 <div class="fw-semibold text-truncate" style="max-width: 24rem;"
-                                                     title="@session.Title">@session.Title</div>
+                                                     title="@session.Title">
+                                                    @if (session.Live)
+                                                    {
+                                                        <Icon Name="IconName.CircleFill" class="me-1 text-success"
+                                                              title="Live session" />
+                                                        <span class="badge text-bg-success me-1">live</span>
+                                                    }
+                                                    @session.Title
+                                                </div>
                                                 <div class="small text-body-secondary">
                                                     <code>@session.SessionId</code>
                                                     @if (session.RepoName is not null)
@@ -419,6 +432,13 @@
                                                         <span class="ms-1"><Icon Name="IconName.Git" class="me-1" />@session.Branch</span>
                                                     }
                                                 </div>
+                                                @if (session.MatchSnippet is not null)
+                                                {
+                                                    <div class="small text-body-secondary text-truncate fst-italic"
+                                                         style="max-width: 30rem;" title="@session.MatchSnippet">
+                                                        &ldquo;@session.MatchSnippet&rdquo;
+                                                    </div>
+                                                }
                                             </td>
                                             <td class="small text-body-secondary text-truncate" style="max-width: 18rem;"
                                                 title="@(session.Cwd ?? session.TranscriptPath)">
@@ -432,7 +452,7 @@
                                                 }
                                                 <span class="badge text-bg-light ms-1">@FormatSize(session.SizeBytes)</span>
                                             </td>
-                                            <td class="text-end">
+                                            <td class="text-end text-nowrap">
                                                 @if (session.ResumeCommand is not null)
                                                 {
                                                     <a class="btn btn-sm btn-outline-primary" href="@TerminalUrl(session.ResumeCommand)"
@@ -440,6 +460,7 @@
                                                         <Icon Name="IconName.Play" class="me-1" /> Resume
                                                     </a>
                                                 }
+                                                <SessionActionsMenu Entry="session" />
                                             </td>
                                         </tr>
                                     }
@@ -835,6 +856,7 @@
     private string _sessionGroup = "cli";
     private string _sessionSort = "modified";
     private string? _sessionQuery;
+    private bool _transcriptSearch;
     private bool _hideEmptyGroups = true;
     private IReadOnlyList<string> _hiddenClis = [];
     private CancellationTokenSource? _sessionQueryDebounce;
@@ -1008,6 +1030,12 @@
             // prefs persist is best-effort — the optimistic local state stays.
         }
 
+        await LoadSessionsAsync();
+    }
+
+    private async Task OnTranscriptSearchChanged(ChangeEventArgs e)
+    {
+        _transcriptSearch = e.Value is bool b && b;
         await LoadSessionsAsync();
     }
 
@@ -1223,7 +1251,8 @@
         {
             var index = await Client.GetSessionIndexAsync(
                 _selectedCli, _sessionGroup, _sessionSort, _sessionQuery,
-                hideEmpty: _hideEmptyGroups, rebuild: rebuild);
+                hideEmpty: _hideEmptyGroups, rebuild: rebuild,
+                transcript: _transcriptSearch);
             if (index is not null)
             {
                 _sessionIndex = index;

@@ -729,11 +729,11 @@ public sealed class TaskboardClient
     }
 
     /// <summary>SPEC-20261020-session-history-parity RF-002: grouped enriched
-    /// index — cli/group/sort/q/hideEmpty + optional rebuild.</summary>
+    /// index — cli/group/sort/q/hideEmpty/transcript + optional rebuild.</summary>
     public async Task<AgentSessionsIndexDto?> GetSessionIndexAsync(
         string? cli = null, string? group = null, string? sort = null,
         string? q = null, bool? hideEmpty = null, bool rebuild = false,
-        CancellationToken cancellationToken = default)
+        bool transcript = false, CancellationToken cancellationToken = default)
     {
         var query = string.Join('&', new[]
             {
@@ -743,6 +743,7 @@ public sealed class TaskboardClient
                 string.IsNullOrWhiteSpace(q) ? null : $"q={Uri.EscapeDataString(q)}",
                 hideEmpty is null ? null : $"hideEmpty={hideEmpty.Value}",
                 rebuild ? "rebuild=true" : null,
+                transcript ? "transcript=true" : null,
             }.Where(p => p is not null));
         return await _httpClient.GetFromJsonAsync<AgentSessionsIndexDto>(
             $"/api/agents/sessions{(query.Length == 0 ? "" : $"?{query}")}",

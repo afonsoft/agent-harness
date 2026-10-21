@@ -546,6 +546,9 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<IAgentSessionIndexService, AgentSessionIndexService>();
     builder.Services.AddSingleton<IAgentSessionGitProbe>(sp =>
         new AgentSessionGitProbe(sp.GetRequiredService<IGitCommandRunner>()));
+    // SPEC-20261020-session-history-parity P2: live-join catalog + transcript rg.
+    builder.Services.AddSingleton<ILiveAgentSessionCatalog, Taskboard.Server.Services.LiveAgentSessionCatalog>();
+    builder.Services.AddSingleton<IAgentTranscriptSearcher, AgentTranscriptSearcher>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -4262,7 +4265,8 @@ void MapAgentsEndpoints()
 
         return Results.Ok(await index.GetAsync(
             SessionsUserId(context), query.Cli, query.Group ?? "cli",
-            query.Sort ?? "modified", query.Q, query.HideEmpty, ct));
+            query.Sort ?? "modified", query.Q, query.HideEmpty,
+            query.Transcript == true, ct));
     });
 
     // SPEC RF-005: per-user view prefs — hidden CLIs + hideEmpty default.
@@ -5207,6 +5211,6 @@ public partial class Program
     /// query bound via [AsParameters] (keeps the handler under S107).</summary>
     private sealed record SessionIndexQuery(
         string? Cli, string? Group, string? Sort, string? Q,
-        bool? HideEmpty, bool? Rebuild);
+        bool? HideEmpty, bool? Rebuild, bool? Transcript);
 
 }
