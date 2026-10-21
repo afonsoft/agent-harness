@@ -55,20 +55,7 @@ public sealed class WorktreeCardService : IWorktreeCardService
         var card = await _cards.UpsertAsync(
             worktreePath.Trim(), repoPath, comment, resolved, taskId,
             cancellationToken).ConfigureAwait(false);
-
-        if (_notifier is not null)
-        {
-            try
-            {
-                await _notifier.PushAsync(card, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                // Push is best-effort — the write already succeeded.
-            }
-        }
-
+        await NotifyAsync(card, cancellationToken).ConfigureAwait(false);
         return card;
     }
 
@@ -91,21 +78,26 @@ public sealed class WorktreeCardService : IWorktreeCardService
         var card = await _cards.SetSetupAsync(
             worktreePath.Trim(), repoPath.Trim(), state, exitCode, logTail,
             cancellationToken).ConfigureAwait(false);
+        await NotifyAsync(card, cancellationToken).ConfigureAwait(false);
+        return card;
+    }
 
-        if (_notifier is not null)
+    /// <summary>Push is best-effort — the write already succeeded.</summary>
+    private async Task NotifyAsync(WorktreeCardDto card, CancellationToken ct)
+    {
+        if (_notifier is null)
         {
-            try
-            {
-                await _notifier.PushAsync(card, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                // Push is best-effort — the write already succeeded.
-            }
+            return;
         }
 
-        return card;
+        try
+        {
+            await _notifier.PushAsync(card, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // swallow — card row is the source of truth
+        }
     }
 
     public Task<WorktreeCardDto?> GetAsync(

@@ -135,19 +135,14 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
     public async Task Dado_YamlComSetup_Quando_CriaWorktree_Entao_SessionECardOk()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        var runId = await CriarWorktreeAsync(client, yaml: """
+        var (session, card) = await SessionECardAsync(client, """
             setup:
               - echo harness-setup-ran
             """);
 
-        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
-            $"/api/harness/worktrees/{runId}");
-        session!.SetupState.ShouldBe(WorktreeSetupStates.Ok);
+        session.SetupState.ShouldBe(WorktreeSetupStates.Ok);
         session.SetupLogTail!.ShouldContain("harness-setup-ran");
-
-        var card = await client.GetFromJsonAsync<WorktreeCardDto>(
-            $"/api/harness/worktrees/card?worktreePath={Uri.EscapeDataString(session.Path)}");
-        card!.SetupState.ShouldBe(WorktreeSetupStates.Ok);
+        card.SetupState.ShouldBe(WorktreeSetupStates.Ok);
         card.SetupFinishedAtUtc.ShouldNotBeNull();
     }
 
@@ -155,18 +150,10 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
     public async Task Dado_SetupFalhando_Quando_CriaWorktree_Entao_CardFailedComExit()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        var runId = await CriarWorktreeAsync(client, yaml: """
-            setup:
-              - exit 42
-            """);
+        var (session, card) = await SessionECardAsync(client, "setup: [exit 42]");
 
-        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
-            $"/api/harness/worktrees/{runId}");
-        session!.SetupState.ShouldBe(WorktreeSetupStates.Failed);
-
-        var card = await client.GetFromJsonAsync<WorktreeCardDto>(
-            $"/api/harness/worktrees/card?worktreePath={Uri.EscapeDataString(session.Path)}");
-        card!.SetupState.ShouldBe(WorktreeSetupStates.Failed);
+        session.SetupState.ShouldBe(WorktreeSetupStates.Failed);
+        card.SetupState.ShouldBe(WorktreeSetupStates.Failed);
         card.SetupExitCode.ShouldBe(42);
     }
 
@@ -178,7 +165,19 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
 
         var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
             $"/api/harness/worktrees/{runId}");
+
         session!.SetupState.ShouldBeNull();
+    }
+
+    private async Task<(WorktreeSessionDto Session, WorktreeCardDto Card)>
+        SessionECardAsync(HttpClient client, string yaml)
+    {
+        var runId = await CriarWorktreeAsync(client, yaml);
+        var session = (await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}"))!;
+        var card = (await client.GetFromJsonAsync<WorktreeCardDto>(
+            $"/api/harness/worktrees/card?worktreePath={Uri.EscapeDataString(session.Path)}"))!;
+        return (session, card);
     }
 
     private async Task<string> CriarWorktreeAsync(HttpClient client, string? yaml = null)
