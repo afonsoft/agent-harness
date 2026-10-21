@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using Taskboard.Agents;
@@ -302,5 +303,72 @@ public class AgentFeedServiceTests
         var result = await svc.ProduceAsync(Request());
 
         result!.Id.ShouldBe("f-2");
+    }
+
+    // ---------- RF-006: category preferences ----------
+
+    [Fact]
+    public void Dado_Defaults_Quando_For_Entao_BateComSpec()
+    {
+        AgentFeedDefaults.For(AgentFeedKind.Attention).ShouldBe(new FeedCategoryPreference(true, true, true));
+        AgentFeedDefaults.For(AgentFeedKind.Question).ShouldBe(new FeedCategoryPreference(true, true, true));
+        AgentFeedDefaults.For(AgentFeedKind.Completion).ShouldBe(new FeedCategoryPreference(true, false, true));
+        AgentFeedDefaults.For(AgentFeedKind.Failure).ShouldBe(new FeedCategoryPreference(true, false, true));
+        AgentFeedDefaults.For(AgentFeedKind.Worktree).ShouldBe(new FeedCategoryPreference(false, false, true));
+        AgentFeedDefaults.For(AgentFeedKind.Pr).ShouldBe(new FeedCategoryPreference(false, false, true));
+    }
+
+    [Fact]
+    public async Task Dado_PersistFalse_Quando_Produce_Entao_EphemeralSemStore()
+    {
+        var notifier = Substitute.For<IAgentFeedNotifier>();
+        var prefs = Substitute.For<IAgentFeedPreferenceService>();
+        prefs.ResolveAsync("local", Arg.Any<AgentFeedKind>(), Arg.Any<CancellationToken>())
+            .Returns(new FeedCategoryPreference(Badge: true, Sound: false, Persist: false));
+
+        var items = Substitute.For<IAgentFeedRepository>();
+        var reads = Substitute.For<IUserFeedReadRepository>();
+        var svc = new AgentFeedService(items, reads, notifier, prefs);
+
+        var result = await svc.ProduceAsync(Request());
+
+        result.ShouldNotBeNull();
+        result.Id.ShouldStartWith("eph-");
+        result.Unread.ShouldBeFalse();
+        await items.DidNotReceive().AddAsync(
+            Arg.Any<FeedItemRequest>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await items.DidNotReceive().FindDedupAsync(
+            Arg.Any<string>(), Arg.Any<AgentFeedKind>(), Arg.Any<string?>(),
+            Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await notifier.Received(1).PushAsync(
+            "local",
+            Arg.Is<AgentFeedPushDto>(p => p.Kind == "ephemeral"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_BadgeFalse_Quando_Produce_Entao_SemNeedsAttention()
+    {
+        var prefs = Substitute.For<IAgentFeedPreferenceService>();
+        prefs.ResolveAsync("local", Arg.Any<AgentFeedKind>(), Arg.Any<CancellationToken>())
+            .Returns(new FeedCategoryPreference(Badge: false, Sound: false, Persist: true));
+
+        var items = Substitute.For<IAgentFeedRepository>();
+        var reads = Substitute.For<IUserFeedReadRepository>();
+        items.FindDedupAsync(
+                Arg.Any<string>(), Arg.Any<AgentFeedKind>(), Arg.Any<string?>(),
+                Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns((AgentFeedItemDto?)null);
+        items.AddAsync(Arg.Any<FeedItemRequest>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(
+                Item("f-3") with { NeedsAttention = ci.Arg<FeedItemRequest>().NeedsAttention }));
+
+        var svc = new AgentFeedService(items, reads, prefs: prefs);
+        var result = await svc.ProduceAsync(Request());
+
+        result!.NeedsAttention.ShouldBeFalse();
+        await items.Received(1).AddAsync(
+            Arg.Is<FeedItemRequest>(r => r.NeedsAttention == false),
+            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
     }
 }

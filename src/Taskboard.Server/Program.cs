@@ -530,8 +530,11 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261020-agents-feed-notifications: global feed + unread markers.
     builder.Services.AddScoped<IAgentFeedRepository, EfCoreAgentFeedRepository>();
     builder.Services.AddScoped<IUserFeedReadRepository, EfCoreUserFeedReadRepository>();
+    builder.Services.AddScoped<IUserFeedPreferenceRepository, EfCoreUserFeedPreferenceRepository>();
     builder.Services.AddSingleton<IAgentFeedNotifier, SignalRAgentFeedNotifier>();
+    builder.Services.AddSingleton<IAgentFeedPreferenceService, AgentFeedPreferenceService>();
     builder.Services.AddScoped<IAgentFeedService, AgentFeedService>();
+    builder.Services.AddHostedService<AgentFeedPruneService>();
     // SPEC-20261020-agent-board-v2: kanban card projection + read markers.
     builder.Services.AddScoped<IAgentBoardService, AgentBoardService>();
     builder.Services.AddScoped<IAgentBoardReadMarkerRepository, EfCoreAgentBoardReadMarkerRepository>();
@@ -2454,6 +2457,18 @@ void MapSettingsAndChatEndpoints()
     api.MapPost("agents/feed/read-all", async (
         HttpContext context, IAgentFeedService feed, CancellationToken ct) =>
         Results.Ok(new { cleared = await feed.MarkAllReadAsync(BoardUserId(context), ct) }));
+
+    // SPEC RF-006: notification preferences — merged per-category map; PUT
+    // upserts the given categories and invalidates the user cache.
+    api.MapGet("agents/feed/preferences", async (
+        HttpContext context, IAgentFeedPreferenceService prefs, CancellationToken ct) =>
+        Results.Ok(await prefs.GetForUserAsync(BoardUserId(context), ct)));
+
+    api.MapPut("agents/feed/preferences", async (
+        HttpContext context, AgentFeedPreferencesDto body,
+        IAgentFeedPreferenceService prefs, CancellationToken ct) =>
+        Results.Ok(await prefs.SaveForUserAsync(
+            BoardUserId(context), body.Categories, ct)));
 
     static string BoardUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";

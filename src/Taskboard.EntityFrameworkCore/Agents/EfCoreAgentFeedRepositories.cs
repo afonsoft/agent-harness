@@ -115,6 +115,33 @@ public sealed class EfCoreAgentFeedRepository : IAgentFeedRepository
             .ToDictionaryAsync(r => r.ItemId, r => r.ManuallyUnread, ct)
             .ConfigureAwait(false);
 
+    /// <summary>RF-009: deletes expired items plus their read markers.</summary>
+    public async Task<int> DeleteOlderThanAsync(DateTime cutoffUtc, CancellationToken ct = default)
+    {
+        var expiredIds = await _context.AgentFeedItems
+            .Where(i => i.AtUtc < cutoffUtc)
+            .Select(i => i.Id)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        if (expiredIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var reads = await _context.UserFeedReads
+            .Where(r => expiredIds.Contains(r.ItemId))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        var items = await _context.AgentFeedItems
+            .Where(i => expiredIds.Contains(i.Id))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.UserFeedReads.RemoveRange(reads);
+        _context.AgentFeedItems.RemoveRange(items);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return items.Count;
+    }
+
     private static AgentFeedItemDto ToDto(AgentFeedItem i, bool unread) =>
         new(i.Id, i.Kind, i.Title, i.Body, i.DeepLink, i.SessionKey, i.Cli,
             i.IssueNumber, i.AtUtc, i.NeedsAttention, i.RepeatCount, unread);
@@ -172,5 +199,49 @@ public sealed class EfCoreUserFeedReadRepository : IUserFeedReadRepository
         _context.UserFeedReads.RemoveRange(entities);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return entities.Count;
+    }
+}
+
+/// <summary>SPEC-20261020-agents-feed-notifications RF-006.</summary>
+public sealed class EfCoreUserFeedPreferenceRepository : IUserFeedPreferenceRepository
+{
+    private readonly TaskboardDbContext _context;
+
+    public EfCoreUserFeedPreferenceRepository(TaskboardDbContext context)
+    {
+        _context = context;
+    }
+
+    public async Task<IReadOnlyDictionary<AgentFeedKind, FeedCategoryPreference>> GetForUserAsync(
+        string userId, CancellationToken ct = default)
+    {
+        var rows = await _context.UserFeedPreferences
+            .Where(p => p.UserId == userId)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        return rows.ToDictionary(
+            p => p.Kind,
+            p => new FeedCategoryPreference(p.Badge, p.Sound, p.Persist));
+    }
+
+    public async Task UpsertAsync(
+        string userId, AgentFeedKind kind, FeedCategoryPreference pref,
+        CancellationToken ct = default)
+    {
+        var key = UserFeedPreference.KeyOf(userId, kind);
+        var entity = await _context.UserFeedPreferences
+            .FindAsync([key], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            entity = UserFeedPreference.Create(
+                userId, kind, pref.Badge, pref.Sound, pref.Persist);
+            _context.UserFeedPreferences.Add(entity);
+        }
+        else
+        {
+            entity.Update(pref.Badge, pref.Sound, pref.Persist);
+        }
+
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 }
