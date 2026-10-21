@@ -833,6 +833,145 @@ public sealed class DelegationService : IDelegationService
             taskId, Truncate(resultJson, DetailMaxLength), ct).ConfigureAwait(false);
     }
 
+    // ---- SPEC-20261020-v2 RF-006: worker dispatch lifecycle ----
+
+    public Task<DispatchDto?> GetDispatchAsync(string dispatchId, CancellationToken ct = default) =>
+        _dispatches.GetAsync(dispatchId, ct);
+
+    public async Task<string?> ReadDispatchOutputAsync(
+        string dispatchId, int lineLimit = 200, CancellationToken ct = default)
+    {
+        var dispatch = await _dispatches.GetAsync(dispatchId, ct).ConfigureAwait(false);
+        if (dispatch?.ArchivedOutput is null)
+        {
+            return null;
+        }
+
+        var lines = dispatch.ArchivedOutput.Split('\n');
+        if (lineLimit <= 0 || lines.Length <= lineLimit)
+        {
+            return dispatch.ArchivedOutput;
+        }
+
+        return string.Join('\n', lines[^lineLimit..]);
+    }
+
+    public async Task<DispatchDto?> ReleaseDispatchAsync(
+        string scope, string dispatchId, string? archivedOutput = null,
+        CancellationToken ct = default) =>
+        await TransitionDispatchForScopeAsync(
+            scope, dispatchId, DispatchState.Released,
+            archivedOutput is null ? null : Truncate(archivedOutput, DetailMaxLength),
+            ct).ConfigureAwait(false);
+
+    public async Task<DispatchDto?> RetainDispatchAsync(
+        string scope, string dispatchId, CancellationToken ct = default) =>
+        await TransitionDispatchForScopeAsync(
+            scope, dispatchId, DispatchState.Retained, null, ct).ConfigureAwait(false);
+
+    public async Task<DispatchDto?> AbandonDispatchAsync(
+        string scope, string dispatchId, CancellationToken ct = default)
+    {
+        var transitioned = await TransitionDispatchForScopeAsync(
+            scope, dispatchId, DispatchState.Abandoned, null, ct).ConfigureAwait(false);
+        if (transitioned is not null)
+        {
+            await ClearActiveDispatchAsync(transitioned.TaskId, dispatchId, ct).ConfigureAwait(false);
+        }
+
+        return transitioned;
+    }
+
+    /// <summary>Scope-guarded dispatch transition + active-dispatch cleanup on release.</summary>
+    private async Task<DispatchDto?> TransitionDispatchForScopeAsync(
+        string scope, string dispatchId, DispatchState state, string? archivedOutput,
+        CancellationToken ct)
+    {
+        var dispatch = await _dispatches.GetAsync(dispatchId, ct).ConfigureAwait(false);
+        if (dispatch is null)
+        {
+            return null;
+        }
+
+        var run = await _runs.GetAsync(dispatch.RunId, ct).ConfigureAwait(false);
+        if (run is null || !string.Equals(run.Scope, scope, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var transitioned = await _dispatches.TransitionAsync(
+            dispatchId, state, archivedOutput, _time.GetUtcNow().UtcDateTime, ct)
+            .ConfigureAwait(false);
+        if (state is DispatchState.Released && transitioned is not null)
+        {
+            await ClearActiveDispatchAsync(transitioned.TaskId, dispatchId, ct).ConfigureAwait(false);
+        }
+
+        return transitioned;
+    }
+
+    private async Task ClearActiveDispatchAsync(
+        string taskId, string dispatchId, CancellationToken ct)
+    {
+        var task = await _tasks.GetAsync(taskId, ct).ConfigureAwait(false);
+        if (task?.ActiveDispatchId == dispatchId)
+        {
+            await _tasks.ClearActiveDispatchAsync(taskId, ct).ConfigureAwait(false);
+        }
+    }
+
+    // ---- SPEC-20261020-v2 RF-010: delegate_reset ----
+
+    public async Task<ResetRunResult> ResetRunAsync(
+        string scope, bool tasks, bool messages, bool force = false, CancellationToken ct = default)
+    {
+        if (!tasks && !messages)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "nothing to reset — pass --tasks, --messages or --all");
+        }
+
+        var run = await _runs.GetOpenByScopeAsync(scope, ct).ConfigureAwait(false);
+
+        if (run is not null && !force)
+        {
+            var open = await _dispatches.ListOpenByRunAsync(run.Id, ct).ConfigureAwait(false);
+            if (open.Count > 0)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"run has {open.Count} open dispatch(es) — pass --force to reset anyway");
+            }
+        }
+
+        var tasksDeleted = 0;
+        var messagesDeleted = 0;
+        if (tasks)
+        {
+            if (run is not null)
+            {
+                await _dispatches.DeleteByRunAsync(run.Id, ct).ConfigureAwait(false);
+            }
+
+            await _gates.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+            tasksDeleted = await _tasks.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+        }
+
+        if (messages)
+        {
+            if (run is not null)
+            {
+                await _deliveries.DeleteByRunAsync(run.Id, ct).ConfigureAwait(false);
+            }
+
+            await _questions.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+            messagesDeleted = await _mailbox.DeleteByScopeAsync(scope, ct).ConfigureAwait(false);
+        }
+
+        return new ResetRunResult(tasksDeleted, messagesDeleted);
+    }
+
     /// <summary>RF-002: preamble given to the worker — spec, ids, mailbox addr, contract.</summary>
     private static string BuildPreamble(
         DelegationTaskDto task, string dispatchId, string runId, int attempt) =>

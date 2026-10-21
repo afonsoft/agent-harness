@@ -154,6 +154,18 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
         return ToDto(entity);
     }
 
+    /// <inheritdoc/>
+    public async Task<int> DeleteByRunAsync(string runId, CancellationToken ct = default)
+    {
+        var entities = await _context.Dispatches
+            .Where(d => d.RunId == runId)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.Dispatches.RemoveRange(entities);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return entities.Count;
+    }
+
     private static DispatchDto? ToDtoOrNull(Dispatch? d) =>
         d is null ? null : ToDto(d);
 
@@ -216,6 +228,18 @@ public sealed class EfCoreDeliveryRepository : IDeliveryRepository
         entity.Ack(now);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteByRunAsync(string runId, CancellationToken ct = default)
+    {
+        var entities = await _context.Deliveries
+            .Where(d => d.RunId == runId)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.Deliveries.RemoveRange(entities);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return entities.Count;
     }
 
     private static DeliveryDto? ToDtoOrNull(Delivery? d) =>
@@ -295,6 +319,18 @@ public sealed class EfCorePendingQuestionRepository : IPendingQuestionRepository
         return ToDto(entity);
     }
 
+    /// <inheritdoc/>
+    public async Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default)
+    {
+        var entities = await _context.PendingQuestions
+            .Where(q => q.Scope == scope)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.PendingQuestions.RemoveRange(entities);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return entities.Count;
+    }
+
     private static PendingQuestionDto? ToDtoOrNull(PendingQuestion? q) =>
         q is null ? null : ToDto(q);
 
@@ -363,6 +399,18 @@ public sealed class EfCoreDelegationGateRepository : IDelegationGateRepository
         entity.Resolve(resolution, now);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> DeleteByScopeAsync(string scope, CancellationToken ct = default)
+    {
+        var entities = await _context.DelegationGates
+            .Where(g => g.Scope == scope)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        _context.DelegationGates.RemoveRange(entities);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return entities.Count;
     }
 
     private static DelegationGateDto? ToDtoOrNull(DelegationGate? g) =>

@@ -113,6 +113,33 @@ public interface IDelegationService
     Task<DelegationTaskDto?> BlockTaskAsync(
         string scope, string taskId, string? resultJson = null, CancellationToken ct = default);
 
+    /// <summary>SPEC-20261020-v2 RF-006: dispatch inspection — state, attempt, preamble, terminal.</summary>
+    Task<DispatchDto?> GetDispatchAsync(string dispatchId, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-006: archived worker output (last <paramref name="lineLimit"/> lines).</summary>
+    Task<string?> ReadDispatchOutputAsync(
+        string dispatchId, int lineLimit = 200, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-006: settled|retained → released (archive output, free worker).</summary>
+    Task<DispatchDto?> ReleaseDispatchAsync(
+        string scope, string dispatchId, string? archivedOutput = null, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-006: settled → retained (kept alive for follow-up).</summary>
+    Task<DispatchDto?> RetainDispatchAsync(
+        string scope, string dispatchId, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261020-v2 RF-006: non-released → abandoned; clears the task's active dispatch.</summary>
+    Task<DispatchDto?> AbandonDispatchAsync(
+        string scope, string dispatchId, CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-010: clears run state — tasks+dispatches+gates
+    /// and/or messages+deliveries+questions of the scope. Refuses while open
+    /// dispatches exist unless <paramref name="force"/>.
+    /// </summary>
+    Task<ResetRunResult> ResetRunAsync(
+        string scope, bool tasks, bool messages, bool force = false, CancellationToken ct = default);
+
     Task<MailboxMessageDto> PostAsync(PostMailboxMessageRequest request, CancellationToken ct = default);
 
     /// <summary>Posts a system <c>decision</c> message to <c>@all</c> — the decision

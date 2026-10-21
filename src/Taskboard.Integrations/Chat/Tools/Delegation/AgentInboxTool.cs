@@ -14,7 +14,8 @@ public sealed class AgentInboxTool(IServiceScopeFactory scopeFactory) : IChatToo
 {
     public string Name => "agent_inbox";
     public string Description =>
-        "Read mailbox messages sent to this conversation (worker_done/escalation "
+        "[deprecated — prefer agent_check with durable deliveries] Read mailbox "
+        + "messages sent to this conversation (worker_done/escalation "
         + "signals from delegated tasks, agent replies). Defaults to unread "
         + "messages and marks them read.";
     public string ParametersJson => """

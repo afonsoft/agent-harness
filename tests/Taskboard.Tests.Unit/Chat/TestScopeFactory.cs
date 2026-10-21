@@ -27,4 +27,13 @@ internal static class TestScopeFactory
             .AddSingleton(service)
             .BuildServiceProvider()
             .GetRequiredService<IServiceScopeFactory>();
+
+    /// <summary>SPEC-20261020-v2 P3: delegation + launch resolver for launch-pref tests.</summary>
+    public static IServiceScopeFactory WithDelegationAndLaunch(
+        IDelegationService service, IAgentLaunchResolver resolver) =>
+        new ServiceCollection()
+            .AddSingleton(service)
+            .AddSingleton(resolver)
+            .BuildServiceProvider()
+            .GetRequiredService<IServiceScopeFactory>();
 }

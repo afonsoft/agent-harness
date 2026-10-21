@@ -50,6 +50,12 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// <summary>HEAD sha of <see cref="RepositoryPath"/> at create — stale-base guard (RF-005).</summary>
     public string? BaseCommitSha { get; private set; }
 
+    /// <summary>SPEC-20261020-v2 RF-008: requested launch model — adapter resolves the effective one.</summary>
+    public string? Model { get; private set; }
+
+    /// <summary>SPEC-20261020-v2 RF-008: requested launch effort (low|normal|high → tier).</summary>
+    public string? Effort { get; private set; }
+
     public DelegationTaskStatus Status { get; private set; } = DelegationTaskStatus.Pending;
     public string? ResultSummary { get; private set; }
     public string? Error { get; private set; }
@@ -74,6 +80,8 @@ public sealed class DelegationTask : AggregateRoot<string>
         string? baseCommitSha = null,
         string? kind = null,
         string? runId = null,
+        string? model = null,
+        string? effort = null,
         DateTime? now = null)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -107,6 +115,8 @@ public sealed class DelegationTask : AggregateRoot<string>
             RepositoryPath = repositoryPath,
             BaseCommitSha = baseCommitSha,
             RunId = string.IsNullOrWhiteSpace(runId) ? null : runId.Trim(),
+            Model = string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
+            Effort = string.IsNullOrWhiteSpace(effort) ? null : effort.Trim().ToLowerInvariant(),
             CreatedAt = now ?? DateTime.UtcNow,
         };
     }

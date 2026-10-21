@@ -25,7 +25,9 @@ public sealed record DelegationTaskDto(
     DateTime? LastHeartbeatAt,
     string Kind = "task",
     string? RunId = null,
-    string? ActiveDispatchId = null);
+    string? ActiveDispatchId = null,
+    string? Model = null,
+    string? Effort = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
@@ -152,7 +154,18 @@ public sealed record CreateDelegationTaskRequest(
     string? RepositoryPath = null,
     string? BaseCommitSha = null,
     string? Kind = null,
-    string? RunId = null);
+    string? RunId = null,
+    string? Model = null,
+    string? Effort = null);
+
+/// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
+public sealed record LaunchResolution(
+    string? EffectiveModel,
+    string? EffectiveEffort,
+    IReadOnlyList<string> Args);
+
+/// <summary>SPEC-20261020-v2 RF-010: delegate_reset receipt.</summary>
+public sealed record ResetRunResult(int TasksDeleted, int MessagesDeleted);
 
 /// <summary>SPEC-20261020-v2 RF-002: create request for a dispatch attempt.</summary>
 public sealed record CreateDispatchRequest(

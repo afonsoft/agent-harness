@@ -506,6 +506,8 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261020-v2 P2: worker questions + task-bound gates.
     builder.Services.AddScoped<IPendingQuestionRepository, EfCorePendingQuestionRepository>();
     builder.Services.AddScoped<IDelegationGateRepository, EfCoreDelegationGateRepository>();
+    // SPEC-20261020-v2 P3: launch preference resolution (model/effort).
+    builder.Services.AddScoped<IAgentLaunchResolver, AgentLaunchResolver>();
     builder.Services.AddScoped<IDelegationService, DelegationService>();
     builder.Services.AddScoped<IPromotedLegPrService, PromotedLegPrService>();
     builder.Services.AddHostedService<DelegationDispatcherService>();
@@ -675,6 +677,13 @@ void RegisterWorkspaceAndChatServices()
             new DelegateGateResolveTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateGateListTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateTaskUpdateTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261020-v2 P3: dispatch lifecycle + run reset.
+            new DelegateWorkerShowTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateWorkerReadTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateWorkerReleaseTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateWorkerRetainTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateWorkerAbandonTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new DelegateResetTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261006 RF-004/RF-005: decision gate + worktree checkpoints.
             new AgentDecideTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointTool(sp.GetRequiredService<IServiceScopeFactory>()),

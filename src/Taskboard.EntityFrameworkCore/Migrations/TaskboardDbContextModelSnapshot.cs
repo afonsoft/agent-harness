@@ -1626,6 +1626,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("DependsOn");
 
+                    b.Property<string>("Effort")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Error")
                         .HasMaxLength(4096)
                         .HasColumnType("TEXT");
@@ -1643,6 +1647,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("LastHeartbeatAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Prompt")
