@@ -27,7 +27,8 @@ public sealed record DelegationTaskDto(
     string? RunId = null,
     string? ActiveDispatchId = null,
     string? Model = null,
-    string? Effort = null);
+    string? Effort = null,
+    IReadOnlyList<string>? SharedPathsApplied = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(

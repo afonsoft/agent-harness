@@ -17,6 +17,13 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
     public WorktreeStatus Status { get; private set; }
     public string? CommitSha { get; private set; }
     public bool RetainOnFailure { get; private set; }
+
+    /// <summary>
+    /// SPEC-20261020-worktree-shared-context RF-009: JSON list of shared
+    /// paths materialized at provisioning — the worker preamble echoes it.
+    /// </summary>
+    public string SharedPathsJson { get; private set; } = "[]";
+
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
@@ -32,7 +39,8 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         string path,
         string branch,
         bool retainOnFailure,
-        DateTime now)
+        DateTime now,
+        IReadOnlyList<string>? sharedPathsApplied = null)
         : base(id)
     {
         if (string.IsNullOrWhiteSpace(runId))
@@ -67,6 +75,8 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         Branch = branch;
         Status = WorktreeStatus.Active;
         RetainOnFailure = retainOnFailure;
+        SharedPathsJson = System.Text.Json.JsonSerializer.Serialize(
+            sharedPathsApplied ?? []);
         CreatedAt = UpdatedAt = now;
     }
 
@@ -78,15 +88,19 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         string path,
         string branch,
         bool retainOnFailure = false,
-        DateTime? now = null)
-        => new(id, runId, repositoryPath, baseBranch, path, branch, retainOnFailure, now ?? DateTime.UtcNow);
+        DateTime? now = null,
+        IReadOnlyList<string>? sharedPathsApplied = null)
+        => new(id, runId, repositoryPath, baseBranch, path, branch,
+            retainOnFailure, now ?? DateTime.UtcNow, sharedPathsApplied);
 
     /// <summary>
     /// Reactivates the session for a retried run whose previous worktree
     /// directory was lost — keeps the row (RunId is unique) and clears the
     /// recorded commit.
     /// </summary>
-    public void Reactivate(string baseBranch, string path, string branch, bool retainOnFailure, DateTime? now = null)
+    public void Reactivate(
+        string baseBranch, string path, string branch, bool retainOnFailure,
+        DateTime? now = null, IReadOnlyList<string>? sharedPathsApplied = null)
     {
         if (string.IsNullOrWhiteSpace(baseBranch)
             || string.IsNullOrWhiteSpace(path)
@@ -100,6 +114,8 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         Branch = branch;
         RetainOnFailure = retainOnFailure;
         CommitSha = null;
+        SharedPathsJson = System.Text.Json.JsonSerializer.Serialize(
+            sharedPathsApplied ?? []);
         Status = WorktreeStatus.Active;
         Touch(now);
     }

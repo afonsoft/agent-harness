@@ -37,7 +37,7 @@ public interface IDelegationTaskRepository
     Task<DelegationTaskDto?> HeartbeatAsync(string id, DateTime now, CancellationToken ct = default);
 
     /// <summary>Attach the worktree run-id created by the fan-out tool.</summary>
-    Task<DelegationTaskDto?> AttachWorktreeAsync(string id, string worktreeRunId, CancellationToken ct = default);
+    Task<DelegationTaskDto?> AttachWorktreeAsync(string id, string worktreeRunId, IReadOnlyList<string>? sharedPathsApplied = null, CancellationToken ct = default);
 
     /// <summary>SPEC-20261020-v2 RF-002: point the task at its in-flight dispatch (null clears).</summary>
     Task<DelegationTaskDto?> AttachDispatchAsync(string id, string? dispatchId, CancellationToken ct = default);

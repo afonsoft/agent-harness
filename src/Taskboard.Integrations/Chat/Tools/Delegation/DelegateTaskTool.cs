@@ -231,8 +231,9 @@ public sealed class DelegateTaskTool(
                 task.Id, repoPath, ReadString(arguments, "base_branch") ?? "main",
                 $"delegation-{task.Id[^Math.Min(8, task.Id.Length)..]}",
                 retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-            task = (await service.AttachWorktreeAsync(task.Id, session.RunId, cancellationToken)
-                .ConfigureAwait(false)) ?? task;
+            task = (await service.AttachWorktreeAsync(
+                    task.Id, session.RunId, session.SharedPathsApplied,
+                    cancellationToken).ConfigureAwait(false)) ?? task;
             return new(task, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

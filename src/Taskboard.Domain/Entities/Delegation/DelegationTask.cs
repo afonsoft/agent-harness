@@ -44,6 +44,12 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// <summary>Worktree session run-id when <see cref="UseWorktree"/> was honored.</summary>
     public string? WorktreeRunId { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261020-worktree-shared-context RF-009: JSON list of shared
+    /// paths provisioned into the worktree — echoed in the worker preamble.
+    /// </summary>
+    public string SharedPathsJson { get; private set; } = "[]";
+
     public string WorkspacePath { get; private set; } = string.Empty;
     public string? RepositoryPath { get; private set; }
 
@@ -66,6 +72,12 @@ public sealed class DelegationTask : AggregateRoot<string>
 
     public IReadOnlyList<string> DependsOn =>
         JsonSerializer.Deserialize<List<string>>(DependsOnJson) ?? [];
+
+    /// <summary>Shared paths applied at worktree provisioning (RF-009).</summary>
+    public IReadOnlyList<string> SharedPathsApplied =>
+        SharedPathsJson is { Length: > 0 } json
+            ? JsonSerializer.Deserialize<List<string>>(json) ?? []
+            : [];
 
     public static DelegationTask Create(
         string prompt,
@@ -131,7 +143,14 @@ public sealed class DelegationTask : AggregateRoot<string>
         Status is DelegationTaskStatus.Failed or DelegationTaskStatus.Stale
             or DelegationTaskStatus.Cancelled;
 
-    public void AttachWorktree(string runId) => WorktreeRunId = runId;
+    public void AttachWorktree(string runId, IReadOnlyList<string>? sharedPathsApplied = null)
+    {
+        WorktreeRunId = runId;
+        if (sharedPathsApplied is not null)
+        {
+            SharedPathsJson = JsonSerializer.Serialize(sharedPathsApplied);
+        }
+    }
 
     /// <summary>SPEC-20261020-v2 RF-002: point at the in-flight dispatch attempt.</summary>
     public void AttachDispatch(string dispatchId) =>

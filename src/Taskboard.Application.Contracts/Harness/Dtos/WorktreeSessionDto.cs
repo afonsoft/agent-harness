@@ -12,4 +12,5 @@ public sealed record WorktreeSessionDto(
     bool RetainOnFailure,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    long Version);
+    long Version,
+    IReadOnlyList<string>? SharedPathsApplied = null);

@@ -212,8 +212,10 @@ public sealed class DelegationService : IDelegationService
     }
 
     public Task<DelegationTaskDto?> AttachWorktreeAsync(
-        string taskId, string worktreeRunId, CancellationToken ct = default) =>
-        _tasks.AttachWorktreeAsync(taskId, worktreeRunId, ct);
+        string taskId, string worktreeRunId,
+        IReadOnlyList<string>? sharedPathsApplied = null,
+        CancellationToken ct = default) =>
+        _tasks.AttachWorktreeAsync(taskId, worktreeRunId, sharedPathsApplied, ct);
 
     public Task<IReadOnlyList<DelegationTaskDto>> ListTasksAsync(
         string scope, int take = 50, CancellationToken ct = default) =>
@@ -983,6 +985,7 @@ public sealed class DelegationService : IDelegationService
             attempt,
             cli = task.CliName,
             prompt = task.Prompt,
+            sharedPathsApplied = task.SharedPathsApplied,
             mailbox = new { addr = task.Id, send = "agent_send", check = "agent_check" },
             contract = "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive",
         });
