@@ -750,6 +750,45 @@ public sealed class TaskboardClient
             cancellationToken);
     }
 
+    /// <summary>RF-008 (P3): delete-from-history — null on success, else the
+    /// server error code (session-live/not-deletable/not-found).</summary>
+    public async Task<string?> DeleteSessionAsync(
+        string cli, string sessionId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.DeleteAsync(
+            $"/api/agents/sessions/{Uri.EscapeDataString(cli)}/{Uri.EscapeDataString(sessionId)}",
+            cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
+    /// <summary>P3: open a transcript path or cwd with the platform handler.</summary>
+    public async Task<bool> OpenSessionPathAsync(
+        string path, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsJsonAsync(
+            "/api/agents/sessions/open", new { path }, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-007 (P3): resume the session inside the native ACP chat —
+    /// returns the created thread id.</summary>
+    public async Task<NativeChatResumeResult?> ResumeSessionNativeChatAsync(
+        string cli, string sessionId, string? cwd,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsJsonAsync(
+            "/api/agents/sessions/native-chat",
+            new NativeChatResumeRequest(cli, sessionId, cwd), cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<NativeChatResumeResult>(cancellationToken)
+            : null;
+    }
+
     /// <summary>RF-005: per-user sessions-view prefs (hidden CLIs + hideEmpty).</summary>
     public async Task<SessionViewPrefsDto?> GetSessionViewPrefsAsync(
         CancellationToken cancellationToken = default) =>

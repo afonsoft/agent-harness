@@ -23,4 +23,7 @@ public enum AgentFeedKind
 
     /// <summary>PR/MR state change of the selected repo.</summary>
     Pr,
+
+    /// <summary>Session transcript removed from CLI history (SPEC session-history-parity RF-008).</summary>
+    SessionDeleted,
 }

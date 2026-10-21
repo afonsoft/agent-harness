@@ -808,6 +808,15 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         holder.Socket?.Connected ?? holder.Process is { HasExited: false };
 
     /// <summary>
+    /// SPEC-20261020-session-history-parity RF-007: seeds a native session id
+    /// for <paramref name="threadId"/> so the next <see cref="StartSessionAsync"/>
+    /// reattaches it (session/resume or session/load replay) instead of
+    /// opening a fresh session/new.
+    /// </summary>
+    public void PrimeResumeSessionId(string threadId, string sessionId) =>
+        _lastSessionIds[threadId] = sessionId;
+
+    /// <summary>
     /// SPEC-20261020-session-history-parity RF-003: live ACP sessions as
     /// (attentionKey, cli, cwd, nativeSessionId) rows for the sessions-index
     /// live-join.
