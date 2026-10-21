@@ -27,6 +27,8 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     private readonly IGitCommandRunner _git;
     private readonly IWorktreeSessionRepository _sessions;
     private readonly ISharedPathProvisioner? _sharedPaths;
+    private readonly IWorktreeYamlReader? _yamlReader;
+    private readonly IWorktreeSetupRunner? _setupRunner;
     private readonly string _worktreeRoot;
     private readonly ILogger<GitWorktreeManager> _logger;
 
@@ -35,13 +37,17 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
         IWorktreeSessionRepository sessions,
         string worktreeRoot,
         ILogger<GitWorktreeManager> logger,
-        ISharedPathProvisioner? sharedPaths = null)
+        ISharedPathProvisioner? sharedPaths = null,
+        IWorktreeYamlReader? yamlReader = null,
+        IWorktreeSetupRunner? setupRunner = null)
     {
         _git = git;
         _sessions = sessions;
         _worktreeRoot = worktreeRoot;
         _logger = logger;
         _sharedPaths = sharedPaths;
+        _yamlReader = yamlReader;
+        _setupRunner = setupRunner;
     }
 
     public async Task<WorktreeSessionDto> CreateWorktreeAsync(
@@ -100,18 +106,53 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 .Select(e => e.Path)
                 .ToList();
 
+        var (setupState, setupLogTail) = await RunWorktreeSetupAsync(
+            repositoryPath, path, cancellationToken).ConfigureAwait(false);
+
         var session = await _sessions.CreateAsync(
             runId,
-            repositoryPath,
-            resolvedBase,
-            path,
-            branch,
+            new WorktreeSessionPaths(repositoryPath, resolvedBase, path, branch),
             retainOnFailure,
             cancellationToken,
-            sharedPathsApplied: sharedApplied);
+            new WorktreeProvisionOutcome(sharedApplied, setupState, setupLogTail));
 
         _logger.LogInformation("Worktree {Path} on branch {Branch} created for run {RunId}.", path, branch, runId);
         return session;
+    }
+
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-002/RF-004: runs the yaml
+    /// <c>setup:</c> list after shared paths. <c>wait-for-setup</c>
+    /// (default) awaits the outcome so the dispatch preamble carries a
+    /// terminal state; <c>start-immediately</c> lets the runner finish in
+    /// background — the card keeps flipping via SignalR.
+    /// </summary>
+    private async Task<(string? State, string? LogTail)> RunWorktreeSetupAsync(
+        string repositoryPath, string worktreePath, CancellationToken cancellationToken)
+    {
+        if (_yamlReader is null || _setupRunner is null)
+        {
+            return (null, null);
+        }
+
+        var doc = _yamlReader.Read(repositoryPath);
+        var commands = _yamlReader.EffectiveSetupCommands(repositoryPath, doc);
+        if (commands.Count == 0)
+        {
+            return (null, null);
+        }
+
+        if (_yamlReader.EffectiveStartupPolicy(repositoryPath, doc)
+                == WorktreeSetupPolicies.StartImmediately)
+        {
+            _setupRunner.RunSetupInBackground(repositoryPath, worktreePath, commands);
+            return (WorktreeSetupStates.Running, null);
+        }
+
+        var result = await _setupRunner.RunSetupAsync(
+            repositoryPath, worktreePath, commands, cancellationToken)
+            .ConfigureAwait(false);
+        return (result.State, WorktreeSetupRunner.PreambleTail(result.LogTail));
     }
 
     public async Task<WorktreeSessionDto?> GetAsync(string runId, CancellationToken cancellationToken = default)

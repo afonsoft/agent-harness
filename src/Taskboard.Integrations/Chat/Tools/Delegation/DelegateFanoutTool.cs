@@ -169,32 +169,12 @@ public sealed class DelegateFanoutTool(
             return LegOf(task, null, null);
         }
 
-        if (isolation is null)
-        {
-            await service.CancelTaskAsync(task.Id, "worktree service unavailable", cancellationToken)
-                .ConfigureAwait(false);
-            return LegOf(task, null, "worktree service unavailable");
-        }
-
-        try
-        {
-            var session = await isolation.CreateWorktreeAsync(
-                task.Id,
+        var (session, attached, error) = await DelegationToolSupport
+            .ProvisionAndAttachAsync(
+                isolation, service, task,
                 repoPath ?? throw new InvalidOperationException("worktree requested without repo path"),
-                baseBranch,
-                $"fanout-{task.Id[^Math.Min(8, task.Id.Length)..]}",
-                retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-            task = (await service.AttachWorktreeAsync(
-                    task.Id, session.RunId, session.SharedPathsApplied,
-                    cancellationToken).ConfigureAwait(false)) ?? task;
-            return LegOf(task, session.Path, null);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            var error = $"worktree create failed: {ex.Message}";
-            await service.CancelTaskAsync(task.Id, error, cancellationToken).ConfigureAwait(false);
-            return LegOf(task, null, error);
-        }
+                baseBranch, "fanout", cancellationToken).ConfigureAwait(false);
+        return LegOf(attached, session?.Path, error);
     }
 
     private static object LegOf(DelegationTaskDto task, string? worktreePath, string? error) =>

@@ -1938,6 +1938,12 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SetupLogTail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetupState")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("SharedPathsJson")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -2717,6 +2723,23 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("SetupExitCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("SetupFinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetupLog")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SetupStartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetupState")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("StatusCommentedAtUtc")
                         .HasColumnType("TEXT");
 
@@ -2786,6 +2809,12 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<string>("RunId")
                         .IsRequired()
                         .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetupLogTail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetupState")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SharedPathsJson")

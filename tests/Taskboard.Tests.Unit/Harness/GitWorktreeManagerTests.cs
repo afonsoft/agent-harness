@@ -444,26 +444,28 @@ public class GitWorktreeManagerTests : IDisposable
 
         public Task<WorktreeSessionDto> CreateAsync(
             string runId,
-            string repositoryPath,
-            string baseBranch,
-            string path,
-            string branch,
+            WorktreeSessionPaths paths,
             bool retainOnFailure,
             CancellationToken cancellationToken = default,
-            IReadOnlyList<string>? sharedPathsApplied = null)
+            WorktreeProvisionOutcome? provisioning = null)
         {
+            var sharedPathsApplied = provisioning?.SharedPathsApplied;
+            var setupState = provisioning?.SetupState;
+            var setupLogTail = provisioning?.SetupLogTail;
             var existing = Items.FirstOrDefault(s => s.RunId == runId);
             if (existing is not null)
             {
                 var reactivated = existing with
                 {
-                    Path = path,
-                    Branch = branch,
-                    BaseBranch = baseBranch,
+                    Path = paths.Path,
+                    Branch = paths.Branch,
+                    BaseBranch = paths.BaseBranch,
                     Status = "Active",
                     CommitSha = null,
                     RetainOnFailure = retainOnFailure,
                     SharedPathsApplied = sharedPathsApplied ?? [],
+                    SetupState = setupState,
+                    SetupLogTail = setupLogTail,
                     UpdatedAt = DateTime.UtcNow,
                     Version = existing.Version + 1,
                 };
@@ -474,17 +476,19 @@ public class GitWorktreeManagerTests : IDisposable
             var dto = new WorktreeSessionDto(
                 Guid.NewGuid().ToString("N"),
                 runId,
-                path,
-                branch,
+                paths.Path,
+                paths.Branch,
                 "Active",
-                repositoryPath,
-                baseBranch,
+                paths.RepositoryPath,
+                paths.BaseBranch,
                 null,
                 retainOnFailure,
                 DateTime.UtcNow,
                 DateTime.UtcNow,
                 1,
-                sharedPathsApplied);
+                sharedPathsApplied,
+                setupState,
+                setupLogTail);
             Items.Add(dto);
             return Task.FromResult(dto);
         }

@@ -55,21 +55,49 @@ public sealed class WorktreeCardService : IWorktreeCardService
         var card = await _cards.UpsertAsync(
             worktreePath.Trim(), repoPath, comment, resolved, taskId,
             cancellationToken).ConfigureAwait(false);
+        await NotifyAsync(card, cancellationToken).ConfigureAwait(false);
+        return card;
+    }
 
-        if (_notifier is not null)
+    /// <inheritdoc />
+    public async Task<WorktreeCardDto> SetSetupAsync(
+        string worktreePath,
+        string repoPath,
+        string state,
+        int? exitCode,
+        string? logTail,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(worktreePath) || string.IsNullOrWhiteSpace(repoPath))
         {
-            try
-            {
-                await _notifier.PushAsync(card, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                // Push is best-effort — the write already succeeded.
-            }
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "worktreePath and repoPath are required.");
         }
 
+        var card = await _cards.SetSetupAsync(
+            worktreePath.Trim(), repoPath.Trim(), state, exitCode, logTail,
+            cancellationToken).ConfigureAwait(false);
+        await NotifyAsync(card, cancellationToken).ConfigureAwait(false);
         return card;
+    }
+
+    /// <summary>Push is best-effort — the write already succeeded.</summary>
+    private async Task NotifyAsync(WorktreeCardDto card, CancellationToken ct)
+    {
+        if (_notifier is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifier.PushAsync(card, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // swallow — card row is the source of truth
+        }
     }
 
     public Task<WorktreeCardDto?> GetAsync(

@@ -13,4 +13,6 @@ public sealed record WorktreeSessionDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     long Version,
-    IReadOnlyList<string>? SharedPathsApplied = null);
+    IReadOnlyList<string>? SharedPathsApplied = null,
+    string? SetupState = null,
+    string? SetupLogTail = null);

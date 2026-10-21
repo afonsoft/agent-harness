@@ -13,7 +13,12 @@ public sealed record WorktreeCardDto(
     WorkspaceStatus WorkspaceStatus,
     string? TaskId,
     DateTime StatusCommentedAtUtc,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string? SetupState = null,
+    int? SetupExitCode = null,
+    DateTime? SetupStartedAtUtc = null,
+    DateTime? SetupFinishedAtUtc = null,
+    string? SetupLogTail = null);
 
 /// <summary>Persistence for <see cref="WorktreeCardDto"/> annotations.</summary>
 public interface IWorktreeCardRepository
@@ -33,6 +38,19 @@ public interface IWorktreeCardRepository
 
     Task<IReadOnlyList<WorktreeCardDto>> ListAsync(
         string? repoPath = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-003: upserts only the setup
+    /// lifecycle fields — creates a minimal card when none exists yet.
+    /// <paramref name="logTail"/> stores ≤64KB.
+    /// </summary>
+    Task<WorktreeCardDto> SetSetupAsync(
+        string worktreePath,
+        string repoPath,
+        string state,
+        int? exitCode,
+        string? logTail,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -72,6 +90,19 @@ public interface IWorktreeCardService
 
     Task<IReadOnlyList<WorktreeCardDto>> ListAsync(
         string? repoPath = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-003: setup lifecycle write —
+    /// creates a minimal card when missing (status stays unknown) and emits
+    /// a <c>worktree.card</c> patch.
+    /// </summary>
+    Task<WorktreeCardDto> SetSetupAsync(
+        string worktreePath,
+        string repoPath,
+        string state,
+        int? exitCode,
+        string? logTail,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Delivers <c>worktree.card</c> patches to connected clients.</summary>

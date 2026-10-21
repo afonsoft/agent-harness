@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
+using Taskboard.Integrations.Chat.Tools.Delegation;
 
 namespace Taskboard.Integrations.Delegation;
 
@@ -300,9 +301,8 @@ public sealed class DelegationPlanCreator(IServiceScopeFactory scopeFactory)
             plan.BaseBranch,
             $"plan-{task.Id[^Math.Min(8, task.Id.Length)..]}",
             retainOnFailure: false, ct).ConfigureAwait(false);
-        return (await plan.Service.AttachWorktreeAsync(
-            task.Id, session.RunId, session.SharedPathsApplied, ct)
-            .ConfigureAwait(false)) ?? task;
+        return (await DelegationToolSupport.AttachSessionAsync(
+            plan.Service, task.Id, session, ct).ConfigureAwait(false)) ?? task;
     }
 
     private static async Task RollbackAsync(IDelegationService? service, List<string> createdIds)

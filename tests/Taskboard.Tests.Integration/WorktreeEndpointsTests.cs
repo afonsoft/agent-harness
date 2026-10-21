@@ -129,7 +129,58 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         patch.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
-    private async Task<string> CriarWorktreeAsync(HttpClient client)
+    // ---------- SPEC-20261021-worktree-setup-scripts P1 ----------
+
+    [Fact]
+    public async Task Dado_YamlComSetup_Quando_CriaWorktree_Entao_SessionECardOk()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var (session, card) = await SessionECardAsync(client, """
+            setup:
+              - echo harness-setup-ran
+            """);
+
+        session.SetupState.ShouldBe(WorktreeSetupStates.Ok);
+        session.SetupLogTail!.ShouldContain("harness-setup-ran");
+        card.SetupState.ShouldBe(WorktreeSetupStates.Ok);
+        card.SetupFinishedAtUtc.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_SetupFalhando_Quando_CriaWorktree_Entao_CardFailedComExit()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var (session, card) = await SessionECardAsync(client, "setup: [exit 42]");
+
+        session.SetupState.ShouldBe(WorktreeSetupStates.Failed);
+        card.SetupState.ShouldBe(WorktreeSetupStates.Failed);
+        card.SetupExitCode.ShouldBe(42);
+    }
+
+    [Fact]
+    public async Task Dado_SemSetup_Quando_CriaWorktree_Entao_SessionSemSetup()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client);
+
+        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}");
+
+        session!.SetupState.ShouldBeNull();
+    }
+
+    private async Task<(WorktreeSessionDto Session, WorktreeCardDto Card)>
+        SessionECardAsync(HttpClient client, string yaml)
+    {
+        var runId = await CriarWorktreeAsync(client, yaml);
+        var session = (await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}"))!;
+        var card = (await client.GetFromJsonAsync<WorktreeCardDto>(
+            $"/api/harness/worktrees/card?worktreePath={Uri.EscapeDataString(session.Path)}"))!;
+        return (session, card);
+    }
+
+    private async Task<string> CriarWorktreeAsync(HttpClient client, string? yaml = null)
     {
         var repoPath = Path.Join(_tempRoot, "repo");
         Directory.CreateDirectory(repoPath);
@@ -138,6 +189,13 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         await git.RunAsync(repoPath, ["config", "user.email", "itest@local"]);
         await git.RunAsync(repoPath, ["config", "user.name", "itest"]);
         await File.WriteAllTextAsync(Path.Join(repoPath, "README.md"), "# repo\n");
+        if (yaml is not null)
+        {
+            Directory.CreateDirectory(Path.Join(repoPath, ".harness"));
+            await File.WriteAllTextAsync(
+                Path.Join(repoPath, ".harness", "worktree.yaml"), yaml);
+        }
+
         await git.RunAsync(repoPath, ["add", "-A"]);
         (await git.RunAsync(repoPath, ["commit", "-m", "init"])).ExitCode.ShouldBe(0);
 

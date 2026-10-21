@@ -617,7 +617,9 @@ void RegisterWorkspaceAndChatServices()
         // SPEC-20260919-harness-workspace-isolation: default ~/repos (Taskboard:WorktreeRoot).
         WorktreePaths.ResolveRoot(builder.Configuration["Taskboard:WorktreeRoot"], homeDir),
         sp.GetRequiredService<ILogger<GitWorktreeManager>>(),
-        sp.GetService<ISharedPathProvisioner>()));
+        sp.GetService<ISharedPathProvisioner>(),
+        sp.GetService<IWorktreeYamlReader>(),
+        sp.GetService<IWorktreeSetupRunner>()));
     // SPEC-20261020-worktree-shared-context P1: gitignored shared paths into
     // new worktrees (.worktreeinclude + auto-detect).
     builder.Services.AddSingleton<ISharedPathProvisioner>(sp =>
@@ -625,6 +627,11 @@ void RegisterWorkspaceAndChatServices()
             sp.GetRequiredService<IProcessRunner>(),
             sp.GetRequiredService<IConfiguration>(),
             sp.GetRequiredService<ILogger<SharedPathProvisioner>>()));
+    // SPEC-20261021-worktree-setup-scripts P1: .harness/worktree.yaml reader
+    // (single parse shared by provisioner + runner) and the sequential
+    // bash -lc setup executor with card lifecycle writes.
+    builder.Services.AddSingleton<IWorktreeYamlReader, WorktreeYamlReader>();
+    builder.Services.AddSingleton<IWorktreeSetupRunner, WorktreeSetupRunner>();
     builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
     builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
         sp.GetRequiredService<IGitCommandRunner>(),
@@ -2775,8 +2782,8 @@ void MapSettingsAndChatEndpoints()
             task.Id, clone.Path, "main",
             $"issue-{request.IssueNumber}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
             retainOnFailure: false, ct);
-        task = (await delegation.AttachWorktreeAsync(
-            task.Id, session.RunId, session.SharedPathsApplied, ct)) ?? task;
+        task = (await DelegationToolSupport.AttachSessionAsync(
+            delegation, task.Id, session, ct)) ?? task;
         return Results.Ok(new { task });
     });
 

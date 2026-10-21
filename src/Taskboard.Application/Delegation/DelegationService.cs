@@ -214,8 +214,10 @@ public sealed class DelegationService : IDelegationService
     public Task<DelegationTaskDto?> AttachWorktreeAsync(
         string taskId, string worktreeRunId,
         IReadOnlyList<string>? sharedPathsApplied = null,
+        string? setupState = null,
+        string? setupLogTail = null,
         CancellationToken ct = default) =>
-        _tasks.AttachWorktreeAsync(taskId, worktreeRunId, sharedPathsApplied, ct);
+        _tasks.AttachWorktreeAsync(taskId, worktreeRunId, sharedPathsApplied, setupState, setupLogTail, ct);
 
     public Task<IReadOnlyList<DelegationTaskDto>> ListTasksAsync(
         string scope, int take = 50, CancellationToken ct = default) =>
@@ -986,6 +988,12 @@ public sealed class DelegationService : IDelegationService
             cli = task.CliName,
             prompt = task.Prompt,
             sharedPathsApplied = task.SharedPathsApplied,
+            // SPEC-20261021-worktree-setup-scripts RF-004: the worker knows
+            // whether setup already ran (ok), is still running, or failed —
+            // and gets the scrubbed log tail to act on it.
+            setup = task.SetupState is null
+                ? null
+                : new { state = task.SetupState, logTail = task.SetupLogTail },
             mailbox = new { addr = task.Id, send = "agent_send", check = "agent_check" },
             contract = "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive",
         });

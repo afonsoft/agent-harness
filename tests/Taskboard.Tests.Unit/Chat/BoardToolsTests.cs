@@ -331,7 +331,8 @@ public class BoardToolsTests
             LastHeartbeatAt: null);
         delegation.CreateTaskAsync(Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>())
             .Returns(task);
-        delegation.AttachWorktreeAsync("task-42x", "run-1", Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>())
+        delegation.AttachWorktreeAsync("task-42x", "run-1", Arg.Any<IReadOnlyList<string>?>(),
+                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(task);
 
         var isolation = Substitute.For<IWorkspaceIsolationService>();
@@ -360,7 +361,8 @@ public class BoardToolsTests
             Arg.Any<CancellationToken>());
         await isolation.Received(1).CreateWorktreeAsync(
             "task-42x", "/repos/app", "main", Arg.Is<string>(s => s.Contains("issue-42")), false, Arg.Any<CancellationToken>());
-        await delegation.Received(1).AttachWorktreeAsync("task-42x", "run-1", Arg.Any<IReadOnlyList<string>?>(), Arg.Any<CancellationToken>());
+        await delegation.Received(1).AttachWorktreeAsync("task-42x", "run-1", Arg.Any<IReadOnlyList<string>?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
         await github.Received(1).UpdateIssueColumnAsync(
             "acme/app", 42, GitHubBoardColumn.Todo, GitHubBoardColumn.InProgress, Arg.Any<CancellationToken>());
     }

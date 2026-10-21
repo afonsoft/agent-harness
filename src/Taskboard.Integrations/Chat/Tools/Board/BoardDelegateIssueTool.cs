@@ -6,6 +6,7 @@ using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.GitHub;
+using Taskboard.Integrations.Chat.Tools.Delegation;
 using static Taskboard.Integrations.Chat.Tools.Board.BoardToolSupport;
 
 namespace Taskboard.Integrations.Chat.Tools.Board;
@@ -98,13 +99,18 @@ public sealed class BoardDelegateIssueTool(
                     UseWorktree: true, clone.Path, BaseCommitSha: null),
                 cancellationToken).ConfigureAwait(false);
 
-            var session = await isolation.CreateWorktreeAsync(
-                task.Id, clone.Path, "main",
-                $"issue-{issue.Number}-{task.Id[^Math.Min(8, task.Id.Length)..]}",
-                retainOnFailure: false, cancellationToken).ConfigureAwait(false);
-            task = (await delegation.AttachWorktreeAsync(
-                    task.Id, session.RunId, session.SharedPathsApplied,
-                    cancellationToken).ConfigureAwait(false)) ?? task;
+            var (_, attached, provisionError) = await DelegationToolSupport
+                .ProvisionAndAttachAsync(
+                    isolation, delegation, task, clone.Path, "main", "issue",
+                    cancellationToken,
+                    taskSlug: $"issue-{issue.Number}-{task.Id[^Math.Min(8, task.Id.Length)..]}")
+                .ConfigureAwait(false);
+            if (provisionError is not null)
+            {
+                return Error(provisionError, "worktree error");
+            }
+
+            task = attached;
 
             await github.UpdateIssueColumnAsync(
                 repo!, issue.Number,
