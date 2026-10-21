@@ -750,6 +750,36 @@ public sealed class TaskboardClient
             cancellationToken);
     }
 
+    /// <summary>SPEC-20261020-agent-hibernation RF-005: manual hibernate.</summary>
+    public async Task<bool> HibernateSessionAsync(
+        string sessionKey, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync(
+            $"/api/agents/sessions/{Uri.EscapeDataString(sessionKey)}/hibernate",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-007: resume a hibernated session (idempotent respawn).</summary>
+    public async Task<bool> ResumeSessionAsync(
+        string sessionKey, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync(
+            $"/api/agents/sessions/{Uri.EscapeDataString(sessionKey)}/resume",
+            content: null, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>RF-009: pin/unpin — pinned sessions never hibernate.</summary>
+    public async Task<bool> SetSessionPinnedAsync(
+        string sessionKey, bool pinned, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsJsonAsync(
+            $"/api/agents/sessions/{Uri.EscapeDataString(sessionKey)}/pin",
+            new { pinned }, cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     /// <summary>RF-008 (P3): delete-from-history — null on success, else the
     /// server error code (session-live/not-deletable/not-found).</summary>
     public async Task<string?> DeleteSessionAsync(

@@ -103,6 +103,16 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
         .Select(ToDto)
         .ToList();
 
+    public async Task<IReadOnlyList<DispatchDto>> ListOpenForSessionAsync(
+        string sessionKey, CancellationToken ct = default) =>
+        (await _context.Dispatches
+            .Where(d => d.TerminalHandle == sessionKey
+                && (d.State == DispatchState.Pending || d.State == DispatchState.Dispatched))
+            .ToListAsync(ct)
+            .ConfigureAwait(false))
+        .Select(ToDto)
+        .ToList();
+
     public async Task<int> LatestAttemptAsync(string taskId, CancellationToken ct = default) =>
         await _context.Dispatches
             .Where(d => d.TaskId == taskId)

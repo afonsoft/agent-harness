@@ -10,8 +10,12 @@ public sealed class PtySessionFactory(string homeDirectory, ILoggerFactory logge
     /// RF-006 — selected repo workdir resolved server-side); null → home.</param>
     /// <param name="command">Arbitrary argv for the PTY (SPEC-20260928 —
     /// agent CLIs, docker exec); null → login bash.</param>
+    /// <param name="environment">Deliberate env injection, applied after the
+    /// harness-env scrub (SPEC-20261020-agent-hibernation RF-007).</param>
     public PtySession Create(string? workingDirectory = null, int cols = 120, int rows = 30,
-        IReadOnlyList<string>? command = null) =>
+        IReadOnlyList<string>? command = null,
+        IReadOnlyDictionary<string, string>? environment = null) =>
         new(homeDirectory, loggerFactory.CreateLogger<PtySession>(), cols, rows,
-            workingDirectory: workingDirectory, command: command);
+            workingDirectory: workingDirectory, command: command,
+            environment: environment);
 }

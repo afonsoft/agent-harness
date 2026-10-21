@@ -89,6 +89,26 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             : index.Select(e => IsLive(e, live) ? e with { Live = true } : e)
                 .ToList();
 
+        // SPEC-20261020-agent-hibernation: exact join on the recorded native
+        // session id — the zzz glyph + Resume action ride on the row.
+        var records = await HibernatedRecordsAsync(ct).ConfigureAwait(false);
+        if (records.Count > 0)
+        {
+            var byNativeId = records
+                .Where(r => r.NativeSessionId is not null)
+                .ToDictionary(r => r.NativeSessionId!, StringComparer.Ordinal);
+            withLive = withLive
+                .Select(e => byNativeId.TryGetValue(e.SessionId, out var h)
+                    ? e with
+                    {
+                        Hibernated = true,
+                        HibernatedAtUtc = h.HibernatedAtUtc,
+                        HibernationKey = h.SessionKey,
+                    }
+                    : e)
+                .ToList();
+        }
+
         IEnumerable<SessionIndexEntryDto> visible = withLive;
         if (!string.IsNullOrWhiteSpace(cli))
         {
@@ -172,6 +192,32 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         return new AgentSessionsIndexDto(result, rows.Count, chips, collapseEmpty);
     }
 
+    /// <summary>
+    /// SPEC-20261020-agent-hibernation RF-006: live key → newest matching index
+    /// row. ACP rows match on the native session id; PTY rows on cli+cwd (the
+    /// terminal never learns the CLI's own id).
+    /// </summary>
+    public async Task<SessionIndexEntryDto?> ResolveByLiveKeyAsync(
+        string sessionKey, CancellationToken ct = default)
+    {
+        var entry = _live?.Snapshot()
+            .FirstOrDefault(l => string.Equals(l.SessionKey, sessionKey, StringComparison.Ordinal));
+        if (entry is null)
+        {
+            return null;
+        }
+
+        var index = await EnsureIndexAsync(ct).ConfigureAwait(false);
+        return index
+            .Where(e => entry.NativeSessionId is not null
+                ? string.Equals(e.SessionId, entry.NativeSessionId, StringComparison.Ordinal)
+                : entry.Cli is not null
+                    && string.Equals(e.Cli, entry.Cli, StringComparison.OrdinalIgnoreCase)
+                    && PathsEqual(entry.Cwd, e.Cwd))
+            .OrderByDescending(e => e.ModifiedAtUtc)
+            .FirstOrDefault();
+    }
+
     /// <summary>RF-003: native-session-id match, else cli + same cwd.</summary>
     private static bool IsLive(
         SessionIndexEntryDto row, IReadOnlyList<LiveAgentSessionDto> live) =>
@@ -193,6 +239,22 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
             Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
             StringComparison.Ordinal);
+    }
+
+    /// <summary>Currently-hibernated records — scoped repo behind the singleton.</summary>
+    private async Task<IReadOnlyList<AgentHibernationDto>> HibernatedRecordsAsync(
+        CancellationToken ct)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var repo = scope.ServiceProvider.GetService<IAgentHibernationRepository>();
+        if (repo is null)
+        {
+            return [];
+        }
+
+        return (await repo.ListAsync(ct: ct).ConfigureAwait(false))
+            .Where(h => h.IsHibernated)
+            .ToList();
     }
 
     public async Task<SessionViewPrefsDto> GetViewPrefsAsync(
@@ -324,7 +386,8 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             s.WorkingDirectory, repoName, branch,
             created, s.ModifiedAtUtc, messages, size,
             s.SourcePath, s.ResumeCommand,
-            NativeChatClis.Contains(s.Cli), Live: false);
+            NativeChatClis.Contains(s.Cli), Live: false,
+            Hibernated: false, HibernatedAtUtc: null, HibernationKey: null);
     }
 
     /// <summary>RF-006: first non-empty line of the first user message, ≤80c.</summary>

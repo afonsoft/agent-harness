@@ -38,6 +38,7 @@ public class TerminalSessionManagerTests
         public List<FakePtySession> Sessions { get; } = new();
         public List<string?> RequestedWorkdirs { get; } = new();
         public List<IReadOnlyList<string>?> RequestedCommands { get; } = new();
+        public List<IReadOnlyDictionary<string, string>?> RequestedEnvironments { get; } = new();
         public List<(string SessionId, string Chunk)> Outputs { get; } = new();
         public List<(string SessionId, string Reason)> Closed { get; } = new();
         public RecordingLogger Logger { get; } = new();
@@ -46,12 +47,13 @@ public class TerminalSessionManagerTests
         public Harness(TimeSpan? idleTimeout = null, TimeSpan? orphanTimeout = null, int? scrollbackChars = null)
         {
             Manager = new TerminalSessionManager(
-                (workdir, command) =>
+                (workdir, command, env) =>
                 {
                     var s = new FakePtySession();
                     Sessions.Add(s);
                     RequestedWorkdirs.Add(workdir);
                     RequestedCommands.Add(command);
+                    RequestedEnvironments.Add(env);
                     return s;
                 },
                 Logger,
@@ -515,6 +517,75 @@ public class TerminalSessionManagerTests
 
         h.Sessions[0].Disposed.ShouldBeFalse();
         h.Sessions[0].IsRunning.ShouldBeTrue();
+    }
+
+    // ---- SPEC-20261020-agent-hibernation RF-002/RF-007 ----
+
+    [Fact]
+    public async Task Dado_SessaoViva_Quando_Kill_Entao_NotificaEDescarta()
+    {
+        await using var h = new Harness();
+        var id = await h.Manager.OpenAsync(
+            "u1", "conn1", h.OnOutput, h.OnClosed, requestedSessionId: "s-1");
+
+        var killed = await h.Manager.KillAsync(id);
+
+        killed.ShouldBeTrue();
+        h.Sessions.ShouldHaveSingleItem().Disposed.ShouldBeTrue();
+        h.Manager.IsAlive(id).ShouldBeFalse();
+        h.Closed.ShouldContain(c => c.SessionId == id && c.Reason == "hibernated");
+    }
+
+    [Fact]
+    public async Task Dado_IdInexistente_Quando_Kill_Entao_False()
+    {
+        await using var h = new Harness();
+
+        (await h.Manager.KillAsync("nope")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_Respawn_Quando_Detached_Entao_EnvECwdNaFactoryEReattachavel()
+    {
+        await using var h = new Harness();
+        var env = new Dictionary<string, string> { ["HARNESS_RESUMED"] = "1" };
+
+        var ok = await h.Manager.RespawnDetachedAsync(
+            "u1", "s-2", "/repo/w", ["claude", "--resume", "n1"], env);
+
+        ok.ShouldBeTrue();
+        var spawned = h.Sessions.ShouldHaveSingleItem();
+        spawned.Started.ShouldBeTrue();
+        h.RequestedWorkdirs.ShouldBe(["/repo/w"]);
+        h.RequestedCommands.ShouldHaveSingleItem()
+            .ShouldBe(["claude", "--resume", "n1"]);
+        h.RequestedEnvironments.ShouldHaveSingleItem().ShouldBe(env);
+        // Detached — no owner connection, but reattachable by the same user.
+        (await h.Manager.ReattachAsync(
+            "u1", "conn9", "s-2", h.OnOutput, h.OnClosed)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_IdVivo_Quando_Respawn_Entao_IdempotenteSemNovaSessao()
+    {
+        await using var h = new Harness();
+        await h.Manager.RespawnDetachedAsync("u1", "s-3", "/w", ["claude"]);
+
+        var again = await h.Manager.RespawnDetachedAsync("u1", "s-3", "/w", ["claude"]);
+
+        again.ShouldBeTrue();
+        h.Sessions.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Dado_IdVivoDeOutroUsuario_Quando_Respawn_Entao_False()
+    {
+        await using var h = new Harness();
+        await h.Manager.RespawnDetachedAsync("u1", "s-4", "/w", ["claude"]);
+
+        (await h.Manager.RespawnDetachedAsync("u2", "s-4", "/w", ["claude"]))
+            .ShouldBeFalse();
+        h.Sessions.ShouldHaveSingleItem();
     }
 }
 

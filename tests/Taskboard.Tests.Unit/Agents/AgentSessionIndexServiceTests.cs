@@ -278,7 +278,7 @@ public class AgentSessionIndexServiceTests : IDisposable
         string id, int modified, bool live, string cli = "claude") =>
         new(cli, id, $"t-{id}", "/tmp/x", null, null,
             DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(modified),
-            null, 0, "/tmp/x.jsonl", "x --resume", false, live);
+            null, 0, "/tmp/x.jsonl", "x --resume", false, live, false, null, null);
 
     // ---- RF-003 (P2): live-join ----
 

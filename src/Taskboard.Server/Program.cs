@@ -554,6 +554,19 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<ISessionFileActions, SessionFileActions>();
     builder.Services.AddScoped<ISessionActionService, SessionActionService>();
     builder.Services.AddScoped<Taskboard.Server.Services.SessionNativeChatService>();
+    // SPEC-20261020-agent-hibernation: records, guard chain, pipeline, sweep.
+    builder.Services.AddScoped<IAgentHibernationRepository, EfCoreAgentHibernationRepository>();
+    builder.Services.AddScoped<IAgentHibernationGuard, ResumeSupportGuard>();
+    builder.Services.AddScoped<IAgentHibernationGuard, AttentionGuard>();
+    builder.Services.AddScoped<IAgentHibernationGuard, PinnedGuard>();
+    builder.Services.AddScoped<IAgentHibernationGuard, OpenDispatchGuard>();
+    builder.Services.AddSingleton<Taskboard.Server.Services.AgentPtyLifecycle>();
+    builder.Services.AddSingleton<ISessionTerminator>(sp =>
+        sp.GetRequiredService<Taskboard.Server.Services.AgentPtyLifecycle>());
+    builder.Services.AddSingleton<ISessionRespawner>(sp =>
+        sp.GetRequiredService<Taskboard.Server.Services.AgentPtyLifecycle>());
+    builder.Services.AddSingleton<IAgentHibernationService, AgentHibernationService>();
+    builder.Services.AddHostedService<AgentHibernationJob>();
     builder.Services.AddScoped<Taskboard.Server.Services.ThreadPtyResolver>();
     builder.Services.AddSingleton<IGitCommandRunner, GitCommandRunner>();
     builder.Services.AddScoped<IAgentEligibilityService, AgentEligibilityService>();
@@ -4317,6 +4330,34 @@ void MapAgentsEndpoints()
         CancellationToken ct) =>
         Results.Ok(await native.StartAsync(body, ct)));
 
+    // SPEC-20261020-agent-hibernation RF-005: manual hibernate — guards apply,
+    // threshold skipped. 409 + reason when a guard refuses.
+    agents.MapPost("sessions/{key}/hibernate", async (
+        string key, HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        await hibernation.HibernateAsync(SessionsUserId(context), key, ct)
+            is { Hibernated: true }
+                ? Results.Ok(new { hibernated = true })
+                : Results.Conflict(new { error = "hibernate-refused" }));
+
+    // SPEC RF-007: idempotent resume — respawns the PTY with the native
+    // resume argv + env markers; a live session is reused, never duplicated.
+    agents.MapPost("sessions/{key}/resume", async (
+        string key, HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        await hibernation.ResumeAsync(SessionsUserId(context), key, ct)
+            is { Resumed: true }
+                ? Results.Ok(new { resumed = true })
+                : Results.Conflict(new { error = "resume-refused" }));
+
+    // SPEC RF-009: pin toggle — pinned sessions never hibernate.
+    agents.MapPost("sessions/{key}/pin", async (
+        string key, SessionPinRequest body, HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        await hibernation.SetPinnedAsync(SessionsUserId(context), key, body.Pinned, ct)
+            ? Results.Ok(new { pinned = body.Pinned })
+            : Results.NotFound(new { error = "session-not-found" }));
+
     static string SessionsUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";
 
@@ -5247,6 +5288,9 @@ public partial class Program
 
     /// <summary>SPEC P3: open-with-platform-handler request.</summary>
     private sealed record SessionOpenRequest(string Path);
+
+    /// <summary>SPEC-20261020-agent-hibernation RF-009: pin toggle body.</summary>
+    private sealed record SessionPinRequest(bool Pinned);
 
     /// <summary>SPEC-20261020-session-history-parity RF-002: sessions index
     /// query bound via [AsParameters] (keeps the handler under S107).</summary>
