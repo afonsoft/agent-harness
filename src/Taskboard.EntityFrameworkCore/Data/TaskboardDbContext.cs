@@ -28,6 +28,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ConfigurationOverride> ConfigurationOverrides => Set<ConfigurationOverride>();
     public DbSet<AgentCliDefinition> AgentCliDefinitions => Set<AgentCliDefinition>();
     public DbSet<WorktreeSession> WorktreeSessions => Set<WorktreeSession>();
+    public DbSet<WorktreeCard> WorktreeCards => Set<WorktreeCard>();
     public DbSet<ProjectMemoryItem> ProjectMemoryItems => Set<ProjectMemoryItem>();
     public DbSet<VerificationReport> VerificationReports => Set<VerificationReport>();
     public DbSet<CliMetricSource> CliMetricSources => Set<CliMetricSource>();

@@ -4,6 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Taskboard.Tests.Unit" />
+    <PackageReference Include="YamlDotNet" />
     <ProjectReference Include="../Taskboard.Application.Contracts/Taskboard.Application.Contracts.csproj" />
     <PackageReference Include="Octokit" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />

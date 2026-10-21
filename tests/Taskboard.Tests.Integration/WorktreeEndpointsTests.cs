@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Shouldly;
+using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.Harness;
 using Taskboard.Integrations.Harness;
@@ -67,6 +68,65 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         var missing = await client.GetAsync(
             $"/api/harness/worktrees/{runId}/files/content?path=fantasma.cs");
         missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    // ---------- SPEC-20261020-worktree-shared-context RF-006/RF-008 ----------
+
+    [Fact]
+    public async Task Dado_Worktree_Quando_CardPatchSemStatus_Entao_DerivaClean()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client);
+        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}");
+
+        var patch = await client.PatchAsJsonAsync("/api/harness/worktrees/card", new
+        {
+            worktreePath = session!.Path,
+            comment = "exploring spec drift",
+        });
+        patch.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var card = await patch.Content.ReadFromJsonAsync<WorktreeCardDto>();
+        card!.WorkspaceStatus.ShouldBe(WorkspaceStatus.Clean);
+        card.Comment.ShouldBe("exploring spec drift");
+        card.RepoPath.ShouldBe(session.RepositoryPath);
+
+        var fetched = await client.GetFromJsonAsync<WorktreeCardDto>(
+            $"/api/harness/worktrees/card?worktreePath={Uri.EscapeDataString(session.Path)}");
+        fetched!.Comment.ShouldBe("exploring spec drift");
+
+        var list = await client.GetFromJsonAsync<List<WorktreeCardDto>>(
+            $"/api/harness/worktrees/cards?repoPath={Uri.EscapeDataString(session.RepositoryPath)}");
+        list!.ShouldContain(c => c.WorktreePath == session.Path);
+    }
+
+    [Fact]
+    public async Task Dado_Worktree_Quando_CardPatchStatusInvalido_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var patch = await client.PatchAsJsonAsync("/api/harness/worktrees/card", new
+        {
+            worktreePath = _tempRoot,
+            status = "bogus",
+        });
+
+        patch.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_PathNaoGit_Quando_CardPatch_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        Directory.CreateDirectory(_tempRoot);
+
+        var patch = await client.PatchAsJsonAsync("/api/harness/worktrees/card", new
+        {
+            worktreePath = _tempRoot,
+            comment = "not a repo",
+        });
+
+        patch.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     private async Task<string> CriarWorktreeAsync(HttpClient client)

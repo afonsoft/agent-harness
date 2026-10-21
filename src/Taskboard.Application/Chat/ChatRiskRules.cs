@@ -135,6 +135,7 @@ public static class ChatRiskRules
             ["attachment_delete"] = ChatToolRisk.Medium,
             ["worktree_checkpoint"] = ChatToolRisk.Medium,
             ["worktree_checkpoints"] = ChatToolRisk.Medium,
+            ["worktree_set_status"] = ChatToolRisk.Medium,
             ["memory"] = ChatToolRisk.Low, // action drives the verdict — see classifier.
             ["todo"] = ChatToolRisk.Low, // local task list — mutating but never leaves the workspace.
         };

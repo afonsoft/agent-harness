@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using Taskboard.Application.Contracts.Harness;
@@ -34,7 +35,10 @@ public class SharedPathProvisionerTests : IDisposable
     }
 
     private SharedPathProvisioner Sut() =>
-        new(_runner, NullLogger<SharedPathProvisioner>.Instance);
+        new(_runner, EmptyConfig(), NullLogger<SharedPathProvisioner>.Instance);
+
+    private static IConfiguration EmptyConfig() =>
+        new ConfigurationBuilder().Build();
 
     private string RepoFile(string rel, string content = "x")
     {
@@ -215,6 +219,103 @@ public class SharedPathProvisionerTests : IDisposable
         entry.Applied.ShouldBeFalse();
         entry.Note.ShouldBe("exists");
         File.ReadAllText(target).ShouldBe("keep");
+    }
+
+    // ---------- .harness/worktree.yaml (P2) ----------
+
+    [Fact]
+    public async Task Dado_YamlShared_Quando_Provision_Entao_EntradasRepoYaml()
+    {
+        RepoFile(".harness/worktree.yaml",
+            "shared:\n  - path: assets/cache\n    mode: symlink\n  - .env\nexclude:\n  - secrets\n");
+        RepoFile("assets/cache/x.bin");
+
+        var result = await Sut().ProvisionAsync(_repo, _worktree);
+
+        var cache = result.Single(e => e.Path == "assets/cache");
+        cache.Source.ShouldBe(WorktreeSharedSources.RepoYaml);
+        cache.Mode.ShouldBe(WorktreeSharedModes.Symlink);
+        cache.Applied.ShouldBeTrue();
+        var env = result.Single(e => e.Path == ".env");
+        env.Mode.ShouldBe(WorktreeSharedModes.Copy); // scalar → copy
+        result.ShouldNotContain(e => e.Path == "secrets");
+    }
+
+    [Fact]
+    public async Task Dado_YamlExclude_Quando_Provision_Entao_VenceTudo()
+    {
+        RepoFile(".harness/worktree.yaml", "exclude:\n  - node_modules\n");
+        RepoFile(".worktreeinclude", "node_modules\n");
+        RepoFile("node_modules/pkg/index.js");
+
+        var result = await Sut().ProvisionAsync(_repo, _worktree);
+
+        result.ShouldNotContain(e => e.Path == "node_modules");
+        Path.Exists(Path.Join(_worktree, "node_modules")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_YamlMalformado_Quando_Provision_Entao_SkipSilencioso()
+    {
+        RepoFile(".harness/worktree.yaml", "shared:\n  - {unclosed: [broken\n");
+        RepoFile("node_modules/pkg/index.js");
+
+        var result = await Sut().ProvisionAsync(_repo, _worktree);
+
+        // Malformed yaml contributes nothing; auto-detect still works.
+        result.ShouldNotContain(e => e.Source == WorktreeSharedSources.RepoYaml);
+        result.ShouldContain(e => e.Path == "node_modules"
+            && e.Source == WorktreeSharedSources.Auto);
+    }
+
+    // ---------- config source (P2) ----------
+
+    [Fact]
+    public async Task Dado_ConfigShared_Quando_Provision_Entao_VenceYamlEInclude()
+    {
+        // Config declares node_modules as symlink; yaml says copy;
+        // include also declares it — config (highest) wins.
+        RepoFile(".harness/worktree.yaml",
+            "shared:\n  - path: node_modules\n    mode: copy\n");
+        RepoFile(".worktreeinclude", "node_modules\n");
+        RepoFile("node_modules/pkg/index.js");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Taskboard:Worktree:SharedPaths:0:path"] = "node_modules",
+                ["Taskboard:Worktree:SharedPaths:0:mode"] = "symlink",
+            })
+            .Build();
+        var sut = new SharedPathProvisioner(
+            _runner, config, NullLogger<SharedPathProvisioner>.Instance);
+
+        var result = await sut.ProvisionAsync(_repo, _worktree);
+
+        var entry = result.Single(e => e.Path == "node_modules");
+        entry.Source.ShouldBe(WorktreeSharedSources.Config);
+        entry.Mode.ShouldBe(WorktreeSharedModes.Symlink);
+        entry.Applied.ShouldBeTrue();
+        new DirectoryInfo(Path.Join(_worktree, "node_modules")).LinkTarget
+            .ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_ConfigExclude_Quando_Provision_Entao_VenceConfigShared()
+    {
+        RepoFile("node_modules/pkg/index.js");
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Taskboard:Worktree:SharedPaths:0"] = "node_modules",
+                ["Taskboard:Worktree:SharedExclude:0"] = "node_modules",
+            })
+            .Build();
+        var sut = new SharedPathProvisioner(
+            _runner, config, NullLogger<SharedPathProvisioner>.Instance);
+
+        var result = await sut.ProvisionAsync(_repo, _worktree);
+
+        result.ShouldNotContain(e => e.Path == "node_modules");
     }
 
     // ---------- preamble (service side) ----------

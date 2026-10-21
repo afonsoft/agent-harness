@@ -1,7 +1,9 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Harness;
 using Taskboard.Integrations.Execution;
+using YamlDotNet.RepresentationModel;
 
 namespace Taskboard.Integrations.Harness;
 
@@ -20,6 +22,16 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
     internal const int MaxSharedPaths = 50;
 
     private const string IncludeFileName = ".worktreeinclude";
+
+    /// <summary>RF-003: repo-level declaration file inside <c>.harness/</c>.</summary>
+    private const string RepoYamlFileName = ".harness/worktree.yaml";
+
+    /// <summary>RF-002: config sections — <c>Taskboard:Worktree:SharedPaths</c>
+    /// entries (<c>{path, mode?}</c> or scalar) and
+    /// <c>Taskboard:Worktree:SharedExclude</c> scalars.</summary>
+    private const string ConfigSharedSection = "Taskboard:Worktree:SharedPaths";
+
+    private const string ConfigExcludeSection = "Taskboard:Worktree:SharedExclude";
     private static readonly TimeSpan CopyTimeout = TimeSpan.FromMinutes(10);
 
     /// <summary>
@@ -39,12 +51,16 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
     ];
 
     private readonly IProcessRunner _runner;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<SharedPathProvisioner> _logger;
 
     public SharedPathProvisioner(
-        IProcessRunner runner, ILogger<SharedPathProvisioner> logger)
+        IProcessRunner runner,
+        IConfiguration configuration,
+        ILogger<SharedPathProvisioner> logger)
     {
         _runner = runner;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -53,7 +69,11 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
         string worktreePath,
         CancellationToken cancellationToken = default)
     {
-        var resolved = Resolve(repositoryPath);
+        var resolved = Resolve(
+            repositoryPath,
+            ReadConfigDeclarations(_configuration),
+            ReadConfigExcludes(_configuration),
+            _logger);
         var results = new List<SharedPathEntryDto>(resolved.Count);
         foreach (var entry in resolved)
         {
@@ -66,14 +86,24 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
     }
 
     /// <summary>
-    /// Merge declaration sources in precedence order. P1: include file then
-    /// auto-detect; <c>!</c> lines exclude from every source. First
-    /// declaration of a path wins; duplicates never apply twice.
+    /// Merge declaration sources in precedence order — config &gt; repoYaml
+    /// &gt; include &gt; auto (RF-002). Every exclude (config list, yaml
+    /// <c>exclude:</c>, include <c>!</c> negation) beats every declaration.
+    /// First declaration of a path wins; duplicates never apply twice.
     /// </summary>
-    internal static List<WorktreeSharedResolution> Resolve(string repositoryPath)
+    internal static List<WorktreeSharedResolution> Resolve(
+        string repositoryPath,
+        IReadOnlyList<WorktreeSharedResolution>? configEntries = null,
+        IReadOnlyCollection<string>? configExcludes = null,
+        ILogger? logger = null)
     {
-        var declared = new List<WorktreeSharedResolution>();
-        var excluded = new HashSet<string>(StringComparer.Ordinal);
+        var declared = new List<WorktreeSharedResolution>(configEntries ?? []);
+        var excluded = new HashSet<string>(
+            configExcludes ?? [], StringComparer.Ordinal);
+
+        var (yamlShared, yamlExclude) = ReadRepoYaml(repositoryPath, logger);
+        declared.AddRange(yamlShared);
+        excluded.UnionWith(yamlExclude);
 
         foreach (var line in ReadIncludeFile(repositoryPath))
         {
@@ -99,9 +129,12 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
             }
         }
 
+        // Excludes beat every source — including config declarations.
         declared.RemoveAll(e => excluded.Contains(e.Path));
-        var seen = new HashSet<string>(
-            declared.Select(e => e.Path), StringComparer.Ordinal);
+
+        // First declaration wins — dedup preserves precedence order.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        declared.RemoveAll(e => !seen.Add(e.Path));
 
         foreach (var (path, mode) in AutoDetect)
         {
@@ -122,6 +155,139 @@ public sealed class SharedPathProvisioner : ISharedPathProvisioner
             ? declared
             : declared.Take(MaxSharedPaths).ToList();
     }
+
+    /// <summary>
+    /// RF-003: parses <c>.harness/worktree.yaml</c> —
+    /// <c>shared: [{path, mode?} | scalar]</c> + <c>exclude: [path]</c>.
+    /// Malformed yaml logs a warning and contributes nothing.
+    /// </summary>
+    internal static (List<WorktreeSharedResolution> Shared, List<string> Exclude)
+        ReadRepoYaml(string repositoryPath, ILogger? logger = null)
+    {
+        var shared = new List<WorktreeSharedResolution>();
+        var exclude = new List<string>();
+        var file = Path.Join(repositoryPath, RepoYamlFileName);
+        if (!File.Exists(file))
+        {
+            return (shared, exclude);
+        }
+
+        YamlNode root;
+        try
+        {
+            var stream = new YamlStream();
+            using (var reader = File.OpenText(file))
+            {
+                stream.Load(reader);
+            }
+
+            root = stream.Documents.Count == 0
+                ? new YamlMappingNode()
+                : stream.Documents[0].RootNode;
+        }
+        catch (Exception ex) when (ex is YamlDotNet.Core.YamlException or IOException)
+        {
+            logger?.LogWarning(
+                ex, "Could not parse {File} — skipping repoYaml declarations.", file);
+            return (shared, exclude);
+        }
+
+        if (root is not YamlMappingNode map)
+        {
+            return (shared, exclude);
+        }
+
+        foreach (var node in SequenceOf(map, "shared"))
+        {
+            var (raw, mode) = node switch
+            {
+                YamlScalarNode scalar => (scalar.Value, null),
+                YamlMappingNode m => (
+                    ScalarOf(m, "path"), ScalarOf(m, "mode")),
+                _ => (null, null),
+            };
+            if (raw is null || Normalize(raw) is not { } path)
+            {
+                continue;
+            }
+
+            var invalid = Path.IsPathRooted(raw)
+                || path.Split('/').Any(s => s == "..");
+            var resolvedMode = WorktreeSharedModes.IsValid(mode ?? "")
+                ? mode!
+                : WorktreeSharedModes.Copy;
+            shared.Add(new WorktreeSharedResolution(
+                path, resolvedMode, WorktreeSharedSources.RepoYaml, invalid));
+        }
+
+        foreach (var node in SequenceOf(map, "exclude"))
+        {
+            if (node is YamlScalarNode scalar
+                && scalar.Value is not null
+                && Normalize(scalar.Value) is { } path)
+            {
+                exclude.Add(path);
+            }
+        }
+
+        return (shared, exclude);
+    }
+
+    /// <summary>Reads <c>Taskboard:Worktree:SharedPaths</c> — each child is
+    /// either a scalar (<c>SharedPaths__0=path</c>) or a map
+    /// (<c>SharedPaths__0__path</c> + optional <c>__mode</c>).</summary>
+    private static List<WorktreeSharedResolution> ReadConfigDeclarations(
+        IConfiguration configuration)
+    {
+        var entries = new List<WorktreeSharedResolution>();
+        foreach (var child in configuration.GetSection(ConfigSharedSection).GetChildren())
+        {
+            var raw = child["path"] ?? child.Value;
+            if (raw is null || Normalize(raw) is not { } path)
+            {
+                continue;
+            }
+
+            var mode = child["mode"];
+            var invalid = Path.IsPathRooted(raw)
+                || path.Split('/').Any(s => s == "..");
+            entries.Add(new WorktreeSharedResolution(
+                path,
+                WorktreeSharedModes.IsValid(mode ?? "")
+                    ? mode!
+                    : WorktreeSharedModes.Copy,
+                WorktreeSharedSources.Config,
+                invalid));
+        }
+
+        return entries;
+    }
+
+    /// <summary>Reads <c>Taskboard:Worktree:SharedExclude</c> scalars.</summary>
+    private static List<string> ReadConfigExcludes(IConfiguration configuration) =>
+        configuration.GetSection(ConfigExcludeSection).GetChildren()
+            .Select(c => c.Value)
+            .Where(v => v is not null)
+            .Select(v => Normalize(v!))
+            .Where(v => v is not null)
+            .Cast<string>()
+            .ToList();
+
+    private static IEnumerable<YamlNode> SequenceOf(
+        YamlMappingNode map, string key)
+    {
+        var keyNode = new YamlScalarNode(key);
+        return map.Children.TryGetValue(keyNode, out var node)
+            && node is YamlSequenceNode seq
+                ? seq.Children
+                : Enumerable.Empty<YamlNode>();
+    }
+
+    private static string? ScalarOf(YamlMappingNode map, string key) =>
+        map.Children.TryGetValue(new YamlScalarNode(key), out var node)
+            && node is YamlScalarNode scalar
+                ? scalar.Value
+                : null;
 
     /// <summary>Reads <c>.worktreeinclude</c> — blank lines and <c>#</c>
     /// comments dropped; missing file yields no entries.</summary>

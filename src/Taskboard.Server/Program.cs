@@ -497,6 +497,14 @@ void RegisterAcpAndAgentServices()
         builder.Services.AddSingleton<IAgentExecutionEventSink, NullAgentExecutionEventSink>();
     }
     builder.Services.AddScoped<IWorktreeSessionRepository, EfCoreWorktreeSessionRepository>();
+    // SPEC-20261020-worktree-shared-context P2: card annotations + status probe.
+    builder.Services.AddScoped<IWorktreeCardRepository, EfCoreWorktreeCardRepository>();
+    builder.Services.AddSingleton<IWorktreeStatusProbe>(sp =>
+        new GitWorktreeStatusProbe(
+            sp.GetRequiredService<IGitCommandRunner>(),
+            sp.GetRequiredService<ILogger<GitWorktreeStatusProbe>>()));
+    builder.Services.AddScoped<IWorktreeCardService, WorktreeCardService>();
+    builder.Services.AddSingleton<IWorktreeCardNotifier, SignalRWorktreeCardNotifier>();
     builder.Services.AddScoped<IAgentCliDefinitionRepository, EfCoreAgentCliDefinitionRepository>();
     // SPEC-20261005-delegation-dag-mailbox: DAG tasks + agent mailbox + dispatcher.
     builder.Services.AddScoped<IDelegationTaskRepository, EfCoreDelegationTaskRepository>();
@@ -615,6 +623,7 @@ void RegisterWorkspaceAndChatServices()
     builder.Services.AddSingleton<ISharedPathProvisioner>(sp =>
         new SharedPathProvisioner(
             sp.GetRequiredService<IProcessRunner>(),
+            sp.GetRequiredService<IConfiguration>(),
             sp.GetRequiredService<ILogger<SharedPathProvisioner>>()));
     builder.Services.AddScoped<IMemoryService, EfCoreMemoryService>();
     builder.Services.AddScoped<IContextCompiler>(sp => new ProjectContextCompiler(
@@ -757,6 +766,8 @@ void RegisterWorkspaceAndChatServices()
             new AgentDecideTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointsTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261020-worktree-shared-context RF-007: card comment/status.
+            new WorktreeSetStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261005-chat-plan-mode RF-003: plan review — the approval
             // gate intercepts the call; the tool only confirms approval.
             new ExitPlanModeTool(),
@@ -1524,6 +1535,40 @@ void MapHarnessEndpoints()
         await isolation.RemoveWorktreeAsync(runId, force, ct);
         return Results.NoContent();
     });
+
+    // SPEC-20261020-worktree-shared-context RF-006/RF-008: card annotation —
+    // comment + workspace status per worktree; PATCH derives status from git
+    // when the body omits it (spec's /{path}/ route collapses to a body field
+    // — absolute paths don't survive route matching cleanly).
+    harness.MapPatch("worktrees/card", async (
+            WorktreeCardBody body,
+            IWorktreeCardService cards,
+            CancellationToken ct) =>
+    {
+        try
+        {
+            return Results.Ok(await cards.SetCardAsync(
+                body.WorktreePath, body.Comment, body.Status, body.TaskId, ct));
+        }
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    });
+
+    harness.MapGet("worktrees/cards", async (
+        string? repoPath,
+        IWorktreeCardService cards,
+        CancellationToken ct) =>
+        Results.Ok(await cards.ListAsync(repoPath, ct)));
+
+    harness.MapGet("worktrees/card", async (
+        string worktreePath,
+        IWorktreeCardService cards,
+        CancellationToken ct) =>
+        await cards.GetAsync(worktreePath, ct) is { } card
+            ? Results.Ok(card)
+            : Results.NotFound());
 
     // SPEC-20260919-harness-context-memory §5: context compilation + memory API.
     harness.MapPost("context/compile", async (
@@ -5393,6 +5438,11 @@ public partial class Program
     /// body — provider → windowKind → token budget.</summary>
     private sealed record PlanLimitsBody(
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> Budgets);
+
+    /// <summary>SPEC-20261020-worktree-shared-context RF-006: card PATCH body.
+    /// </summary>
+    private sealed record WorktreeCardBody(
+        string WorktreePath, string? Comment, string? Status, string? TaskId);
 
     /// <summary>SPEC-20261020-session-history-parity RF-002: sessions index
     /// query bound via [AsParameters] (keeps the handler under S107).</summary>
