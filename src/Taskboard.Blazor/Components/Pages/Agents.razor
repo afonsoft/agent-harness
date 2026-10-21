@@ -90,20 +90,9 @@
         }
         else
         {
-            @* SPEC-20261009 RF-004: merged activity feed above the columns. *@
-            @if (_events.Count > 0)
-            {
-                <ul class="list-unstyled small mb-3 pb-2 border-bottom" style="max-height: 180px; overflow-y: auto;">
-                    @foreach (var ev in _events)
-                    {
-                        <li class="d-flex align-items-baseline gap-2 mb-1">
-                            <Badge Color="@EventBadge(ev.Kind)" Class="flex-shrink-0">@ev.Kind</Badge>
-                            <span class="text-truncate" title="@ev.Text">@ev.Text</span>
-                            <span class="text-body-secondary flex-shrink-0 ms-auto">@ev.Timestamp.ToLocalTime().ToString("HH:mm")</span>
-                        </li>
-                    }
-                </ul>
-            }
+            @* SPEC-20261020-agents-feed-notifications: persistent global feed
+               replaces the merged in-memory activity list (RF-003). *@
+            <FeedPanel />
             <div class="row g-3">
                 @foreach (var (title, color, items) in BoardColumns())
                 {
@@ -811,8 +800,6 @@
     private string? _promotingId;
     private readonly Dictionary<string, TaskboardClient.PromoteResultDto> _promoted = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _promoteError = new(StringComparer.Ordinal);
-    private IReadOnlyList<DelegationEventDto> _events = [];
-
     protected override async Task OnInitializedAsync()
     {
         await Task.WhenAll(
@@ -966,13 +953,11 @@
                 _knownClis.Add(card.CliName);
             }
             _dashboard = await Client.GetDelegationDashboardAsync();
-            _events = await Client.GetDelegationEventsAsync();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _board = null;
             _dashboard = null;
-            _events = [];
         }
         finally
         {
@@ -1057,15 +1042,6 @@
             _promotingId = null;
         }
     }
-
-    private static BadgeColor EventBadge(string kind) => kind switch
-    {
-        "escalation" or "decision" => BadgeColor.Danger,
-        "worker_done" or "task_done" => BadgeColor.Success,
-        "task_failed" or "task_stale" or "task_cancelled" => BadgeColor.Warning,
-        "heartbeat" => BadgeColor.Secondary,
-        _ => BadgeColor.Primary,
-    };
 
     private async Task LoadSessionsAsync()
     {

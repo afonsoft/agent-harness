@@ -116,6 +116,22 @@ public sealed class AgentAttentionService : IAgentAttentionService
             if (changed)
             {
                 await _broadcaster.BroadcastAsync(state, ct).ConfigureAwait(false);
+
+                // SPEC-20261020-agents-feed-notifications RF-002: feed item for
+                // the transition — fire-and-log, never blocks the commit.
+                if (AgentFeedService.FromAttentionSignal(signal, state.State) is { } item)
+                {
+                    try
+                    {
+                        await scope.ServiceProvider.GetRequiredService<IAgentFeedService>()
+                            .ProduceAsync(item, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // feed is advisory — a write failure must not fail the signal
+                        _ = ex;
+                    }
+                }
             }
 
             return state;

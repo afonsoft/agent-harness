@@ -43,6 +43,65 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentBoardReadMarkers", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.AgentFeedItem", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Body")
+                        .HasMaxLength(280)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Cli")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeepLink")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("IssueNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("NeedsAttention")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RepeatCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "AtUtc");
+
+                    b.HasIndex("UserId", "SessionKey");
+
+                    b.ToTable("AgentFeedItems", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.AgentLog", b =>
                 {
                     b.Property<long>("Id")
@@ -277,6 +336,35 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.HasIndex("SessionKey", "AtUtc");
 
                     b.ToTable("AgentSessionStateTransitions", (string)null);
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Agents.UserFeedRead", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(224)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ManuallyUnread")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserFeedReads", (string)null);
                 });
 
             modelBuilder.Entity("Taskboard.Domain.Entities.AgentCliDefinition", b =>

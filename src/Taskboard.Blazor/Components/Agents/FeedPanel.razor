@@ -1,0 +1,182 @@
+@* SPEC-20261020-agents-feed-notifications RF-003/RF-004/RF-005: persistent
+   global feed — replaces the merged in-memory activity list. Cursor paging,
+   per-item read/unread, "Mark all read", deep-link to the owning surface. *@
+@inject TaskboardClient Client
+@inject NavigationManager Navigation
+
+<div class="d-flex align-items-center justify-content-between mb-1">
+    <span class="fw-semibold small">Activity feed
+        @if (_unreadTotal > 0)
+        {
+            <Badge Color="BadgeColor.Primary" Class="ms-1">@_unreadTotal unread</Badge>
+        }
+    </span>
+    <div class="d-flex gap-2">
+        <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
+                @onclick="RefreshAsync" Disabled="_loading">
+            <Icon Name="IconName.ArrowClockwise" />
+        </Button>
+        @if (_items.Any(i => i.Unread))
+        {
+            <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
+                    @onclick="MarkAllReadAsync">Mark all read</Button>
+        }
+    </div>
+</div>
+@if (_items.Count == 0)
+{
+    <p class="small text-body-secondary mb-2">
+        @(_loading ? "Loading…" : "No agent activity yet.")
+    </p>
+}
+else
+{
+    <ul class="list-unstyled small mb-3 pb-2 border-bottom" style="max-height: 180px; overflow-y: auto;">
+        @foreach (var item in _items)
+        {
+            <li class="d-flex align-items-baseline gap-2 mb-1 @(item.Unread ? "feed-unread" : "text-body-secondary")"
+                @key="item.Id">
+                <Badge Color="@KindBadge(item.Kind)" Class="flex-shrink-0">@item.Kind.ToString().ToLowerInvariant()</Badge>
+                <span class="text-truncate @(item.Unread ? "fw-semibold" : "")"
+                      title="@item.Body" role="button" tabindex="0"
+                      style="cursor:pointer"
+                      @onclick="() => OpenItemAsync(item)"
+                      @onkeydown="e => OnItemKeyDownAsync(e, item)">
+                    @item.Title
+                </span>
+                @if (item.RepeatCount > 0)
+                {
+                    <span class="text-body-secondary flex-shrink-0">×@(item.RepeatCount + 1)</span>
+                }
+                <span class="text-body-secondary flex-shrink-0 ms-auto">@item.AtUtc.ToLocalTime().ToString("HH:mm")</span>
+                <button type="button" class="btn btn-link btn-sm p-0 flex-shrink-0 feed-mark"
+                        title="@(item.Unread ? "Mark read" : "Mark unread")"
+                        aria-label="@(item.Unread ? "Mark read" : "Mark unread")"
+                        @onclick="() => ToggleReadAsync(item)">
+                    <Icon Name="@(item.Unread ? IconName.CircleFill : IconName.Circle)" />
+                </button>
+            </li>
+        }
+    </ul>
+    @if (_nextCursor is not null)
+    {
+        <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0 mb-2"
+                @onclick="LoadMoreAsync" Disabled="_loading">Load more…</Button>
+    }
+}
+
+@code {
+    private List<AgentFeedItemDto> _items = [];
+    private string? _nextCursor;
+    private int _unreadTotal;
+    private bool _loading;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            var page = await Client.GetAgentFeedPageAsync();
+            _items = page?.Items.ToList() ?? [];
+            _nextCursor = page?.NextCursor;
+            var counts = await Client.GetAgentFeedUnreadCountAsync();
+            _unreadTotal = counts?.Total ?? 0;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task LoadMoreAsync()
+    {
+        if (_nextCursor is null)
+        {
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            var page = await Client.GetAgentFeedPageAsync(_nextCursor);
+            if (page is not null)
+            {
+                _items.AddRange(page.Items);
+                _nextCursor = page.NextCursor;
+            }
+            else
+            {
+                _nextCursor = null;
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ToggleReadAsync(AgentFeedItemDto item)
+    {
+        if (item.Unread)
+        {
+            await Client.MarkAgentFeedItemReadAsync(item.Id);
+        }
+        else
+        {
+            await Client.MarkAgentFeedItemUnreadAsync(item.Id);
+        }
+
+        var idx = _items.FindIndex(i => i.Id == item.Id);
+        if (idx >= 0)
+        {
+            _items[idx] = item with { Unread = !item.Unread };
+            _unreadTotal += item.Unread ? -1 : 1;
+        }
+    }
+
+    private async Task MarkAllReadAsync()
+    {
+        await Client.MarkAllAgentFeedReadAsync();
+        _items = _items.Select(i => i with { Unread = false }).ToList();
+        _unreadTotal = 0;
+    }
+
+    private async Task OnItemKeyDownAsync(KeyboardEventArgs e, AgentFeedItemDto item)
+    {
+        if (e.Key == "Enter")
+        {
+            await OpenItemAsync(item);
+        }
+    }
+
+    private Task OpenItemAsync(AgentFeedItemDto item)
+    {
+        _ = ToggleReadIfUnreadAsync(item);
+        if (!string.IsNullOrWhiteSpace(item.DeepLink))
+        {
+            Navigation.NavigateTo(item.DeepLink);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ToggleReadIfUnreadAsync(AgentFeedItemDto item)
+    {
+        if (item.Unread)
+        {
+            await ToggleReadAsync(item);
+        }
+    }
+
+    private static BadgeColor KindBadge(AgentFeedKind kind) => kind switch
+    {
+        AgentFeedKind.Attention or AgentFeedKind.Question => BadgeColor.Warning,
+        AgentFeedKind.Failure => BadgeColor.Danger,
+        AgentFeedKind.Completion => BadgeColor.Success,
+        AgentFeedKind.Worktree => BadgeColor.Info,
+        AgentFeedKind.Pr => BadgeColor.Secondary,
+        _ => BadgeColor.Secondary,
+    };
+}

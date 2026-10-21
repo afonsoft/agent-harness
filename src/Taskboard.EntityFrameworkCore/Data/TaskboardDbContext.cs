@@ -60,6 +60,8 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<AgentSessionState> AgentSessionStates => Set<AgentSessionState>();
     public DbSet<AgentSessionStateTransition> AgentSessionStateTransitions => Set<AgentSessionStateTransition>();
     public DbSet<AgentBoardReadMarker> AgentBoardReadMarkers => Set<AgentBoardReadMarker>();
+    public DbSet<AgentFeedItem> AgentFeedItems => Set<AgentFeedItem>();
+    public DbSet<UserFeedRead> UserFeedReads => Set<UserFeedRead>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
