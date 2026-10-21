@@ -52,6 +52,9 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ChatPushSubscription> ChatPushSubscriptions => Set<ChatPushSubscription>();
     public DbSet<DelegationTask> DelegationTasks => Set<DelegationTask>();
     public DbSet<AgentMailboxMessage> AgentMailboxMessages => Set<AgentMailboxMessage>();
+    public DbSet<DelegationRun> DelegationRuns => Set<DelegationRun>();
+    public DbSet<Dispatch> Dispatches => Set<Dispatch>();
+    public DbSet<Delivery> Deliveries => Set<Delivery>();
     public DbSet<AgentSessionState> AgentSessionStates => Set<AgentSessionState>();
     public DbSet<AgentSessionStateTransition> AgentSessionStateTransitions => Set<AgentSessionStateTransition>();
     public DbSet<AgentBoardReadMarker> AgentBoardReadMarkers => Set<AgentBoardReadMarker>();

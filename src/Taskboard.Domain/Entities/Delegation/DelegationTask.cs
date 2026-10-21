@@ -19,6 +19,13 @@ public sealed class DelegationTask : AggregateRoot<string>
 
     /// <summary>Mailbox/DAG scope — the owning conversation id, or "harness".</summary>
     public string Scope { get; private set; } = string.Empty;
+
+    /// <summary>SPEC-20261020-v2 RF-001: coordination run this task belongs to.</summary>
+    public string? RunId { get; private set; }
+
+    /// <summary>SPEC-20261020-v2 RF-002: the in-flight dispatch attempt, when any.</summary>
+    public string? ActiveDispatchId { get; private set; }
+
     public string Prompt { get; private set; } = string.Empty;
 
     /// <summary>AgentType name or custom-def id/display/executable.</summary>
@@ -66,6 +73,7 @@ public sealed class DelegationTask : AggregateRoot<string>
         string? repositoryPath = null,
         string? baseCommitSha = null,
         string? kind = null,
+        string? runId = null,
         DateTime? now = null)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -98,6 +106,7 @@ public sealed class DelegationTask : AggregateRoot<string>
             WorkspacePath = workspacePath,
             RepositoryPath = repositoryPath,
             BaseCommitSha = baseCommitSha,
+            RunId = string.IsNullOrWhiteSpace(runId) ? null : runId.Trim(),
             CreatedAt = now ?? DateTime.UtcNow,
         };
     }
@@ -113,6 +122,35 @@ public sealed class DelegationTask : AggregateRoot<string>
             or DelegationTaskStatus.Cancelled;
 
     public void AttachWorktree(string runId) => WorktreeRunId = runId;
+
+    /// <summary>SPEC-20261020-v2 RF-002: point at the in-flight dispatch attempt.</summary>
+    public void AttachDispatch(string dispatchId) =>
+        ActiveDispatchId = string.IsNullOrWhiteSpace(dispatchId) ? ActiveDispatchId : dispatchId.Trim();
+
+    /// <summary>Dispatch settled/abandoned — no in-flight attempt anymore.</summary>
+    public void ClearDispatch() => ActiveDispatchId = null;
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-007: retry reactivates the same task — the new
+    /// dispatch attempt is created by the service; deps re-evaluate from
+    /// <c>pending</c> so a still-running dep keeps it waiting.
+    /// </summary>
+    public void ReactivateForRetry()
+    {
+        if (!IsRetryable)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"cannot retry a {Status.ToString().ToLowerInvariant()} task");
+        }
+
+        Status = DelegationTaskStatus.Pending;
+        Error = null;
+        ResultSummary = null;
+        FinishedAt = null;
+        LastHeartbeatAt = null;
+        ActiveDispatchId = null;
+    }
 
     public void MarkReady()
     {

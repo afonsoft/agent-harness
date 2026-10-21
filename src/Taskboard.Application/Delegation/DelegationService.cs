@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Taskboard;
 using Taskboard.Agents;
@@ -17,9 +18,14 @@ namespace Taskboard.Application.Delegation;
 public sealed class DelegationService : IDelegationService
 {
     private const int DetailMaxLength = 4000;
+    private static readonly TimeSpan DefaultCheckWaitTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan CheckWaitPoll = TimeSpan.FromSeconds(1);
 
     private readonly IDelegationTaskRepository _tasks;
     private readonly IAgentMailboxRepository _mailbox;
+    private readonly IDelegationRunRepository _runs;
+    private readonly IDispatchRepository _dispatches;
+    private readonly IDeliveryRepository _deliveries;
     private readonly IAgentAttentionService? _attention;
     private readonly ILogger<DelegationService>? _logger;
     private readonly TimeProvider _time;
@@ -27,12 +33,18 @@ public sealed class DelegationService : IDelegationService
     public DelegationService(
         IDelegationTaskRepository tasks,
         IAgentMailboxRepository mailbox,
+        IDelegationRunRepository runs,
+        IDispatchRepository dispatches,
+        IDeliveryRepository deliveries,
         TimeProvider? timeProvider = null,
         IAgentAttentionService? attention = null,
         ILogger<DelegationService>? logger = null)
     {
         _tasks = tasks;
         _mailbox = mailbox;
+        _runs = runs;
+        _dispatches = dispatches;
+        _deliveries = deliveries;
         _attention = attention;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
@@ -83,25 +95,114 @@ public sealed class DelegationService : IDelegationService
 
         if (request.RetryOf is { } retryOf)
         {
-            var retryTargets = await _tasks.ListByIdsAsync([retryOf], scope, ct).ConfigureAwait(false);
-            var target = retryTargets.FirstOrDefault();
-            if (target is null)
+            // SPEC-20261020-v2 RF-007: retry reactivates the same task — a new
+            // dispatch attempt replaces the legacy "clone task" behavior.
+            return (await RetryTaskAsync(scope, retryOf, ct).ConfigureAwait(false)).Task;
+        }
+
+        var run = await EnsureRunAsync(scope, request.Prompt, null, ct).ConfigureAwait(false);
+        return await _tasks.AddAsync(
+            request with { Scope = scope, RunId = run.Id }, ct).ConfigureAwait(false);
+    }
+
+    public async Task<DelegationRunDto> EnsureRunAsync(
+        string scope, string? objective = null, string? coordinatorKey = null,
+        CancellationToken ct = default)
+    {
+        var existing = await _runs.GetOpenByScopeAsync(scope, ct).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        return await _runs.AddAsync(
+            scope,
+            Truncate(objective, 200),
+            coordinatorKey ?? "assistant",
+            ct).ConfigureAwait(false);
+    }
+
+    public async Task<DelegationRunShowDto?> GetRunShowAsync(
+        string? runId, string scope, CancellationToken ct = default)
+    {
+        var run = runId is not null
+            ? await _runs.GetAsync(runId, ct).ConfigureAwait(false)
+            : await _runs.GetOpenByScopeAsync(scope, ct).ConfigureAwait(false);
+        if (run is null)
+        {
+            return null;
+        }
+
+        var tasks = (await _tasks.ListByScopeAsync(run.Scope, take: 200, ct).ConfigureAwait(false))
+            .Where(t => string.Equals(t.RunId, run.Id, StringComparison.Ordinal))
+            .ToList();
+        var openDispatches = await _dispatches.ListOpenByRunAsync(run.Id, ct).ConfigureAwait(false);
+        var unacked = (await _deliveries.ListByRunAsync(run.Id, 100, ct).ConfigureAwait(false))
+            .Where(d => d.AckedAtUtc is null)
+            .ToList();
+        return new DelegationRunShowDto(run, tasks, openDispatches, unacked);
+    }
+
+    public async Task<RetryTaskResult> RetryTaskAsync(
+        string scope, string retryOf, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(retryOf))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue, "retry_of is required");
+        }
+
+        string taskId;
+        if (retryOf.StartsWith("disp-", StringComparison.Ordinal))
+        {
+            var origin = await _dispatches.GetAsync(retryOf, ct).ConfigureAwait(false);
+            if (origin is null)
             {
                 throw new DomainException(
                     TaskboardDomainErrorCodes.InvalidValue,
                     $"unknown retry_of: {retryOf}");
             }
 
-            if (target.Status is not (DelegationTaskStatus.Failed
-                or DelegationTaskStatus.Stale or DelegationTaskStatus.Cancelled))
-            {
-                throw new DomainException(
-                    TaskboardDomainErrorCodes.InvalidValue,
-                    $"retry_of target is not retryable (status {target.Status})");
-            }
+            taskId = origin.TaskId;
+        }
+        else
+        {
+            taskId = retryOf;
         }
 
-        return await _tasks.AddAsync(request with { Scope = scope }, ct).ConfigureAwait(false);
+        var targets = await _tasks.ListByIdsAsync([taskId], scope, ct).ConfigureAwait(false);
+        var task = targets.FirstOrDefault();
+        if (task is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"unknown retry_of: {retryOf}");
+        }
+
+        if (task.Status is not (DelegationTaskStatus.Failed
+            or DelegationTaskStatus.Stale or DelegationTaskStatus.Cancelled))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"retry_of target is not retryable (status {task.Status})");
+        }
+
+        var attempt = await _dispatches.LatestAttemptAsync(taskId, ct).ConfigureAwait(false) + 1;
+        var reactivated = await _tasks.ReactivateForRetryAsync(taskId, ct).ConfigureAwait(false)
+            ?? throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"task {taskId} is not retryable");
+
+        var runId = reactivated.RunId
+            ?? (await EnsureRunAsync(scope, null, null, ct).ConfigureAwait(false)).Id;
+        var dispatchId = $"disp-{Guid.NewGuid():N}";
+        var dispatch = await _dispatches.AddAsync(
+            new CreateDispatchRequest(
+                taskId, runId, reactivated.CliName, attempt,
+                BuildPreamble(reactivated, dispatchId, runId, attempt),
+                dispatchId),
+            ct).ConfigureAwait(false);
+        return new RetryTaskResult(reactivated, dispatch);
     }
 
     public Task<DelegationTaskDto?> AttachWorktreeAsync(
@@ -177,13 +278,41 @@ public sealed class DelegationService : IDelegationService
     public async Task<DelegationTaskDto?> BeginRunAsync(string id, DateTime now, CancellationToken ct = default)
     {
         var task = await _tasks.MarkRunningAsync(id, now, ct).ConfigureAwait(false);
-        if (task is not null)
+        if (task is null)
         {
-            await EmitAttentionAsync(
-                $"task:{task.Id}", task.CliName, AgentAttentionState.Working,
-                AttentionSignalKind.Lifecycle, "task running", null, ct).ConfigureAwait(false);
+            return null;
         }
 
+        // SPEC-20261020-v2 RF-002: a running task is always bound to a dispatch
+        // attempt — a pending one created by retry, or a fresh attempt here.
+        var existing = await _dispatches.ListByTaskAsync(id, ct).ConfigureAwait(false);
+        var pending = existing.LastOrDefault(d => d.State == DispatchState.Pending);
+        DispatchDto? dispatch;
+        if (pending is not null)
+        {
+            dispatch = await _dispatches.TransitionAsync(
+                pending.Id, DispatchState.Dispatched, null, now, ct).ConfigureAwait(false) ?? pending;
+        }
+        else
+        {
+            var runId = task.RunId
+                ?? (await EnsureRunAsync(task.Scope, null, null, ct).ConfigureAwait(false)).Id;
+            var attempt = existing.Count == 0 ? 1 : existing.Max(d => d.Attempt) + 1;
+            var dispatchId = $"disp-{Guid.NewGuid():N}";
+            var created = await _dispatches.AddAsync(
+                new CreateDispatchRequest(
+                    id, runId, task.CliName, attempt,
+                    BuildPreamble(task, dispatchId, runId, attempt),
+                    dispatchId),
+                ct).ConfigureAwait(false);
+            dispatch = await _dispatches.TransitionAsync(
+                created.Id, DispatchState.Dispatched, null, now, ct).ConfigureAwait(false) ?? created;
+        }
+
+        task = await _tasks.AttachDispatchAsync(id, dispatch.Id, ct).ConfigureAwait(false) ?? task;
+        await EmitAttentionAsync(
+            $"task:{task.Id}", task.CliName, AgentAttentionState.Working,
+            AttentionSignalKind.Lifecycle, "task running", null, ct).ConfigureAwait(false);
         return task;
     }
 
@@ -202,6 +331,25 @@ public sealed class DelegationService : IDelegationService
             return null;
         }
 
+        // RF-002: settle the completion authority before the mailbox signal.
+        var activeDispatch = task.ActiveDispatchId;
+        if (activeDispatch is not null)
+        {
+            try
+            {
+                await _dispatches.TransitionAsync(
+                    activeDispatch, DispatchState.Settled, null, now,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (DomainException)
+            {
+                // dispatch already terminal (abandoned/released) — finalize wins.
+            }
+
+            await _tasks.AttachDispatchAsync(task.Id, null, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
         var kind = succeeded ? AgentMailboxKinds.WorkerDone : AgentMailboxKinds.Escalation;
         await _mailbox.AddAsync(
             new PostMailboxMessageRequest(
@@ -209,7 +357,9 @@ public sealed class DelegationService : IDelegationService
                 task.CliName,
                 "@all",
                 $"task {task.Id} ({task.CliName}) {(succeeded ? "done" : "failed")}: {Truncate(detail, 500)}",
-                kind),
+                kind,
+                TaskId: task.Id,
+                DispatchId: activeDispatch),
             CancellationToken.None).ConfigureAwait(false);
         await EmitAttentionAsync(
             $"task:{task.Id}", task.CliName,
@@ -258,7 +408,39 @@ public sealed class DelegationService : IDelegationService
     public async Task<MailboxMessageDto> PostAsync(
         PostMailboxMessageRequest request, CancellationToken ct = default)
     {
-        var message = await _mailbox.AddAsync(request, ct).ConfigureAwait(false);
+        var effective = request;
+        if (request.Kind is AgentMailboxKinds.WorkerDone or AgentMailboxKinds.Heartbeat)
+        {
+            // RF-002: completion authority = dispatchId + taskId juntos. Legacy
+            // payloads without dispatchId get the task's active dispatch
+            // attached (compat shim); a wrong/stale one is refused outright.
+            if (request.DispatchId is { } dispatchId)
+            {
+                var dispatch = await _dispatches.GetAsync(dispatchId, ct).ConfigureAwait(false);
+                var taskId = request.TaskId ?? dispatch?.TaskId;
+                var task = taskId is null
+                    ? null
+                    : await _tasks.GetAsync(taskId, ct).ConfigureAwait(false);
+                var valid = dispatch is not null && task is not null
+                    && string.Equals(dispatch.TaskId, taskId, StringComparison.Ordinal)
+                    && string.Equals(task.ActiveDispatchId, dispatch.Id, StringComparison.Ordinal);
+                if (!valid)
+                {
+                    throw new DomainException(
+                        TaskboardDomainErrorCodes.InvalidValue,
+                        $"stale_dispatch: {dispatchId} is not the active dispatch of {taskId}");
+                }
+
+                effective = request with { TaskId = taskId };
+            }
+            else if (request.TaskId is { } legacyTaskId)
+            {
+                var task = await _tasks.GetAsync(legacyTaskId, ct).ConfigureAwait(false);
+                effective = request with { DispatchId = task?.ActiveDispatchId };
+            }
+        }
+
+        var message = await _mailbox.AddAsync(effective, ct).ConfigureAwait(false);
         if (string.Equals(message.Kind, AgentMailboxKinds.Escalation, StringComparison.Ordinal))
         {
             await EmitAttentionAsync(
@@ -363,6 +545,112 @@ public sealed class DelegationService : IDelegationService
         await _mailbox.MarkReadAsync(existing, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
         return existing.Count;
     }
+
+    public async Task<DeliveryCheckResult> CheckDeliveriesAsync(
+        CheckDeliveriesRequest request, CancellationToken ct = default)
+    {
+        var scope = string.IsNullOrWhiteSpace(request.Scope) ? "harness" : request.Scope.Trim();
+
+        if (request.All)
+        {
+            var run = await _runs.GetOpenByScopeAsync(scope, ct).ConfigureAwait(false);
+            var deliveries = run is null
+                ? []
+                : await _deliveries.ListByRunAsync(run.Id, 100, ct).ConfigureAwait(false);
+            return new DeliveryCheckResult(null, [], Deliveries: deliveries);
+        }
+
+        if (request.AckDeliveryId is { } ackId)
+        {
+            var acked = await _deliveries.AckAsync(
+                ackId, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+            if (acked is null)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"delivery_not_found: {ackId}");
+            }
+            // fall through — return the next unacked/pending batch
+        }
+
+        if (request.Peek)
+        {
+            var peekRun = await _runs.GetOpenByScopeAsync(scope, ct).ConfigureAwait(false);
+            var peekUnacked = peekRun is null
+                ? null
+                : await _deliveries.GetOldestUnackedAsync(peekRun.Id, ct).ConfigureAwait(false);
+            var preview = peekUnacked is not null
+                ? await _mailbox.ListByIdsAsync(peekUnacked.MessageIds, ct).ConfigureAwait(false)
+                : await UndeliveredAsync(scope, request, ct).ConfigureAwait(false);
+            return new DeliveryCheckResult(peekUnacked, preview, preview.Count);
+        }
+
+        var ensuredRun = await EnsureRunAsync(scope, null, null, ct).ConfigureAwait(false);
+        var deadline = request.Wait
+            ? _time.GetUtcNow().UtcDateTime + (request.Timeout ?? DefaultCheckWaitTimeout)
+            : (DateTime?)null;
+
+        while (true)
+        {
+            var unacked = await _deliveries.GetOldestUnackedAsync(ensuredRun.Id, ct)
+                .ConfigureAwait(false);
+            if (unacked is not null)
+            {
+                var replayed = await _mailbox.ListByIdsAsync(unacked.MessageIds, ct)
+                    .ConfigureAwait(false);
+                return new DeliveryCheckResult(unacked, replayed, replayed.Count);
+            }
+
+            var pending = await UndeliveredAsync(scope, request, ct).ConfigureAwait(false);
+            if (pending.Count > 0)
+            {
+                var batch = pending
+                    .Take(DeliveryBatchMax)
+                    .Select(m => m.Id)
+                    .ToList();
+                var delivery = await _deliveries.AddAsync(ensuredRun.Id, batch, ct)
+                    .ConfigureAwait(false);
+                await _mailbox.AssignDeliveryAsync(batch, delivery.Id, ct).ConfigureAwait(false);
+                return new DeliveryCheckResult(
+                    delivery, pending.Take(DeliveryBatchMax).ToList(), pending.Count);
+            }
+
+            if (deadline is null || _time.GetUtcNow().UtcDateTime >= deadline)
+            {
+                return new DeliveryCheckResult(null, [], 0, TimedOut: request.Wait);
+            }
+
+            await Task.Delay(CheckWaitPoll, ct).ConfigureAwait(false);
+        }
+    }
+
+    private const int DeliveryBatchMax = 50;
+
+    private async Task<IReadOnlyList<MailboxMessageDto>> UndeliveredAsync(
+        string scope, CheckDeliveriesRequest request, CancellationToken ct)
+    {
+        var pending = await _mailbox.ListUndeliveredForRecipientAsync(
+            scope, request.Recipients, DeliveryBatchMax + 1, request.Types, ct)
+            .ConfigureAwait(false);
+        return request.Types is { Count: > 0 } types
+            ? pending.Where(m => types.Contains(m.Kind)).ToList()
+            : pending;
+    }
+
+    /// <summary>RF-002: preamble given to the worker — spec, ids, mailbox addr, contract.</summary>
+    private static string BuildPreamble(
+        DelegationTaskDto task, string dispatchId, string runId, int attempt) =>
+        JsonSerializer.Serialize(new
+        {
+            taskId = task.Id,
+            dispatchId,
+            runId,
+            attempt,
+            cli = task.CliName,
+            prompt = task.Prompt,
+            mailbox = new { addr = task.Id, send = "agent_send", check = "agent_check" },
+            contract = "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive",
+        });
 
     private enum Verdict
     {

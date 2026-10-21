@@ -18,7 +18,10 @@ public sealed class AgentMailboxMessageConfiguration : IEntityTypeConfiguration<
         builder.Property(m => m.ToAgent).IsRequired().HasMaxLength(128);
         builder.Property(m => m.Kind).IsRequired().HasMaxLength(24);
         builder.Property(m => m.Payload).IsRequired().HasMaxLength(16000);
+        builder.Property(m => m.DeliveryId).HasMaxLength(96);
+        builder.Property(m => m.DispatchId).HasMaxLength(96);
 
         builder.HasIndex(m => new { m.Scope, m.ToAgent, m.ReadAt });
+        builder.HasIndex(m => new { m.Scope, m.DeliveryId });
     }
 }

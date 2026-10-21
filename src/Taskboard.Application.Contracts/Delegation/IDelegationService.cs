@@ -43,6 +43,38 @@ public interface IDelegationService
 
     Task HeartbeatAsync(string id, CancellationToken ct = default);
 
+    /// <summary>
+    /// SPEC-20261020-v2 RF-001: the open run of a scope — creates one when
+    /// missing. Every delegate_task/plan/fanout belongs to it.
+    /// </summary>
+    Task<DelegationRunDto> EnsureRunAsync(
+        string scope, string? objective = null, string? coordinatorKey = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-001: run overview — objective, its tasks, open
+    /// dispatches and unacked deliveries. Null when the run doesn't exist.
+    /// </summary>
+    Task<DelegationRunShowDto?> GetRunShowAsync(
+        string? runId, string scope, CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-007: retry — <paramref name="retryOf"/> may point at
+    /// a dispatch id or (compat) a task id. Reactivates the same task as
+    /// pending and registers a new pending dispatch with attempt+1.
+    /// </summary>
+    Task<RetryTaskResult> RetryTaskAsync(
+        string scope, string retryOf, CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261020-v2 RF-003: FIFO delivery check — without
+    /// <c>AckDeliveryId</c> returns the oldest unacked delivery (replayed);
+    /// with it, acks and moves to the next. <c>Peek</c>/<c>All</c> never
+    /// consume; <c>Wait</c> polls until the timeout.
+    /// </summary>
+    Task<DeliveryCheckResult> CheckDeliveriesAsync(
+        CheckDeliveriesRequest request, CancellationToken ct = default);
+
     Task<MailboxMessageDto> PostAsync(PostMailboxMessageRequest request, CancellationToken ct = default);
 
     /// <summary>Posts a system <c>decision</c> message to <c>@all</c> — the decision
