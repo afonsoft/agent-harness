@@ -13,11 +13,12 @@ namespace Taskboard.Tests.Unit.Agents;
 /// </summary>
 public class AgentFeedServiceTests
 {
-    private static (AgentFeedService Svc, IAgentFeedRepository Items, IUserFeedReadRepository Reads) NewSut()
+    private static (AgentFeedService Svc, IAgentFeedRepository Items, IUserFeedReadRepository Reads) NewSut(
+        IAgentFeedNotifier? notifier = null)
     {
         var items = Substitute.For<IAgentFeedRepository>();
         var reads = Substitute.For<IUserFeedReadRepository>();
-        return (new AgentFeedService(items, reads), items, reads);
+        return (new AgentFeedService(items, reads, notifier), items, reads);
     }
 
     private static FeedItemRequest Request(
@@ -238,5 +239,68 @@ public class AgentFeedServiceTests
         await reads.Received(1).MarkUnreadAsync(
             "u1", "f-2", Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
         await reads.Received(1).DeleteAllForUserAsync("u1", Arg.Any<CancellationToken>());
+    }
+
+    // ---------- RF-010: agent.feed push ----------
+
+    [Fact]
+    public async Task Dado_ProduceComItem_Quando_Notifier_Entao_PushItemComCounts()
+    {
+        var notifier = Substitute.For<IAgentFeedNotifier>();
+        var (svc, items, _) = NewSut(notifier);
+        items.FindDedupAsync(
+                Arg.Any<string>(), Arg.Any<AgentFeedKind>(), Arg.Any<string?>(),
+                Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns((AgentFeedItemDto?)null);
+        items.AddAsync(Arg.Any<FeedItemRequest>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(Item("f-1"));
+        items.CountUnreadAsync("local", Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(4);
+
+        await svc.ProduceAsync(Request());
+
+        await notifier.Received(1).PushAsync(
+            "local",
+            Arg.Is<AgentFeedPushDto>(p =>
+                p.Kind == "item" && p.Item!.Id == "f-1"
+                && p.UnreadCounts.Total == 4),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_MarkOps_Quando_Notifier_Entao_PushPatch()
+    {
+        var notifier = Substitute.For<IAgentFeedNotifier>();
+        var (svc, items, _) = NewSut(notifier);
+        items.CountUnreadAsync("u1", Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        await svc.MarkReadAsync("u1", "f-1");
+        await svc.MarkUnreadAsync("u1", "f-2");
+        await svc.MarkAllReadAsync("u1");
+
+        await notifier.Received(3).PushAsync(
+            "u1",
+            Arg.Is<AgentFeedPushDto>(p => p.Kind == "patch" && p.Item == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_NotifierFalha_Quando_Produce_Entao_ItemGravadoMesmoAssim()
+    {
+        var notifier = Substitute.For<IAgentFeedNotifier>();
+        notifier.PushAsync(Arg.Any<string>(), Arg.Any<AgentFeedPushDto>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new InvalidOperationException("hub down"));
+        var (svc, items, _) = NewSut(notifier);
+        items.FindDedupAsync(
+                Arg.Any<string>(), Arg.Any<AgentFeedKind>(), Arg.Any<string?>(),
+                Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns((AgentFeedItemDto?)null);
+        items.AddAsync(Arg.Any<FeedItemRequest>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(Item("f-2"));
+
+        var result = await svc.ProduceAsync(Request());
+
+        result!.Id.ShouldBe("f-2");
     }
 }

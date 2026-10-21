@@ -34,6 +34,8 @@ builder.Services.AddScoped<TaskboardClient>();
 builder.Services.AddScoped<ILocaleService, LocaleService>();
 // SPEC-20261005 RF-008: run.completed fan-out — toast + Notification API.
 builder.Services.AddScoped<ChatNotificationsService>();
+// SPEC-20261020-agents-feed-notifications RF-010: agent.feed SignalR push.
+builder.Services.AddScoped<AgentFeedNotificationsService>();
 builder.Services.AddScoped<TaskboardAuthStateProvider>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
     sp.GetRequiredService<TaskboardAuthStateProvider>());

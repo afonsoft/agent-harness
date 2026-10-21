@@ -1,9 +1,11 @@
+@using Taskboard.Application.Contracts.Agents
 @using Taskboard.Application.Contracts.Chat
 @inject IJSRuntime JS
 @inject SelectedRepositoryService RepoService
 @inject ILocaleService L
 @inject TaskboardClient Client
 @inject NavigationManager Nav
+@inject AgentFeedNotificationsService FeedNotifications
 @implements IDisposable
 
 <nav class="nav nav-pills flex-column gap-1 p-3" role="navigation" aria-label="@L.T("nav.sidebarNav")">
@@ -136,11 +138,10 @@
     private string? _repoWarning;
     private IReadOnlyList<ChatConversationDto> _chatHistory = [];
 
-    // SPEC-20261020-agents-feed-notifications RF-005: menu badge — attention
-    // unread count, refreshed on init/location-change and every 30s.
+    // SPEC-20261020-agents-feed-notifications RF-005/RF-010: menu badge —
+    // attention unread count via SignalR push (initial REST fetch + resync
+    // on reconnect; no polling).
     private int _feedAttention;
-    private PeriodicTimer? _feedTimer;
-    private readonly CancellationTokenSource _feedTimerCts = new();
 
     /// <summary>Repo name without the owner prefix, shown under the rail icon.</summary>
     private string RepoShortName =>
@@ -156,8 +157,8 @@
         _repoInput = RepoService.Selected ?? string.Empty;
         await LoadChatHistoryAsync();
         await RefreshFeedBadgeAsync();
-        _feedTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
-        _ = PollFeedBadgeAsync();
+        FeedNotifications.FeedPushed += OnFeedPushedAsync;
+        FeedNotifications.Resynced += OnFeedResyncedAsync;
     }
 
     private async Task RefreshFeedBadgeAsync()
@@ -174,22 +175,18 @@
         }
     }
 
-    private async Task PollFeedBadgeAsync()
+    private Task OnFeedPushedAsync(AgentFeedPushDto push)
     {
-        try
-        {
-            while (_feedTimer is not null
-                && await _feedTimer.WaitForNextTickAsync(_feedTimerCts.Token))
-            {
-                await RefreshFeedBadgeAsync();
-                await InvokeAsync(StateHasChanged);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // disposed
-        }
+        _feedAttention = push.UnreadCounts.Attention;
+        return InvokeAsync(StateHasChanged);
     }
+
+    private Task OnFeedResyncedAsync() =>
+        InvokeAsync(async () =>
+        {
+            await RefreshFeedBadgeAsync();
+            StateHasChanged();
+        });
 
     /// <summary>Reloads the last-10 list whenever the chat surface is reached —
     /// conversations created or titled inside /ai-chat appear on return.</summary>
@@ -297,8 +294,7 @@
     {
         RepoService.Changed -= OnRepoChangedAsync;
         Nav.LocationChanged -= OnLocationChanged;
-        _feedTimerCts.Cancel();
-        _feedTimer?.Dispose();
-        _feedTimerCts.Dispose();
+        FeedNotifications.FeedPushed -= OnFeedPushedAsync;
+        FeedNotifications.Resynced -= OnFeedResyncedAsync;
     }
 }

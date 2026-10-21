@@ -4,6 +4,7 @@
 @inject NavigationManager Nav
 @inject ILocaleService L
 @inject ChatNotificationsService ChatNotifications
+@inject AgentFeedNotificationsService FeedNotifications
 
 <Toasts class="p-3" AutoHide="true" Delay="4000" Placement="ToastsPlacement.TopRight" />
 
@@ -115,6 +116,9 @@
         // SPEC-20261005 RF-008: chat run-completion fan-out (toast + browser
         // notify). Hub offline degrades silenciosamente — nunca quebra a UI.
         _ = ChatNotifications.EnsureStartedAsync();
+        // SPEC-20261020-agents-feed-notifications RF-010: live feed push for
+        // the nav badge + feed panel. Degrades silenciosamente para REST.
+        _ = FeedNotifications.EnsureStartedAsync();
     }
 
     /// <summary>True while the desktop icon rail is active (SPEC-20260918-sidebar-icon-rail).</summary>

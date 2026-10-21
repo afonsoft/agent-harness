@@ -17,15 +17,18 @@ public sealed class AgentFeedService : IAgentFeedService
 
     private readonly IAgentFeedRepository _items;
     private readonly IUserFeedReadRepository _reads;
+    private readonly IAgentFeedNotifier? _notifier;
     private readonly TimeProvider _time;
     private readonly ILogger<AgentFeedService>? _logger;
 
     public AgentFeedService(
         IAgentFeedRepository items, IUserFeedReadRepository reads,
+        IAgentFeedNotifier? notifier = null,
         TimeProvider? timeProvider = null, ILogger<AgentFeedService>? logger = null)
     {
         _items = items;
         _reads = reads;
+        _notifier = notifier;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger;
     }
@@ -39,12 +42,21 @@ public sealed class AgentFeedService : IAgentFeedService
         var dedup = await _items.FindDedupAsync(
             request.UserId, request.Kind, request.SessionKey, request.DeepLink,
             atUtc - DedupWindow, ct).ConfigureAwait(false);
-        if (dedup is not null)
+
+        var item = dedup is not null
+            ? await _items.MergeRepeatAsync(dedup.Id, atUtc, ct).ConfigureAwait(false)
+            : await _items.AddAsync(request, atUtc, ct).ConfigureAwait(false);
+
+        // RF-010: live push — fire-and-log, never blocks the write.
+        if (item is not null)
         {
-            return await _items.MergeRepeatAsync(dedup.Id, atUtc, ct).ConfigureAwait(false);
+            await PushSafeAsync(
+                request.UserId,
+                counts => Task.FromResult(new AgentFeedPushDto("item", item, counts)),
+                ct).ConfigureAwait(false);
         }
 
-        return await _items.AddAsync(request, atUtc, ct).ConfigureAwait(false);
+        return item;
     }
 
     public async Task<FeedPageDto> GetPageAsync(
@@ -70,14 +82,62 @@ public sealed class AgentFeedService : IAgentFeedService
         return new FeedUnreadCountDto(total, attention);
     }
 
-    public Task MarkReadAsync(string userId, string itemId, CancellationToken ct = default) =>
-        _reads.MarkReadAsync(userId, itemId, _time.GetUtcNow().UtcDateTime, ct);
+    public async Task MarkReadAsync(string userId, string itemId, CancellationToken ct = default)
+    {
+        await _reads.MarkReadAsync(
+            userId, itemId, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+        await PushPatchAsync(userId, ct).ConfigureAwait(false);
+    }
 
-    public Task MarkUnreadAsync(string userId, string itemId, CancellationToken ct = default) =>
-        _reads.MarkUnreadAsync(userId, itemId, _time.GetUtcNow().UtcDateTime, ct);
+    public async Task MarkUnreadAsync(string userId, string itemId, CancellationToken ct = default)
+    {
+        await _reads.MarkUnreadAsync(
+            userId, itemId, _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+        await PushPatchAsync(userId, ct).ConfigureAwait(false);
+    }
 
-    public Task<int> MarkAllReadAsync(string userId, CancellationToken ct = default) =>
-        _reads.DeleteAllForUserAsync(userId, ct);
+    public async Task<int> MarkAllReadAsync(string userId, CancellationToken ct = default)
+    {
+        var cleared = await _reads.DeleteAllForUserAsync(userId, ct).ConfigureAwait(false);
+        await PushPatchAsync(userId, ct).ConfigureAwait(false);
+        return cleared;
+    }
+
+    // ---- RF-010: live push ----
+
+    /// <summary>Push kind="patch" with the user's current unread counts.</summary>
+    private Task PushPatchAsync(string userId, CancellationToken ct) =>
+        PushSafeAsync(
+            userId,
+            counts => Task.FromResult(new AgentFeedPushDto("patch", null, counts)),
+            ct);
+
+    /// <summary>
+    /// Builds the push (fetching fresh unread counts) and delivers it through
+    /// the notifier when one is registered — errors are swallowed: the write
+    /// it follows already succeeded and clients resync on reconnect.
+    /// </summary>
+    private async Task PushSafeAsync(
+        string userId,
+        Func<FeedUnreadCountDto, Task<AgentFeedPushDto>> build,
+        CancellationToken ct)
+    {
+        if (_notifier is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var counts = await GetUnreadCountAsync(userId, ct).ConfigureAwait(false);
+            await _notifier.PushAsync(
+                userId, await build(counts).ConfigureAwait(false), ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex, "Agent feed push failed for user {UserId}.", userId);
+        }
+    }
 
     private static (DateTime? Utc, string? Id) ParseCursor(string? cursor)
     {

@@ -3,6 +3,8 @@
    per-item read/unread, "Mark all read", deep-link to the owning surface. *@
 @inject TaskboardClient Client
 @inject NavigationManager Navigation
+@inject AgentFeedNotificationsService FeedNotifications
+@implements IDisposable
 
 <div class="d-flex align-items-center justify-content-between mb-1">
     <span class="fw-semibold small">Activity feed
@@ -71,7 +73,38 @@ else
     private int _unreadTotal;
     private bool _loading;
 
-    protected override async Task OnInitializedAsync() => await RefreshAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        // RF-010: live push — new items prepend, patches refresh the counts.
+        FeedNotifications.FeedPushed += OnFeedPushedAsync;
+        FeedNotifications.Resynced += OnFeedResyncedAsync;
+        await RefreshAsync();
+    }
+
+    private Task OnFeedPushedAsync(AgentFeedPushDto push)
+    {
+        _unreadTotal = push.UnreadCounts.Total;
+        if (push.Item is { } item)
+        {
+            _items.RemoveAll(i => i.Id == item.Id);
+            _items.Insert(0, item);
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnFeedResyncedAsync() =>
+        InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
+
+    public void Dispose()
+    {
+        FeedNotifications.FeedPushed -= OnFeedPushedAsync;
+        FeedNotifications.Resynced -= OnFeedResyncedAsync;
+    }
 
     private async Task RefreshAsync()
     {
