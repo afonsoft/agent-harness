@@ -4345,7 +4345,7 @@ void MapAgentsEndpoints()
     agents.MapPost("sessions/{key}/resume", async (
         string key, HttpContext context,
         IAgentHibernationService hibernation, CancellationToken ct) =>
-        await hibernation.ResumeAsync(SessionsUserId(context), key, ct)
+        await hibernation.ResumeAsync(SessionsUserId(context), key, auto: false, ct)
             is { Resumed: true }
                 ? Results.Ok(new { resumed = true })
                 : Results.Conflict(new { error = "resume-refused" }));
@@ -4357,6 +4357,25 @@ void MapAgentsEndpoints()
         await hibernation.SetPinnedAsync(SessionsUserId(context), key, body.Pinned, ct)
             ? Results.Ok(new { pinned = body.Pinned })
             : Results.NotFound(new { error = "session-not-found" }));
+
+    // SPEC RF-006: focus — auto-resumes a hibernated session when the pref
+    // allows; otherwise reports resumable so the UI keeps a Resume action.
+    agents.MapPost("sessions/{key}/focus", async (
+        string key, HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        Results.Ok(await hibernation.FocusAsync(SessionsUserId(context), key, ct)));
+
+    // SPEC RF-006/RF-010: per-user hibernation prefs — auto-resume toggle +
+    // idle threshold (clamped 5–1440 server-side).
+    agents.MapGet("sessions/hibernation-prefs", async (
+        HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        Results.Ok(await hibernation.GetPrefsAsync(SessionsUserId(context), ct)));
+
+    agents.MapPut("sessions/hibernation-prefs", async (
+        HibernationPrefsDto body, HttpContext context,
+        IAgentHibernationService hibernation, CancellationToken ct) =>
+        Results.Ok(await hibernation.SavePrefsAsync(SessionsUserId(context), body, ct)));
 
     static string SessionsUserId(HttpContext context) =>
         context.User.Identity?.Name is { Length: > 0 } name ? name : "local";

@@ -1,7 +1,9 @@
 @* SPEC-20261020-session-history-parity RF-004/RF-007/RF-008: per-session
    actions menu — only applicable actions render; delete asks confirmation
    with the path shown and stays disabled for live sessions and db-backed
-   CLIs (devin/opencode/gemini/agy). *@
+   CLIs (devin/opencode/gemini/agy).
+   SPEC-20261020-agent-hibernation RF-009: "Keep alive" pins live/hibernated
+   sessions so the sweep never hibernates them. *@
 @using Taskboard.Application.Contracts.Agents
 @inject IJSRuntime JS
 @inject ToastService ToastService
@@ -67,6 +69,20 @@
                     <Icon Name="IconName.Key" class="me-2" />Copy session ID
                 </button>
             </li>
+            @if (PinKey is not null)
+            {
+                <li>
+                    <button class="dropdown-item" type="button"
+                            @onclick="TogglePinAsync" disabled="@_busy"
+                            title="@(Entry.Pinned
+                                ? "Allow this session to hibernate when idle"
+                                : "Never hibernate this session while idle")">
+                        <Icon Name="@(Entry.Pinned ? IconName.PinAngleFill : IconName.PinAngle)"
+                              class="me-2" />
+                        @(Entry.Pinned ? "Unpin (allow hibernation)" : "Keep alive")
+                    </button>
+                </li>
+            }
             @if (Entry.TranscriptPath is not null)
             {
                 <li>
@@ -114,8 +130,15 @@
     [Parameter]
     public EventCallback OnDeleted { get; set; }
 
+    /// <summary>Fired after a pin toggle so the parent can reload the index.</summary>
+    [Parameter]
+    public EventCallback OnPinnedChanged { get; set; }
+
     private bool _confirmDelete;
     private bool _busy;
+
+    /// <summary>Runtime key the pin endpoint targets — live or hibernated.</summary>
+    private string? PinKey => Entry.LiveKey ?? Entry.HibernationKey;
 
     /// <summary>File-per-session CLIs — same set as SessionActionService.</summary>
     private bool Deletable =>
@@ -172,6 +195,35 @@
             {
                 await ToastService.NotifyAsync(
                     new(ToastType.Danger, "Could not open path"));
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TogglePinAsync()
+    {
+        if (PinKey is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var pinned = !Entry.Pinned;
+            if (await Client.SetSessionPinnedAsync(PinKey, pinned))
+            {
+                await ToastService.NotifyAsync(new(ToastType.Success,
+                    pinned ? "Session pinned — keep alive" : "Session unpinned"));
+                await OnPinnedChanged.InvokeAsync();
+            }
+            else
+            {
+                await ToastService.NotifyAsync(
+                    new(ToastType.Danger, "Pin failed — session not found"));
             }
         }
         finally

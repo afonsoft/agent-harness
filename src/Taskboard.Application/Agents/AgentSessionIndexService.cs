@@ -82,15 +82,18 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         var collapseEmpty = hideEmpty ?? prefs.HideEmpty;
 
         // RF-003: live-join — a scan row is live when a runtime session carries
-        // its native session id, or shares cli + working directory.
+        // its native session id, or shares cli + working directory. The
+        // matched runtime key rides along for the pin action (RF-009).
         var live = _live?.Snapshot() ?? [];
         var withLive = live.Count == 0
             ? index
-            : index.Select(e => IsLive(e, live) ? e with { Live = true } : e)
+            : index.Select(e => LiveKeyOf(e, live) is { } key
+                    ? e with { Live = true, LiveKey = key }
+                    : e)
                 .ToList();
 
         // SPEC-20261020-agent-hibernation: exact join on the recorded native
-        // session id — the zzz glyph + Resume action ride on the row.
+        // session id — the zzz glyph + pin state + Resume action ride the row.
         var records = await HibernatedRecordsAsync(ct).ConfigureAwait(false);
         if (records.Count > 0)
         {
@@ -101,9 +104,10 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
                 .Select(e => byNativeId.TryGetValue(e.SessionId, out var h)
                     ? e with
                     {
-                        Hibernated = true,
-                        HibernatedAtUtc = h.HibernatedAtUtc,
-                        HibernationKey = h.SessionKey,
+                        Hibernated = h.IsHibernated,
+                        HibernatedAtUtc = h.IsHibernated ? h.HibernatedAtUtc : null,
+                        HibernationKey = h.IsHibernated ? h.SessionKey : null,
+                        Pinned = h.Pinned,
                     }
                     : e)
                 .ToList();
@@ -218,15 +222,16 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             .FirstOrDefault();
     }
 
-    /// <summary>RF-003: native-session-id match, else cli + same cwd.</summary>
-    private static bool IsLive(
+    /// <summary>RF-003: native-session-id match, else cli + same cwd —
+    /// returns the matched runtime key or null when the row isn't live.</summary>
+    private static string? LiveKeyOf(
         SessionIndexEntryDto row, IReadOnlyList<LiveAgentSessionDto> live) =>
-        live.Any(l =>
+        live.FirstOrDefault(l =>
             (l.NativeSessionId is not null
                 && string.Equals(l.NativeSessionId, row.SessionId, StringComparison.Ordinal))
             || (l.Cli is not null
                 && string.Equals(l.Cli, row.Cli, StringComparison.OrdinalIgnoreCase)
-                && PathsEqual(l.Cwd, row.Cwd)));
+                && PathsEqual(l.Cwd, row.Cwd)))?.SessionKey;
 
     private static bool PathsEqual(string? a, string? b)
     {
@@ -241,7 +246,7 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             StringComparison.Ordinal);
     }
 
-    /// <summary>Currently-hibernated records — scoped repo behind the singleton.</summary>
+    /// <summary>Hibernation + pin records — scoped repo behind the singleton.</summary>
     private async Task<IReadOnlyList<AgentHibernationDto>> HibernatedRecordsAsync(
         CancellationToken ct)
     {
@@ -253,7 +258,7 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
         }
 
         return (await repo.ListAsync(ct: ct).ConfigureAwait(false))
-            .Where(h => h.IsHibernated)
+            .Where(h => h.IsHibernated || h.Pinned)
             .ToList();
     }
 
@@ -387,7 +392,8 @@ public sealed class AgentSessionIndexService : IAgentSessionIndexService
             created, s.ModifiedAtUtc, messages, size,
             s.SourcePath, s.ResumeCommand,
             NativeChatClis.Contains(s.Cli), Live: false,
-            Hibernated: false, HibernatedAtUtc: null, HibernationKey: null);
+            Hibernated: false, HibernatedAtUtc: null, HibernationKey: null,
+            Pinned: false, LiveKey: null);
     }
 
     /// <summary>RF-006: first non-empty line of the first user message, ≤80c.</summary>

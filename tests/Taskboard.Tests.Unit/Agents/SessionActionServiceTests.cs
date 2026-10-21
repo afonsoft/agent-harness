@@ -51,7 +51,8 @@ public class SessionActionServiceTests : IDisposable
         string id, string cli, string? path, bool live = false) =>
         new(cli, id, $"t-{id}", "/tmp/wd", null, null,
             DateTime.UnixEpoch, DateTime.UnixEpoch, null, 0,
-            path, $"{cli} --resume {id}", false, live, false, null, null);
+            path, $"{cli} --resume {id}", false, live, false, null, null,
+            false, null);
 
     // ---- delete guards ----
 

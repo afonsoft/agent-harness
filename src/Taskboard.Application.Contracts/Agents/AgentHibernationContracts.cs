@@ -27,8 +27,9 @@ public interface IAgentHibernationRepository
         string? nativeSessionId, string? cwd, DateTime idleAtUtc, DateTime atUtc,
         CancellationToken ct = default);
     /// <summary>Creates the pin marker row for a live session (RF-009).</summary>
-    Task PinOnlyAsync(string sessionKey, string userId, string cli, string? cwd,
-        DateTime atUtc, CancellationToken ct = default);
+    Task PinOnlyAsync(string sessionKey, string userId, string cli,
+        string? nativeSessionId, string? cwd, DateTime atUtc,
+        CancellationToken ct = default);
     Task RemoveAsync(string sessionKey, CancellationToken ct = default);
     Task SetPinnedAsync(string sessionKey, bool pinned, CancellationToken ct = default);
     /// <summary>Clears the hibernated flag; bumps AutoResumedCount on auto resume.</summary>
@@ -57,6 +58,14 @@ public sealed record HibernateOutcome(bool Hibernated, string? Reason = null);
 
 /// <summary>Result of a resume attempt.</summary>
 public sealed record ResumeOutcome(bool Resumed, string? SessionKey = null, string? Reason = null);
+
+/// <summary>RF-006: outcome of a focus event on a hibernated row.</summary>
+public sealed record FocusOutcome(
+    bool Hibernated, bool Resumed, bool Resumable, string? Reason = null);
+
+/// <summary>RF-006/RF-010: per-user hibernation preferences.</summary>
+public sealed record HibernationPrefsDto(
+    int IdleThresholdMinutes, bool AutoResumeOnFocus);
 
 /// <summary>RF-007: env markers injected into a respawned session's process.</summary>
 public static class HibernationEnv
@@ -105,9 +114,22 @@ public interface IAgentHibernationService
     Task<HibernateOutcome> HibernateAsync(
         string userId, string sessionKey, CancellationToken ct = default);
 
-    /// <summary>RF-005/RF-007: respawn a hibernated session.</summary>
+    /// <summary>RF-005/RF-007: respawn a hibernated session. <paramref name="auto"/>
+    /// bumps AutoResumedCount (focus-triggered auto-resume, RF-006).</summary>
     Task<ResumeOutcome> ResumeAsync(
+        string userId, string sessionKey, bool auto = false, CancellationToken ct = default);
+
+    /// <summary>RF-006: focus event — auto-resumes when the user pref allows,
+    /// else reports the session as resumable for the UI Resume button.</summary>
+    Task<FocusOutcome> FocusAsync(
         string userId, string sessionKey, CancellationToken ct = default);
+
+    /// <summary>RF-010: effective prefs (threshold clamped 5–1440, default 30).</summary>
+    Task<HibernationPrefsDto> GetPrefsAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>RF-010: persist prefs; threshold applies on the next tick.</summary>
+    Task<HibernationPrefsDto> SavePrefsAsync(
+        string userId, HibernationPrefsDto prefs, CancellationToken ct = default);
 
     /// <summary>RF-009: pin/unpin — pinned sessions never hibernate.</summary>
     Task<bool> SetPinnedAsync(

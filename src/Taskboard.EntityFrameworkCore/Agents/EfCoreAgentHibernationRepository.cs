@@ -65,15 +65,15 @@ public sealed class EfCoreAgentHibernationRepository : IAgentHibernationReposito
 
     /// <summary>Upserts a pin-only row for a live session (RF-009).</summary>
     public async Task PinOnlyAsync(
-        string sessionKey, string userId, string cli, string? cwd,
-        DateTime atUtc, CancellationToken ct = default)
+        string sessionKey, string userId, string cli, string? nativeSessionId,
+        string? cwd, DateTime atUtc, CancellationToken ct = default)
     {
         var existing = await _context.AgentHibernations
             .FindAsync([sessionKey], ct).ConfigureAwait(false);
         if (existing is null)
         {
-            _context.AgentHibernations.Add(
-                AgentHibernation.PinOnly(sessionKey, userId, cli, cwd, atUtc));
+            _context.AgentHibernations.Add(AgentHibernation.PinOnly(
+                sessionKey, userId, cli, nativeSessionId, cwd, atUtc));
             await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         }
     }

@@ -2728,6 +2728,12 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("AgentIdleThresholdMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AutoResumeOnFocus")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("GitHubToken")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");

@@ -3,6 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Domain.Entities;
+using Taskboard.Repositories;
 
 namespace Taskboard.Application.Agents;
 
@@ -150,7 +152,7 @@ public sealed class AgentHibernationService : IAgentHibernationService
 
     /// <inheritdoc/>
     public async Task<ResumeOutcome> ResumeAsync(
-        string userId, string sessionKey, CancellationToken ct = default)
+        string userId, string sessionKey, bool auto = false, CancellationToken ct = default)
     {
         await using var scope = _services.CreateAsyncScope();
         var records = scope.ServiceProvider.GetRequiredService<IAgentHibernationRepository>();
@@ -178,7 +180,7 @@ public sealed class AgentHibernationService : IAgentHibernationService
             return new ResumeOutcome(false, sessionKey, "respawn failed");
         }
 
-        await records.MarkResumedAsync(sessionKey, auto: false, ct).ConfigureAwait(false);
+        await records.MarkResumedAsync(sessionKey, auto, ct).ConfigureAwait(false);
         _index.Invalidate();
         await PublishSignalAsync(sessionKey, record.Cli,
             AgentAttentionState.Working, "lifecycle:resumed", ct).ConfigureAwait(false);
@@ -188,6 +190,84 @@ public sealed class AgentHibernationService : IAgentHibernationService
             .ConfigureAwait(false);
         _logger.LogInformation("Session {SessionKey} resumed.", sessionKey);
         return new ResumeOutcome(true, sessionKey);
+    }
+
+    /// <inheritdoc/>
+    public async Task<FocusOutcome> FocusAsync(
+        string userId, string sessionKey, CancellationToken ct = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var records = scope.ServiceProvider.GetRequiredService<IAgentHibernationRepository>();
+
+        var record = await records.GetAsync(sessionKey, ct).ConfigureAwait(false);
+        if (record is not { IsHibernated: true })
+        {
+            return new FocusOutcome(false, false, false);
+        }
+
+        // RF-006: auto-resume only when the user pref allows — otherwise the
+        // row stays resumable for the manual Resume action.
+        var prefs = await ReadPrefsAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
+        if (!prefs.AutoResumeOnFocus)
+        {
+            return new FocusOutcome(true, false, true);
+        }
+
+        var resumed = await ResumeAsync(userId, sessionKey, auto: true, ct)
+            .ConfigureAwait(false);
+        return resumed.Resumed
+            ? new FocusOutcome(true, true, false)
+            : new FocusOutcome(true, false, true, resumed.Reason);
+    }
+
+    /// <inheritdoc/>
+    public async Task<HibernationPrefsDto> GetPrefsAsync(
+        string userId, CancellationToken ct = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        return await ReadPrefsAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<HibernationPrefsDto> SavePrefsAsync(
+        string userId, HibernationPrefsDto prefs, CancellationToken ct = default)
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var users = scope.ServiceProvider
+            .GetRequiredService<IRepository<UserPreference>>();
+
+        var clamped = new HibernationPrefsDto(
+            Math.Clamp(prefs.IdleThresholdMinutes, 5, 1440),
+            prefs.AutoResumeOnFocus);
+
+        var user = (await users.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault();
+        if (user is null)
+        {
+            await users.AddAsync(new UserPreference(Guid.Empty)
+            {
+                AgentIdleThresholdMinutes = clamped.IdleThresholdMinutes,
+                AutoResumeOnFocus = clamped.AutoResumeOnFocus,
+            }, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            user.AgentIdleThresholdMinutes = clamped.IdleThresholdMinutes;
+            user.AutoResumeOnFocus = clamped.AutoResumeOnFocus;
+            await users.UpdateAsync(user, ct).ConfigureAwait(false);
+        }
+
+        return clamped;
+    }
+
+    /// <summary>RF-010: effective threshold — user pref, clamped 5–1440, default 30.</summary>
+    internal static async Task<HibernationPrefsDto> ReadPrefsAsync(
+        IServiceProvider sp, CancellationToken ct)
+    {
+        var users = sp.GetRequiredService<IRepository<UserPreference>>();
+        var user = (await users.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault();
+        return new HibernationPrefsDto(
+            Math.Clamp(user?.AgentIdleThresholdMinutes ?? 30, 5, 1440),
+            user?.AutoResumeOnFocus ?? true);
     }
 
     /// <inheritdoc/>
@@ -209,7 +289,8 @@ public sealed class AgentHibernationService : IAgentHibernationService
             var row = await _index.ResolveByLiveKeyAsync(sessionKey, ct).ConfigureAwait(false);
             var cli = row?.Cli ?? sessionKey.Split(':')[0];
             await records.PinOnlyAsync(
-                sessionKey, userId, cli, row?.Cwd, DateTime.UtcNow, ct).ConfigureAwait(false);
+                sessionKey, userId, cli, row?.SessionId, row?.Cwd, DateTime.UtcNow, ct)
+                .ConfigureAwait(false);
             return true;
         }
 
