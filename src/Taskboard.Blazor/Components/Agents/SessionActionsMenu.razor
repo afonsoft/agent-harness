@@ -1,0 +1,98 @@
+@* SPEC-20261020-session-history-parity RF-004: per-session actions menu.
+   Only applicable actions render; P3 handlers (native-chat resume, delete,
+   open log/cwd) show disabled until their endpoints land. *@
+@using Taskboard.Application.Contracts.Agents
+@inject IJSRuntime JS
+@inject ToastService ToastService
+
+<details class="session-actions dropdown">
+    <summary class="btn btn-sm btn-outline-secondary" title="Session actions">
+        <Icon Name="IconName.ThreeDotsVertical" />
+    </summary>
+    <ul class="dropdown-menu dropdown-menu-end show">
+        @if (Entry.ResumeCommand is not null)
+        {
+            <li>
+                <a class="dropdown-item" href="@TerminalUrl(Entry.ResumeCommand)">
+                    <Icon Name="IconName.Play" class="me-2" />Resume interactive
+                </a>
+            </li>
+        }
+        @if (Entry.HasNativeChat)
+        {
+            <li>
+                <button class="dropdown-item disabled" type="button" disabled
+                        title="Native-chat resume lands in P3">
+                    <Icon Name="IconName.ChatDots" class="me-2" />Resume in native chat
+                </button>
+            </li>
+        }
+        @if (Entry.ResumeCommand is not null)
+        {
+            <li>
+                <button class="dropdown-item" type="button" @onclick="CopyResumeCommandAsync">
+                    <Icon Name="IconName.Clipboard" class="me-2" />Copy resume command
+                </button>
+            </li>
+        }
+        <li>
+            <button class="dropdown-item" type="button" @onclick="CopySessionIdAsync">
+                <Icon Name="IconName.Key" class="me-2" />Copy session ID
+            </button>
+        </li>
+        @if (Entry.TranscriptPath is not null)
+        {
+            <li>
+                <button class="dropdown-item" type="button" @onclick="CopyLogPathAsync">
+                    <Icon Name="IconName.FileEarmarkText" class="me-2" />Copy log path
+                </button>
+            </li>
+            <li>
+                <button class="dropdown-item disabled" type="button" disabled
+                        title="Open-log platform handler lands in P3">
+                    <Icon Name="IconName.BoxArrowUpRight" class="me-2" />Open log
+                </button>
+            </li>
+        }
+        @if (Entry.Cwd is not null)
+        {
+            <li>
+                <button class="dropdown-item disabled" type="button" disabled
+                        title="Open-cwd platform handler lands in P3">
+                    <Icon Name="IconName.Folder2Open" class="me-2" />Open working directory
+                </button>
+            </li>
+        }
+        <li><hr class="dropdown-divider" /></li>
+        <li>
+            <button class="dropdown-item text-danger disabled" type="button" disabled
+                    title="@(Entry.Live ? "Live sessions cannot be deleted" : "Delete lands in P3")">
+                <Icon Name="IconName.Trash" class="me-2" />Delete from history
+            </button>
+        </li>
+    </ul>
+</details>
+
+@code {
+    /// <summary>Index row the menu acts on.</summary>
+    [Parameter, EditorRequired]
+    public required SessionIndexEntryDto Entry { get; set; }
+
+    private static string TerminalUrl(string command) =>
+        $"/terminal?cmd={Uri.EscapeDataString(command)}";
+
+    private Task CopyResumeCommandAsync() =>
+        CopyAsync(Entry.ResumeCommand!, "Resume command");
+
+    private Task CopySessionIdAsync() =>
+        CopyAsync(Entry.SessionId, "Session id");
+
+    private Task CopyLogPathAsync() =>
+        CopyAsync(Entry.TranscriptPath!, "Log path");
+
+    private async Task CopyAsync(string text, string label)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        await ToastService.NotifyAsync(new(ToastType.Success, $"{label} copied to clipboard"));
+    }
+}

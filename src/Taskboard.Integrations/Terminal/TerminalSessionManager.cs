@@ -38,6 +38,9 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         /// <summary>Bounded output scrollback replayed on reattach (SPEC-20260928 RF-003).</summary>
         /// <summary>Attention-model key — <c>term:{sessionId}</c>.</summary>
         public string? AttentionKey { get; init; }
+        /// <summary>argv[0] of the spawned command — used by the sessions
+        /// live-join (SPEC-20261020-session-history-parity RF-003).</summary>
+        public string? Cli { get; init; }
         public StringBuilder Scrollback { get; } = new();
     }
 
@@ -195,12 +198,13 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 OnOutput = onOutput,
                 OnClosed = onClosed,
                 Workdir = workdir,
-                AttentionKey = $"term:{sessionId}"
+                AttentionKey = $"term:{sessionId}",
+                Cli = command is { Count: > 0 } ? command[0] : null,
             };
 
             // SPEC-20261020-agent-attention-model RF-005/RF-006: tail-match
             // interactive CLI output (OSC titles + permission/question patterns).
-            var cliName = command is { Count: > 0 } ? command[0] : null;
+            var cliName = entry.Cli;
             session.OutputReceived += chunk =>
             {
                 AppendScrollback(entry, chunk);
@@ -217,6 +221,24 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 sessionId, userKey, connectionId);
             return Task.FromResult(sessionId);
         }
+    }
+
+    /// <summary>
+    /// SPEC-20261020-session-history-parity RF-003: live PTY sessions as
+    /// (attentionKey, cli, cwd) rows for the sessions-index live-join.
+    /// </summary>
+    public IReadOnlyList<Taskboard.Application.Contracts.Agents.LiveAgentSessionDto> LiveSnapshot()
+    {
+        var list = new List<Taskboard.Application.Contracts.Agents.LiveAgentSessionDto>(_sessions.Count);
+        foreach (var (id, entry) in _sessions)
+        {
+            if (entry.Session.IsRunning)
+            {
+                list.Add(new($"term:{id}", entry.Cli, entry.Workdir));
+            }
+        }
+
+        return list;
     }
 
     /// <summary>Workdir equality for rebind-vs-recycle — normalized full paths.</summary>

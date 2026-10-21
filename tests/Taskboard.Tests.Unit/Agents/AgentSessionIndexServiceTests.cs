@@ -57,8 +57,12 @@ public class AgentSessionIndexServiceTests : IDisposable
         }
     }
 
-    private AgentSessionIndexService NewService(IAgentSessionScanner? scanner = null) =>
-        new(_provider, scanner ?? new AgentSessionScanner(_root), _gitProbe);
+    private AgentSessionIndexService NewService(
+        IAgentSessionScanner? scanner = null,
+        ILiveAgentSessionCatalog? live = null,
+        IAgentTranscriptSearcher? searcher = null) =>
+        new(_provider, scanner ?? new AgentSessionScanner(_root), _gitProbe,
+            live, searcher);
 
     private string WriteClaudeSession(string id, params string[] lines)
     {
@@ -275,4 +279,105 @@ public class AgentSessionIndexServiceTests : IDisposable
         new(cli, id, $"t-{id}", "/tmp/x", null, null,
             DateTime.UnixEpoch, DateTime.UnixEpoch.AddMinutes(modified),
             null, 0, "/tmp/x.jsonl", "x --resume", false, live);
+
+    // ---- RF-003 (P2): live-join ----
+
+    [Fact]
+    public async Task Dado_LiveComNativeId_Quando_Index_Entao_RowLiveEPinned()
+    {
+        var id = Guid.NewGuid().ToString();
+        WriteClaudeSession(id, """{"type":"user","message":{"content":"zzz older title"}}""");
+        WriteClaudeSession(Guid.NewGuid().ToString(),
+            """{"type":"user","message":{"content":"aaa newer title"}}""");
+        var catalog = Substitute.For<ILiveAgentSessionCatalog>();
+        catalog.Snapshot().Returns([new LiveAgentSessionDto("issue:x", "claude", null, id)]);
+
+        var index = await NewService(live: catalog).GetAsync(User, sort: "title");
+
+        var rows = index.Groups.SelectMany(g => g.Sessions).ToList();
+        rows[0].SessionId.ShouldBe(id);
+        rows[0].Live.ShouldBeTrue();
+        rows[1].Live.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_LiveComCliECwd_Quando_Index_Entao_RowLive()
+    {
+        var id = Guid.NewGuid().ToString();
+        WriteClaudeSession(id, """{"type":"user","message":{"content":"hello"}}""");
+        var catalog = Substitute.For<ILiveAgentSessionCatalog>();
+        // scanner decodes the "proj-a" slug back to cwd "/proj/a".
+        catalog.Snapshot().Returns([
+            new LiveAgentSessionDto("term:t1", "claude", "/proj/a")]);
+
+        var index = await NewService(live: catalog).GetAsync(User);
+
+        index.Groups.SelectMany(g => g.Sessions).Single().Live.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Dado_SemLive_Quando_Index_Entao_NadaMarcado()
+    {
+        WriteClaudeSession(Guid.NewGuid().ToString(),
+            """{"type":"user","message":{"content":"hello"}}""");
+
+        var index = await NewService().GetAsync(User);
+
+        index.Groups.SelectMany(g => g.Sessions).Single().Live.ShouldBeFalse();
+    }
+
+    // ---- RF-002 (P2): transcript search ----
+
+    [Fact]
+    public async Task Dado_QuerySoNoTranscript_Quando_TranscriptTrue_Entao_LinhaEntraComSnippet()
+    {
+        var path = WriteClaudeSession(Guid.NewGuid().ToString(),
+            """{"type":"user","message":{"content":"update readme"}}""");
+        var searcher = Substitute.For<IAgentTranscriptSearcher>();
+        searcher.SearchAsync(
+                Arg.Any<IReadOnlyList<string>>(), "flaky",
+                Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyDictionary<string, string>>(
+                new Dictionary<string, string> { [path] = "found flaky marker" }));
+
+        var index = await NewService(searcher: searcher)
+            .GetAsync(User, q: "flaky", transcript: true);
+
+        var row = index.Groups.SelectMany(g => g.Sessions).ShouldHaveSingleItem();
+        row.MatchSnippet.ShouldBe("found flaky marker");
+    }
+
+    [Fact]
+    public async Task Dado_QuerySoNoTranscript_Quando_TranscriptFalse_Entao_SemLinha()
+    {
+        WriteClaudeSession(Guid.NewGuid().ToString(),
+            """{"type":"user","message":{"content":"update readme"}}""");
+        var searcher = Substitute.For<IAgentTranscriptSearcher>();
+
+        var index = await NewService(searcher: searcher)
+            .GetAsync(User, q: "flaky", transcript: false);
+
+        index.Total.ShouldBe(0);
+        await searcher.DidNotReceiveWithAnyArgs()
+            .SearchAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Dado_QueryNoTituloENoTranscript_Quando_TranscriptTrue_Entao_SnippetAnexa()
+    {
+        var path = WriteClaudeSession(Guid.NewGuid().ToString(),
+            """{"type":"user","message":{"content":"fix the flaky test"}}""");
+        var searcher = Substitute.For<IAgentTranscriptSearcher>();
+        searcher.SearchAsync(
+                Arg.Any<IReadOnlyList<string>>(), "flaky",
+                Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyDictionary<string, string>>(
+                new Dictionary<string, string> { [path] = "ctx: flaky" }));
+
+        var index = await NewService(searcher: searcher)
+            .GetAsync(User, q: "flaky", transcript: true);
+
+        var row = index.Groups.SelectMany(g => g.Sessions).ShouldHaveSingleItem();
+        row.MatchSnippet.ShouldBe("ctx: flaky");
+    }
 }

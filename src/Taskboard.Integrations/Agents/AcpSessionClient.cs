@@ -807,6 +807,29 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     private static bool IsAlive(SessionHolder holder) =>
         holder.Socket?.Connected ?? holder.Process is { HasExited: false };
 
+    /// <summary>
+    /// SPEC-20261020-session-history-parity RF-003: live ACP sessions as
+    /// (attentionKey, cli, cwd, nativeSessionId) rows for the sessions-index
+    /// live-join.
+    /// </summary>
+    public IReadOnlyList<Taskboard.Application.Contracts.Agents.LiveAgentSessionDto> LiveSnapshot()
+    {
+        var list = new List<Taskboard.Application.Contracts.Agents.LiveAgentSessionDto>(_sessions.Count);
+        foreach (var (threadId, holder) in _sessions)
+        {
+            if (IsAlive(holder))
+            {
+                list.Add(new(
+                    $"issue:{threadId}",
+                    holder.Spawn.AgentType.ToString().ToLowerInvariant(),
+                    holder.Spawn.WorkspacePath,
+                    holder.SessionId));
+            }
+        }
+
+        return list;
+    }
+
     public async Task StopSessionAsync(string threadId, CancellationToken cancellationToken = default)
     {
         if (_sessions.TryRemove(threadId, out var holder))
