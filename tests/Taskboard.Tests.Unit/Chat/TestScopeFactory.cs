@@ -38,6 +38,32 @@ internal static class TestScopeFactory
             .BuildServiceProvider()
             .GetRequiredService<IServiceScopeFactory>();
 
+    /// <summary>SPEC-20261021-worktree-setup-scripts P3: worktree services
+    /// for worktree_status / worktree_setup tool tests.</summary>
+    public static IServiceScopeFactory WithWorktree(
+        Taskboard.Application.Contracts.Harness.IWorktreeSessionRepository sessions,
+        Taskboard.Application.Contracts.Harness.IWorktreeCardService cards,
+        Taskboard.Application.Contracts.Harness.IWorktreeStatusProbe probe,
+        Taskboard.Application.Contracts.Harness.IWorktreeYamlReader? yamlReader = null,
+        Taskboard.Application.Contracts.Harness.IWorktreeSetupRunner? setupRunner = null)
+    {
+        var services = new ServiceCollection()
+            .AddSingleton(sessions)
+            .AddSingleton(cards)
+            .AddSingleton(probe);
+        if (yamlReader is not null)
+        {
+            services.AddSingleton(yamlReader);
+        }
+
+        if (setupRunner is not null)
+        {
+            services.AddSingleton(setupRunner);
+        }
+
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
     /// <summary>Shared chat-tool context for tool unit tests.</summary>
     public static ChatToolContext Ctx(string? defaultAgentCli = "codex") =>
         new(

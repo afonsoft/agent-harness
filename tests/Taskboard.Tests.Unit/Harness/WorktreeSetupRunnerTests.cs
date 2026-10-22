@@ -394,3 +394,49 @@ public class WorktreeCardSetupTests
         ex.Message.ShouldContain("pending|running|ok|failed|skipped");
     }
 }
+
+/// <summary>
+/// SPEC-20261021-worktree-setup-scripts RF-007 / P3: issueCommand template —
+/// variáveis substituídas; template perigoso (`{{`, `}}`, `$(`, placeholder
+/// desconhecido) rejeitado para o caller cair no prompt default.
+/// </summary>
+public class IssueCommandTemplateTests
+{
+    [Fact]
+    public void Dado_TemplateComVariaveis_Quando_Render_Entao_Substitui()
+    {
+        var rendered = IssueCommandTemplate.Render(
+            "Fix {issueKey}: {issueTitle} (repo {repo}, n {issueNumber})",
+            "afonsoft/agent-harness", 42, "Login broken");
+
+        rendered.ShouldBe(
+            "Fix afonsoft/agent-harness#42: Login broken (repo afonsoft/agent-harness, n 42)");
+    }
+
+    [Fact]
+    public void Dado_IssueUrlEBody_Quando_Render_Entao_SubstituiTodos()
+    {
+        var rendered = IssueCommandTemplate.Render(
+            "Open {issueUrl} — {issueBody}",
+            "o/r", 7, "t", "the body", "https://github.com/o/r/issues/7");
+
+        rendered.ShouldBe("Open https://github.com/o/r/issues/7 — the body");
+    }
+
+    [Theory]
+    [InlineData("run {{cmd}} now")]                 // escape sintaxe estrangeira
+    [InlineData("close }} braces")]                  // }} solto
+    [InlineData("echo $(whoami)")]                   // shell substitution
+    [InlineData("fix {unknownVar}")]                 // placeholder desconhecido
+    [InlineData("brace { solto")]                    // { não pareado
+    public void Dado_TemplatePerigoso_Quando_Render_Entao_Rejeita(string template)
+    {
+        IssueCommandTemplate.Render(template, "o/r", 1, "t").ShouldBeNull();
+    }
+
+    [Fact]
+    public void Dado_TemplateVazio_Quando_Render_Entao_Rejeita()
+    {
+        IssueCommandTemplate.Render("   ", "o/r", 1, "t").ShouldBeNull();
+    }
+}

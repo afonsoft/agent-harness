@@ -131,6 +131,17 @@ public sealed class WorktreeSession : AggregateRoot<WorktreeSessionId>
         SetupLogTail = provisioning?.SetupLogTail;
     }
 
+    /// <summary>SPEC-20261021-worktree-setup-scripts P3: manual setup rerun
+    /// overwrites the lifecycle fields — the previous run's log is replaced
+    /// (the card keeps the full ≤64KB tail; sessions store ≤4KB).</summary>
+    public void SetSetup(string? state, string? logTail, DateTime? now = null)
+    {
+        EnsureNotRemoved();
+        SetupState = state;
+        SetupLogTail = logTail;
+        Touch(now);
+    }
+
     public void RecordCommit(string commitSha, DateTime? now = null)
     {
         EnsureNotRemoved();

@@ -27,6 +27,7 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
 
     private const string ConfigSetupSection = "Taskboard:Worktree:Setup";
     private const string ConfigPolicyKey = "Taskboard:Worktree:SetupPolicy";
+    private const string ConfigIssueCommandKey = "Taskboard:Worktree:IssueCommand";
 
     private readonly IConfiguration _configuration;
     private readonly ILogger<WorktreeYamlReader>? _logger;
@@ -65,6 +66,15 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
             && WorktreeSetupPolicies.IsValid(policy)
                 ? policy
                 : WorktreeSetupPolicies.WaitForSetup;
+    }
+
+    /// <inheritdoc />
+    public string? EffectiveIssueCommand(WorktreeYamlDoc doc)
+    {
+        var configured = _configuration[ConfigIssueCommandKey]?.Trim();
+        return configured is { Length: > 0 and <= MaxIssueCommandLength }
+            ? configured
+            : doc.IssueCommand;
     }
 
     /// <summary><c>Taskboard:Worktree:Setup</c> — scalar or

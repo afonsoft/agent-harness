@@ -25,6 +25,11 @@ public interface IWorktreeYamlReader
     /// <c>Taskboard:Worktree:SetupPolicy</c> &gt;
     /// <c>doc.AgentStartupPolicy</c> &gt; <c>wait-for-setup</c>.</summary>
     string EffectiveStartupPolicy(string repositoryPath, WorktreeYamlDoc doc);
+
+    /// <summary>Effective <c>issueCommand:</c> template —
+    /// <c>Taskboard:Worktree:IssueCommand</c> &gt; <c>doc.IssueCommand</c>;
+    /// null when neither declares one (RF-007).</summary>
+    string? EffectiveIssueCommand(WorktreeYamlDoc doc);
 }
 
 /// <summary>

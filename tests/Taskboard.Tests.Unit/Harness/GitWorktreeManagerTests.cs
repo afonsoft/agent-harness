@@ -622,5 +622,14 @@ public class GitWorktreeManagerTests : IDisposable
             Items[Items.IndexOf(dto)] = updated;
             return Task.FromResult(updated);
         }
+
+        public Task<WorktreeSessionDto> SetSetupAsync(
+            string runId, string? state, string? logTail, CancellationToken cancellationToken = default)
+        {
+            var dto = Items.Single(s => s.RunId == runId);
+            var updated = dto with { SetupState = state, SetupLogTail = logTail };
+            Items[Items.IndexOf(dto)] = updated;
+            return Task.FromResult(updated);
+        }
     }
 }

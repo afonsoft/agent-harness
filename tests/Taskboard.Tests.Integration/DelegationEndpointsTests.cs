@@ -258,6 +258,39 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    // SPEC-20261021-worktree-setup-scripts RF-007: o repo declara
+    // `issueCommand:` e o prompt da task é renderizado do template.
+    [Fact]
+    public async Task Dado_IssueCommandNoYaml_Quando_FromIssue_Entao_PromptDoTemplate()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var clonePath = Path.Join(
+            _factory.WorkspaceRoot,
+            Taskboard.Workspace.WorkspacePaths.SanitizeRepoName("itest-owner/itest-repo"));
+        Directory.CreateDirectory(clonePath);
+        var git = new Taskboard.Integrations.Harness.GitCommandRunner();
+        (await git.RunAsync(clonePath, ["init", "-b", "main"])).ExitCode.ShouldBe(0);
+        await git.RunAsync(clonePath, ["config", "user.email", "itest@local"]);
+        await git.RunAsync(clonePath, ["config", "user.name", "itest"]);
+        await File.WriteAllTextAsync(Path.Join(clonePath, "README.md"), "# r\n");
+        Directory.CreateDirectory(Path.Join(clonePath, ".harness"));
+        await File.WriteAllTextAsync(
+            Path.Join(clonePath, ".harness", "worktree.yaml"),
+            "issueCommand: \"Fix {issueKey}: {issueTitle}\"\n");
+        await git.RunAsync(clonePath, ["add", "-A"]);
+        (await git.RunAsync(clonePath, ["commit", "-m", "init"])).ExitCode.ShouldBe(0);
+
+        using var content = new StringContent(
+            """{"repositoryFullName":"itest-owner/itest-repo","issueNumber":7,"title":"Crash on save"}""",
+            System.Text.Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("/api/local/delegation/tasks/from-issue", content);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK,
+            $"body: {await response.Content.ReadAsStringAsync()}");
+        (await response.Content.ReadAsStringAsync())
+            .ShouldContain("Fix itest-owner/itest-repo#7: Crash on save");
+    }
+
     [Fact]
     public async Task Dado_SemCredenciais_Quando_GetEvents_Entao_401()
     {

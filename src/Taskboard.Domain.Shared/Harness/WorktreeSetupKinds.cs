@@ -60,3 +60,47 @@ public sealed record WorktreeProvisionOutcome(
     IReadOnlyList<string>? SharedPathsApplied,
     string? SetupState,
     string? SetupLogTail);
+
+/// <summary>
+/// SPEC-20261021-worktree-setup-scripts RF-007: renders the
+/// <c>issueCommand:</c> template into a worker prompt. Known placeholders —
+/// <c>{issueUrl}</c>, <c>{issueKey}</c> (<c>owner/repo#42</c>),
+/// <c>{issueNumber}</c>, <c>{issueTitle}</c>, <c>{issueBody}</c>,
+/// <c>{repo}</c>. A template with <c>{{</c>/<c>}}</c>, <c>$(</c> or leftover
+/// <c>{…}</c> placeholders is rejected (returns <c>null</c>) so callers fall
+/// back to the default prompt — templates never reach a shell, but malformed
+/// output would poison the worker prompt.
+/// </summary>
+public static class IssueCommandTemplate
+{
+    public static string? Render(
+        string template,
+        string repo,
+        int issueNumber,
+        string issueTitle,
+        string? issueBody = null,
+        string? issueUrl = null)
+    {
+        if (string.IsNullOrWhiteSpace(template)
+            || template.Contains("{{", StringComparison.Ordinal)
+            || template.Contains("}}", StringComparison.Ordinal)
+            || template.Contains("$(", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var issueKey = $"{repo}#{issueNumber}";
+        var rendered = template
+            .Replace("{issueUrl}", issueUrl ?? issueKey, StringComparison.Ordinal)
+            .Replace("{issueKey}", issueKey, StringComparison.Ordinal)
+            .Replace("{issueNumber}", issueNumber.ToString(), StringComparison.Ordinal)
+            .Replace("{issueTitle}", issueTitle, StringComparison.Ordinal)
+            .Replace("{issueBody}", issueBody ?? string.Empty, StringComparison.Ordinal)
+            .Replace("{repo}", repo, StringComparison.Ordinal);
+
+        // Any remaining {placeholder} is an unknown variable — reject.
+        return rendered.IndexOf('{') >= 0 || rendered.IndexOf('}') >= 0
+            ? null
+            : rendered;
+    }
+}

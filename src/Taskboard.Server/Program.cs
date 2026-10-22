@@ -775,6 +775,10 @@ void RegisterWorkspaceAndChatServices()
             new WorktreeCheckpointsTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261020-worktree-shared-context RF-007: card comment/status.
             new WorktreeSetStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261021-worktree-setup-scripts RF-008/P3: consolidated
+            // worktree status + manual setup rerun.
+            new WorktreeStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new WorktreeSetupRerunTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261005-chat-plan-mode RF-003: plan review — the approval
             // gate intercepts the call; the tool only confirms approval.
             new ExitPlanModeTool(),
@@ -1541,6 +1545,35 @@ void MapHarnessEndpoints()
     {
         await isolation.RemoveWorktreeAsync(runId, force, ct);
         return Results.NoContent();
+    });
+
+    // SPEC-20261021-worktree-setup-scripts P3: manual setup rerun — re-executes
+    // the effective setup list inside the live worktree; card flips
+    // running→terminal via the runner and the session stores the new ≤4KB tail.
+    harness.MapPost("worktrees/{runId}/setup:rerun", async (
+        string runId,
+        IWorktreeSessionRepository sessions,
+        IWorktreeYamlReader yamlReader,
+        IWorktreeSetupRunner setupRunner,
+        CancellationToken ct) =>
+    {
+        var session = await sessions.GetByRunIdAsync(runId, ct);
+        if (session is null || !Directory.Exists(session.Path))
+        {
+            return Results.NotFound(new { error = "run has no worktree" });
+        }
+
+        var doc = yamlReader.Read(session.RepositoryPath);
+        var commands = yamlReader.EffectiveSetupCommands(session.RepositoryPath, doc);
+        if (commands.Count == 0)
+        {
+            return Results.BadRequest(new { error = "no setup commands declared" });
+        }
+
+        var result = await setupRunner.RunSetupAsync(
+            session.RepositoryPath, session.Path, commands, ct);
+        return Results.Ok(await sessions.SetSetupAsync(
+            runId, result.State, WorktreeSetupRunner.PreambleTail(result.LogTail), ct));
     });
 
     // SPEC-20261020-worktree-shared-context RF-006/RF-008: card annotation —
@@ -2747,6 +2780,7 @@ void MapSettingsAndChatEndpoints()
         IDelegationService delegation,
         IRepositoryProvisioningService provisioning,
         IWorkspaceIsolationService isolation,
+        IWorktreeYamlReader yamlReader,
         IGitCommandRunner git, CancellationToken ct) =>
     {
         if (string.IsNullOrWhiteSpace(request.RepositoryFullName)
@@ -2765,7 +2799,17 @@ void MapSettingsAndChatEndpoints()
             return Results.BadRequest(new { error = ex.Message });
         }
 
-        var prompt =
+        // SPEC-20261021-worktree-setup-scripts RF-007: repo's issueCommand
+        // template (or config mirror) builds the prompt; invalid template or
+        // absent → classic "issue title + body".
+        var template = yamlReader.EffectiveIssueCommand(
+            yamlReader.Read(clone.Path));
+        var prompt = template is null
+            ? null
+            : IssueCommandTemplate.Render(
+                template, request.RepositoryFullName, request.IssueNumber,
+                request.Title, request.Body);
+        prompt ??=
             $"GitHub issue {request.RepositoryFullName}#{request.IssueNumber}: {request.Title}\n\n"
             + (string.IsNullOrWhiteSpace(request.Body) ? "(no body)" : request.Body);
         var cli = string.IsNullOrWhiteSpace(request.Cli) ? "opencode" : request.Cli.Trim();
