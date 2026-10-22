@@ -151,7 +151,9 @@ public sealed class AgentFeedNotificationsService : IAsyncDisposable
             }
         }
 
-        if (pref.Sound && (item.Kind is AgentFeedKind.Attention or AgentFeedKind.Question))
+        if (pref.Sound
+            && (item.Kind is AgentFeedKind.Attention or AgentFeedKind.Question
+                or AgentFeedKind.AutomationRun))
         {
             try
             {

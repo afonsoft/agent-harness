@@ -73,6 +73,13 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// <summary>SPEC-20261020-v2 RF-008: requested launch effort (low|normal|high → tier).</summary>
     public string? Effort { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261021-agent-automations RF-005: JSON list of whitelisted
+    /// pass-through CLI flags (<c>--add-dir</c> pairs) appended verbatim to
+    /// the builtin invocation — model/effort ride the preference fields.
+    /// </summary>
+    public string ExtraArgsJson { get; private set; } = "[]";
+
     public DelegationTaskStatus Status { get; private set; } = DelegationTaskStatus.Pending;
     public string? ResultSummary { get; private set; }
     public string? Error { get; private set; }
@@ -89,6 +96,16 @@ public sealed class DelegationTask : AggregateRoot<string>
         SharedPathsJson is { Length: > 0 } json
             ? JsonSerializer.Deserialize<List<string>>(json) ?? []
             : [];
+
+    /// <summary>Whitelisted pass-through flags (RF-005 automations).</summary>
+    public IReadOnlyList<string> ExtraArgs =>
+        ExtraArgsJson is { Length: > 0 } json
+            ? JsonSerializer.Deserialize<List<string>>(json) ?? []
+            : [];
+
+    /// <summary>Stores the whitelisted pass-through argv (null/empty clears).</summary>
+    public void SetExtraArgs(IReadOnlyList<string>? args) =>
+        ExtraArgsJson = JsonSerializer.Serialize(args ?? []);
 
     public static DelegationTask Create(
         string prompt,

@@ -208,7 +208,7 @@ else
         AgentFeedKind.Attention or AgentFeedKind.Question => BadgeColor.Warning,
         AgentFeedKind.Failure => BadgeColor.Danger,
         AgentFeedKind.Completion => BadgeColor.Success,
-        AgentFeedKind.Worktree => BadgeColor.Info,
+        AgentFeedKind.Worktree or AgentFeedKind.AutomationRun => BadgeColor.Info,
         AgentFeedKind.Pr => BadgeColor.Secondary,
         _ => BadgeColor.Secondary,
     };

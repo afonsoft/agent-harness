@@ -42,7 +42,8 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         return new AgentCommand(
             executablePath,
             AgentCliInvocation.BuildArguments(
-                request.AgentType, prompt, request.ModelTier, request.ResolvedModelName, request.OmitModelFlag),
+                request.AgentType, prompt, request.ModelTier, request.ResolvedModelName,
+                request.OmitModelFlag, request.ExtraArgs),
             workingDirectory);
     }
 

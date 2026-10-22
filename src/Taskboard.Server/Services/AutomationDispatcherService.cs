@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Taskboard.Agents;
 using Taskboard.Application.Automation;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Delegation;
@@ -121,6 +122,33 @@ public sealed class AutomationDispatcherService(
                         automation.NextFireAtUtc,
                         $"missed_window: overdue {overdue.TotalMinutes:F0}m > grace {automation.MissedRunGraceMinutes}m");
                     await runs.AddAsync(skipped, stoppingToken).ConfigureAwait(false);
+
+                    // RF-008: skipped fires surface on the feed too.
+                    var feed = sp.GetService<IAgentFeedService>();
+                    if (feed is not null)
+                    {
+                        try
+                        {
+                            await feed.ProduceAsync(
+                                new FeedItemRequest(
+                                    AgentFeedKind.AutomationRun,
+                                    $"automation '{automation.Name}' skipped",
+                                    skipped.SkipReason,
+                                    $"/automations/{automation.Id.Value}",
+                                    null,
+                                    automation.AgentCli,
+                                    null,
+                                    NeedsAttention: true,
+                                    automation.CreatedBy ?? "local",
+                                    skipped.FiredAtUtc),
+                                stoppingToken).ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            logger.LogWarning(ex, "automation feed emit failed for {Id}", automation.Id.Value);
+                        }
+                    }
+
                     var next = RecomputeNext(automation, now);
                     if (next is { } nextFire)
                     {

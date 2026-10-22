@@ -269,7 +269,9 @@ public sealed class DelegationDispatcherService : BackgroundService
             ModelTier: AgentLaunchEffort.ToTier(task.Effort) ?? AgentModelTier.Normal,
             ResolvedModelName: task.Model,
             OmitModelFlag: task.Model is null,
-            ExistingWorktreeRunId: workdir.SessionRunId);
+            ExistingWorktreeRunId: workdir.SessionRunId,
+            // RF-005 automations: whitelisted pass-through argv (--add-dir …).
+            ExtraArgs: task.ExtraArgs);
 
         if (!await _orchestration.EnqueueAsync(request, ct).ConfigureAwait(false))
         {

@@ -2028,6 +2028,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(4096)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ExtraArgsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FanoutGroupId")
                         .HasMaxLength(96)
                         .HasColumnType("TEXT");

@@ -143,6 +143,8 @@ public static class AgentFeedDefaults
         AgentFeedKind.Attention or AgentFeedKind.Question
             or AgentFeedKind.QuotaWarning or AgentFeedKind.QuotaExhausted =>
             new(true, true, true),
+        // SPEC-20261021-agent-automations RF-008: automations badge + job sound.
+        AgentFeedKind.AutomationRun => new(true, true, true),
         AgentFeedKind.Completion or AgentFeedKind.Failure => new(true, false, true),
         _ => new(false, false, true),
     };

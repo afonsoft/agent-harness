@@ -69,6 +69,47 @@ public class AutomationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
     }
 
     [Fact]
+    public async Task Dado_ExtraArgsProibidos_Quando_Create_Entao_Retorna400InvalidExtraArgs()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/automations", new
+        {
+            name = "bad-args",
+            prompt = "x",
+            agentCli = "claude",
+            target = "repo:demo",
+            schedule = "daily",
+            extraAgentArgs = "--permission-mode dangerous",
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body!["error"]!.ToString().ShouldBe("invalid_extra_args");
+    }
+
+    [Fact]
+    public async Task Dado_ExtraArgsValidos_Quando_Create_Entao_Persiste()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsJsonAsync("/api/automations", new
+        {
+            name = "with-model",
+            prompt = "x",
+            agentCli = "claude",
+            target = "repo:demo",
+            schedule = "daily",
+            extraAgentArgs = "--model opus --add-dir /tmp/x",
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<JsonObject>();
+        body!["extraAgentArgs"]!.ToString().ShouldBe("--model opus --add-dir /tmp/x");
+        body["reuseSession"]!.GetValue<bool>().ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Dado_Automation_Quando_RunWorktreeInexistente_Entao_RunSkipped()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

@@ -30,4 +30,10 @@ public sealed record AgentExecutionRequest(
     /// that session instead of worktree-ing it again — otherwise agent writes
     /// strand in a second run worktree and compare/promote diff an empty tree.
     /// </summary>
-    string? ExistingWorktreeRunId = null);
+    string? ExistingWorktreeRunId = null,
+    /// <summary>
+    /// SPEC-20261021-agent-automations RF-005: whitelisted pass-through argv
+    /// (automation <c>ExtraAgentArgs --add-dir</c> pairs) appended verbatim
+    /// before the prompt — never built from unvalidated input.
+    /// </summary>
+    IReadOnlyList<string>? ExtraArgs = null);

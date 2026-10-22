@@ -1,11 +1,14 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.Domain.Entities.Automation;
+using Taskboard.Harness;
 using Taskboard.Integrations.Chat.Tools.Delegation;
 using Taskboard.Integrations.Execution;
 using Taskboard.Repositories;
@@ -32,6 +35,8 @@ public sealed class AutomationRunner : IAutomationRunner
     private readonly IProcessRunner _processes;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AutomationRunner> _logger;
+    private readonly IAgentLaunchResolver? _launchResolver;
+    private readonly IAgentFeedService? _feed;
     private readonly TimeProvider _clock;
 
     public AutomationRunner(
@@ -42,6 +47,8 @@ public sealed class AutomationRunner : IAutomationRunner
         IConfiguration configuration,
         ILogger<AutomationRunner> logger,
         IWorkspaceIsolationService? isolation = null,
+        IAgentLaunchResolver? launchResolver = null,
+        IAgentFeedService? feed = null,
         TimeProvider? clock = null)
     {
         _automations = automations;
@@ -51,6 +58,8 @@ public sealed class AutomationRunner : IAutomationRunner
         _configuration = configuration;
         _logger = logger;
         _isolation = isolation;
+        _launchResolver = launchResolver;
+        _feed = feed;
         _clock = clock ?? TimeProvider.System;
     }
 
@@ -73,6 +82,7 @@ public sealed class AutomationRunner : IAutomationRunner
             {
                 run = AgentAutomationRun.Skipped(run.Id, auto.Id, firedAt, targetError);
                 await PersistAsync(run, auto, firedAt, ct).ConfigureAwait(false);
+                await EmitFeedAsync(auto, run, ct).ConfigureAwait(false);
                 return ToDto(run);
             }
 
@@ -89,8 +99,55 @@ public sealed class AutomationRunner : IAutomationRunner
                         run.Id, auto.Id, firedAt,
                         $"precheck exit {pre.ExitCode}{(pre.TimedOut ? " (timeout)" : "")}");
                     await PersistAsync(run, auto, firedAt, ct).ConfigureAwait(false);
+                    await EmitFeedAsync(auto, run, ct).ConfigureAwait(false);
                     return ToDto(run);
                 }
+            }
+
+            // RF-005 — whitelisted extras: model/effort → launch prefs,
+            // --add-dir pairs → verbatim argv pass-through.
+            string? model = null, effort = null;
+            IReadOnlyList<string> passthrough = [];
+            if (!string.IsNullOrWhiteSpace(auto.ExtraAgentArgs))
+            {
+                var parsed = AgentExtraArgs.Parse(auto.ExtraAgentArgs, auto.AgentCli);
+                if (parsed.Error is { } argError)
+                {
+                    run = AgentAutomationRun.Skipped(run.Id, auto.Id, firedAt, argError);
+                    await PersistAsync(run, auto, firedAt, ct).ConfigureAwait(false);
+                    await EmitFeedAsync(auto, run, ct).ConfigureAwait(false);
+                    return ToDto(run);
+                }
+                model = parsed.Model;
+                effort = parsed.Effort;
+                passthrough = AgentExtraArgs.PassthroughArgv(parsed);
+            }
+
+            if (_launchResolver is not null && (model is not null || effort is not null))
+            {
+                try
+                {
+                    var launch = await _launchResolver
+                        .ResolveLaunchAsync(auto.AgentCli, model, effort, ct).ConfigureAwait(false);
+                    model = launch.EffectiveModel;
+                    effort = launch.EffectiveEffort;
+                }
+                catch (DomainException ex)
+                {
+                    run = AgentAutomationRun.Skipped(run.Id, auto.Id, firedAt, ex.Message);
+                    await PersistAsync(run, auto, firedAt, ct).ConfigureAwait(false);
+                    await EmitFeedAsync(auto, run, ct).ConfigureAwait(false);
+                    return ToDto(run);
+                }
+            }
+
+            // RF-003.2 — ReuseSession: the last succeeded run's live worktree
+            // session is rebound instead of provisioning a fresh one — the
+            // worker lands on the same checkout/branch and sees prior work.
+            WorktreeSessionDto? reused = null;
+            if (auto.ReuseSession && resolution.UseWorktree)
+            {
+                reused = await FindReusableSessionAsync(auto, ct).ConfigureAwait(false);
             }
 
             var scope = $"automation:{auto.Id.Value}";
@@ -99,19 +156,33 @@ public sealed class AutomationRunner : IAutomationRunner
                     auto.Prompt,
                     auto.AgentCli,
                     scope,
-                    resolution.WorkspacePath,
+                    reused?.Path ?? resolution.WorkspacePath,
                     DependsOn: null,
                     RetryOf: null,
                     FanoutGroupId: null,
-                    UseWorktree: resolution.UseWorktree,
-                    RepositoryPath: resolution.RepositoryPath,
+                    UseWorktree: resolution.UseWorktree && reused is null,
+                    RepositoryPath: reused?.RepositoryPath ?? resolution.RepositoryPath,
                     BaseCommitSha: null,
                     Kind: "automation",
-                    RunId: null),
+                    RunId: null,
+                    Model: model,
+                    Effort: effort,
+                    ExtraArgs: passthrough),
                 ct).ConfigureAwait(false);
 
             string? sessionRunId = null;
-            if (resolution.UseWorktree && resolution.RepositoryPath is { } repoPath)
+            if (reused is not null)
+            {
+                var attached = await _delegation.AttachWorktreeAsync(
+                    task.Id, reused.RunId, reused.SharedPathsApplied,
+                    reused.SetupState, reused.SetupLogTail, ct).ConfigureAwait(false);
+                if (attached is not null)
+                {
+                    task = attached;
+                }
+                sessionRunId = reused.RunId;
+            }
+            else if (resolution.UseWorktree && resolution.RepositoryPath is { } repoPath)
             {
                 var provision = await DelegationToolSupport.ProvisionAndAttachAsync(
                     _isolation, _delegation, task, repoPath,
@@ -123,6 +194,7 @@ public sealed class AutomationRunner : IAutomationRunner
                     run.Bind(task.Id, null);
                     run.Finish(false, UtcNow, skipReason: provision.Error);
                     await PersistAsync(run, auto, firedAt, ct).ConfigureAwait(false);
+                    await EmitFeedAsync(auto, run, ct).ConfigureAwait(false);
                     return ToDto(run);
                 }
             }
@@ -130,7 +202,9 @@ public sealed class AutomationRunner : IAutomationRunner
             run.Bind(task.Id, sessionRunId);
             await PersistAsync(run, auto, firedAt, ct).ConfigureAwait(false);
             _logger.LogInformation(
-                "automation {Name} ({Id}) fired → task {TaskId}", auto.Name, auto.Id.Value, task.Id);
+                "automation {Name} ({Id}) fired → task {TaskId}{Reuse}",
+                auto.Name, auto.Id.Value, task.Id, reused is not null ? " (reused session)" : "");
+            await EmitFeedAsync(auto, run, ct).ConfigureAwait(false);
             return ToDto(run);
         }
         catch (OperationCanceledException)
@@ -161,6 +235,76 @@ public sealed class AutomationRunner : IAutomationRunner
         auto.MarkFired(firedAt, RecomputeNext(auto, firedAt));
         await _automations.UpdateAsync(auto, ct).ConfigureAwait(false);
         await _automations.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// RF-003.2 reuse lookup: the newest <c>succeeded</c> run bound to a
+    /// worktree session that is still <c>Active</c> on disk. Returns null on
+    /// any miss — the caller then provisions a fresh session.
+    /// </summary>
+    private async Task<WorktreeSessionDto?> FindReusableSessionAsync(
+        AgentAutomation auto, CancellationToken ct)
+    {
+        if (_isolation is null)
+        {
+            return null;
+        }
+
+        var lastRun = await _runs.Query
+            .Where(r => r.AutomationId == auto.Id
+                && r.SessionId != null
+                && r.Outcome == AutomationRunOutcomes.Succeeded)
+            .OrderByDescending(r => r.FiredAtUtc)
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+        if (lastRun?.SessionId is not { } sessionId)
+        {
+            return null;
+        }
+
+        var session = await _isolation.GetAsync(sessionId, ct).ConfigureAwait(false);
+        return session is not null
+            && string.Equals(session.Status, nameof(WorktreeStatus.Active), StringComparison.OrdinalIgnoreCase)
+            && Directory.Exists(session.Path)
+            ? session
+            : null;
+    }
+
+    /// <summary>
+    /// RF-008 feed emission — <c>AutomationRun</c> item on every fired and
+    /// skipped run; failures surface through the run close pass instead.
+    /// Feed errors never break the fire path.
+    /// </summary>
+    private async Task EmitFeedAsync(AgentAutomation auto, AgentAutomationRun run, CancellationToken ct)
+    {
+        if (_feed is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var skipped = run.Outcome == AutomationRunOutcomes.Skipped;
+            await _feed.ProduceAsync(
+                new FeedItemRequest(
+                    AgentFeedKind.AutomationRun,
+                    skipped
+                        ? $"automation '{auto.Name}' skipped"
+                        : $"automation '{auto.Name}' fired",
+                    run.SkipReason,
+                    $"/automations/{auto.Id.Value}",
+                    run.SessionId,
+                    auto.AgentCli,
+                    null,
+                    skipped,
+                    auto.CreatedBy ?? "local",
+                    run.FiredAtUtc),
+                ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "automation feed emit failed for {Id}", auto.Id.Value);
+        }
     }
 
     /// <summary>Next cron fire after <paramref name="fromUtc"/> — null for one-shot rows.</summary>

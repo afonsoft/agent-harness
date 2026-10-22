@@ -38,4 +38,7 @@ public enum AgentFeedKind
 
     /// <summary>Provider quota window crossed 100% — switch CLI suggested (SPEC provider-quota-usage RF-007).</summary>
     QuotaExhausted,
+
+    /// <summary>Scheduled automation fired or skipped (SPEC-20261021-agent-automations RF-008).</summary>
+    AutomationRun,
 }
