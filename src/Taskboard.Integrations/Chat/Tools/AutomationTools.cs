@@ -69,7 +69,11 @@ public sealed class AutomationCreateTool(IServiceScopeFactory scopeFactory) : IC
                 cancellationToken).ConfigureAwait(false);
             return DelegationToolSupport.Ok(new
             {
-                dto.Id, dto.Name, dto.ScheduleKind, dto.CronExpression, dto.NextFireAtUtc
+                dto.Id,
+                dto.Name,
+                dto.ScheduleKind,
+                dto.CronExpression,
+                dto.NextFireAtUtc
             });
         }
         catch (DomainException ex)
@@ -107,8 +111,14 @@ public sealed class AutomationListTool(IServiceScopeFactory scopeFactory) : ICha
         {
             automations = rows.Select(a => new
             {
-                a.Id, a.Name, a.AgentCli, a.Target, a.ScheduleKind,
-                a.CronExpression, a.NextFireAtUtc, a.Enabled
+                a.Id,
+                a.Name,
+                a.AgentCli,
+                a.Target,
+                a.ScheduleKind,
+                a.CronExpression,
+                a.NextFireAtUtc,
+                a.Enabled
             })
         });
     }
@@ -144,7 +154,11 @@ public sealed class AutomationRunTool(IServiceScopeFactory scopeFactory) : IChat
             ? DelegationToolSupport.Error($"automation '{id}' not found", "not found")
             : DelegationToolSupport.Ok(new
             {
-                run.Id, run.Outcome, run.TaskId, run.SessionId, run.SkipReason
+                run.Id,
+                run.Outcome,
+                run.TaskId,
+                run.SessionId,
+                run.SkipReason
             });
     }
 }
