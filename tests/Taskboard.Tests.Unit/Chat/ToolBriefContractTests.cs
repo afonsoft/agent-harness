@@ -39,4 +39,24 @@ public sealed class ToolBriefContractTests
         prompt.ShouldContain("spec_ref");
         prompt.ShouldContain("\"ac\"");
     }
+
+    [Fact]
+    public void Dado_DelegacaoHabilitada_Quando_OrchestrationSection_Entao_ContemRotasSDD()
+    {
+        // AC-07: com ferramentas de delegação, o system prompt ganha o bloco.
+        var section = Taskboard.Application.Chat.ChatService.OrchestrationSection(hasDelegationTools: true);
+
+        section.ShouldContain("SDD orchestration");
+        section.ShouldContain("write-specs");
+        section.ShouldContain("gap-analysis");
+        section.ShouldContain("self-contained brief");
+    }
+
+    [Fact]
+    public void Dado_DelegacaoDesabilitada_Quando_OrchestrationSection_Entao_Vazia()
+    {
+        // AC-07: sem ferramentas de delegação, o bloco não aparece.
+        Taskboard.Application.Chat.ChatService.OrchestrationSection(hasDelegationTools: false)
+            .ShouldBeEmpty();
+    }
 }

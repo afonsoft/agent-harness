@@ -3273,6 +3273,10 @@ public sealed class ChatService(
         var planSection = planMode == ChatPlanModes.On
             ? $"\n{ChatPlanMode.Section(configuration)}"
             : string.Empty;
+        // RF-005 sdd-worker-brief: when delegation tools are live the chat acts
+        // as an SDD orchestrator — route by phase, mirror the tier rules and
+        // require self-contained briefs before delegating.
+        var orchestrationSection = OrchestrationSection(toolSet.ContainsKey("delegate_task"));
         return $"""
             You are the Harness Chat assistant running on the operator's host server, acting
             as an autonomous agent with real tool access.
@@ -3285,9 +3289,16 @@ public sealed class ChatService(
             — tool results come back to you so you can report the real outcome. Chain tool
             calls when a task needs several steps. Prefer tools over answering from memory;
             keep answers concise and use markdown.
-            {skillCatalog}{planSection}
+            {skillCatalog}{planSection}{orchestrationSection}
             """;
     }
+
+    /// <summary>RF-005 sdd-worker-brief: SDD routing block for the chat system
+    /// prompt — present only when delegation tools are enabled (AC-07).</summary>
+    internal static string OrchestrationSection(bool hasDelegationTools) =>
+        hasDelegationTools
+            ? "\nSDD orchestration: new feature -> use_skill write-specs (approve the spec) -> delegate_task; bug -> diagnose then delegate the fix; audit -> use_skill gap-analysis. Autonomy tiers: T1 act now, T2 act then report, T3 (push/publish/delete/secrets/production) ask the user first. Never delegate a task you cannot describe as a self-contained brief (goal + spec ref + acceptance + report format)."
+            : string.Empty;
 
     /// <summary>
     /// SPEC-20261001-chat-skills-slash-commands FR-002: enabled skills announced
