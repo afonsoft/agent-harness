@@ -95,6 +95,16 @@ public sealed class EfCoreWorktreeSessionRepository : IWorktreeSessionRepository
         return ToDto(entity);
     }
 
+    /// <inheritdoc />
+    public async Task<WorktreeSessionDto> SetSetupAsync(
+        string runId, string? state, string? logTail, CancellationToken cancellationToken = default)
+    {
+        var entity = await RequireAsync(runId, cancellationToken).ConfigureAwait(false);
+        entity.SetSetup(state, logTail);
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
     private Task<WorktreeSession?> FindAsync(string runId, CancellationToken cancellationToken)
         => _context.WorktreeSessions.FirstOrDefaultAsync(s => s.RunId == runId, cancellationToken);
 

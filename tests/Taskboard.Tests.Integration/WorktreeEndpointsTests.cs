@@ -285,6 +285,57 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         }
     }
 
+    // ---------- SPEC-20261021-worktree-setup-scripts P3 ----------
+
+    [Fact]
+    public async Task Dado_SetupDeclarado_Quando_SetupRerun_Entao_EstadoESessaoAtualizados()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client, """
+            setup:
+              - echo rerun-marker > .rerun-count
+            """);
+        var session = (await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}"))!;
+        var marker = Path.Join(session.Path, ".rerun-count");
+
+        var response = await client.PostAsync(
+            $"/api/harness/worktrees/{runId}/setup:rerun", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await File.ReadAllTextAsync(marker)).ShouldContain("rerun-marker");
+        var updated = (await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}"))!;
+        updated.SetupState.ShouldBe(WorktreeSetupStates.Ok);
+        updated.SetupLogTail!.ShouldContain("rerun-marker");
+        var card = (await client.GetFromJsonAsync<WorktreeCardDto>(
+            $"/api/harness/worktrees/card?worktreePath={Uri.EscapeDataString(session.Path)}"))!;
+        card.SetupState.ShouldBe(WorktreeSetupStates.Ok);
+    }
+
+    [Fact]
+    public async Task Dado_SemSetup_Quando_SetupRerun_Entao_400()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client);
+
+        var response = await client.PostAsync(
+            $"/api/harness/worktrees/{runId}/setup:rerun", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Dado_RunInexistente_Quando_SetupRerun_Entao_404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.PostAsync(
+            "/api/harness/worktrees/run_fantasma/setup:rerun", content: null);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
     private HubConnection CriarHubConnection() =>
         new HubConnectionBuilder()
             .WithUrl("http://localhost/terminal-hub", options =>

@@ -23,4 +23,9 @@ public interface IWorktreeSessionRepository
     Task<WorktreeSessionDto> RecordCommitAsync(string runId, string commitSha, CancellationToken cancellationToken = default);
 
     Task<WorktreeSessionDto> SetStatusAsync(string runId, WorktreeStatus status, CancellationToken cancellationToken = default);
+
+    /// <summary>SPEC-20261021-worktree-setup-scripts P3: overwrite the
+    /// setup lifecycle fields after a manual rerun.</summary>
+    Task<WorktreeSessionDto> SetSetupAsync(
+        string runId, string? state, string? logTail, CancellationToken cancellationToken = default);
 }

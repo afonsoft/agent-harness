@@ -6,6 +6,7 @@ using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.GitHub;
+using Taskboard.Harness;
 using Taskboard.Integrations.Chat.Tools.Delegation;
 using static Taskboard.Integrations.Chat.Tools.Board.BoardToolSupport;
 
@@ -68,17 +69,11 @@ public sealed class BoardDelegateIssueTool(
                 cli = "opencode";
             }
 
-            var prompt = ReadString(arguments, "prompt");
-            if (string.IsNullOrWhiteSpace(prompt))
-            {
-                prompt = $"GitHub issue {repo}#{issue.Number}: {issue.Title}\n\n"
-                    + (string.IsNullOrWhiteSpace(issue.Body) ? "(no body)" : issue.Body);
-            }
-
             await using var scope = scopeFactory.CreateAsyncScope();
             var provisioning = scope.ServiceProvider.GetRequiredService<IRepositoryProvisioningService>();
             var delegation = scope.ServiceProvider.GetRequiredService<IDelegationService>();
             var isolation = scope.ServiceProvider.GetRequiredService<IWorkspaceIsolationService>();
+            var yamlReader = scope.ServiceProvider.GetService<IWorktreeYamlReader>();
 
             RepositoryCloneResult clone;
             try
@@ -88,6 +83,24 @@ public sealed class BoardDelegateIssueTool(
             catch (DomainException ex)
             {
                 return Error(ex.Message, "clone-failed");
+            }
+
+            // SPEC-20261021-worktree-setup-scripts RF-007: an explicit prompt
+            // always wins; otherwise the repo's `issueCommand:` template (or
+            // its config mirror) builds the instructions; fallback = the
+            // classic "issue title + body" prompt.
+            var prompt = ReadString(arguments, "prompt");
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                var template = yamlReader?.EffectiveIssueCommand(
+                    yamlReader.Read(clone.Path));
+                prompt = template is null
+                    ? null
+                    : IssueCommandTemplate.Render(
+                        template, repo ?? string.Empty, issue.Number, issue.Title,
+                        issue.Body, issue.HtmlUrl);
+                prompt ??= $"GitHub issue {repo}#{issue.Number}: {issue.Title}\n\n"
+                    + (string.IsNullOrWhiteSpace(issue.Body) ? "(no body)" : issue.Body);
             }
 
             var task = await delegation.CreateTaskAsync(
