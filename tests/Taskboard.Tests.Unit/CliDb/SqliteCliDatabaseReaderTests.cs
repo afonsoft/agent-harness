@@ -172,9 +172,69 @@ public class SqliteCliDatabaseReaderTests : IDisposable
     public async Task Dado_ArquivoAcimaDoCap_Quando_Abrir_Entao_ErroSemAbrir()
     {
         var path = CriarDb("x.db");
-        var reader = CriarReader(new CliDbReadOptions(MaxFileSizeBytes: 10));
+        var reader = CriarReader(new CliDbReadOptions(MaxInPlaceFileSizeBytes: 10));
 
         await Should.ThrowAsync<CliDbReadException>(() => reader.OpenAsync(Fonte(), path));
+    }
+
+    // SPEC-20261020-clidb-large-db-resilience RF-001/RF-002: files above the
+    // copy cap (but under the in-place ceiling) open read-only in place —
+    // never copied.
+    [Fact]
+    public async Task Dado_ArquivoAcimaDoCopyCap_Quando_Abrir_Entao_LeInPlaceSemCopiar()
+    {
+        var path = CriarDb("big.db");
+        string? copied = null;
+        var reader = new SqliteCliDatabaseReader(
+            _home, NullLogger<SqliteCliDatabaseReader>.Instance,
+            new CliDbReadOptions(MaxCopyFileSizeBytes: 1, MaxInPlaceFileSizeBytes: 1L << 40),
+            onTempCopy: d => copied = d);
+
+        await using var conn = await reader.OpenAsync(Fonte(), path);
+
+        conn.CopiedToTemp.ShouldBeFalse();
+        conn.ReadStaleSnapshot.ShouldBeFalse();
+        copied.ShouldBeNull("nada deve ser copiado acima do copy cap");
+        (await conn.QueryAsync("sessions", ["id"], r => r.GetString("id")))
+            .ShouldContain("s1");
+    }
+
+    // RF-001: per-source overrides win over the global options.
+    [Fact]
+    public async Task Dado_SourceComCapProprio_Quando_Abrir_Entao_RespeitaOverride()
+    {
+        var path = CriarDb("src-cap.db");
+        var reader = CriarReader(new CliDbReadOptions());
+        var source = new CliDbSource(
+            "override", "src-cap.db", ["sessions"], [],
+            MaxInPlaceFileSizeBytes: 10);
+
+        await Should.ThrowAsync<CliDbReadException>(() => reader.OpenAsync(source, path));
+    }
+
+    // RF-002/RF-004: a WAL-mode file above the copy cap whose -shm sidecar
+    // cannot be opened falls back to immutable=1 and reports ReadStaleSnapshot.
+    // On Linux the -shm is accessible, so the direct open succeeds — assert the
+    // in-place (non-copy) path and status instead.
+    [Fact]
+    public async Task Dado_WalAcimaDoCopyCap_Quando_Abrir_Entao_InPlaceSemCopy()
+    {
+        var path = CriarDb("walbig.db");
+        // Simulate a live WAL: journal_mode=wal leaves -wal/-shm while the db
+        // is still writable — create an empty -wal sidecar file.
+        await File.WriteAllBytesAsync(path + "-wal", [0]);
+        string? copied = null;
+        var reader = new SqliteCliDatabaseReader(
+            _home, NullLogger<SqliteCliDatabaseReader>.Instance,
+            new CliDbReadOptions(MaxCopyFileSizeBytes: 1, MaxInPlaceFileSizeBytes: 1L << 40),
+            onTempCopy: d => copied = d);
+
+        await using var conn = await reader.OpenAsync(Fonte(), path);
+
+        conn.CopiedToTemp.ShouldBeFalse();
+        copied.ShouldBeNull();
+        (await conn.QueryAsync("sessions", ["id"], r => r.GetString("id")))
+            .ShouldContain("s1");
     }
 
     [Fact]

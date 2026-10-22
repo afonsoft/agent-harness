@@ -27,6 +27,13 @@ public interface ICliDbConnection : IAsyncDisposable
     bool CopiedToTemp { get; }
 
     /// <summary>
+    /// SPEC-20261020-clidb-large-db-resilience RF-002: true when the
+    /// connection opened via the <c>immutable=1</c> fallback — a static
+    /// committed snapshot that can lag the live database by the WAL tail.
+    /// </summary>
+    bool ReadStaleSnapshot { get; }
+
+    /// <summary>
     /// Runs a structured SELECT against a whitelisted table. The implementation
     /// builds the SQL — <paramref name="table"/> and <paramref name="columns"/>
     /// must be strict identifiers, denied tables are rejected before execution,

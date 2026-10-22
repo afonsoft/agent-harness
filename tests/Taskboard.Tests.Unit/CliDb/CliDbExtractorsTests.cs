@@ -1,7 +1,9 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.CliDb;
 using Taskboard.Dtos;
 using Taskboard.Integrations.CliDb;
 using Taskboard.Integrations.CliDb.Extractors;
@@ -381,6 +383,91 @@ public class CliDbExtractorsTests : IDisposable
         result.Status.ShouldBe(CliDbSourceStatus.SchemaDrifted);
         result.Sessions.ShouldBeEmpty();
     }
+
+    // SPEC-20261020-clidb-large-db-resilience RF-003: a mesma falha repetida
+    // loga Warn+stack só na primeira ocorrência por boot; repetições → Debug.
+    [Fact]
+    public async Task Dado_FalhaRepetida_Quando_Extrair3Ciclos_Entao_1Warn2Debug()
+    {
+        var path = Path.Combine(_home, ".local/share/devin/cli/sessions.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllBytesAsync(path, "not-a-sqlite"u8.ToArray());
+        var logger = new ListLogger<DevinCliDbExtractor>();
+        var extractor = new DevinCliDbExtractor(Locator(), Reader(), logger);
+
+        for (var i = 0; i < 3; i++)
+        {
+            await extractor.ExtractSinceAsync(null);
+        }
+
+        logger.Entries.Count(e => e.Level == LogLevel.Warning).ShouldBe(1);
+        logger.Entries.Count(e => e.Level == LogLevel.Debug).ShouldBe(2);
+    }
+
+    // RF-004: a conexão em fallback immutable=1 propaga ReadStale no status
+    // agregado e deixa motivo visível.
+    [Fact]
+    public async Task Dado_ConnStaleSnapshot_Quando_Extrair_Entao_StatusReadStale()
+    {
+        CriarDb(".local/share/devin/cli/sessions.db", DevinDdl);
+        var real = new DevinCliDbExtractor(Locator(), Reader(),
+            NullLogger<DevinCliDbExtractor>.Instance);
+        var reader = new StubReader(real.ExpectedFingerprint);
+        var extractor = new DevinCliDbExtractor(Locator(), reader,
+            NullLogger<DevinCliDbExtractor>.Instance);
+
+        var result = await extractor.ExtractSinceAsync(null);
+
+        result.Status.ShouldBe(CliDbSourceStatus.ReadStale);
+        result.Reason.ShouldNotBeNull().ShouldContain("stale");
+    }
+}
+
+/// <summary>Reader fake: devolve uma conexão marcada como stale snapshot.</summary>
+internal sealed class StubReader(CliDbSchemaFingerprint fingerprint) : ICliDatabaseReader
+{
+    public Task<ICliDbConnection> OpenAsync(
+        CliDbSource source, string absolutePath, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ICliDbConnection>(new StubConn(fingerprint));
+
+    private sealed class StubConn(CliDbSchemaFingerprint fingerprint) : ICliDbConnection
+    {
+        public bool CopiedToTemp => false;
+        public bool ReadStaleSnapshot => true;
+
+        public Task<IReadOnlyList<T>> QueryAsync<T>(
+            string table, IReadOnlyList<string> columns, Func<ICliDbRow, T> map,
+            string? whereClause = null, IReadOnlyDictionary<string, object?>? parameters = null,
+            string? orderBy = null, int? rowLimit = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<T>>([]);
+
+        public Task<IReadOnlyList<T>> QueryScalarRollupAsync<T>(
+            string table, string? groupByColumn, IReadOnlyList<string> lengthColumns,
+            Func<ICliDbRow, T> map, string? whereClause = null,
+            IReadOnlyDictionary<string, object?>? parameters = null, int? rowLimit = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<T>>([]);
+
+        public Task<CliDbSchemaFingerprint> GetSchemaFingerprintAsync(
+            IReadOnlyList<string> whitelistedTables, CancellationToken cancellationToken = default) =>
+            Task.FromResult(fingerprint);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>ILogger capturante para asserções de nível.</summary>
+internal sealed class ListLogger<T> : ILogger<T>
+{
+    public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(LogLevel logLevel) => true;
+    public void Log<TState>(
+        LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }
 
 internal static class ExtractorTestHelpers

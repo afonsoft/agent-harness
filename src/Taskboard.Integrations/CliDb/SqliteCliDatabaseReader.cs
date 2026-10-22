@@ -59,14 +59,21 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
         }
 
         var length = new FileInfo(path).Length;
-        if (length > _options.MaxFileSizeBytes)
+        var maxInPlace = source.MaxInPlaceFileSizeBytes ?? _options.MaxInPlaceFileSizeBytes;
+        if (length > maxInPlace)
         {
             throw new CliDbReadException(
-                $"Database exceeds size cap ({length} > {_options.MaxFileSizeBytes} bytes): {path}");
+                $"Database exceeds size cap ({length} > {maxInPlace} bytes): {path}");
         }
 
+        // SPEC-20261020-clidb-large-db-resilience RF-001/RF-002: the copy cap
+        // only guards the temp-copy path — files above it open in place
+        // (read-only; immutable fallback on shm/WAL access failure) and are
+        // never copied.
+        var maxCopy = source.MaxCopyFileSizeBytes ?? _options.MaxCopyFileSizeBytes;
+        var canCopy = length <= maxCopy;
         var walExists = File.Exists(path + "-wal") || File.Exists(path + "-shm");
-        if (walExists)
+        if (walExists && canCopy)
         {
             return Task.FromResult(OpenCopy(source, path));
         }
@@ -79,11 +86,50 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
         }
         catch (SqliteException ex)
         {
+            if (canCopy)
+            {
+                _logger.LogInformation(
+                    ex,
+                    "Direct ro open failed for {Path} ({Code}); falling back to temp copy.",
+                    path, ex.SqliteErrorCode);
+                return Task.FromResult(OpenCopy(source, path));
+            }
+
             _logger.LogInformation(
                 ex,
-                "Direct ro open failed for {Path} ({Code}); falling back to temp copy.",
+                "Direct ro open failed for oversized {Path} ({Code}); retrying immutable=1.",
                 path, ex.SqliteErrorCode);
-            return Task.FromResult(OpenCopy(source, path));
+            return Task.FromResult(OpenImmutable(source, path));
+        }
+    }
+
+    /// <summary>
+    /// <c>immutable=1</c> URI open — static committed snapshot for oversized
+    /// WAL databases whose <c>-shm</c> cannot be accessed. Marks the
+    /// connection <see cref="ICliDbConnection.ReadStaleSnapshot"/>.
+    /// </summary>
+    private ICliDbConnection OpenImmutable(CliDbSource source, string path)
+    {
+        var uriPath = path
+            .Replace("%", "%25").Replace(" ", "%20")
+            .Replace("?", "%3F").Replace("#", "%23").Replace("&", "%26");
+        try
+        {
+            var conn = new SqliteConnection(
+                $"Data Source=file:{uriPath}?immutable=1;Pooling=false;"
+                + $"Default Timeout={(int)_options.EffectiveCommandTimeout.TotalSeconds}");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT count(*) FROM sqlite_master";
+            cmd.ExecuteScalar();
+            return new SqliteCliDbConnection(
+                conn, source, _options, copiedToTemp: false, tempDir: null,
+                readStaleSnapshot: true);
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException)
+        {
+            throw new CliDbReadException(
+                $"Failed to read oversized database in place: {path} ({ex.Message})");
         }
     }
 
@@ -157,16 +203,19 @@ public sealed class SqliteCliDatabaseReader : ICliDatabaseReader
 
         public SqliteCliDbConnection(
             SqliteConnection conn, CliDbSource source, CliDbReadOptions options,
-            bool copiedToTemp, string? tempDir)
+            bool copiedToTemp, string? tempDir, bool readStaleSnapshot = false)
         {
             _conn = conn;
             _source = source;
             _options = options;
             CopiedToTemp = copiedToTemp;
+            ReadStaleSnapshot = readStaleSnapshot;
             _tempDir = tempDir;
         }
 
         public bool CopiedToTemp { get; }
+
+        public bool ReadStaleSnapshot { get; }
 
         public async Task<IReadOnlyList<T>> QueryAsync<T>(
             string table,
