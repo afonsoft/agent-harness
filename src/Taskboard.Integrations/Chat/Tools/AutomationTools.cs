@@ -19,7 +19,7 @@ public sealed class AutomationCreateTool(IServiceScopeFactory scopeFactory) : IC
         "Create a durable scheduled prompt for an agent CLI. schedule accepts "
         + "a 5-field cron, an ISO-8601 UTC instant, or a preset "
         + "(hourly|daily|weekdays|weekly). target: repo:<name>|worktree:<path>|project:<id>. "
-        + "reuseSession rebinds the last succeeded run's worktree session; "
+        + "reuseSession rebinds the last succeeded run's worktree session; prompt must be a self-contained brief: goal + context + spec ref (SPEC-... RF/AC) + acceptance + report format. "
         + "extraAgentArgs is whitelisted (--model/--effort/--add-dir only).";
     public string ParametersJson => """
         {"type":"object","properties":{

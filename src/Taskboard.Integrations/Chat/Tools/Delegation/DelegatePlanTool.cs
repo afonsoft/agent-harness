@@ -21,7 +21,7 @@ public sealed class DelegatePlanTool(
         "Create a multi-task delegation plan in one call: each task gets a "
         + "prompt, an optional CLI and optional deps (indices of earlier tasks "
         + "in this same array it must wait for). Use when you split work into "
-        + "ordered steps with dependencies instead of one big prompt.";
+        + "ordered steps with dependencies instead of one big prompt; each prompt must be a self-contained brief: goal + context + spec ref (SPEC-... RF/AC) + acceptance + report format.";
     public string ParametersJson => """
         {"type":"object","properties":{
           "tasks":{"type":"array","description":"1-10 task specs","items":{

@@ -9,7 +9,7 @@
 | Stack | `.NET` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feat/sdd-worker-brief` |
-| Status | `Implemented (P1)` |
+| Status | `Implemented (P1+P2 parcial — workerBrief override pendente)` |
 | Origin | ADD/SDD review 2026-10-22 — afonsoft/skills (`orchestrator`, `write-specs`, `execute-specs`, `gap-analysis`) |
 
 ## 1. User Story

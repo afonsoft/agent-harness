@@ -997,6 +997,10 @@ public sealed class DelegationService : IDelegationService
             // RF-007 cli-autonomy-profiles: the worker sees its own permission
             // envelope so it can plan inside it (resolved name, not raw null).
             autonomy = task.Autonomy ?? "edit",
+            // RF-004 sdd-worker-brief: the worker brief variant follows the
+            // task kind (implement|research|review) — specPath/acRefs arrive
+            // with the task-prompt-refiner anchors.
+            taskKind = task.Kind,
             mailbox = new { addr = task.Id, send = "agent_send", check = "agent_check" },
             contract = "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive",
         });

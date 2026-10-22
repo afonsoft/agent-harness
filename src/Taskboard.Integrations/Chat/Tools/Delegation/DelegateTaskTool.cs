@@ -24,7 +24,7 @@ public sealed class DelegateTaskTool(
         "Create a delegated task for an agent CLI in the current conversation's "
         + "task DAG. Use depends_on to sequence tasks (a task only runs after "
         + "its dependencies complete) and retry_of to retry a failed/stale task. "
-        + "The dispatcher runs it asynchronously; use delegate_status to poll.";
+        + "The dispatcher runs it asynchronously; use delegate_status to poll. The prompt MUST be a self-contained brief: goal + context + spec reference (SPEC-... RF-xx/AC-xx when one exists) + acceptance criteria + report format.";
     public string ParametersJson => """
         {"type":"object","properties":{
           "prompt":{"type":"string","description":"Instructions for the agent"},

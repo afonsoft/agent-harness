@@ -476,12 +476,16 @@ public sealed class DelegationDispatcherService : BackgroundService
         }
     }
 
-    /// <summary>Wraps a coordinator goal in the strict-JSON planning preamble.</summary>
+    /// <summary>Wraps a coordinator goal in the strict-JSON planning preamble
+    /// (SPEC-20261022-sdd-worker-brief RF-004: spec-anchored decomposition).</summary>
     internal static string BuildPlannerPrompt(string goal) =>
         "You are a task coordinator. Decompose the goal below into a small set of "
-        + "delegated tasks. Reply with ONLY a JSON object (no prose, no fences) of "
-        + "the form {\"tasks\":[{\"prompt\":\"...\",\"cli\":\"<cli-name or omit>\","
-        + "\"deps\":[<indices of earlier tasks>],\"use_worktree\":false}]}. "
+        + "delegated tasks. Anchor each task to its spec when one exists: include "
+        + "spec_ref (SPEC file path) and ac (acceptance criteria refs) fields so the "
+        + "worker brief can carry them. Reply with ONLY a JSON object (no prose, no "
+        + "fences) of the form {\"tasks\":[{\"prompt\":\"...\",\"cli\":\"<cli-name or "
+        + "omit>\",\"deps\":[<indices of earlier tasks>],\"use_worktree\":false,"
+        + "\"spec_ref\":\"...\",\"ac\":\"...\"}]}. "
         + $"At most {DelegationPlanCreator.MaxTasks} tasks.\n\nGoal:\n{goal}";
 
     private sealed record WorkdirResolution(string Path, string? SessionRunId);

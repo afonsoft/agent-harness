@@ -27,7 +27,7 @@ public sealed class BoardDelegateIssueTool(
         "Delegate a board card (GitHub issue) to an agent CLI: creates a delegated task with "
         + "a git worktree (dispatcher runs it asynchronously) and moves the card to "
         + "in-progress. Use cli to pick the agent; prompt to override the default "
-        + "'issue title + body' instructions.";
+        + "'issue title + body' instructions; prompt prompt must be a self-contained brief: goal + context + spec ref (SPEC-... RF/AC) + acceptance + report format.";
     public string ParametersJson => """
         {"type":"object","properties":{
           "repository":{"type":"string","description":"GitHub repository 'owner/name'"},
