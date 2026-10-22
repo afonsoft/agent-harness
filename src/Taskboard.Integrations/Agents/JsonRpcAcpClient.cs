@@ -15,19 +15,22 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
     private readonly Taskboard.Application.Contracts.Agents.IAgentHookTokenService? _hookTokens;
     private readonly Taskboard.Application.Contracts.Agents.IAgentAttentionService? _attention;
     private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
+    private readonly Taskboard.Integrations.Execution.IProcessIsolator _isolator;
 
     public JsonRpcAcpClient(
         IEnumerable<IAgentAdapter> adapters,
         Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null,
         Taskboard.Application.Contracts.Agents.IAgentHookTokenService? hookTokens = null,
         Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null,
-        Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
+        Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
+        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null)
     {
         _adapters = adapters;
         _outputSink = outputSink;
         _hookTokens = hookTokens;
         _attention = attention;
         _configuration = configuration;
+        _isolator = isolator ?? Taskboard.Integrations.Execution.NoopProcessIsolator.Instance;
     }
 
     public async Task<AgentExecutionResult> ExecuteAsync(
@@ -69,7 +72,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         AgentHookEnv.ApplyTo(
             startInfo.Environment, _hookTokens, _configuration, sessionKey);
 
-        using var process = Process.Start(startInfo);
+        using var process = Process.Start(_isolator.Isolate(startInfo, "acp-exec"));
         if (process is null)
         {
             throw new InvalidOperationException($"Failed to start agent process '{command.ExecutablePath}'.");

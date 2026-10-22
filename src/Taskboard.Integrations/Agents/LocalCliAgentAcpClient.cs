@@ -13,17 +13,22 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
     private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
     private readonly Taskboard.Application.Contracts.Agents.IAgentHookTokenService? _hookTokens;
     private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
+    private readonly Taskboard.Integrations.Execution.IProcessIsolator _isolator;
 
     public LocalCliAgentAcpClient(
         IEnumerable<IAgentAdapter> adapters,
         Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null,
         Taskboard.Application.Contracts.Agents.IAgentHookTokenService? hookTokens = null,
-        Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
+        Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
+        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null)
     {
         _adapters = adapters;
         _outputSink = outputSink;
         _hookTokens = hookTokens;
         _configuration = configuration;
+        // SPEC-20261020-agent-process-isolation RF-003: agent runs get their
+        // own cgroup scope; noop fallback keeps spawns working.
+        _isolator = isolator ?? Taskboard.Integrations.Execution.NoopProcessIsolator.Instance;
     }
 
     public async Task<AgentExecutionResult> ExecuteAsync(
@@ -79,7 +84,7 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
         AgentHookEnv.ApplyTo(
             startInfo.Environment, _hookTokens, _configuration, sessionKey);
 
-        using var process = Process.Start(startInfo);
+        using var process = Process.Start(_isolator.Isolate(startInfo, "agent-run"));
         if (process is null)
         {
             throw new InvalidOperationException($"Failed to start agent process '{command.ExecutablePath}'.");

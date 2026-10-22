@@ -23,6 +23,15 @@ public sealed class StreamingProcessRunner : IStreamingProcessRunner
 {
     public static readonly StreamingProcessRunner Instance = new();
 
+    private readonly IProcessIsolator _isolator;
+
+    /// <param name="isolator">SPEC-20261020-agent-process-isolation RF-003:
+    /// cgroup scope for the spawned child; noop when unavailable.</param>
+    public StreamingProcessRunner(IProcessIsolator? isolator = null)
+    {
+        _isolator = isolator ?? NoopProcessIsolator.Instance;
+    }
+
     public async Task<int> RunAsync(
         string executable,
         string workingDirectory,
@@ -45,7 +54,7 @@ public sealed class StreamingProcessRunner : IStreamingProcessRunner
 
         WithoutHarnessEnv.Apply(startInfo.Environment, workingDirectory);
 
-        using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        using var process = new Process { StartInfo = _isolator.Isolate(startInfo, "stream-run"), EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) =>
         {
             if (e.Data is not null)
