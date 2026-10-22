@@ -33,8 +33,8 @@ public sealed class WorktreeStatusTool(IServiceScopeFactory scopeFactory) : ICha
     public async Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
     {
-        var runId = ReadString(arguments, "runId");
-        var worktreePath = ReadString(arguments, "worktreePath");
+        var runId = DelegationToolSupport.ReadString(arguments, "runId");
+        var worktreePath = DelegationToolSupport.ReadString(arguments, "worktreePath");
         if (string.IsNullOrWhiteSpace(runId) && string.IsNullOrWhiteSpace(worktreePath))
         {
             return DelegationToolSupport.Error(
@@ -84,9 +84,4 @@ public sealed class WorktreeStatusTool(IServiceScopeFactory scopeFactory) : ICha
                 : null,
         });
     }
-
-    private static string? ReadString(JsonElement args, string name) =>
-        args.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
-            ? el.GetString()
-            : null;
 }

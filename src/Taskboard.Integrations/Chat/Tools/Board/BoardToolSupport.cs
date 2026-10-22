@@ -113,6 +113,32 @@ internal static class BoardToolSupport
     public static ChatToolResult Ok(object payload) =>
         new(JsonSerializer.Serialize(payload));
 
+    /// <summary>
+    /// Shared issue-tool preamble: validates <c>repository</c>/<c>number</c>
+    /// and fetches the issue — the repo/number/issue triple-check every
+    /// issue-scoped tool repeated (SonarCloud dedupe).
+    /// </summary>
+    public static async Task<(string? Repo, int Number, IssueDto? Issue, ChatToolResult? Error)>
+        RequireIssueAsync(
+            IGitHubService github, JsonElement args, CancellationToken ct)
+    {
+        var repo = RepoOf(args, out var error);
+        if (error is not null)
+        {
+            return (null, 0, null, error);
+        }
+
+        if (NumberOf(args) is not { } number)
+        {
+            return (null, 0, null, Error("number is required", "missing-number"));
+        }
+
+        var issue = await github.GetIssueAsync(repo!, number, ct).ConfigureAwait(false);
+        return issue is null
+            ? (repo, number, null, Error($"issue #{number} not found", "not-found"))
+            : (repo, number, issue, null);
+    }
+
     /// <summary>Maps an issue to the compact card shape used by every tool.</summary>
     public static object CardOf(IssueDto issue) => new
     {
