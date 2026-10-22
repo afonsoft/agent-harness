@@ -994,6 +994,9 @@ public sealed class DelegationService : IDelegationService
             setup = task.SetupState is null
                 ? null
                 : new { state = task.SetupState, logTail = task.SetupLogTail },
+            // RF-007 cli-autonomy-profiles: the worker sees its own permission
+            // envelope so it can plan inside it (resolved name, not raw null).
+            autonomy = task.Autonomy ?? "edit",
             mailbox = new { addr = task.Id, send = "agent_send", check = "agent_check" },
             contract = "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive",
         });

@@ -80,6 +80,13 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// </summary>
     public string ExtraArgsJson { get; private set; } = "[]";
 
+    /// <summary>
+    /// SPEC-20261022-cli-autonomy-profiles RF-004: requested permission
+    /// envelope (<c>plan|edit|full</c>); null = resolve the configured
+    /// default at launch.
+    /// </summary>
+    public string? Autonomy { get; private set; }
+
     public DelegationTaskStatus Status { get; private set; } = DelegationTaskStatus.Pending;
     public string? ResultSummary { get; private set; }
     public string? Error { get; private set; }
@@ -122,6 +129,7 @@ public sealed class DelegationTask : AggregateRoot<string>
         string? runId = null,
         string? model = null,
         string? effort = null,
+        string? autonomy = null,
         DateTime? now = null)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -141,6 +149,14 @@ public sealed class DelegationTask : AggregateRoot<string>
                 "useWorktree requires a git repositoryPath");
         }
 
+        if (autonomy is not null
+            && !Taskboard.Agents.AgentAutonomyNames.IsValidName(autonomy.Trim().ToLowerInvariant()))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "autonomy must be plan|edit|full");
+        }
+
         return new DelegationTask($"task-{Guid.NewGuid():N}")
         {
             Scope = string.IsNullOrWhiteSpace(scope) ? "harness" : scope.Trim(),
@@ -157,6 +173,7 @@ public sealed class DelegationTask : AggregateRoot<string>
             RunId = string.IsNullOrWhiteSpace(runId) ? null : runId.Trim(),
             Model = string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
             Effort = string.IsNullOrWhiteSpace(effort) ? null : effort.Trim().ToLowerInvariant(),
+            Autonomy = string.IsNullOrWhiteSpace(autonomy) ? null : autonomy.Trim().ToLowerInvariant(),
             CreatedAt = now ?? DateTime.UtcNow,
         };
     }

@@ -31,7 +31,9 @@ public sealed record DelegationTaskDto(
     IReadOnlyList<string>? SharedPathsApplied = null,
     string? SetupState = null,
     string? SetupLogTail = null,
-    IReadOnlyList<string>? ExtraArgs = null);
+    IReadOnlyList<string>? ExtraArgs = null,
+    /// <summary>SPEC-20261022-cli-autonomy-profiles RF-004: effective level (resolved at create).</summary>
+    string? Autonomy = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
@@ -161,7 +163,9 @@ public sealed record CreateDelegationTaskRequest(
     string? RunId = null,
     string? Model = null,
     string? Effort = null,
-    IReadOnlyList<string>? ExtraArgs = null);
+    IReadOnlyList<string>? ExtraArgs = null,
+    /// <summary>SPEC-20261022-cli-autonomy-profiles: <c>plan|edit|full</c>; null = configured default.</summary>
+    string? Autonomy = null);
 
 /// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
 public sealed record LaunchResolution(

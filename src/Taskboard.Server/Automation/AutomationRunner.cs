@@ -110,7 +110,8 @@ public sealed class AutomationRunner : IAutomationRunner
             IReadOnlyList<string> passthrough = [];
             if (!string.IsNullOrWhiteSpace(auto.ExtraAgentArgs))
             {
-                var parsed = AgentExtraArgs.Parse(auto.ExtraAgentArgs, auto.AgentCli);
+                _ = AgentAutonomyNames.TryParse(auto.Autonomy, out var level);
+                var parsed = AgentExtraArgs.Parse(auto.ExtraAgentArgs, auto.AgentCli, level);
                 if (parsed.Error is { } argError)
                 {
                     run = AgentAutomationRun.Skipped(run.Id, auto.Id, firedAt, argError);
@@ -167,7 +168,8 @@ public sealed class AutomationRunner : IAutomationRunner
                     RunId: null,
                     Model: model,
                     Effort: effort,
-                    ExtraArgs: passthrough),
+                    ExtraArgs: passthrough,
+                    Autonomy: auto.Autonomy),
                 ct).ConfigureAwait(false);
 
             string? sessionRunId = null;

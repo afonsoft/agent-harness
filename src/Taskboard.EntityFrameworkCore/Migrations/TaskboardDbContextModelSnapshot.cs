@@ -792,6 +792,9 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Autonomy")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -2000,6 +2003,9 @@ namespace Taskboard.EntityFrameworkCore.Migrations
 
                     b.Property<string>("ActiveDispatchId")
                         .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Autonomy")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("BaseCommitSha")

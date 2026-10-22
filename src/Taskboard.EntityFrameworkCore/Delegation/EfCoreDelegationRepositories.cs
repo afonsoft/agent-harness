@@ -73,7 +73,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.Kind,
             request.RunId,
             request.Model,
-            request.Effort);
+            request.Effort,
+            request.Autonomy);
         entity.SetExtraArgs(request.ExtraArgs);
         _context.DelegationTasks.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -192,7 +193,7 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.Status, t.ResultSummary, t.Error,
             t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
             t.RunId, t.ActiveDispatchId, t.Model, t.Effort, t.SharedPathsApplied,
-            t.SetupState, t.SetupLogTail, t.ExtraArgs);
+            t.SetupState, t.SetupLogTail, t.ExtraArgs, t.Autonomy);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>

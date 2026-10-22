@@ -87,7 +87,8 @@ public sealed class AutomationRunnerTests : IDisposable
         string? precheck = null,
         bool reuseSession = false,
         string? extraArgs = null,
-        string cli = "claude")
+        string cli = "claude",
+        string? autonomy = null)
     {
         Directory.CreateDirectory(Path.Combine(_workspace, "demo"));
         var auto = AgentAutomation.Create(
@@ -95,7 +96,7 @@ public sealed class AutomationRunnerTests : IDisposable
             new AgentAutomationSpec(
                 "test", "do the thing", cli, target,
                 AutomationScheduleKinds.Cron, "0 9 * * *", null,
-                DateTime.UtcNow.AddHours(1), precheck, extraArgs, 60, reuseSession, null, "local"));
+                DateTime.UtcNow.AddHours(1), precheck, extraArgs, 60, reuseSession, null, autonomy, "local"));
         var repo = new EfCoreRepository<AgentAutomation>(ctx);
         await repo.AddAsync(auto);
         await repo.SaveChangesAsync();

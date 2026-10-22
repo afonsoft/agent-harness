@@ -35,7 +35,8 @@ public sealed class DelegateTaskTool(
           "repository_path":{"type":"string","description":"Git repo path (absolute or workspace-relative) — enables worktree isolation and the stale-base guard"},
           "base_branch":{"type":"string","description":"Base branch for the worktree (default: repo default)"},
           "model":{"type":"string","description":"Requested launch model — resolved against the CLI's capability"},
-          "effort":{"type":"string","description":"Requested launch effort: low|normal|high"}
+          "effort":{"type":"string","description":"Requested launch effort: low|normal|high"},
+          "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"}
         },"required":["prompt"]}
         """;
 
@@ -86,6 +87,13 @@ public sealed class DelegateTaskTool(
         var retryOf = ReadString(arguments, "retry_of");
         var model = ReadString(arguments, "model");
         var effort = ReadString(arguments, "effort");
+        var autonomy = ReadString(arguments, "autonomy");
+        if (autonomy is not null
+            && !Taskboard.Agents.AgentAutonomyNames.IsValidName(autonomy.Trim().ToLowerInvariant()))
+        {
+            return DelegationToolSupport.Error("autonomy must be plan|edit|full", "invalid autonomy");
+        }
+
         var scope = DelegationToolSupport.ScopeOf(context);
 
         // SPEC-20261020-v2 RF-008: resolve launch prefs up-front — unknown
@@ -144,7 +152,8 @@ public sealed class DelegateTaskTool(
                     prompt, cli, scope, context.WorkspacePath,
                     dependsOn.Count == 0 ? null : dependsOn,
                     retryOf, FanoutGroupId: null, useWorktree,
-                    repoPath, baseSha, Kind: null, RunId: null, model, effort),
+                    repoPath, baseSha, Kind: null, RunId: null, model, effort,
+                    ExtraArgs: null, Autonomy: autonomy),
                 cancellationToken).ConfigureAwait(false);
 
             if (useWorktree)

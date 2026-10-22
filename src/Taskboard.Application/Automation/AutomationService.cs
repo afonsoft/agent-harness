@@ -62,7 +62,7 @@ public sealed class AutomationService : IAutomationService
         }
 
         ValidateTarget(request.Target);
-        ValidateExtraArgs(request.AgentCli, request.ExtraAgentArgs);
+        ValidateExtraArgs(request.AgentCli, request.ExtraAgentArgs, request.Autonomy);
         var (kind, cron, next) = ResolveSchedule(request.Schedule, request.TimeZoneId);
         var tz = NormalizeTimeZone(request.TimeZoneId);
 
@@ -96,6 +96,7 @@ public sealed class AutomationService : IAutomationService
                 request.MissedRunGraceMinutes ?? 60,
                 request.ReuseSession,
                 request.Host,
+                request.Autonomy,
                 createdBy));
 
         await _automations.AddAsync(automation, ct).ConfigureAwait(false);
@@ -132,7 +133,9 @@ public sealed class AutomationService : IAutomationService
 
         if (request.ExtraAgentArgs is not null)
         {
-            ValidateExtraArgs(entity.AgentCli, request.ExtraAgentArgs);
+            ValidateExtraArgs(
+                entity.AgentCli, request.ExtraAgentArgs,
+                request.Autonomy ?? entity.Autonomy);
         }
 
         entity.Update(
@@ -142,7 +145,8 @@ public sealed class AutomationService : IAutomationService
             request.Precheck,
             request.ExtraAgentArgs,
             request.MissedRunGraceMinutes,
-            request.ReuseSession);
+            request.ReuseSession,
+            request.Autonomy);
 
         if (request.Schedule is not null || request.TimeZoneId is not null)
         {
@@ -273,9 +277,10 @@ public sealed class AutomationService : IAutomationService
     }
 
     /// <summary>RF-005: whitelists extra CLI flags — refused input is a domain error.</summary>
-    private static void ValidateExtraArgs(string cli, string? raw)
+    private static void ValidateExtraArgs(string cli, string? raw, string? autonomy)
     {
-        if (Taskboard.Agents.AgentExtraArgs.Parse(raw, cli).Error is { } error)
+        _ = Taskboard.Agents.AgentAutonomyNames.TryParse(autonomy, out var level);
+        if (Taskboard.Agents.AgentExtraArgs.Parse(raw, cli, level).Error is { } error)
         {
             throw new DomainException("invalid_extra_args", error);
         }
@@ -297,7 +302,7 @@ public sealed class AutomationService : IAutomationService
         a.Id.Value, a.Name, a.AgentCli, a.Target, a.ScheduleKind,
         a.CronExpression, a.TimeZoneId, a.NextFireAtUtc, a.Enabled,
         a.MissedRunGraceMinutes, a.ReuseSession, a.ExtraAgentArgs,
-        a.Precheck, a.Host ?? "local", a.CreatedBy, a.CreatedAt,
+        a.Precheck, a.Host ?? "local", a.Autonomy, a.CreatedBy, a.CreatedAt,
         a.LastFiredAtUtc, a.Version);
 
     public static AgentAutomationRunDto ToRunDto(AgentAutomationRun r) => new(

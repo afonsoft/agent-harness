@@ -43,7 +43,7 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
             executablePath,
             AgentCliInvocation.BuildArguments(
                 request.AgentType, prompt, request.ModelTier, request.ResolvedModelName,
-                request.OmitModelFlag, request.ExtraArgs),
+                request.OmitModelFlag, request.ExtraArgs, request.Autonomy),
             workingDirectory);
     }
 
