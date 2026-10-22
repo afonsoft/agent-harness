@@ -251,6 +251,48 @@ public sealed class AutomationServiceTests : IDisposable
         runs[0].AutomationId.ShouldBe(dto.Id);
     }
 
+    [Theory]
+    [InlineData("--permission-mode dangerous")]
+    [InlineData("--dangerously-skip-permissions")]
+    [InlineData("--config x=y")]
+    [InlineData("-p pwned")]
+    [InlineData("--resume abc")]
+    [InlineData("--add-dir /tmp/x")] // claude aceita, mas ReuseSession=false aqui… flag é de claude — para codex rejeita
+    public async Task Dado_ExtraArgsProibidos_Quando_CreateAsync_Entao_InvalidExtraArgs(string extraArgs)
+    {
+        await using var ctx = NewContext();
+        var svc = NewService(ctx);
+        var cli = extraArgs.Contains("add-dir") ? "codex" : "claude";
+
+        var ex = await Should.ThrowAsync<DomainException>(
+            svc.CreateAsync(ValidCreate(extraArgs: extraArgs) with { AgentCli = cli }));
+        ex.Code.ShouldBe("invalid_extra_args");
+    }
+
+    [Fact]
+    public async Task Dado_ExtraArgsValidos_Quando_CreateAsync_Entao_Persiste()
+    {
+        await using var ctx = NewContext();
+        var svc = NewService(ctx);
+
+        var dto = await svc.CreateAsync(
+            ValidCreate(extraArgs: "--model opus --effort high --add-dir /tmp/x"));
+
+        dto.ExtraAgentArgs.ShouldBe("--model opus --effort high --add-dir /tmp/x");
+    }
+
+    [Fact]
+    public async Task Dado_UpdateComArgsProibidos_Quando_UpdateAsync_Entao_InvalidExtraArgs()
+    {
+        await using var ctx = NewContext();
+        var svc = NewService(ctx);
+        var dto = await svc.CreateAsync(ValidCreate());
+
+        var ex = await Should.ThrowAsync<DomainException>(
+            svc.UpdateAsync(dto.Id, new UpdateAutomationRequest(ExtraAgentArgs: "--config x=y")));
+        ex.Code.ShouldBe("invalid_extra_args");
+    }
+
     /// <summary>Runner fake que grava uma run succeeded no mesmo arquivo SQLite.</summary>
     private sealed class FakeRunner : IAutomationRunner
     {

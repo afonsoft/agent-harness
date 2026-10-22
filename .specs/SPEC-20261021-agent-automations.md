@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/agent-automations` |
-| Status | `In Progress` — P1 Done (entities + EF + dispatcher + endpoints + precheck + missed-window + history) |
+| Status | `In Progress` — P1+P2 Done (reuse-session + extra-args whitelist + MCP/chat tools + feed `AutomationRun`) |
 | Depends on | `ChatSchedule`/`ChatScheduleService` (cron+tz+missed-fire), `delegate_task`/`CliWorktreeService`, `AgentCliKind` |
 | Reference | Orca `docs/cli/automations` (`orca automations create/edit/list/run`, `--precheck`, `--reuse-session`, `--extra-agent-args`, `--missed-run-grace-minutes`); README "Compared to Orca" gap ② |
 
@@ -133,11 +133,35 @@ flowchart LR
 
 ## 6. Open questions
 
-1. Reuse-session deve injetar via mailbox (`task-message`) ou keystroke no
-   PTY? Proposta: mailbox quando a sessão é delegation task, keystroke só
-   para PTY solta (menos confiável — P2 decide).
+1. ~~Reuse-session deve injetar via mailbox (`task-message`) ou keystroke no
+   PTY?~~ **Resolvido (P2):** nenhum dos dois — workers são one-shot (o
+   dispatch termina com a run, não há processo vivo para receber mailbox ou
+   keystroke). `ReuseSession` re-liga o `WorktreeRunId` da última run
+   `succeeded` cuja sessão segue `Active` no disco: a task nova aponta para
+   `session.Path`/`session.RepositoryPath` e recebe `AttachWorktreeAsync`
+   com a sessão existente — o worker cai no mesmo checkout/branch e vê os
+   artefatos do run anterior. Sessão ausente/removida → provisioning novo.
 2. Runs falhadas devem auto-retry? Proposta: não — `Rerun` manual + outcome
    no feed; auto-retry vira `RetryPolicy` field no P4 se pedirem.
 3. `Target=project` com multi-repo (SPEC-project-groups) — resolver para
    repo default ou exigir `repo:` explícito? Proposta: exigir explícito
    quando o projeto tiver >1 repo.
+
+## 7. Implementation notes (P2)
+
+- `AgentExtraArgs` (Domain.Shared): tokenizer com aspas + whitelist por CLI
+  (`--model`/`-m`/`--model-name`, `--effort`/`--reasoning-effort`/`--thinking`/
+  `--thinking-budget`, `--add-dir` apenas para claude/antigravity). Formas
+  `--flag v` e `--flag=v`. Tudo fora da lista → `invalid_extra_args` no save
+  (service) e `skipped` no fire (defesa em profundidade).
+- Model/effort extraídos passam por `IAgentLaunchResolver` → campos
+  `Model`/`Effort` da task (per-CLI correto, inclui custom defs via
+  `ModelFlag`); `--add-dir` vira `DelegationTask.ExtraArgsJson` →
+  `AgentExecutionRequest.ExtraArgs` → splice **antes** do prompt em
+  `AgentCliInvocation.BuildArguments` (args após o prompt seriam engolidos
+  como texto em `codex exec`/`kimi -p`).
+- Tools `automation_create|list|run` (capability `agent:automation`,
+  confirmação em create/run) registradas no catálogo de chat tools.
+- Feed `AgentFeedKind.AutomationRun` (badge `Info`, som `job`) emitido em
+  fire/skip — no runner (fire/precheck/args/provision) e no dispatcher
+  (missed_window). Emit é best-effort: falha de feed nunca quebra o fire.

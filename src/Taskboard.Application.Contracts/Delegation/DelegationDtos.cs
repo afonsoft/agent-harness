@@ -30,7 +30,8 @@ public sealed record DelegationTaskDto(
     string? Effort = null,
     IReadOnlyList<string>? SharedPathsApplied = null,
     string? SetupState = null,
-    string? SetupLogTail = null);
+    string? SetupLogTail = null,
+    IReadOnlyList<string>? ExtraArgs = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
@@ -159,7 +160,8 @@ public sealed record CreateDelegationTaskRequest(
     string? Kind = null,
     string? RunId = null,
     string? Model = null,
-    string? Effort = null);
+    string? Effort = null,
+    IReadOnlyList<string>? ExtraArgs = null);
 
 /// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
 public sealed record LaunchResolution(

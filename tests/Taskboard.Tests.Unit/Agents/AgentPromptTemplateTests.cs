@@ -226,6 +226,24 @@ public class AgentCliModelTests
         }
     }
 
+    [Theory]
+    [InlineData(AgentType.Claude)]
+    [InlineData(AgentType.Codex)]
+    [InlineData(AgentType.Kimi)]
+    public void Dado_ExtraArgs_Quando_BuildArguments_Entao_VaoAntesDoPrompt(AgentType type)
+    {
+        // SPEC-20261021-agent-automations RF-005: pass-through splice antes
+        // do prompt — trailing args seriam engolidos como texto do prompt.
+        var args = AgentCliInvocation.BuildArguments(
+            type, "P", extraArgs: ["--add-dir", "/tmp/x"]);
+
+        args.Last().ShouldBe("P");
+        var dirIndex = args.ToList().IndexOf("/tmp/x");
+        dirIndex.ShouldBeGreaterThanOrEqualTo(0);
+        dirIndex.ShouldBeLessThan(args.Count - 1);
+        args[dirIndex - 1].ShouldBe("--add-dir");
+    }
+
     [Fact]
     public void Dado_ModeloResolvido_Quando_BuildArguments_Entao_ExplicitoVenceCurado()
     {

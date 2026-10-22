@@ -62,6 +62,7 @@ public sealed class AutomationService : IAutomationService
         }
 
         ValidateTarget(request.Target);
+        ValidateExtraArgs(request.AgentCli, request.ExtraAgentArgs);
         var (kind, cron, next) = ResolveSchedule(request.Schedule, request.TimeZoneId);
         var tz = NormalizeTimeZone(request.TimeZoneId);
 
@@ -127,6 +128,11 @@ public sealed class AutomationService : IAutomationService
         if (request.Target is not null)
         {
             ValidateTarget(request.Target);
+        }
+
+        if (request.ExtraAgentArgs is not null)
+        {
+            ValidateExtraArgs(entity.AgentCli, request.ExtraAgentArgs);
         }
 
         entity.Update(
@@ -264,6 +270,15 @@ public sealed class AutomationService : IAutomationService
     {
         _ = ResolveTimeZone(timeZoneId); // validates
         return string.IsNullOrWhiteSpace(timeZoneId) ? null : timeZoneId.Trim();
+    }
+
+    /// <summary>RF-005: whitelists extra CLI flags — refused input is a domain error.</summary>
+    private static void ValidateExtraArgs(string cli, string? raw)
+    {
+        if (Taskboard.Agents.AgentExtraArgs.Parse(raw, cli).Error is { } error)
+        {
+            throw new DomainException("invalid_extra_args", error);
+        }
     }
 
     private static void ValidateTarget(string target)

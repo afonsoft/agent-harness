@@ -750,6 +750,10 @@ void RegisterWorkspaceAndChatServices()
             new DelegateCoordinatorTool(
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<IGitCommandRunner>()),
+            // SPEC-20261021-agent-automations RF-007: scheduled agent prompts.
+            new AutomationCreateTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new AutomationListTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new AutomationRunTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateCompareTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentSendTool(sp.GetRequiredService<IServiceScopeFactory>()),
@@ -4414,9 +4418,15 @@ void MapAgentsEndpoints()
         }
         catch (DomainException ex)
         {
-            return ex.Message.Contains("limit", StringComparison.OrdinalIgnoreCase)
-                ? Results.Json(new { error = "automation_limit", detail = ex.Message }, statusCode: 409)
-                : Results.BadRequest(new { error = "invalid_automation", detail = ex.Message });
+            // RF-005: the domain code is the wire error (automation_limit,
+            // invalid_extra_args, invalid_value → invalid_automation).
+            return ex.Code == "automation_limit"
+                ? Results.Json(new { error = ex.Code, detail = ex.Message }, statusCode: 409)
+                : Results.BadRequest(new
+                {
+                    error = ex.Code == "invalid_extra_args" ? ex.Code : "invalid_automation",
+                    detail = ex.Message
+                });
         }
     });
 
@@ -4433,7 +4443,11 @@ void MapAgentsEndpoints()
         }
         catch (DomainException ex)
         {
-            return Results.BadRequest(new { error = "invalid_automation", detail = ex.Message });
+            return Results.BadRequest(new
+            {
+                error = ex.Code == "invalid_extra_args" ? ex.Code : "invalid_automation",
+                detail = ex.Message
+            });
         }
     });
 
