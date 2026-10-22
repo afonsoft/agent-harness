@@ -1,3 +1,5 @@
+using Taskboard.Harness;
+
 namespace Taskboard.Dtos;
 
 public sealed record WorktreeSessionDto(
@@ -15,4 +17,5 @@ public sealed record WorktreeSessionDto(
     long Version,
     IReadOnlyList<string>? SharedPathsApplied = null,
     string? SetupState = null,
-    string? SetupLogTail = null);
+    string? SetupLogTail = null,
+    IReadOnlyList<WorktreeYamlTab>? DefaultTabs = null);

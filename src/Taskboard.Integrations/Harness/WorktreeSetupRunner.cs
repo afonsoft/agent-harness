@@ -57,6 +57,48 @@ public sealed class WorktreeSetupRunner : IWorktreeSetupRunner
                 exitCode: null, logTail: null, cancellationToken)
             .ConfigureAwait(false);
 
+        var (state, exitCode, tail) = await RunCommandsAsync(
+            worktreePath, commands, cancellationToken).ConfigureAwait(false);
+
+        var finishedAt = DateTime.UtcNow;
+        await SetSetupAsync(
+                worktreePath, repositoryPath, state, exitCode, tail, cancellationToken)
+            .ConfigureAwait(false);
+        _logger.LogInformation(
+            "Worktree setup {State} in {Path} ({Count} command(s), exit {Exit}).",
+            state, worktreePath, commands.Count, exitCode);
+        return new WorktreeSetupResult(state, exitCode, tail, startedAt, finishedAt);
+    }
+
+    /// <inheritdoc />
+    public async Task<WorktreeSetupResult> RunArchiveAsync(
+        string repositoryPath,
+        string worktreePath,
+        IReadOnlyList<string> commands,
+        CancellationToken cancellationToken = default)
+    {
+        var startedAt = DateTime.UtcNow;
+        var (state, exitCode, tail) = await RunCommandsAsync(
+            worktreePath, commands, cancellationToken).ConfigureAwait(false);
+        if (state == WorktreeSetupStates.Failed)
+        {
+            _logger.LogWarning(
+                "Archive commands failed in {Path} (exit {Exit}) — delete proceeds anyway.",
+                worktreePath, exitCode);
+        }
+
+        return new WorktreeSetupResult(
+            state, exitCode, tail, startedAt, DateTime.UtcNow);
+    }
+
+    /// <summary>Sequential <c>bash -lc</c> core — stop on first failure,
+    /// scrubbed output, 64KB tail. Shared by setup (card lifecycle) and
+    /// archive (log-only teardown).</summary>
+    private async Task<(string State, int? ExitCode, string Tail)> RunCommandsAsync(
+        string worktreePath,
+        IReadOnlyList<string> commands,
+        CancellationToken cancellationToken)
+    {
         var log = new StringBuilder();
         var timeout = PerCommandTimeout();
         int? exitCode = null;
@@ -78,7 +120,7 @@ public sealed class WorktreeSetupRunner : IWorktreeSetupRunner
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException)
             {
-                _logger.LogWarning(ex, "Setup command failed to start: {Cmd}", command);
+                _logger.LogWarning(ex, "Worktree command failed to start: {Cmd}", command);
                 log.AppendLine(SecretScrubber.Scrub(ex.Message));
                 state = WorktreeSetupStates.Failed;
                 exitCode = -1;
@@ -98,15 +140,7 @@ public sealed class WorktreeSetupRunner : IWorktreeSetupRunner
             }
         }
 
-        var tail = Tail(log.ToString());
-        var finishedAt = DateTime.UtcNow;
-        await SetSetupAsync(
-                worktreePath, repositoryPath, state, exitCode, tail, cancellationToken)
-            .ConfigureAwait(false);
-        _logger.LogInformation(
-            "Worktree setup {State} in {Path} ({Count} command(s), exit {Exit}).",
-            state, worktreePath, commands.Count, exitCode);
-        return new WorktreeSetupResult(state, exitCode, tail, startedAt, finishedAt);
+        return (state, exitCode, Tail(log.ToString()));
     }
 
     /// <inheritdoc />

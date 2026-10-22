@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.Client;
 using Shouldly;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
@@ -169,6 +172,129 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         session!.SetupState.ShouldBeNull();
     }
 
+    // ---------- SPEC-20261021-worktree-setup-scripts P2 (RF-005/RF-006) ----------
+
+    [Fact]
+    public async Task Dado_YamlComDefaultTabs_Quando_CriaWorktree_Entao_TabsNaSession()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client, """
+            defaultTabs:
+              - name: logs
+                command: tail -f app.log
+              - name: watch
+                command: cargo watch -x test
+            """);
+
+        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}");
+
+        session!.DefaultTabs.ShouldNotBeNull();
+        session.DefaultTabs.Select(t => t.Name).ShouldBe(["logs", "watch"]);
+        session.DefaultTabs[0].Command.ShouldBe("tail -f app.log");
+    }
+
+    [Fact]
+    public async Task Dado_ArchiveNoYaml_Quando_Delete_Entao_RodaAntesDaRemocao()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var repoPath = Path.Join(_tempRoot, "repo");
+        var marker = Path.Join(repoPath, "archive-ran.txt");
+        var runId = await CriarWorktreeAsync(client, $"""
+            archive:
+              - test -f .git && echo archived > "{marker}"
+            """);
+        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}");
+
+        var response = await client.DeleteAsync($"/api/harness/worktrees/{runId}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        Directory.Exists(session!.Path).ShouldBeFalse();
+        // O marcador só existe se o comando rodou com o worktree ainda vivo.
+        (await File.ReadAllTextAsync(marker)).ShouldContain("archived");
+    }
+
+    [Fact]
+    public async Task Dado_ArchiveFalhando_Quando_Delete_Entao_RemocaoProssegue()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client, "archive: [exit 7]");
+        var session = await client.GetFromJsonAsync<WorktreeSessionDto>(
+            $"/api/harness/worktrees/{runId}");
+
+        var response = await client.DeleteAsync($"/api/harness/worktrees/{runId}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        Directory.Exists(session!.Path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Dado_TabConhecida_Quando_OpenForWorktreeTab_Entao_SessionDeterministica()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client, """
+            defaultTabs:
+              - name: echo-tab
+                command: echo tab-started
+            """);
+        await using var connection = CriarHubConnection();
+        await connection.StartAsync();
+        try
+        {
+            var sessionId = await connection.InvokeAsync<string>(
+                "OpenForWorktreeTab", runId, "echo-tab");
+
+            sessionId.ShouldStartWith("wt-");
+            sessionId.ShouldContain("echo-tab");
+
+            var replay = await connection.InvokeAsync<string>(
+                "OpenForWorktreeTab", runId, "echo-tab");
+            replay.ShouldBe(sessionId);
+
+            await connection.InvokeAsync("Close", sessionId);
+        }
+        finally
+        {
+            await client.DeleteAsync($"/api/harness/worktrees/{runId}");
+        }
+    }
+
+    [Fact]
+    public async Task Dado_TabDesconhecida_Quando_OpenForWorktreeTab_Entao_HubException()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var runId = await CriarWorktreeAsync(client, """
+            defaultTabs:
+              - name: echo-tab
+                command: echo ok
+            """);
+        await using var connection = CriarHubConnection();
+        await connection.StartAsync();
+        try
+        {
+            var ex = await Should.ThrowAsync<HubException>(() =>
+                connection.InvokeAsync<string>("OpenForWorktreeTab", runId, "ghost"));
+
+            // Segurança: o cliente nomeia a tab — nunca injeta comando.
+            ex.Message.ShouldContain("ghost");
+        }
+        finally
+        {
+            await client.DeleteAsync($"/api/harness/worktrees/{runId}");
+        }
+    }
+
+    private HubConnection CriarHubConnection() =>
+        new HubConnectionBuilder()
+            .WithUrl("http://localhost/terminal-hub", options =>
+            {
+                options.Transports = HttpTransportType.LongPolling;
+                options.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
+                options.Headers["X-Api-Key"] = TaskboardWebApplicationFactory.TestApiKey;
+            })
+            .Build();
+
     private async Task<(WorktreeSessionDto Session, WorktreeCardDto Card)>
         SessionECardAsync(HttpClient client, string yaml)
     {
@@ -223,3 +349,4 @@ public class WorktreeEndpointsTests : IClassFixture<TaskboardWebApplicationFacto
         }
     }
 }
+

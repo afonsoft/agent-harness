@@ -25,6 +25,7 @@ public sealed class TerminalHub : Hub
     private readonly WorkspaceService _workspace;
     private readonly IWorktreeSessionRepository _worktreeSessions;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IWorktreeYamlReader _yamlReader;
 
     public TerminalHub(
         IConfiguration configuration,
@@ -33,7 +34,8 @@ public sealed class TerminalHub : Hub
         IHubContext<TerminalHub> hubContext,
         WorkspaceService workspace,
         IWorktreeSessionRepository worktreeSessions,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IWorktreeYamlReader yamlReader)
     {
         _configuration = configuration;
         _logger = logger;
@@ -42,6 +44,7 @@ public sealed class TerminalHub : Hub
         _workspace = workspace;
         _worktreeSessions = worktreeSessions;
         _scopeFactory = scopeFactory;
+        _yamlReader = yamlReader;
     }
 
     public override async Task OnConnectedAsync()
@@ -99,6 +102,53 @@ public sealed class TerminalHub : Hub
         }
 
         return await OpenCoreAsync(session.Path).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// SPEC-20261021-worktree-setup-scripts RF-006: opens (or rebinds to) a
+    /// PTY running one of the worktree's <c>defaultTabs:</c> commands. The
+    /// command is resolved server-side from <c>.harness/worktree.yaml</c> —
+    /// the client names the tab, never supplies the command line. Session id
+    /// is deterministic (<c>wt-{runId}-{tabName}</c>) so a refresh reattaches.
+    /// </summary>
+    public async Task<string> OpenForWorktreeTab(string runId, string tabName)
+    {
+        var session = await _worktreeSessions.GetByRunIdAsync(runId, Context.ConnectionAborted)
+            .ConfigureAwait(false);
+        var worktreeRoot = WorktreePaths.ResolveRoot(
+            _configuration["Taskboard:WorktreeRoot"], _workspace.HomeDirectory);
+        if (session is null
+            || !Directory.Exists(session.Path)
+            || !WorktreePaths.IsUnder(worktreeRoot, session.Path))
+        {
+            throw new HubException("Run has no worktree");
+        }
+
+        var doc = _yamlReader.Read(session.RepositoryPath);
+        var tab = doc.DefaultTabs.FirstOrDefault(
+            t => string.Equals(t.Name, tabName, StringComparison.Ordinal));
+        if (tab is null)
+        {
+            throw new HubException($"No setup tab named '{tabName}'.");
+        }
+
+        return await OpenCoreAsync(
+            session.Path,
+            ["bash", "-lc", tab.Command],
+            $"wt-{SanitizeSessionPart(runId, 16)}-{SanitizeSessionPart(tab.Name, 24)}")
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Keeps a session-id segment inside the accepted charset
+    /// (<see cref="TerminalSessionManager"/> normalizes to letters, digits,
+    /// <c>-_:</c>) — a yaml tab named "logs/debug" must still produce a
+    /// deterministic id instead of degrading to a random GUID.</summary>
+    private static string SanitizeSessionPart(string value, int maxLength)
+    {
+        var chars = value[..Math.Min(maxLength, value.Length)]
+            .Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or ':' ? c : '-')
+            .ToArray();
+        return new string(chars);
     }
 
     /// <summary>

@@ -36,6 +36,16 @@
             <span class="text-truncate" style="max-width: 320px" title="@_details.Worktree.Path">
                 <Icon Name="IconName.Git" /> <code>@_details.Worktree.Branch</code>
             </span>
+            @* SPEC-20261021-worktree-setup-scripts RF-007: setup lifecycle
+               badge on the worktree chip — ok/failed/running at a glance,
+               log tail on hover. *@
+            @if (_worktreeSession?.SetupState is { Length: > 0 } setupState)
+            {
+                <span class="badge @SetupBadgeClass(setupState)"
+                      title="@(_worktreeSession.SetupLogTail is { Length: > 0 } tail ? tail : null)">
+                    setup: @setupState
+                </span>
+            }
         }
         @if (_prUrl is not null)
         {
@@ -146,6 +156,7 @@
 
     private readonly List<CockpitEventDto> _events = [];
     private RunDetailsDto? _details;
+    private WorktreeSessionDto? _worktreeSession;
     private WorkspaceDiffDto? _diff;
     private HubConnection? _hub;
     private ApprovalGateModal _approvalModal = default!;
@@ -189,9 +200,25 @@
         }
 
         _events.AddRange(await Client.GetRunEventsAsync(RunId));
+        if (_details.Worktree is not null)
+        {
+            // Setup badge + defaultTabs come from the worktree session —
+            // a session hiccup must not block the run page.
+            _worktreeSession = await Client.GetWorktreeSessionAsync(RunId);
+        }
+
         _ = JS.InvokeVoidAsync("taskboardNotify.ensurePermission");
         await ConnectHubAsync();
     }
+
+    private static string SetupBadgeClass(string setupState) => setupState switch
+    {
+        "ok" => "bg-success-subtle text-success-emphasis",
+        "failed" => "bg-danger-subtle text-danger-emphasis",
+        "running" => "bg-info-subtle text-info-emphasis",
+        "pending" => "bg-warning-subtle text-warning-emphasis",
+        _ => "bg-secondary-subtle text-secondary-emphasis",
+    };
 
     private async Task ConnectHubAsync()
     {

@@ -1535,9 +1535,9 @@ void MapHarnessEndpoints()
 
     harness.MapDelete("worktrees/{runId}", async (
         string runId,
-        bool force,
         IWorkspaceIsolationService isolation,
-        CancellationToken ct) =>
+        CancellationToken ct,
+        bool force = false) =>
     {
         await isolation.RemoveWorktreeAsync(runId, force, ct);
         return Results.NoContent();

@@ -53,6 +53,17 @@ public interface IWorktreeSetupRunner
         string repositoryPath,
         string worktreePath,
         IReadOnlyList<string> commands);
+
+    /// <summary>
+    /// Runs the <c>archive:</c> list inside the worktree before removal —
+    /// best-effort teardown: no card transitions, failures are logged and
+    /// never abort the delete (RF-005).
+    /// </summary>
+    Task<WorktreeSetupResult> RunArchiveAsync(
+        string repositoryPath,
+        string worktreePath,
+        IReadOnlyList<string> commands,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Outcome of a setup run — <see cref="WorktreeSetupStates"/> +

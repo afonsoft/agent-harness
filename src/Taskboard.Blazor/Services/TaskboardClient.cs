@@ -1284,6 +1284,17 @@ public sealed class TaskboardClient
         return result?.PrUrl;
     }
 
+    /// <summary>Sessão de worktree do run — inclui SetupState/DefaultTabs
+    /// (SPEC-20261021-worktree-setup-scripts RF-006).</summary>
+    public async Task<WorktreeSessionDto?> GetWorktreeSessionAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.GetAsync(
+            $"/api/harness/worktrees/{Uri.EscapeDataString(runId)}", cancellationToken);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<WorktreeSessionDto>(cancellationToken)
+            : null;
+    }
+
     /// <summary>Diff do worktree do run contra a branch base.</summary>
     public async Task<WorkspaceDiffDto?> GetWorktreeDiffAsync(string runId, CancellationToken cancellationToken = default) =>
         await _httpClient.GetFromJsonAsync<WorkspaceDiffDto>(
