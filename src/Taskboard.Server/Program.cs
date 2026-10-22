@@ -2781,7 +2781,7 @@ void MapSettingsAndChatEndpoints()
         IRepositoryProvisioningService provisioning,
         IWorkspaceIsolationService isolation,
         IWorktreeYamlReader yamlReader,
-        IGitCommandRunner git, CancellationToken ct) =>
+        CancellationToken ct) =>
     {
         if (string.IsNullOrWhiteSpace(request.RepositoryFullName)
             || string.IsNullOrWhiteSpace(request.Title))

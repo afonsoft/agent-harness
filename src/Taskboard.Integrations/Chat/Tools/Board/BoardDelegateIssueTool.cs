@@ -97,7 +97,7 @@ public sealed class BoardDelegateIssueTool(
                 prompt = template is null
                     ? null
                     : IssueCommandTemplate.Render(
-                        template, repo!, issue.Number, issue.Title,
+                        template, repo ?? string.Empty, issue.Number, issue.Title,
                         issue.Body, issue.HtmlUrl);
                 prompt ??= $"GitHub issue {repo}#{issue.Number}: {issue.Title}\n\n"
                     + (string.IsNullOrWhiteSpace(issue.Body) ? "(no body)" : issue.Body);
