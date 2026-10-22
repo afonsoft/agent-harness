@@ -1,34 +1,55 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
+@inject TaskboardClient Client
 @implements IAsyncDisposable
 
-@* SPEC-20260923-cockpit-run-hardening RF-006: interactive PTY rooted at the
-   run's worktree (TerminalHub.OpenForRun resolves the path server-side).
-   Reuses the same xterm.js plumbing as /terminal — a closed shell can be
-   reopened while the run is live. *@
+@* SPEC-20260923-cockpit-run-hardening RF-006 + SPEC-20261021-worktree-setup
+   -scripts RF-006: interactive PTYs rooted at the run's worktree — the
+   "shell" tab plus one chip per `defaultTabs:` entry declared in
+   .harness/worktree.yaml. Each tab lazily opens its own PTY via the hub
+   (OpenForRun / OpenForWorktreeTab resolves path+command server-side). *@
 
+@if (_tabs.Count > 1)
+{
+    <div class="btn-group btn-group-sm mb-1" role="group">
+        @foreach (var tab in _tabs)
+        {
+            <button class="btn @(tab.Name == _active ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => ActivateAsync(tab.Name)">@tab.Name</button>
+        }
+    </div>
+}
 @if (!string.IsNullOrEmpty(_error))
 {
     <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mb-1 small">
         <Icon Name="IconName.ExclamationTriangleFill" class="me-1" />@_error
         @if (_canRetry)
         {
-            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="OpenSessionAsync">Reopen</Button>
+            <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" class="ms-2" @onclick="() => OpenTabAsync(_active)">Reopen</Button>
         }
     </Alert>
 }
-<div id="@ElementId" class="terminal-host run-shell-host" @onclick="FocusAsync"></div>
+@foreach (var tab in _tabs)
+{
+    <div id="@tab.ElementId" class="terminal-host run-shell-host @(tab.Name == _active ? "" : "d-none")" @onclick="() => FocusAsync(tab)"></div>
+}
 
 @code {
     /// <summary>Pipeline execution id — the worktree is resolved server-side.</summary>
     [Parameter, EditorRequired] public string RunId { get; set; } = string.Empty;
 
-    private const string SessionKey = "run-shell";
-    private string ElementId => $"run-shell-{RunId}";
+    private sealed class TabState
+    {
+        public required string Name { get; init; }
+        public string ElementId { get; init; } = string.Empty;
+        public string? SessionId { get; set; }
+        public bool Started { get; set; }
+    }
 
     private HubConnection? _hub;
     private DotNetObjectReference<RunShell>? _selfRef;
-    private string? _sessionId;
+    private readonly List<TabState> _tabs = [];
+    private string _active = "shell";
     private string? _error;
     private bool _canRetry;
     private bool _started;
@@ -42,6 +63,32 @@
 
         _started = true;
         _selfRef = DotNetObjectReference.Create(this);
+
+        // defaultTabs arrive with the session — the shell tab always exists.
+        _tabs.Add(new TabState { Name = "shell", ElementId = $"run-shell-{RunId}" });
+        try
+        {
+            var session = await Client.GetWorktreeSessionAsync(RunId);
+            if (session?.DefaultTabs is { Count: > 0 } tabs)
+            {
+                foreach (var tab in tabs)
+                {
+                    _tabs.Add(new TabState
+                    {
+                        Name = tab.Name,
+                        ElementId = $"run-shell-{RunId}-{tab.Name}",
+                    });
+                }
+            }
+        }
+        catch
+        {
+            // Tabs are optional — a session/yaml hiccup must not kill the shell.
+        }
+
+        // Render the tab hosts before any xterm init touches their divs.
+        StateHasChanged();
+        await Task.Yield();
         await ConnectHubAsync();
     }
 
@@ -54,18 +101,22 @@
             .Build();
 
         _hub.On<string, string>("output", (sessionId, data) =>
-            sessionId == _sessionId
-                ? JS.InvokeVoidAsync("taskboardTerminal.write", ElementId, data).AsTask()
-                : Task.CompletedTask);
+        {
+            var tab = _tabs.FirstOrDefault(t => t.SessionId == sessionId);
+            return tab is not null
+                ? JS.InvokeVoidAsync("taskboardTerminal.write", tab.ElementId, data).AsTask()
+                : Task.CompletedTask;
+        });
 
         _hub.On<string, string>("closed", (sessionId, reason) =>
         {
-            if (sessionId != _sessionId)
+            var tab = _tabs.FirstOrDefault(t => t.SessionId == sessionId);
+            if (tab is null)
             {
                 return Task.CompletedTask;
             }
 
-            _sessionId = null;
+            tab.SessionId = null;
             _error = $"Session ended: {reason}";
             _canRetry = true;
             return InvokeAsync(StateHasChanged);
@@ -73,7 +124,8 @@
 
         _hub.Reconnected += async _ =>
         {
-            if (_sessionId is null)
+            var tab = _tabs.FirstOrDefault(t => t.SessionId is not null);
+            if (tab is null)
             {
                 return;
             }
@@ -81,7 +133,7 @@
             var reattached = false;
             try
             {
-                reattached = await _hub.InvokeAsync<bool>("Reattach", _sessionId);
+                reattached = await _hub.InvokeAsync<bool>("Reattach", tab.SessionId);
             }
             catch
             {
@@ -90,11 +142,11 @@
 
             if (reattached)
             {
-                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", ElementId);
+                await JS.InvokeVoidAsync("taskboardTerminal.fitNow", tab.ElementId);
             }
             else
             {
-                _sessionId = null;
+                tab.SessionId = null;
                 _error = "Connection lost — the shell was reaped.";
                 _canRetry = true;
                 await InvokeAsync(StateHasChanged);
@@ -112,23 +164,26 @@
             return;
         }
 
-        var initialized = await JS.InvokeAsync<bool>(
-            "taskboardTerminal.init", ElementId, _selfRef, SessionKey);
-        if (!initialized)
-        {
-            _error = "Terminal emulator failed to initialize.";
-            await InvokeAsync(StateHasChanged);
-            return;
-        }
-
-        await OpenSessionAsync();
+        await OpenTabAsync(_active);
     }
 
-    private async Task OpenSessionAsync()
+    private async Task ActivateAsync(string name)
     {
-        if (_hub is not { State: HubConnectionState.Connected })
+        _active = name;
+        // Un-hide the host div before xterm measures it.
+        StateHasChanged();
+        await Task.Yield();
+        await OpenTabAsync(name);
+    }
+
+    /// <summary>Lazily initializes the tab's xterm host and opens its PTY —
+    /// the first click materializes it; later clicks just show it.</summary>
+    private async Task OpenTabAsync(string name)
+    {
+        var tab = _tabs.FirstOrDefault(t => t.Name == name);
+        if (tab is null || _hub is not { State: HubConnectionState.Connected })
         {
-            _error = "No connection to the server.";
+            _error = tab is null ? _error : "No connection to the server.";
             return;
         }
 
@@ -136,8 +191,23 @@
         {
             _error = null;
             _canRetry = false;
-            _sessionId = await _hub.InvokeAsync<string>("OpenForRun", RunId);
-            await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
+            if (!tab.Started)
+            {
+                var initialized = await JS.InvokeAsync<bool>(
+                    "taskboardTerminal.init", tab.ElementId, _selfRef, tab.Name);
+                if (!initialized)
+                {
+                    _error = "Terminal emulator failed to initialize.";
+                    return;
+                }
+
+                tab.Started = true;
+            }
+
+            tab.SessionId = name == "shell"
+                ? await _hub.InvokeAsync<string>("OpenForRun", RunId)
+                : await _hub.InvokeAsync<string>("OpenForWorktreeTab", RunId, name);
+            await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
         }
         catch (Exception ex)
         {
@@ -152,24 +222,26 @@
         }
     }
 
-    private async Task FocusAsync() =>
-        await JS.InvokeVoidAsync("taskboardTerminal.focus", ElementId);
+    private async Task FocusAsync(TabState tab) =>
+        await JS.InvokeVoidAsync("taskboardTerminal.focus", tab.ElementId);
 
     [JSInvokable]
     public async Task OnTerminalData(string tabKey, string data)
     {
-        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
+        var tab = _tabs.FirstOrDefault(t => t.Name == tabKey);
+        if (tab?.SessionId is not null && _hub is { State: HubConnectionState.Connected })
         {
-            await _hub.InvokeAsync("Input", _sessionId, data);
+            await _hub.InvokeAsync("Input", tab.SessionId, data);
         }
     }
 
     [JSInvokable]
     public async Task OnTerminalResize(string tabKey, int cols, int rows)
     {
-        if (_sessionId is not null && _hub is { State: HubConnectionState.Connected })
+        var tab = _tabs.FirstOrDefault(t => t.Name == tabKey);
+        if (tab?.SessionId is not null && _hub is { State: HubConnectionState.Connected })
         {
-            await _hub.InvokeAsync("Resize", _sessionId, cols, rows);
+            await _hub.InvokeAsync("Resize", tab.SessionId, cols, rows);
         }
     }
 
@@ -179,9 +251,15 @@
         {
             try
             {
-                if (_sessionId is not null && _hub.State == HubConnectionState.Connected)
+                if (_hub.State == HubConnectionState.Connected)
                 {
-                    await _hub.InvokeAsync("Close", _sessionId);
+                    foreach (var tab in _tabs)
+                    {
+                        if (tab.SessionId is not null)
+                        {
+                            await _hub.InvokeAsync("Close", tab.SessionId);
+                        }
+                    }
                 }
                 await _hub.DisposeAsync();
             }
@@ -191,13 +269,16 @@
             }
         }
 
-        try
+        foreach (var tab in _tabs)
         {
-            await JS.InvokeVoidAsync("taskboardTerminal.dispose", ElementId);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
-        {
-            // JS interop unavailable during teardown.
+            try
+            {
+                await JS.InvokeVoidAsync("taskboardTerminal.dispose", tab.ElementId);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+            {
+                // JS interop unavailable during teardown.
+            }
         }
 
         _selfRef?.Dispose();

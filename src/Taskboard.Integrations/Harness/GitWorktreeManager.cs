@@ -106,8 +106,9 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
                 .Select(e => e.Path)
                 .ToList();
 
+        var doc = _yamlReader?.Read(repositoryPath);
         var (setupState, setupLogTail) = await RunWorktreeSetupAsync(
-            repositoryPath, path, cancellationToken).ConfigureAwait(false);
+            repositoryPath, path, doc, cancellationToken).ConfigureAwait(false);
 
         var session = await _sessions.CreateAsync(
             runId,
@@ -117,7 +118,7 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
             new WorktreeProvisionOutcome(sharedApplied, setupState, setupLogTail));
 
         _logger.LogInformation("Worktree {Path} on branch {Branch} created for run {RunId}.", path, branch, runId);
-        return session;
+        return session with { DefaultTabs = doc?.DefaultTabs };
     }
 
     /// <summary>
@@ -128,14 +129,14 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     /// background — the card keeps flipping via SignalR.
     /// </summary>
     private async Task<(string? State, string? LogTail)> RunWorktreeSetupAsync(
-        string repositoryPath, string worktreePath, CancellationToken cancellationToken)
+        string repositoryPath, string worktreePath, WorktreeYamlDoc? doc,
+        CancellationToken cancellationToken)
     {
-        if (_yamlReader is null || _setupRunner is null)
+        if (_yamlReader is null || _setupRunner is null || doc is null)
         {
             return (null, null);
         }
 
-        var doc = _yamlReader.Read(repositoryPath);
         var commands = _yamlReader.EffectiveSetupCommands(repositoryPath, doc);
         if (commands.Count == 0)
         {
@@ -156,7 +157,16 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     }
 
     public async Task<WorktreeSessionDto?> GetAsync(string runId, CancellationToken cancellationToken = default)
-        => await _sessions.GetByRunIdAsync(runId, cancellationToken);
+    {
+        var session = await _sessions.GetByRunIdAsync(runId, cancellationToken);
+        // defaultTabs come from the live yaml — not persisted on the row.
+        return session is null || _yamlReader is null
+            ? session
+            : session with
+            {
+                DefaultTabs = _yamlReader.Read(session.RepositoryPath).DefaultTabs,
+            };
+    }
 
     public async Task<WorkspaceDiffDto> GetDiffAsync(string runId, CancellationToken cancellationToken = default)
     {
@@ -338,6 +348,21 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     public async Task RemoveWorktreeAsync(string runId, bool force = false, CancellationToken cancellationToken = default)
     {
         var session = await RequireSessionAsync(runId, cancellationToken);
+
+        // SPEC-20261021-worktree-setup-scripts RF-005: `archive:` teardown
+        // commands run inside the worktree before git removes it — failures
+        // are logged and never abort the delete.
+        if (_yamlReader is not null && _setupRunner is not null
+            && Directory.Exists(session.Path))
+        {
+            var archive = _yamlReader.Read(session.RepositoryPath).Archive;
+            if (archive.Count > 0)
+            {
+                await _setupRunner.RunArchiveAsync(
+                    session.RepositoryPath, session.Path, archive, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
 
         var args = force
             ? new List<string> { WorktreePrefix, "remove", "--force", session.Path }

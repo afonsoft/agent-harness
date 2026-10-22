@@ -1,9 +1,13 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Shouldly;
 using Taskboard;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Dtos;
 using Taskboard.Harness;
+using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.Harness;
 using Xunit;
 
@@ -402,6 +406,110 @@ public class GitWorktreeManagerTests : IDisposable
 
         diff.Files.Select(f => f.Path).ShouldBe(["comitado.cs", "README.md", "solto.cs"], ignoreOrder: true);
         diff.Files.Single(f => f.Path == "solto.cs").Status.ShouldBe("Untracked");
+    }
+
+    // SPEC-20261021-worktree-setup-scripts RF-005: `archive:` roda dentro do
+    // worktree ANTES do `git worktree remove` — o marcador só é escrito se o
+    // .git-file do worktree ainda existir quando o comando executa.
+    [Fact]
+    public async Task Dado_ArchiveNoYaml_Quando_Remove_Entao_RodaAntesDoDelete()
+    {
+        var marker = Path.Combine(_repoPath, "archive-order.txt");
+        WriteWorktreeYaml(
+            $"""
+            archive:
+              - test -f .git && echo before-remove > "{marker}"
+            """);
+        var sut = CreateSetupAwareManager();
+        var dto = await sut.CreateWorktreeAsync("run_arch1", _repoPath, "main", "archive-order");
+
+        await sut.RemoveWorktreeAsync("run_arch1");
+
+        Directory.Exists(dto.Path).ShouldBeFalse();
+        (await File.ReadAllTextAsync(marker)).ShouldContain("before-remove");
+        _sessions.Items.Single(s => s.RunId == "run_arch1").Status.ShouldBe("Removed");
+    }
+
+    // RF-005: archive best-effort — comando falhando NÃO aborta a remoção.
+    [Fact]
+    public async Task Dado_ArchiveFalhando_Quando_Remove_Entao_DeleteProssegue()
+    {
+        WriteWorktreeYaml(
+            """
+            archive:
+              - exit 7
+            """);
+        var sut = CreateSetupAwareManager();
+        var dto = await sut.CreateWorktreeAsync("run_arch2", _repoPath, "main", "archive-fail");
+
+        await sut.RemoveWorktreeAsync("run_arch2");
+
+        Directory.Exists(dto.Path).ShouldBeFalse();
+        _sessions.Items.Single(s => s.RunId == "run_arch2").Status.ShouldBe("Removed");
+    }
+
+    // RF-006: `defaultTabs:` declaradas no yaml são expostas na sessão —
+    // o create retorna e o Get recarrega do yaml atual.
+    [Fact]
+    public async Task Dado_DefaultTabsNoYaml_Quando_CreateEGet_Entao_TabsNaSessao()
+    {
+        WriteWorktreeYaml(
+            """
+            defaultTabs:
+              - name: logs
+                command: tail -f app.log
+              - name: watch
+                command: cargo watch -x test
+            """);
+        var sut = CreateSetupAwareManager();
+
+        var dto = await sut.CreateWorktreeAsync("run_tabs1", _repoPath, "main", "tabs");
+
+        dto.DefaultTabs.ShouldNotBeNull();
+        dto.DefaultTabs.Select(t => t.Name).ShouldBe(["logs", "watch"]);
+        dto.DefaultTabs[0].Command.ShouldBe("tail -f app.log");
+
+        var fetched = await sut.GetAsync("run_tabs1");
+        fetched.ShouldNotBeNull();
+        fetched.DefaultTabs.ShouldNotBeNull();
+        fetched.DefaultTabs.Select(t => t.Name).ShouldBe(["logs", "watch"]);
+    }
+
+    // RF-006: sem yaml a sessão não traz tabs — a UI mostra só o shell.
+    [Fact]
+    public async Task Dado_SemYaml_Quando_CreateWorktree_Entao_DefaultTabsNull()
+    {
+        var sut = CreateSetupAwareManager();
+
+        var dto = await sut.CreateWorktreeAsync("run_tabs2", _repoPath, "main", "no-tabs");
+
+        (dto.DefaultTabs ?? []).ShouldBeEmpty();
+    }
+
+    private void WriteWorktreeYaml(string content)
+    {
+        var dir = Path.Combine(_repoPath, ".harness");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "worktree.yaml"), content);
+    }
+
+    private GitWorktreeManager CreateSetupAwareManager()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var reader = new WorktreeYamlReader(configuration);
+        var runner = new WorktreeSetupRunner(
+            new ProcessCommandRunner(),
+            configuration,
+            Substitute.For<IServiceScopeFactory>(),
+            NullLogger<WorktreeSetupRunner>.Instance);
+        return new GitWorktreeManager(
+            _git,
+            _sessions,
+            _worktreeRoot,
+            NullLogger<GitWorktreeManager>.Instance,
+            sharedPaths: null,
+            yamlReader: reader,
+            setupRunner: runner);
     }
 
     private void InitRepo(string path, string branch = "main")
