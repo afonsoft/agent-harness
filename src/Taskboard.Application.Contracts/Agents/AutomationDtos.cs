@@ -16,6 +16,8 @@ public sealed record AgentAutomationDto(
     string? ExtraAgentArgs,
     string? Precheck,
     string Host,
+    /// <summary>SPEC-20261022-cli-autonomy-profiles RF-005: run permission envelope.</summary>
+    string? Autonomy,
     string? CreatedBy,
     DateTime CreatedAt,
     DateTime? LastFiredAtUtc,
@@ -48,7 +50,8 @@ public sealed record CreateAutomationRequest(
     bool ReuseSession = false,
     string? ExtraAgentArgs = null,
     string? Precheck = null,
-    string? Host = null);
+    string? Host = null,
+    string? Autonomy = null);
 
 /// <summary>Patch update — null members keep their value.</summary>
 public sealed record UpdateAutomationRequest(
@@ -61,4 +64,5 @@ public sealed record UpdateAutomationRequest(
     bool? ReuseSession = null,
     string? ExtraAgentArgs = null,
     string? Precheck = null,
-    bool? Enabled = null);
+    bool? Enabled = null,
+    string? Autonomy = null);

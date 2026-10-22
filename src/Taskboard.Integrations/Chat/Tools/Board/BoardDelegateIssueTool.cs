@@ -33,7 +33,8 @@ public sealed class BoardDelegateIssueTool(
           "repository":{"type":"string","description":"GitHub repository 'owner/name'"},
           "number":{"type":"integer","description":"Issue number"},
           "cli":{"type":"string","description":"Target agent CLI (default: conversation's picked CLI, else opencode)"},
-          "prompt":{"type":"string","description":"Instructions override (default: issue title + body)"}
+          "prompt":{"type":"string","description":"Instructions override (default: issue title + body)"},
+          "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope (default edit); full requires the worktree + server opt-in"}
         },"required":["repository","number"]}
         """;
 
@@ -92,13 +93,21 @@ public sealed class BoardDelegateIssueTool(
                     + (string.IsNullOrWhiteSpace(issue.Body) ? "(no body)" : issue.Body);
             }
 
+            var autonomy = ReadString(arguments, "autonomy");
+            if (autonomy is not null
+                && !Taskboard.Agents.AgentAutonomyNames.IsValidName(autonomy.Trim().ToLowerInvariant()))
+            {
+                return Error("autonomy must be plan|edit|full", "invalid autonomy");
+            }
+
             var task = await delegation.CreateTaskAsync(
                 new CreateDelegationTaskRequest(
                     prompt, cli.Trim(),
                     Taskboard.Integrations.Chat.Tools.Delegation.DelegationToolSupport.ScopeOf(context),
                     clone.Path,
                     DependsOn: null, RetryOf: null, FanoutGroupId: null,
-                    UseWorktree: true, clone.Path, BaseCommitSha: null),
+                    UseWorktree: true, clone.Path, BaseCommitSha: null,
+                    Autonomy: autonomy),
                 cancellationToken).ConfigureAwait(false);
 
             var (_, attached, provisionError) = await DelegationToolSupport

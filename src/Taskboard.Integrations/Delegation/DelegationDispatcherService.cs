@@ -40,6 +40,8 @@ public sealed class DelegationDispatcherService : BackgroundService
     private readonly TimeSpan _heartbeatTimeout;
     private readonly ConcurrentDictionary<string, Task> _inflight = new(StringComparer.Ordinal);
     private readonly Taskboard.Integrations.Execution.MemoryPressureGate? _pressureGate;
+    private readonly AgentAutonomy _defaultAutonomy;
+    private readonly bool _allowFullAutonomy;
 
     public DelegationDispatcherService(
         IServiceScopeFactory scopeFactory,
@@ -63,6 +65,15 @@ public sealed class DelegationDispatcherService : BackgroundService
         _heartbeatTimeout = TimeSpan.FromSeconds(
             Math.Max(30, configuration.GetValue($"{ConfigSection}:HeartbeatTimeoutSeconds", 300)));
         _pressureGate = pressureGate;
+        // SPEC-20261022-cli-autonomy-profiles: per-task level falls back to the
+        // configured default; Full additionally needs the global opt-in.
+        _defaultAutonomy = AgentAutonomyNames.TryParse(
+            configuration["Taskboard:Agents:DefaultAutonomy"], out var parsed)
+            ? parsed
+            : AgentAutonomy.Edit;
+        _allowFullAutonomy = string.Equals(
+            configuration["Taskboard:Agents:AllowFullAutonomy"], "true",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Inflight count exposed for tests and the inspection endpoint.</summary>
@@ -255,6 +266,22 @@ public sealed class DelegationDispatcherService : BackgroundService
         DelegationTaskDto task, AgentType agentType, string issueId, CancellationToken ct)
     {
         var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
+        // RF-003/RF-007: resolve the envelope, gate it (Full → isolation +
+        // global opt-in) and surface the level on the request so the argv
+        // and the worker preamble agree.
+        var autonomy = AgentAutonomyNames.TryParse(task.Autonomy, out var requested)
+            ? requested
+            : _defaultAutonomy;
+        var gateError = AgentCliAutonomy.GateError(
+            autonomy,
+            isIsolated: workdir.SessionRunId is not null || task.WorktreeRunId is not null,
+            allowFull: _allowFullAutonomy);
+        if (gateError is not null)
+        {
+            await FinishAsync(task.Id, ok: false, gateError).ConfigureAwait(false);
+            return (null, true);
+        }
+
         var request = new AgentExecutionRequest(
             IssueId: issueId,
             IssueNumber: 0,
@@ -271,7 +298,8 @@ public sealed class DelegationDispatcherService : BackgroundService
             OmitModelFlag: task.Model is null,
             ExistingWorktreeRunId: workdir.SessionRunId,
             // RF-005 automations: whitelisted pass-through argv (--add-dir …).
-            ExtraArgs: task.ExtraArgs);
+            ExtraArgs: task.ExtraArgs,
+            Autonomy: autonomy);
 
         if (!await _orchestration.EnqueueAsync(request, ct).ConfigureAwait(false))
         {

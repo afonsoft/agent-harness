@@ -42,6 +42,7 @@ public sealed record AgentAutomationSpec(
     int MissedRunGraceMinutes,
     bool ReuseSession,
     string? Host,
+    string? Autonomy,
     string? CreatedBy);
 
 /// <summary>
@@ -80,6 +81,12 @@ public sealed class AgentAutomation : Entity<AgentAutomationId>
     public string? Precheck { get; private set; }
     /// <summary>Remote-host label — accepted now, validated <c>local</c> until remote-hosts ships.</summary>
     public string? Host { get; private set; }
+
+    /// <summary>
+    /// SPEC-20261022-cli-autonomy-profiles RF-005: requested permission
+    /// envelope for every run (<c>plan|edit|full</c>); null = default.
+    /// </summary>
+    public string? Autonomy { get; private set; }
     public string? CreatedBy { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? LastFiredAtUtc { get; private set; }
@@ -155,6 +162,14 @@ public sealed class AgentAutomation : Entity<AgentAutomationId>
                 $"Precheck exceeds {MaxPrecheckLength} chars.");
         }
 
+        if (spec.Autonomy is not null
+            && !Taskboard.Agents.AgentAutonomyNames.IsValidName(spec.Autonomy.Trim().ToLowerInvariant()))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "Autonomy must be plan|edit|full.");
+        }
+
         if (spec.ExtraAgentArgs?.Length > MaxExtraArgsLength)
         {
             throw new DomainException(
@@ -176,6 +191,9 @@ public sealed class AgentAutomation : Entity<AgentAutomationId>
         ExtraAgentArgs = spec.ExtraAgentArgs;
         Precheck = spec.Precheck;
         Host = string.IsNullOrWhiteSpace(spec.Host) ? "local" : spec.Host.Trim();
+        Autonomy = string.IsNullOrWhiteSpace(spec.Autonomy)
+            ? null
+            : spec.Autonomy.Trim().ToLowerInvariant();
         CreatedBy = spec.CreatedBy;
         CreatedAt = createdAt;
     }
@@ -232,7 +250,7 @@ public sealed class AgentAutomation : Entity<AgentAutomationId>
     public void Update(
         string? name, string? prompt, string? target,
         string? precheck, string? extraAgentArgs,
-        int? missedRunGraceMinutes, bool? reuseSession)
+        int? missedRunGraceMinutes, bool? reuseSession, string? autonomy = null)
     {
         if (!string.IsNullOrWhiteSpace(name))
         {
@@ -301,6 +319,19 @@ public sealed class AgentAutomation : Entity<AgentAutomationId>
         if (reuseSession is { } rs)
         {
             ReuseSession = rs;
+        }
+
+        if (autonomy is not null)
+        {
+            if (!Taskboard.Agents.AgentAutonomyNames.IsValidName(autonomy.Trim().ToLowerInvariant()))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    "Autonomy must be plan|edit|full.");
+            }
+            Autonomy = string.IsNullOrWhiteSpace(autonomy)
+                ? null
+                : autonomy.Trim().ToLowerInvariant();
         }
 
         if (missedRunGraceMinutes is { } grace)

@@ -32,6 +32,7 @@ public sealed class AutomationCreateTool(IServiceScopeFactory scopeFactory) : IC
           "missedRunGraceMinutes":{"type":"integer","description":"0–1440, default 60"},
           "reuseSession":{"type":"boolean"},
           "extraAgentArgs":{"type":"string","description":"whitelisted: --model/--effort/--add-dir only"},
+          "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"permission envelope — full requires worktree + server opt-in"},
           "precheck":{"type":"string","description":"optional shell gate (exit!=0 skips the fire)"}}
         ,"required":["name","prompt","cli","target","schedule"]}
         """;
@@ -65,7 +66,9 @@ public sealed class AutomationCreateTool(IServiceScopeFactory scopeFactory) : IC
                     MissedRunGraceMinutes: ReadInt(arguments, "missedRunGraceMinutes"),
                     ReuseSession: ReadBool(arguments, "reuseSession"),
                     ExtraAgentArgs: DelegationToolSupport.ReadString(arguments, "extraAgentArgs"),
-                    Precheck: DelegationToolSupport.ReadString(arguments, "precheck")),
+                    Precheck: DelegationToolSupport.ReadString(arguments, "precheck"),
+                    Host: null,
+                    Autonomy: DelegationToolSupport.ReadString(arguments, "autonomy")),
                 cancellationToken).ConfigureAwait(false);
             return DelegationToolSupport.Ok(new
             {

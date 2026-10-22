@@ -9,7 +9,7 @@
 | Stack | `.NET` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feat/cli-autonomy-profiles` |
-| Status | `Draft` |
+| Status | `Implemented` |
 | Origin | ADD/SDD review 2026-10-22 — "mais autonomia ao chamar os CLIs" |
 
 ## 1. User Story

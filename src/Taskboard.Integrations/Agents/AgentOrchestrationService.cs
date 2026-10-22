@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading.Channels;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Taskboard.Agents;
@@ -24,6 +25,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IGitHubService _gitHubService;
     private readonly IAgentExecutionEventSink? _eventSink;
+    private readonly IConfiguration? _configuration;
     private readonly Channel<QueuedJob> _channel = Channel.CreateUnbounded<QueuedJob>();
     private readonly ConcurrentDictionary<string, RunningJob> _running = new();
     private readonly ConcurrentDictionary<Guid, byte> _liveRunIds = new();
@@ -35,7 +37,8 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         IAgentLogBroadcaster logBroadcaster,
         IServiceScopeFactory serviceScopeFactory,
         IGitHubService gitHubService,
-        IAgentExecutionEventSink? eventSink = null)
+        IAgentExecutionEventSink? eventSink = null,
+        IConfiguration? configuration = null)
     {
         _acpClient = acpClient;
         _discoveryService = discoveryService;
@@ -43,6 +46,7 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
         _serviceScopeFactory = serviceScopeFactory;
         _gitHubService = gitHubService;
         _eventSink = eventSink;
+        _configuration = configuration;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -79,6 +83,22 @@ public sealed class AgentOrchestrationService : BackgroundService, IAgentOrchest
     public async Task<bool> EnqueueAsync(AgentExecutionRequest request, CancellationToken cancellationToken = default)
     {
         EnsureLogList(request.IssueId);
+
+        // SPEC-20261022-cli-autonomy-profiles RF-003: Full autonomy runs only
+        // inside a disposable isolation session and behind the global opt-in.
+        var gateError = AgentCliAutonomy.GateError(
+            request.Autonomy,
+            isIsolated: request.ExistingWorktreeRunId is not null,
+            allowFull: string.Equals(
+                _configuration?["Taskboard:Agents:AllowFullAutonomy"], "true",
+                StringComparison.OrdinalIgnoreCase));
+        if (gateError is not null)
+        {
+            AppendLog(request.IssueId, new AgentLogMessage(
+                DateTimeOffset.UtcNow, request.IssueId, AgentLogStream.System,
+                $"Agent {request.AgentType} rejected: {gateError}."));
+            return false;
+        }
 
         // SPEC-20260917-agent-eligibility-task-badge RF-003: never queue an agent
         // that is disabled or whose CLI is not authenticated right now.

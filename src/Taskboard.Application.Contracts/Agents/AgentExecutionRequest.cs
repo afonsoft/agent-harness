@@ -36,4 +36,9 @@ public sealed record AgentExecutionRequest(
     /// (automation <c>ExtraAgentArgs --add-dir</c> pairs) appended verbatim
     /// before the prompt — never built from unvalidated input.
     /// </summary>
-    IReadOnlyList<string>? ExtraArgs = null);
+    IReadOnlyList<string>? ExtraArgs = null,
+    /// <summary>
+    /// SPEC-20261022-cli-autonomy-profiles RF-002: permission envelope for the
+    /// run — Plan/Edit/Full mapped to the CLI's real flags.
+    /// </summary>
+    AgentAutonomy Autonomy = AgentAutonomy.Edit);

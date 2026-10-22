@@ -27,14 +27,20 @@ public static class AgentExtraArgs
     private static readonly IReadOnlySet<AgentType> AddDirClis =
         new HashSet<AgentType> { AgentType.Claude, AgentType.Antigravity };
 
+    /// <summary>Autonomy flags that carry a value token (<c>--flag value</c>).</summary>
+    private static readonly IReadOnlySet<string> AutonomyValueFlags =
+        new HashSet<string>(StringComparer.Ordinal)
+        { "--permission-mode", "--sandbox", "-s", "--ask-for-approval", "-a", "--respect-workspace-trust" };
+
     /// <summary>Parsed outcome — <see cref="Error"/> set means the input was refused.</summary>
     public sealed record Result(
         string? Model,
         string? Effort,
         IReadOnlyList<string> AddDirs,
+        IReadOnlyList<string> AutonomyArgs,
         string? Error)
     {
-        public static Result Fail(string error) => new(null, null, [], error);
+        public static Result Fail(string error) => new(null, null, [], [], error);
     }
 
     /// <summary>
@@ -42,12 +48,15 @@ public static class AgentExtraArgs
     /// <paramref name="cli"/> (builtin enum name or custom-def id). Returns
     /// extracted launch preferences; unknown/malformed flags surface in
     /// <see cref="Result.Error"/> as <c>invalid_extra_args: …</c>.
+    /// <paramref name="maxAutonomy"/> caps autonomy flags (RF-006): a flag
+    /// implying a stronger envelope than the task's level is refused.
     /// </summary>
-    public static Result Parse(string? raw, string cli)
+    public static Result Parse(
+        string? raw, string cli, AgentAutonomy maxAutonomy = AgentAutonomy.Edit)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return new Result(null, null, [], null);
+            return new Result(null, null, [], [], null);
         }
 
         var tokens = Tokenize(raw);
@@ -63,6 +72,7 @@ public static class AgentExtraArgs
         string? model = null;
         string? effort = null;
         var addDirs = new List<string>();
+        var autonomyArgs = new List<string>();
 
         for (var i = 0; i < tokens.Count; i++)
         {
@@ -128,10 +138,43 @@ public static class AgentExtraArgs
                 continue;
             }
 
+            // RF-006 cli-autonomy-profiles: autonomy flags are whitelisted per
+            // CLI and capped at the task's resolved level — a flag implying a
+            // stronger envelope than maxAutonomy is refused.
+            if (builtin is { } b)
+            {
+                string? flagValue = null;
+                if (AutonomyValueFlags.Contains(name))
+                {
+                    flagValue = Next();
+                    if (flagValue is null)
+                    {
+                        return Result.Fail(
+                            $"invalid_extra_args: '{name}' requires a value");
+                    }
+                }
+
+                if (AgentCliAutonomy.FlagLevel(b, name, flagValue) is { } implied)
+                {
+                    if (implied > maxAutonomy)
+                    {
+                        return Result.Fail(
+                            $"invalid_extra_args: '{name}' exceeds autonomy '{AgentAutonomyNames.Name(maxAutonomy)}'");
+                    }
+
+                    autonomyArgs.Add(flag);
+                    if (flagValue is not null && inlineValue is null)
+                    {
+                        autonomyArgs.Add(flagValue);
+                    }
+                    continue;
+                }
+            }
+
             return Result.Fail($"invalid_extra_args: flag '{name}' not allowed for '{cli}'");
         }
 
-        return new Result(model, effort, addDirs, null);
+        return new Result(model, effort, addDirs, autonomyArgs, null);
     }
 
     /// <summary>
@@ -140,7 +183,8 @@ public static class AgentExtraArgs
     /// fields instead.
     /// </summary>
     public static IReadOnlyList<string> PassthroughArgv(Result parsed) =>
-        parsed.AddDirs.SelectMany(d => new[] { AddDirFlag, d }).ToList();
+        parsed.AddDirs.SelectMany(d => new[] { AddDirFlag, d })
+            .Concat(parsed.AutonomyArgs).ToList();
 
     /// <summary>Splits <c>--flag=value</c> into (name, value); other tokens keep value null.</summary>
     private static string? SplitInlineValue(string token, out string name)
