@@ -42,25 +42,14 @@ public sealed class BoardDelegateIssueTool(
     public bool RequiresConfirmation => true;
 
     public Task<ChatToolResult> ExecuteAsync(
-        JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
-    {
-        var repo = RepoOf(arguments, out var error);
-        if (error is not null)
+        JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
+        GuardAsync(async () =>
         {
-            return Task.FromResult(error);
-        }
-
-        if (NumberOf(arguments) is not { } number)
-        {
-            return Task.FromResult(Error("number is required", "missing-number"));
-        }
-
-        return GuardAsync(async () =>
-        {
-            var issue = await github.GetIssueAsync(repo!, number, cancellationToken).ConfigureAwait(false);
-            if (issue is null)
+            var (repo, _, issue, error) = await RequireIssueAsync(
+                github, arguments, cancellationToken).ConfigureAwait(false);
+            if (error is not null || repo is null || issue is null)
             {
-                return Error($"issue #{number} not found", "not-found");
+                return error ?? Error("issue not found", "not-found");
             }
 
             var cli = ReadString(arguments, "cli") ?? context.DefaultAgentCli;
@@ -78,7 +67,7 @@ public sealed class BoardDelegateIssueTool(
             RepositoryCloneResult clone;
             try
             {
-                clone = await provisioning.EnsureCloneAsync(repo!, cancellationToken).ConfigureAwait(false);
+                clone = await provisioning.EnsureCloneAsync(repo, cancellationToken).ConfigureAwait(false);
             }
             catch (DomainException ex)
             {
@@ -97,7 +86,7 @@ public sealed class BoardDelegateIssueTool(
                 prompt = template is null
                     ? null
                     : IssueCommandTemplate.Render(
-                        template, repo ?? string.Empty, issue.Number, issue.Title,
+                        template, repo, issue.Number, issue.Title,
                         issue.Body, issue.HtmlUrl);
                 prompt ??= $"GitHub issue {repo}#{issue.Number}: {issue.Title}\n\n"
                     + (string.IsNullOrWhiteSpace(issue.Body) ? "(no body)" : issue.Body);
@@ -126,7 +115,7 @@ public sealed class BoardDelegateIssueTool(
             task = attached;
 
             await github.UpdateIssueColumnAsync(
-                repo!, issue.Number,
+                repo, issue.Number,
                 issue.Column.HasLabel() ? issue.Column : null,
                 GitHubBoardColumn.InProgress, cancellationToken).ConfigureAwait(false);
 
@@ -140,5 +129,4 @@ public sealed class BoardDelegateIssueTool(
                 repositoryPath = clone.Path
             });
         });
-    }
 }

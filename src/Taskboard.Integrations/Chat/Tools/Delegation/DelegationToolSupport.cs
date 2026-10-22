@@ -23,6 +23,30 @@ public static class DelegationToolSupport
     public static ChatToolResult Ok(object payload) =>
         new(JsonSerializer.Serialize(payload));
 
+    /// <summary>Single string-arg reader shared by the delegation tools.</summary>
+    public static string? ReadString(JsonElement args, string name) =>
+        args.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String
+            ? el.GetString()
+            : null;
+
+    /// <summary>
+    /// Resolves a run's worktree session and verifies the directory still
+    /// exists — shared by the <c>worktree_*</c> tools that operate on a live
+    /// worktree (SonarCloud dedupe: the session+Directory check repeated in
+    /// each tool).
+    /// </summary>
+    public static async Task<(WorktreeSessionDto? Session, ChatToolResult? Error)>
+        RequireWorktreeSessionAsync(
+            IWorktreeSessionRepository sessions,
+            string runId,
+            CancellationToken ct)
+    {
+        var session = await sessions.GetByRunIdAsync(runId, ct).ConfigureAwait(false);
+        return session is null || !Directory.Exists(session.Path)
+            ? (null, Error("run has no live worktree", "no worktree"))
+            : (session, null);
+    }
+
     /// <summary>
     /// Resolves a user-supplied repo path (absolute or workspace-relative) to
     /// the git toplevel; null when the path is not inside a git checkout.
