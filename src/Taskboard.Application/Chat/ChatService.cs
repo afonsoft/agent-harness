@@ -902,6 +902,7 @@ public sealed class ChatService(
         var cutoff = UtcNow - maxAge;
         var orphans = await attachmentRepository.Query
             .Where(a => a.MessageId == null && a.CreatedAt < cutoff)
+            .OrderBy(a => a.CreatedAt)
             .Take(500)
             .ToListAsync(ct).ConfigureAwait(false);
         foreach (var orphan in orphans)
