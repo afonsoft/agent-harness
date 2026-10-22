@@ -100,6 +100,11 @@ public class TaskboardWebApplicationFactory : WebApplicationFactory<Program>
         // by unit tests; integration tests must never spawn agent processes.
         builder.UseSetting("Taskboard:AiChat:MockProvider", "true");
         builder.UseSetting("Taskboard:WebCliAgent:Enabled", WebCliAgentEnabled ? "true" : "false");
+        // SPEC-20261020-agent-process-isolation: spawn/pressure behavior must
+        // not depend on the test host — isolator inert, gate fail-open.
+        builder.UseSetting("Harness:ProcessIsolation:Enabled", "false");
+        builder.UseSetting("Harness:MemoryPressure:PressureFile",
+            Path.Combine(dataDir, "no-such-memory.pressure"));
         builder.ConfigureServices(services =>
         {
             // GET /api/agents must not depend on which CLIs happen to be on the

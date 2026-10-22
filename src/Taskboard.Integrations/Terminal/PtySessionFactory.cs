@@ -3,7 +3,10 @@ using Microsoft.Extensions.Logging;
 namespace Taskboard.Integrations.Terminal;
 
 /// <summary>Creates <see cref="PtySession"/> instances bound to the effective home directory.</summary>
-public sealed class PtySessionFactory(string homeDirectory, ILoggerFactory loggerFactory)
+public sealed class PtySessionFactory(
+    string homeDirectory,
+    ILoggerFactory loggerFactory,
+    Execution.IProcessIsolator? isolator = null)
 {
     /// <summary>Spawns a new PTY session bound to the configured home directory.</summary>
     /// <param name="workingDirectory">Optional cwd override (SPEC-20260920
@@ -17,5 +20,5 @@ public sealed class PtySessionFactory(string homeDirectory, ILoggerFactory logge
         IReadOnlyDictionary<string, string>? environment = null) =>
         new(homeDirectory, loggerFactory.CreateLogger<PtySession>(), cols, rows,
             workingDirectory: workingDirectory, command: command,
-            environment: environment);
+            environment: environment, isolator: isolator);
 }

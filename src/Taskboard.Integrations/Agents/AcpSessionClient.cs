@@ -93,14 +93,20 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
     /// <summary>Last known session id per thread — enables session/resume on reconnect.</summary>
     private readonly ConcurrentDictionary<string, string> _lastSessionIds = new();
 
+    private readonly Taskboard.Integrations.Execution.IProcessIsolator _isolator;
+
     public AcpSessionClient(
         IEnumerable<IAgentAdapter> adapters,
         AcpSessionOptions? options = null,
-        IAcpClientToolHandler? toolHandler = null)
+        IAcpClientToolHandler? toolHandler = null,
+        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null)
     {
         _adapters = adapters;
         _options = options ?? new AcpSessionOptions();
         _toolHandler = toolHandler;
+        // SPEC-20261020-agent-process-isolation RF-003: ACP agent processes
+        // get their own cgroup scope; noop fallback keeps spawns working.
+        _isolator = isolator ?? Taskboard.Integrations.Execution.NoopProcessIsolator.Instance;
     }
 
     public void RegisterEventListener(string threadId, Action<AgentSessionEvent> onEvent)
@@ -1602,7 +1608,7 @@ public sealed class AcpSessionClient : IAgentSessionClient, IDisposable
         Process? process;
         try
         {
-            process = Process.Start(startInfo);
+            process = Process.Start(_isolator.Isolate(startInfo, "acp-agent"));
         }
         catch (Exception ex)
         {

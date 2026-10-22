@@ -39,6 +39,7 @@ public sealed class DelegationDispatcherService : BackgroundService
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _heartbeatTimeout;
     private readonly ConcurrentDictionary<string, Task> _inflight = new(StringComparer.Ordinal);
+    private readonly Taskboard.Integrations.Execution.MemoryPressureGate? _pressureGate;
 
     public DelegationDispatcherService(
         IServiceScopeFactory scopeFactory,
@@ -47,7 +48,8 @@ public sealed class DelegationDispatcherService : BackgroundService
         ISecretRedactor redactor,
         IConfiguration configuration,
         ILogger<DelegationDispatcherService> logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Taskboard.Integrations.Execution.MemoryPressureGate? pressureGate = null)
     {
         _scopeFactory = scopeFactory;
         _orchestration = orchestration;
@@ -60,6 +62,7 @@ public sealed class DelegationDispatcherService : BackgroundService
             Math.Max(1, configuration.GetValue($"{ConfigSection}:PollIntervalSeconds", 3)));
         _heartbeatTimeout = TimeSpan.FromSeconds(
             Math.Max(30, configuration.GetValue($"{ConfigSection}:HeartbeatTimeoutSeconds", 300)));
+        _pressureGate = pressureGate;
     }
 
     /// <summary>Inflight count exposed for tests and the inspection endpoint.</summary>
@@ -122,6 +125,15 @@ public sealed class DelegationDispatcherService : BackgroundService
 
         var capacity = _maxConcurrent - InflightCount;
         if (capacity <= 0)
+        {
+            return;
+        }
+
+        // SPEC-20261020-agent-process-isolation RF-004: PSI gate — skip this
+        // dispatch cycle while the server cgroup is under memory pressure.
+        // Ready tasks stay queued; the next tick under normal pressure picks
+        // them up. Fail-open by design.
+        if (_pressureGate is not null && !_pressureGate.Allow(out _))
         {
             return;
         }

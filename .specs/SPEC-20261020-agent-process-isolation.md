@@ -10,7 +10,7 @@
 | Repository | `afonsoft/agent-harness` |
 | Branch | `devin/20261020-prod-oom-hardening` |
 | Ticket | [#577](https://github.com/afonsoft/agent-harness/issues/577) |
-| Status | `Approved` |
+| Status | `Done` |
 
 ## 1. User Story
 
@@ -142,3 +142,21 @@ No other contract changes.
 ## Open Questions / Pending Ambiguity
 
 - Confirm all spawn surfaces during T1 (`LocalCliAgentAcpClient`, `AcpSessionClient`, `ShellExecTool`) — any spawn outside the two known surfaces must be listed in the SPEC update before T2.
+
+## Implementation Notes (2026-10-22)
+
+**Delivered:** `IProcessIsolator` + `SystemdScopeProcessIsolator` (`systemd-run --user --scope --collect --quiet`, per-scope `MemoryMax`/`MemoryHigh`/`OOMScoreAdjust`) + `NoopProcessIsolator` fallback; `MemoryPressureGate` (PSI `some avg60`, fail-open, rising-edge Warn) + `GET /api/diagnostics/memory` (`memory.current|high|max|events` + PSI sample). Config: `Harness:ProcessIsolation:{Enabled,MemoryMax,MemoryHigh,OomScoreAdjust,ScopePrefix}`, `Harness:MemoryPressure:{SomeAvg60Max,PressureFile}`; `Harness:MemoryPressure:PressureFile` overrides `MEMORY_PRESSURE_WATCH` env (explicit config wins), which overrides `/proc/self/cgroup` self-resolution.
+
+**Spawn coverage (T1 inventory):**
+
+| Surface | Decision |
+|---|---|
+| `PtySession.Start()` (interactive terminals, agent CLIs) | **Wrapped** |
+| `StreamingProcessRunner.RunAsync` (delegation agent runs, CLI/code-server installs) | **Wrapped** |
+| `LocalCliAgentAcpClient` (long-lived agent process) | **Wrapped** |
+| `AcpSessionClient` (long-lived ACP agent session) | **Wrapped** |
+| `JsonRpcAcpClient` (one-shot ACP agent run) | **Wrapped** |
+| `ShellExecTool`, `GitCommandRunner`, `GitRunner`, `ISkillsInstallRunner`, `SessionFileActions`, `AgentTranscriptSearcher` | **Exempt** — short-lived probes/tool calls bounded by their own timeouts; wrapping each in a scope adds latency without isolation value. |
+| `DockerCliSpawner`/`docker exec` paths | **Exempt** — container runtime applies its own cgroup limits. |
+
+**Gate points:** `TerminalSessionManager.OpenAsync` refuses with `MEMORY_PRESSURE` (rebinds exempt — they create nothing); `DelegationDispatcherService.TickAsync` skips the dispatch cycle under pressure so ready tasks stay queued rather than failing.

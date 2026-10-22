@@ -22,6 +22,7 @@ public sealed class PtySession : IPtySession
     private readonly int _rows;
     private readonly IReadOnlyList<string>? _command;
     private readonly IReadOnlyDictionary<string, string>? _environment;
+    private readonly IProcessIsolator _isolator;
 
     private Process? _process;
     private Task? _pumpTask;
@@ -46,7 +47,8 @@ public sealed class PtySession : IPtySession
     public PtySession(string homeDirectory, ILogger logger, int cols = 120, int rows = 30,
         Func<string, string?>? executableLocator = null, string? workingDirectory = null,
         IReadOnlyList<string>? command = null,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null,
+        IProcessIsolator? isolator = null)
     {
         _homeDirectory = homeDirectory;
         // SPEC-20260920 RF-006: explicit workdir (repo clone) only for new
@@ -59,6 +61,9 @@ public sealed class PtySession : IPtySession
         _locator = executableLocator ?? Agents.PathSearch.FindExecutable;
         _command = command;
         _environment = environment;
+        // SPEC-20261020-agent-process-isolation RF-003: PTY children get
+        // their own cgroup when isolation is available; noop fallback.
+        _isolator = isolator ?? NoopProcessIsolator.Instance;
         _lastCols = cols;
         _lastRows = rows;
         LastActivityUtc = DateTimeOffset.UtcNow;
@@ -133,7 +138,11 @@ public sealed class PtySession : IPtySession
             }
         }
 
-        _process = Process.Start(startInfo)
+        // SPEC-20261020-agent-process-isolation RF-003: spawn inside a
+        // transient cgroup scope when available; Isolate() degrades to the
+        // original startInfo unchanged so a missing systemd never blocks.
+        var isolated = _isolator.Isolate(startInfo, "pty");
+        _process = Process.Start(isolated)
             ?? throw new InvalidOperationException("Failed to start terminal process.");
         _pumpCts = new CancellationTokenSource();
         _pumpTask = Task.Run(() => PumpAsync(_pumpCts.Token), _pumpCts.Token);

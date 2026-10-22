@@ -63,13 +63,15 @@ public sealed class TerminalSessionManager : IAsyncDisposable
     private readonly object _gate = new();
     private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
     private readonly Taskboard.Application.Contracts.Agents.IAgentAttentionService? _attention;
+    private readonly Execution.MemoryPressureGate? _pressureGate;
 
-    public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger, IConfiguration? configuration = null, Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null, Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null)
+    public TerminalSessionManager(PtySessionFactory sessionFactory, ILogger<TerminalSessionManager> logger, IConfiguration? configuration = null, Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null, Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null, Execution.MemoryPressureGate? pressureGate = null)
         : this((workdir, command, env) => sessionFactory.Create(workdir, command: command, environment: env), logger,
             scrollbackChars: ParseScrollbackChars(configuration))
     {
         _outputSink = outputSink;
         _attention = attention;
+        _pressureGate = pressureGate;
     }
 
     private static int? ParseScrollbackChars(IConfiguration? configuration) =>
@@ -116,6 +118,15 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         IReadOnlyList<string>? command = null,
         string? requestedSessionId = null)
     {
+        // SPEC-20261020-agent-process-isolation RF-004: PSI gate — refuse new
+        // sessions while the server cgroup is under memory pressure.
+        // Rebinds to existing sessions are exempt: they create nothing.
+        if (_pressureGate is not null && !_pressureGate.Allow(out _))
+        {
+            throw new InvalidOperationException(
+                "MEMORY_PRESSURE: server under memory pressure; retry later.");
+        }
+
         lock (_gate)
         {
             var sessionId = NormalizeSessionId(requestedSessionId)

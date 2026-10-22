@@ -425,7 +425,8 @@ void RegisterAcpAndAgentServices()
             sp.GetService<IAgentOutputAttentionSink>(),
             sp.GetService<IAgentHookTokenService>(),
             sp.GetService<IAgentAttentionService>(),
-            sp.GetService<IConfiguration>());
+            sp.GetService<IConfiguration>(),
+            sp.GetService<Taskboard.Integrations.Execution.IProcessIsolator>());
         return sp.GetRequiredService<IConfiguration>().GetValue("Taskboard:Acp:SessionRuns", false)
             ? new AcpSessionRunClient(sp.GetRequiredService<AcpSessionClient>(), fallback)
             : (IAgentAcpClient)fallback;
@@ -472,7 +473,8 @@ void RegisterAcpAndAgentServices()
         new AcpSessionClient(
             sp.GetServices<IAgentAdapter>(),
             sp.GetRequiredService<AcpSessionOptions>(),
-            sp.GetService<IAcpClientToolHandler>()));
+            sp.GetService<IAcpClientToolHandler>(),
+            sp.GetService<Taskboard.Integrations.Execution.IProcessIsolator>()));
     builder.Services.AddSingleton<IAgentSessionClient>(sp => sp.GetRequiredService<AcpSessionClient>());
     // SPEC-20260921-ai-code-thread-config RF-005: modelos reportados pela sessão ACP.
     builder.Services.AddSingleton<IAgentSessionModelCatalog, AcpSessionModelCatalog>();
@@ -1226,9 +1228,20 @@ void RegisterSkillsVscodeServices()
     builder.Services.AddSingleton<Taskboard.Agents.IContainerCliDiscovery>(
         sp => sp.GetRequiredService<DockerCliDiscovery>());
 
+    // SPEC-20261020-agent-process-isolation: cgroup isolation for agent/PTY
+    // children + PSI memory-pressure gate. SystemdScopeProcessIsolator probes
+    // systemd-run availability once and falls back to direct spawn.
+    builder.Services.AddSingleton(sp => (Taskboard.Integrations.Execution.IProcessIsolator)
+        new Taskboard.Integrations.Execution.SystemdScopeProcessIsolator(
+            builder.Configuration,
+            sp.GetRequiredService<ILoggerFactory>()
+                .CreateLogger<Taskboard.Integrations.Execution.SystemdScopeProcessIsolator>()));
+    builder.Services.AddSingleton<Taskboard.Integrations.Execution.MemoryPressureGate>();
+
     builder.Services.AddSingleton(sp => new PtySessionFactory(
         homeDir,
-        sp.GetRequiredService<ILoggerFactory>()));
+        sp.GetRequiredService<ILoggerFactory>(),
+        sp.GetService<Taskboard.Integrations.Execution.IProcessIsolator>()));
     builder.Services.AddSingleton<TerminalSessionManager>();
 
     // SPEC-20260917-vscode-web-workspace: ~/repos workspace + code-server managed process.
@@ -2067,6 +2080,12 @@ void MapAuthAndHealthEndpoints()
     {
         Predicate = registration => registration.Tags.Contains("live")
     });
+
+    // SPEC-20261020-agent-process-isolation RF-006: cgroup memory counters +
+    // PSI sample for the ops surface.
+    app.MapGet("/api/diagnostics/memory", (Taskboard.Integrations.Execution.MemoryPressureGate gate) =>
+        Results.Ok(gate.Snapshot()))
+        .RequireAuthorization();
 }
 
 void MapMiscEndpoints()
