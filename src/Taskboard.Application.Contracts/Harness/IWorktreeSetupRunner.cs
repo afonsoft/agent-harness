@@ -1,3 +1,4 @@
+using Taskboard.Dtos;
 using Taskboard.Harness;
 
 namespace Taskboard.Application.Contracts.Harness;
@@ -69,7 +70,26 @@ public interface IWorktreeSetupRunner
         string worktreePath,
         IReadOnlyList<string> commands,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// P3 manual rerun: resolves the effective setup commands for the
+    /// session's repository, re-runs them (card flips
+    /// <c>running</c> → terminal) and propagates the new state + ≤4KB tail
+    /// to the session row. Throws <see cref="DomainException"/> when no
+    /// setup is declared — shared by the REST endpoint and the
+    /// <c>worktree_setup</c> tool.
+    /// </summary>
+    Task<WorktreeSetupRerunResult> RerunForSessionAsync(
+        string runId,
+        WorktreeSessionDto session,
+        CancellationToken cancellationToken = default);
 }
+
+/// <summary>Outcome of a manual setup rerun — the command result plus the
+/// session row with refreshed setup fields.</summary>
+public sealed record WorktreeSetupRerunResult(
+    WorktreeSetupResult Result,
+    WorktreeSessionDto Session);
 
 /// <summary>Outcome of a setup run — <see cref="WorktreeSetupStates"/> +
 /// tail of scrubbed output (≤64KB) + exit code of the failing command.</summary>

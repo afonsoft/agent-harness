@@ -39,7 +39,6 @@ public sealed class WorktreeSetupRerunTool(IServiceScopeFactory scopeFactory) : 
 
         await using var diScope = scopeFactory.CreateAsyncScope();
         var sessions = diScope.ServiceProvider.GetRequiredService<IWorktreeSessionRepository>();
-        var yamlReader = diScope.ServiceProvider.GetRequiredService<IWorktreeYamlReader>();
         var setupRunner = diScope.ServiceProvider.GetRequiredService<IWorktreeSetupRunner>();
 
         var session = await sessions.GetByRunIdAsync(runId, cancellationToken).ConfigureAwait(false);
@@ -49,28 +48,22 @@ public sealed class WorktreeSetupRerunTool(IServiceScopeFactory scopeFactory) : 
                 "run has no live worktree", "no worktree");
         }
 
-        var doc = yamlReader.Read(session.RepositoryPath);
-        var commands = yamlReader.EffectiveSetupCommands(session.RepositoryPath, doc);
-        if (commands.Count == 0)
+        try
         {
-            return DelegationToolSupport.Error(
-                "no setup commands declared", "no setup");
+            var rerun = await setupRunner.RerunForSessionAsync(
+                runId, session, cancellationToken).ConfigureAwait(false);
+            return DelegationToolSupport.Ok(new
+            {
+                runId,
+                setupState = rerun.Result.State,
+                exitCode = rerun.Result.ExitCode,
+                session = rerun.Session,
+            });
         }
-
-        var result = await setupRunner.RunSetupAsync(
-            session.RepositoryPath, session.Path, commands, cancellationToken).ConfigureAwait(false);
-        var updated = await sessions.SetSetupAsync(
-            runId, result.State,
-            Integrations.Harness.WorktreeSetupRunner.PreambleTail(result.LogTail),
-            cancellationToken).ConfigureAwait(false);
-
-        return DelegationToolSupport.Ok(new
+        catch (DomainException ex)
         {
-            runId,
-            setupState = result.State,
-            exitCode = result.ExitCode,
-            session = updated,
-        });
+            return DelegationToolSupport.Error(ex.Message, "rerun refused");
+        }
     }
 
     private static string? ReadString(JsonElement args, string name) =>

@@ -1553,7 +1553,6 @@ void MapHarnessEndpoints()
     harness.MapPost("worktrees/{runId}/setup:rerun", async (
         string runId,
         IWorktreeSessionRepository sessions,
-        IWorktreeYamlReader yamlReader,
         IWorktreeSetupRunner setupRunner,
         CancellationToken ct) =>
     {
@@ -1563,17 +1562,15 @@ void MapHarnessEndpoints()
             return Results.NotFound(new { error = "run has no worktree" });
         }
 
-        var doc = yamlReader.Read(session.RepositoryPath);
-        var commands = yamlReader.EffectiveSetupCommands(session.RepositoryPath, doc);
-        if (commands.Count == 0)
+        try
         {
-            return Results.BadRequest(new { error = "no setup commands declared" });
+            var rerun = await setupRunner.RerunForSessionAsync(runId, session, ct);
+            return Results.Ok(rerun.Session);
         }
-
-        var result = await setupRunner.RunSetupAsync(
-            session.RepositoryPath, session.Path, commands, ct);
-        return Results.Ok(await sessions.SetSetupAsync(
-            runId, result.State, WorktreeSetupRunner.PreambleTail(result.LogTail), ct));
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
     });
 
     // SPEC-20261020-worktree-shared-context RF-006/RF-008: card annotation —

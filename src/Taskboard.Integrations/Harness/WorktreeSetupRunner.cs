@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Application.Contracts.Harness;
+using Taskboard.Dtos;
 using Taskboard.Harness;
 using Taskboard.Integrations.Execution;
 using Taskboard.Integrations.Harness.Security;
@@ -89,6 +90,34 @@ public sealed class WorktreeSetupRunner : IWorktreeSetupRunner
 
         return new WorktreeSetupResult(
             state, exitCode, tail, startedAt, DateTime.UtcNow);
+    }
+
+    /// <inheritdoc />
+    public async Task<WorktreeSetupRerunResult> RerunForSessionAsync(
+        string runId,
+        WorktreeSessionDto session,
+        CancellationToken cancellationToken = default)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var yamlReader = scope.ServiceProvider.GetRequiredService<IWorktreeYamlReader>();
+        var sessions = scope.ServiceProvider.GetRequiredService<IWorktreeSessionRepository>();
+
+        var doc = yamlReader.Read(session.RepositoryPath);
+        var commands = yamlReader.EffectiveSetupCommands(session.RepositoryPath, doc);
+        if (commands.Count == 0)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "No setup commands declared for this worktree.");
+        }
+
+        var result = await RunSetupAsync(
+            session.RepositoryPath, session.Path, commands, cancellationToken)
+            .ConfigureAwait(false);
+        var updated = await sessions.SetSetupAsync(
+            runId, result.State, PreambleTail(result.LogTail), cancellationToken)
+            .ConfigureAwait(false);
+        return new WorktreeSetupRerunResult(result, updated);
     }
 
     /// <summary>Sequential <c>bash -lc</c> core — stop on first failure,

@@ -16,7 +16,7 @@ namespace Taskboard.Tests.Unit.Chat;
 /// </summary>
 public class WorktreeP3ToolsTests : IDisposable
 {
-    private readonly string _worktreeDir = Path.Combine(
+    private readonly string _worktreeDir = Path.Join(
         Path.GetTempPath(), $"wt-p3-{Guid.NewGuid():N}");
 
     public WorktreeP3ToolsTests() => Directory.CreateDirectory(_worktreeDir);
@@ -70,7 +70,7 @@ public class WorktreeP3ToolsTests : IDisposable
         var sessions = Substitute.For<IWorktreeSessionRepository>();
         var cards = Substitute.For<IWorktreeCardService>();
         cards.GetAsync(_worktreeDir, Arg.Any<CancellationToken>())
-            .Returns((WorktreeCardDto?)null);
+            .Returns(Task.FromResult<WorktreeCardDto?>(null));
         var probe = Substitute.For<IWorktreeStatusProbe>();
         probe.ResolveRepoPathAsync(_worktreeDir, Arg.Any<CancellationToken>())
             .Returns("/repo");
@@ -113,30 +113,27 @@ public class WorktreeP3ToolsTests : IDisposable
         var sessions = Substitute.For<IWorktreeSessionRepository>();
         sessions.GetByRunIdAsync("run-1", Arg.Any<CancellationToken>())
             .Returns(Session("run-1", _worktreeDir));
-        sessions.SetSetupAsync("run-1", WorktreeSetupStates.Ok, Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(ci => Session("run-1", _worktreeDir));
         var cards = Substitute.For<IWorktreeCardService>();
         var probe = Substitute.For<IWorktreeStatusProbe>();
-        var yaml = Substitute.For<IWorktreeYamlReader>();
-        var doc = new WorktreeYamlDoc([], [], ["dotnet restore"], [], null, [], null);
-        yaml.Read("/repo").Returns(doc);
-        yaml.EffectiveSetupCommands("/repo", doc).Returns(["dotnet restore"]);
         var runner = Substitute.For<IWorktreeSetupRunner>();
-        runner.RunSetupAsync("/repo", _worktreeDir, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
-            .Returns(new WorktreeSetupResult(
-                WorktreeSetupStates.Ok, null, "log", DateTime.UtcNow, DateTime.UtcNow));
+        runner.RerunForSessionAsync("run-1", Arg.Any<WorktreeSessionDto>(), Arg.Any<CancellationToken>())
+            .Returns(new WorktreeSetupRerunResult(
+                new WorktreeSetupResult(
+                    WorktreeSetupStates.Ok, null, "log", DateTime.UtcNow, DateTime.UtcNow),
+                Session("run-1", _worktreeDir)));
         var tool = new WorktreeSetupRerunTool(
-            TestScopeFactory.WithWorktree(sessions, cards, probe, yaml, runner));
+            TestScopeFactory.WithWorktree(
+                sessions, cards, probe,
+                Substitute.For<IWorktreeYamlReader>(), runner));
 
         var result = await tool.ExecuteAsync(
             Args("""{"runId":"run-1"}"""), TestScopeFactory.Ctx(), CancellationToken.None);
 
         result.Refused.ShouldBeFalse();
-        await runner.Received(1).RunSetupAsync(
-            "/repo", _worktreeDir, Arg.Is<IReadOnlyList<string>>(c => c.Count == 1),
-            Arg.Any<CancellationToken>());
-        await sessions.Received(1).SetSetupAsync(
-            "run-1", WorktreeSetupStates.Ok, Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await runner.Received(1).RerunForSessionAsync(
+            "run-1", Arg.Any<WorktreeSessionDto>(), Arg.Any<CancellationToken>());
+        using var parsed = JsonDocument.Parse(result.Json);
+        parsed.RootElement.GetProperty("setupState").GetString().ShouldBe(WorktreeSetupStates.Ok);
     }
 
     [Fact]
@@ -145,14 +142,14 @@ public class WorktreeP3ToolsTests : IDisposable
         var sessions = Substitute.For<IWorktreeSessionRepository>();
         sessions.GetByRunIdAsync("run-1", Arg.Any<CancellationToken>())
             .Returns(Session("run-1", _worktreeDir));
-        var yaml = Substitute.For<IWorktreeYamlReader>();
-        var doc = new WorktreeYamlDoc([], [], [], [], null, [], null);
-        yaml.Read("/repo").Returns(doc);
-        yaml.EffectiveSetupCommands("/repo", doc).Returns([]);
+        var runner = Substitute.For<IWorktreeSetupRunner>();
+        runner.RerunForSessionAsync("run-1", Arg.Any<WorktreeSessionDto>(), Arg.Any<CancellationToken>())
+            .Returns<Task<WorktreeSetupRerunResult>>(_ =>
+                throw new DomainException("invalid", "No setup commands declared for this worktree."));
         var tool = new WorktreeSetupRerunTool(TestScopeFactory.WithWorktree(
             sessions, Substitute.For<IWorktreeCardService>(),
-            Substitute.For<IWorktreeStatusProbe>(), yaml,
-            Substitute.For<IWorktreeSetupRunner>()));
+            Substitute.For<IWorktreeStatusProbe>(),
+            Substitute.For<IWorktreeYamlReader>(), runner));
 
         var result = await tool.ExecuteAsync(
             Args("""{"runId":"run-1"}"""), TestScopeFactory.Ctx(), CancellationToken.None);
@@ -166,7 +163,11 @@ public class WorktreeP3ToolsTests : IDisposable
         {
             Directory.Delete(_worktreeDir, recursive: true);
         }
-        catch
+        catch (IOException)
+        {
+            // best-effort cleanup
+        }
+        catch (UnauthorizedAccessException)
         {
             // best-effort cleanup
         }
