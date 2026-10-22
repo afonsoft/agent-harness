@@ -18,6 +18,14 @@ public enum CliDbSourceStatus
     /// <summary>Schema fingerprint differs from the extractor's expected fingerprint.</summary>
     SchemaDrifted,
 
+    /// <summary>
+    /// SPEC-20261020-clidb-large-db-resilience RF-004: read via the
+    /// <c>immutable=1</c> fallback — a static committed snapshot that may lag
+    /// the live DB by the WAL tail. Distinct from <see cref="CopiedToTemp"/>:
+    /// no copy was made.
+    /// </summary>
+    ReadStale,
+
     /// <summary>Unreadable (permissions, corrupt header, size cap, timeout).</summary>
     Error
 }

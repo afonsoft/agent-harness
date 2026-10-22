@@ -17,6 +17,12 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
     private readonly ICliDatabaseReader _reader;
     private readonly ILogger _logger;
 
+    // SPEC-20261020-clidb-large-db-resilience RF-003: identical per-path
+    // failures log Warn+stack only once per process boot — repeats go to
+    // Debug so a permanently broken DB cannot flood the journal.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _warnedFailures =
+        new(System.StringComparer.Ordinal);
+
     protected CliDbExtractorBase(
         ICliDatabaseLocator locator, ICliDatabaseReader reader, ILogger logger)
     {
@@ -184,7 +190,8 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
             }
         }
 
-        var status = ResolveAggregate(ctx.SawAny, ctx.SawDrift, ctx.SawError, ctx.Copied, ctx.Statuses);
+        var status = ResolveAggregate(
+            ctx.SawAny, ctx.SawDrift, ctx.SawError, ctx.Copied, ctx.SawStale, ctx.Statuses);
         return new CliExtractionResult(ctx.Sessions, ctx.Usage, ctx.NextCursor, status,
             ctx.Reasons.Count > 0 ? string.Join("; ", ctx.Reasons) : null);
     }
@@ -202,6 +209,13 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
             await using var conn = await _reader.OpenAsync(source, path, cancellationToken)
                 .ConfigureAwait(false);
             ctx.Copied |= conn.CopiedToTemp;
+            if (conn.ReadStaleSnapshot)
+            {
+                // RF-004: immutable fallback is visibly marked — the snapshot
+                // may lag the live DB by the WAL tail.
+                ctx.SawStale = true;
+                ctx.Reasons.Add($"{source.Name}: stale snapshot read (immutable)");
+            }
 
             var fingerprint = await conn.GetSchemaFingerprintAsync(
                 DriftCheckedTables(source), cancellationToken).ConfigureAwait(false);
@@ -220,19 +234,43 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
                     conn, path, source, rowCursor, ctx.Sessions, ctx.Usage, cancellationToken)
                 .ConfigureAwait(false);
             ctx.NextCursor = FormatCursor(path, lastRowid ?? rowCursor ?? 0);
-            ctx.Statuses.Add(CliDbSourceStatus.Available);
+            ctx.Statuses.Add(conn.ReadStaleSnapshot
+                ? CliDbSourceStatus.ReadStale
+                : CliDbSourceStatus.Available);
         }
         catch (CliDbAccessDeniedException ex)
         {
-            _logger.LogWarning(ex, "CliDb access denied on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+            LogFailureOnce(ex, source, path, "access denied");
             ctx.Reasons.Add($"{source.Name}: {ex.Message}");
             ctx.SawError = true;
         }
         catch (CliDbReadException ex)
         {
-            _logger.LogWarning(ex, "CliDb read failed on {Kind}/{Source}: {Message}", Kind, source.Name, ex.Message);
+            LogFailureOnce(ex, source, path, "read failed");
             ctx.Reasons.Add($"{source.Name}: {ex.Message}");
             ctx.SawError = true;
+        }
+    }
+
+    /// <summary>
+    /// RF-003: Warn+stack on the first occurrence of a given
+    /// (source, path, error-kind) failure per process lifetime; repeats log
+    /// Debug only.
+    /// </summary>
+    private void LogFailureOnce(Exception ex, CliDbSource source, string path, string kind)
+    {
+        var key = $"{source.Name}|{path}|{kind}|{ex.GetType().Name}";
+        if (_warnedFailures.TryAdd(key, 0))
+        {
+            _logger.LogWarning(
+                ex, "CliDb {FailureKind} on {Kind}/{Source}: {Message}",
+                kind, Kind, source.Name, ex.Message);
+        }
+        else
+        {
+            _logger.LogDebug(
+                ex, "CliDb {FailureKind} on {Kind}/{Source} (repeat): {Message}",
+                kind, Kind, source.Name, ex.Message);
         }
     }
 
@@ -243,6 +281,7 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
         public List<CliDbSourceStatus> Statuses { get; } = [];
         public List<string> Reasons { get; } = [];
         public bool Copied;
+        public bool SawStale;
         public bool SawDrift;
         public bool SawError;
         public bool SawAny;
@@ -250,7 +289,8 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
     }
 
     private static CliDbSourceStatus ResolveAggregate(
-        bool sawAny, bool sawDrift, bool sawError, bool copied, List<CliDbSourceStatus> statuses)
+        bool sawAny, bool sawDrift, bool sawError, bool copied, bool sawStale,
+        List<CliDbSourceStatus> statuses)
     {
         if (!sawAny)
         {
@@ -264,6 +304,8 @@ public abstract class CliDbExtractorBase : ICliDbExtractor
         {
             return CliDbSourceStatus.Error;
         }
-        return copied ? CliDbSourceStatus.CopiedToTemp : CliDbSourceStatus.Available;
+        return sawStale ? CliDbSourceStatus.ReadStale
+            : copied ? CliDbSourceStatus.CopiedToTemp
+            : CliDbSourceStatus.Available;
     }
 }

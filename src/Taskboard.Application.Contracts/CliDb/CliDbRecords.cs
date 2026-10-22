@@ -65,12 +65,17 @@ public sealed record CliExtractionResult(
 
 /// <summary>
 /// Read budget for external database access.
-/// SPEC-20260919-cli-db-reader RF-005.
+/// SPEC-20260919-cli-db-reader RF-005;
+/// SPEC-20261020-clidb-large-db-resilience RF-001 — split caps: the temp-copy
+/// path keeps the old 4GiB ceiling (<see cref="MaxCopyFileSizeBytes"/>) while
+/// in-place read-only opens get a larger hard ceiling
+/// (<see cref="MaxInPlaceFileSizeBytes"/>) since no copy is made.
 /// </summary>
 public sealed record CliDbReadOptions(
     int RowLimit = 10_000,
     TimeSpan? CommandTimeout = null,
-    long MaxFileSizeBytes = 4L * 1024 * 1024 * 1024)
+    long MaxCopyFileSizeBytes = 4L * 1024 * 1024 * 1024,
+    long MaxInPlaceFileSizeBytes = 32L * 1024 * 1024 * 1024)
 {
     public TimeSpan EffectiveCommandTimeout => CommandTimeout ?? TimeSpan.FromSeconds(5);
 }

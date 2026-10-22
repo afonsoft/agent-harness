@@ -89,6 +89,7 @@ public sealed class ChatRunRetentionService : ManagedJobService
             var orphanCutoff = DateTime.UtcNow.AddHours(-24);
             var orphans = await attachments.Query
                 .Where(a => a.MessageId == null && a.CreatedAt < orphanCutoff)
+                .OrderBy(a => a.CreatedAt)
                 .Take(500)
                 .ToListAsync(cancellationToken).ConfigureAwait(false);
             foreach (var orphan in orphans)
