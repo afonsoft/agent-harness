@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Technical owner | afonsoft |
 | Suggested branch | `feat/agent-automations` |
-| Status | `Draft` |
+| Status | `In Progress` — P1 Done (entities + EF + dispatcher + endpoints + precheck + missed-window + history) |
 | Depends on | `ChatSchedule`/`ChatScheduleService` (cron+tz+missed-fire), `delegate_task`/`CliWorktreeService`, `AgentCliKind` |
 | Reference | Orca `docs/cli/automations` (`orca automations create/edit/list/run`, `--precheck`, `--reuse-session`, `--extra-agent-args`, `--missed-run-grace-minutes`); README "Compared to Orca" gap ② |
 

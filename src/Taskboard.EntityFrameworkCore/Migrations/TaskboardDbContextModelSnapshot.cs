@@ -781,6 +781,141 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AiChatThreads", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Entities.Automation.AgentAutomation", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentCli")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CronExpression")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExtraAgentArgs")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Host")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastFiredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MissedRunGraceMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("NextFireAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Precheck")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ReuseSession")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ScheduleKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Target")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TimeZoneId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("Enabled", "NextFireAtUtc");
+
+                    b.ToTable("AgentAutomations", (string)null);
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Entities.Automation.AgentAutomationRun", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AutomationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("DurationMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FiredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SkipReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Outcome");
+
+                    b.HasIndex("AutomationId", "FiredAtUtc");
+
+                    b.ToTable("AgentAutomationRuns", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Entities.Chat.ChatApproval", b =>
                 {
                     b.Property<string>("Id")
@@ -2956,6 +3091,15 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.HasOne("Taskboard.Domain.Entities.AiChatThread", null)
                         .WithMany("Runs")
                         .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Entities.Automation.AgentAutomationRun", b =>
+                {
+                    b.HasOne("Taskboard.Domain.Entities.Automation.AgentAutomation", null)
+                        .WithMany()
+                        .HasForeignKey("AutomationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

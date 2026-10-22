@@ -36,6 +36,8 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<CliDailyUsageAggregate> CliDailyUsageAggregates => Set<CliDailyUsageAggregate>();
     public DbSet<PipelineExecution> PipelineExecutions => Set<PipelineExecution>();
     public DbSet<PipelineStageExecution> PipelineStageExecutions => Set<PipelineStageExecution>();
+    public DbSet<Taskboard.Domain.Entities.Automation.AgentAutomation> AgentAutomations => Set<Taskboard.Domain.Entities.Automation.AgentAutomation>();
+    public DbSet<Taskboard.Domain.Entities.Automation.AgentAutomationRun> AgentAutomationRuns => Set<Taskboard.Domain.Entities.Automation.AgentAutomationRun>();
     public DbSet<ModelPriceRate> ModelPriceRates => Set<ModelPriceRate>();
     public DbSet<RunCostMetric> RunCostMetrics => Set<RunCostMetric>();
     public DbSet<JobSchedule> JobSchedules => Set<JobSchedule>();
