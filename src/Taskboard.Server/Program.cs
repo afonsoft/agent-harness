@@ -877,6 +877,15 @@ void RegisterWorkspaceAndChatServices()
     // delivers them as normal runs (boot pass covers missed fires).
     builder.Services.AddScoped<IChatScheduleService, ChatScheduleService>();
     builder.Services.AddHostedService<ChatScheduleDispatcherService>();
+
+    // SPEC-20261021-agent-automations: scheduled agent prompts — CRUD service
+    // + shared fire path + hosted dispatcher (fires continue with the web
+    // UI closed — everything is server-side).
+    builder.Services.AddScoped<Taskboard.Application.Contracts.Agents.IAutomationService,
+        Taskboard.Application.Automation.AutomationService>();
+    builder.Services.AddScoped<Taskboard.Application.Contracts.Agents.IAutomationRunner,
+        Taskboard.Server.Automation.AutomationRunner>();
+    builder.Services.AddHostedService<Taskboard.Server.Services.AutomationDispatcherService>();
     // RF-007/RF-008: FTS5 message index (scoped — shares the request DbContext).
     builder.Services.AddScoped<IChatMessageSearchIndex, ChatMessageSearchIndex>();
     // SPEC-20261001-chat-mcp-client: chat-side MCP bridge (inert while disabled).
@@ -4382,6 +4391,67 @@ void MapGitHubEndpoints()
 
 void MapAgentsEndpoints()
 {
+    // SPEC-20261021-agent-automations RF-006: scheduled agent prompts.
+    var automations = api.MapGroup("automations").RequireAuthorization();
+
+    automations.MapGet("", async (
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+        Results.Ok(new { automations = await svc.ListAsync(ct) }));
+
+    automations.MapGet("{id}", async (
+        string id,
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+        await svc.GetAsync(id, ct) is { } dto ? Results.Ok(dto) : Results.NotFound());
+
+    automations.MapPost("", async (
+        Taskboard.Dtos.CreateAutomationRequest request,
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+    {
+        try
+        {
+            var dto = await svc.CreateAsync(request, ct);
+            return Results.Created($"/api/automations/{dto.Id}", dto);
+        }
+        catch (DomainException ex)
+        {
+            return ex.Message.Contains("limit", StringComparison.OrdinalIgnoreCase)
+                ? Results.Json(new { error = "automation_limit", detail = ex.Message }, statusCode: 409)
+                : Results.BadRequest(new { error = "invalid_automation", detail = ex.Message });
+        }
+    });
+
+    automations.MapPut("{id}", async (
+        string id,
+        Taskboard.Dtos.UpdateAutomationRequest request,
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+    {
+        try
+        {
+            return await svc.UpdateAsync(id, request, ct) is { } dto
+                ? Results.Ok(dto)
+                : Results.NotFound();
+        }
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = "invalid_automation", detail = ex.Message });
+        }
+    });
+
+    automations.MapDelete("{id}", async (
+        string id,
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+        await svc.DeleteAsync(id, ct) ? Results.NoContent() : Results.NotFound());
+
+    automations.MapPost("{id}/run", async (
+        string id,
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+        await svc.RunNowAsync(id, ct) is { } run ? Results.Ok(run) : Results.NotFound());
+
+    automations.MapGet("{id}/runs", async (
+        string id, int? take,
+        Taskboard.Application.Contracts.Agents.IAutomationService svc, CancellationToken ct) =>
+        Results.Ok(new { runs = await svc.ListRunsAsync(id, take ?? 50, ct) }));
+
     var agents = api.MapGroup("agents").RequireAuthorization();
 
     agents.MapGet("", async (IAgentOrchestrationService orchestration, CancellationToken ct) =>
