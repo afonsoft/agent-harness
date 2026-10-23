@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using NSubstitute;
 using Shouldly;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Delegation;
@@ -234,6 +235,52 @@ public sealed class TaskPromptRefinerTests
         });
         json.ShouldContain("promptRefined");
         json.ShouldContain("promptRefinement");
+    }
+
+    [Fact]
+    public async Task Dado_BriefDoRepo_Quando_Refinar_Entao_TemplateDoRepoVence()
+    {
+        // sdd-worker-brief AC-03: .harness/worker-brief.md vence o builtin,
+        // placeholders continuam substituindo e a task raw fica verbatim.
+        var repo = Path.Combine(Path.GetTempPath(), $"refiner-{Guid.NewGuid():N}");
+        try
+        {
+            var brief = """
+                Repo custom brief
+
+                Repo: {repoUrl}
+
+                Task:
+                {issueTitle}
+                """;
+            var yaml = Substitute.For<Taskboard.Application.Contracts.Harness.IWorktreeYamlReader>();
+            yaml.Read(repo).Returns(new Taskboard.Harness.WorktreeYamlDoc(
+                [], [], [], [], null, [], null, "custom/brief.md"));
+            yaml.EffectiveWorkerBrief(repo, Arg.Any<Taskboard.Harness.WorktreeYamlDoc>())
+                .Returns(brief);
+
+            var refiner = new TaskPromptRefiner(
+                Config(TaskPromptRefinementModes.Template), yamlReader: yaml);
+
+            var result = await refiner.RefineAsync(
+                new TaskPromptRefineRequest("ship the feature", "codex", repo, null, null, null, 1),
+                CancellationToken.None);
+
+            result.Mode.ShouldBe("template");
+            result.AppliedRules.ShouldContain("repo-worker-brief");
+            result.Refined.ShouldContain("Repo custom brief");
+            result.Refined.ShouldContain(repo);
+            result.Refined.ShouldContain("ship the feature");
+            result.Refined.ShouldNotContain("## Output contract");
+            result.Refined.ShouldNotContain("{issueTitle}");
+        }
+        finally
+        {
+            if (Directory.Exists(repo))
+            {
+                Directory.Delete(repo, recursive: true);
+            }
+        }
     }
 
     private sealed class FakeRedactor : Taskboard.Agents.ISecretRedactor

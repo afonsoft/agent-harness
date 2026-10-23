@@ -51,19 +51,28 @@ public sealed class SpecDriftScanServiceTests
         try
         {
             // Poll the facade: once SetAsync lands, GetOrCreateAsync serves the
-            // report without running the probe factory.
+            // report without running the probe factory. The factory throws on
+            // purpose — HybridCache propagates factory exceptions without
+            // caching, so a miss leaves the entry untouched. Returning a dummy
+            // report would cache it and could clobber the job's SetAsync
+            // (last-write-wins) under load — the poisoning made this test
+            // expire its poll deterministically on CI.
             var served = false;
-            var deadline = DateTime.UtcNow.AddSeconds(5);
+            var deadline = DateTime.UtcNow.AddSeconds(20);
             while (!served && DateTime.UtcNow < deadline)
             {
-                var factoryRan = false;
-                var value = await cache.GetOrCreateAsync(ct =>
+                try
                 {
-                    factoryRan = true;
-                    return new ValueTask<SpecDriftReportDto>(new SpecDriftReportDto(0, 0, []));
-                }, CancellationToken.None);
-                // Cache round-trips via serializer — compare content, not identity.
-                served = !factoryRan && value.TotalSpecs == report.TotalSpecs;
+                    var value = await cache.GetOrCreateAsync(
+                        _ => throw new InvalidOperationException("probe miss"),
+                        CancellationToken.None);
+                    // Reaching here means a cache hit — the factory never ran.
+                    served = value.TotalSpecs == report.TotalSpecs;
+                }
+                catch (InvalidOperationException)
+                {
+                }
+
                 if (!served)
                 {
                     await Task.Delay(50);

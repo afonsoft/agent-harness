@@ -45,7 +45,8 @@ public sealed record WorktreeYamlDoc(
     IReadOnlyList<string> Archive,
     string? AgentStartupPolicy,
     IReadOnlyList<WorktreeYamlTab> DefaultTabs,
-    string? IssueCommand);
+    string? IssueCommand,
+    string? WorkerBrief = null);
 
 /// <summary>One <c>shared:</c> entry — raw path kept for validation.</summary>
 public sealed record WorktreeYamlSharedEntry(string Path, string? Mode, bool Invalid);
