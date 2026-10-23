@@ -20,8 +20,12 @@ namespace Taskboard.Integrations.Chat.Tools.Board;
 /// </summary>
 public sealed class BoardDelegateIssueTool(
     IGitHubService github,
-    IServiceScopeFactory scopeFactory) : IChatTool
+    IServiceScopeFactory scopeFactory,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01/RF-B02: the issue body is embedded verbatim in the
+    // worker prompt — it is untrusted external content.
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     public string Name => "board_delegate_issue";
     public string Description =>
         "Delegate a board card (GitHub issue) to an agent CLI: creates a delegated task with "
@@ -87,10 +91,13 @@ public sealed class BoardDelegateIssueTool(
                 prompt = template is null
                     ? null
                     : IssueCommandTemplate.Render(
-                        template, repo, issue.Number, issue.Title,
-                        issue.Body, issue.HtmlUrl);
-                prompt ??= $"GitHub issue {repo}#{issue.Number}: {issue.Title}\n\n"
-                    + (string.IsNullOrWhiteSpace(issue.Body) ? "(no body)" : issue.Body);
+                        template, repo, issue.Number, _defense.Sanitize(issue.Title),
+                        issue.Body is null ? null : _defense.Apply(issue.Body, "github_issue"),
+                        issue.HtmlUrl);
+                prompt ??= $"GitHub issue {repo}#{issue.Number}: {_defense.Sanitize(issue.Title)}\n\n"
+                    + (string.IsNullOrWhiteSpace(issue.Body)
+                        ? "(no body)"
+                        : _defense.Apply(issue.Body, "github_issue"));
             }
 
             var autonomy = ReadString(arguments, "autonomy");

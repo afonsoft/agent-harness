@@ -193,6 +193,14 @@ if (cacheBoot.LocalClamped)
         cacheBoot.DefaultExpiration);
 }
 
+// SPEC-20261023 RF-B03: `off` is a debug escape hatch — warn loudly at boot.
+if (app.Services.GetRequiredService<PromptDefensePolicy>().Mode is PromptDefenseMode.Off)
+{
+    app.Logger.LogWarning(
+        "Security: PromptDefense=off — external content (web pages, mailbox, issues) "
+        + "reaches the model UNMODIFIED. Debug only; do not run production with this.");
+}
+
 // Behind nginx/Cloudflare: honor X-Forwarded-Proto/For (loopback proxy is
 // trusted by default) so redirects and cookie policies see the real scheme.
 ConfigureMiddleware();
@@ -689,6 +697,10 @@ void RegisterWorkspaceAndChatServices()
         sp.GetRequiredService<OpenAiCompatibleClient>(),
         sp.GetRequiredService<ChatImageStore>()));
     builder.Services.AddSingleton<ISecretRedactor>(sp => sp.GetRequiredService<SecretScrubber>());
+    // SPEC-20261023 RF-B03: prompt-defense mode off|sanitize|sanitize+wrap
+    // (default sanitize+wrap — unknown values fail safe).
+    builder.Services.AddSingleton(sp =>
+        PromptDefensePolicy.FromConfiguration(sp.GetRequiredService<IConfiguration>()));
     builder.Services.AddSingleton<IReadOnlyDictionary<string, IChatTool>>(sp =>
     {
         var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-search");
@@ -723,10 +735,15 @@ void RegisterWorkspaceAndChatServices()
             new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
             // B-18: backend resolved per execution from the live config values
             // carried by the tool context — Settings changes need no restart.
-            new WebSearchTool((kind, url, key) => SearchBackendFactory.Create(kind, url, key, http)),
+            new WebSearchTool(
+                (kind, url, key) => SearchBackendFactory.Create(kind, url, key, http),
+                promptDefense: sp.GetRequiredService<PromptDefensePolicy>()),
             // SPEC-20261001-ai-chat-openwebui: open-webui parity — fetch_url,
             // memory, current_datetime and calculator.
-            new FetchUrlTool(http, sp.GetRequiredService<ISecretRedactor>()),
+            new FetchUrlTool(
+                http,
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
             new MemoryTool(
                 new ChatMemoryStore(environment.GetDataDir()),
                 sp.GetRequiredService<ISecretRedactor>()),
@@ -764,9 +781,13 @@ void RegisterWorkspaceAndChatServices()
             new DelegateStatusTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateCompareTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new AgentSendTool(sp.GetRequiredService<IServiceScopeFactory>()),
-            new AgentInboxTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new AgentInboxTool(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
             // SPEC-20261020-v2 RF-001/RF-003: durable run inspection + delivery check/ack.
-            new AgentCheckTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new AgentCheckTool(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
             new DelegateRunShowTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261020-v2 P2: ask/reply + task gates + external block.
             new AgentAskTool(sp.GetRequiredService<IServiceScopeFactory>()),
@@ -800,7 +821,9 @@ void RegisterWorkspaceAndChatServices()
             new RegisterPreviewTool(sp.GetRequiredService<IServiceScopeFactory>()),
             // SPEC-20261016-chat-browser-tool: headless Chromium driving —
             // pool + shot store resolved per call through a scope.
-            new BrowserUseTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            new BrowserUseTool(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
             // SPEC-20261005-chat-jobs-schedule-search RF-002/RF-005/RF-010:
             // background-job, schedule and FTS search tools.
             new JobListTool(sp.GetRequiredService<IChatJobService>(), configuration),
@@ -815,8 +838,12 @@ void RegisterWorkspaceAndChatServices()
             new SkillTool(sp.GetRequiredService<ISkillDiscoveryService>(), configuration),
             // SPEC-20261004-chat-board-tools: board card lifecycle — a card IS a
             // GitHub issue, columns are labels.
-            new BoardListIssuesTool(sp.GetRequiredService<IGitHubService>()),
-            new BoardGetIssueTool(sp.GetRequiredService<IGitHubService>()),
+            new BoardListIssuesTool(
+                sp.GetRequiredService<IGitHubService>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
+            new BoardGetIssueTool(
+                sp.GetRequiredService<IGitHubService>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
             new BoardCreateIssueTool(sp.GetRequiredService<IGitHubService>()),
             new BoardMoveCardTool(sp.GetRequiredService<IGitHubService>()),
             new BoardUpdateIssueTool(sp.GetRequiredService<IGitHubService>()),
@@ -826,7 +853,8 @@ void RegisterWorkspaceAndChatServices()
             new BoardCommentTool(sp.GetRequiredService<IGitHubService>()),
             new BoardDelegateIssueTool(
                 sp.GetRequiredService<IGitHubService>(),
-                sp.GetRequiredService<IServiceScopeFactory>()),
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<PromptDefensePolicy>()),
         ];
         return list.ToDictionary(t => t.Name, StringComparer.Ordinal);
     });
@@ -2817,6 +2845,7 @@ void MapSettingsAndChatEndpoints()
         IRepositoryProvisioningService provisioning,
         IWorkspaceIsolationService isolation,
         IWorktreeYamlReader yamlReader,
+        PromptDefensePolicy promptDefense,
         CancellationToken ct) =>
     {
         if (string.IsNullOrWhiteSpace(request.RepositoryFullName)
@@ -2840,14 +2869,19 @@ void MapSettingsAndChatEndpoints()
         // absent → classic "issue title + body".
         var template = yamlReader.EffectiveIssueCommand(
             yamlReader.Read(clone.Path));
+        // SPEC-20261023 RF-B01/RF-B02: issue title/body are untrusted
+        // external content — sanitize + UNTRUSTED wrap before the worker prompt.
         var prompt = template is null
             ? null
             : IssueCommandTemplate.Render(
                 template, request.RepositoryFullName, request.IssueNumber,
-                request.Title, request.Body);
+                promptDefense.Sanitize(request.Title),
+                request.Body is null ? null : promptDefense.Apply(request.Body, "github_issue"));
         prompt ??=
-            $"GitHub issue {request.RepositoryFullName}#{request.IssueNumber}: {request.Title}\n\n"
-            + (string.IsNullOrWhiteSpace(request.Body) ? "(no body)" : request.Body);
+            $"GitHub issue {request.RepositoryFullName}#{request.IssueNumber}: {promptDefense.Sanitize(request.Title)}\n\n"
+            + (string.IsNullOrWhiteSpace(request.Body)
+                ? "(no body)"
+                : promptDefense.Apply(request.Body, "github_issue"));
         var cli = string.IsNullOrWhiteSpace(request.Cli) ? "opencode" : request.Cli.Trim();
         var effectiveScope = string.IsNullOrWhiteSpace(scope) ? defaultScope : scope;
 

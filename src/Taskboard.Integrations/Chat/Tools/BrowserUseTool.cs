@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Taskboard.Application.Contracts.Chat;
+using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Integrations.Chat.Tools;
 
@@ -11,8 +12,12 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// the web UI it builds. Confirmation-gated; screenshots persist as
 /// <c>browser-shot-*</c> attachments bound to the tool message.
 /// </summary>
-public sealed class BrowserUseTool(IServiceScopeFactory scopeFactory) : IChatTool
+public sealed class BrowserUseTool(
+    IServiceScopeFactory scopeFactory,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01: page text/title are untrusted external content.
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     /// <summary>RF-006: only http(s) — localhost allowed (it's the point).</summary>
     public static bool UrlAllowed(string? url)
         => Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -121,8 +126,8 @@ public sealed class BrowserUseTool(IServiceScopeFactory scopeFactory) : IChatToo
                 ok = true,
                 action,
                 url = result.Url,
-                title = result.Title,
-                text = result.Text,
+                title = result.Title is null ? null : _defense.Sanitize(result.Title),
+                text = result.Text is null ? null : _defense.Apply(result.Text, "browser_use"),
                 shotId,
                 shotUrl,
             }),

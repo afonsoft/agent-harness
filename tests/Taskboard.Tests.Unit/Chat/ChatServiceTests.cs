@@ -1630,6 +1630,9 @@ public sealed class ChatServiceTests : IDisposable
             // o wire sem tombstones (mudança de cenário, não bug).
             ["Taskboard:Chat:Context:CompactAtTokens"] = "600",
             ["Taskboard:Chat:Context:KeepRecentTurns"] = "2",
+            // SPEC-20261023 RF-B03: off devolve o system prompt ao tamanho
+            // calibrado — o orçamento deste teste mede pressão, não defesa.
+            ["Taskboard:Security:PromptDefense"] = "off",
         });
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));
@@ -1667,6 +1670,8 @@ public sealed class ChatServiceTests : IDisposable
             ["Taskboard:Chat:Context:KeepRecentTurns"] = "1",
             ["Taskboard:Chat:Context:SpillBytes"] = "1000",
             ["Taskboard:Chat:Context:SpillHeadBytes"] = "100",
+            // SPEC-20261023 RF-B03: idem — orçamento calibrado ao prompt antigo.
+            ["Taskboard:Security:PromptDefense"] = "off",
         }, spillStore: store);
         var conversation = await service.CreateConversationAsync(
             new CreateChatConversationRequest(_provider.Id, "m1"));

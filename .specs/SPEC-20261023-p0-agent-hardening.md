@@ -101,7 +101,7 @@ Deferred tools emit only a catalog line (name + one-line description) in the sys
 ## 6. Acceptance Criteria
 
 - [ ] `read_file`/`file_edit`/`shell_exec` on `~/.ssh/id_rsa`, `~/.aws/credentials`, `~/.docker/config.json` → `SecurityAccessDeniedException`/`credential-path` refusal under every risk tier and every workspace.
-- [ ] Issue body containing zero-width + bidi-override chars → prompt carries sanitized text inside UNTRUSTED sentinels; system prompt unchanged across the run.
+- [x] Issue body containing zero-width + bidi-override chars → prompt carries sanitized text inside UNTRUSTED sentinels; system prompt unchanged across the run.
 - [ ] `GET /api/harness/preflight` on a healthy box → `ready`; with `ANTHROPIC_API_KEY` missing → `warning`/`blocked` with nextAction naming the fix.
 - [ ] `taskctl run --dry-run` spawns no process, persists no run, prints resolved config + verdict.
 - [ ] Fresh conversation schema omits `browser_use` when no CDP endpoint is reachable; `tool_search("browser")` + `tool_activate("browser_use")` → next call includes its schema.
@@ -110,7 +110,7 @@ Deferred tools emit only a catalog line (name + one-line description) in the sys
 ## 7. Task Plan
 
 - [ ] **T1 (Slice A)** — `SensitivePathDenylist` + `PathJailValidator` integration + classifier arg inspection + audit. Tests first.
-- [ ] **T2 (Slice B)** — `UntrustedContentSanitizer` + sentinel wrapping at ingestion points + config + startup warn. Tests first.
+- [x] **T2 (Slice B)** — `UntrustedContentSanitizer` + sentinel wrapping at ingestion points + config + startup warn. Tests first.
 - [ ] **T3 (Slice C)** — `IPreflightCheck` list + report endpoint + `taskctl doctor` + `dryRun` plumbing. Tests first.
 - [ ] **T4 (Slice D)** — availability probes + `tool_search`/`tool_activate` + deferred config + cache-prefix invariants. Tests first.
 

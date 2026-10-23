@@ -246,7 +246,9 @@ public sealed class BrowserUseTests : IDisposable
 
         result.AttachmentIds.ShouldBeNull();
         using var doc = JsonDocument.Parse(result.Json);
-        doc.RootElement.GetProperty("text").GetString().ShouldBe("conteúdo");
+        // SPEC-20261023 RF-B02: page text is untrusted — wrapped in sentinels.
+        doc.RootElement.GetProperty("text").GetString()
+            .ShouldBe("<<<UNTRUSTED browser_use>>>\nconteúdo\n<<<END_UNTRUSTED>>>");
     }
 
     [Fact]
