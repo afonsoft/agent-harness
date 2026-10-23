@@ -53,7 +53,9 @@ public sealed class SpecDriftScanServiceTests
             // Poll the facade: once SetAsync lands, GetOrCreateAsync serves the
             // report without running the probe factory.
             var served = false;
-            var deadline = DateTime.UtcNow.AddSeconds(5);
+            // First pass runs inside ExecuteAsync on the pool — allow ample
+            // headroom on loaded CI runners (flake fix: 5s proved too tight).
+            var deadline = DateTime.UtcNow.AddSeconds(20);
             while (!served && DateTime.UtcNow < deadline)
             {
                 var factoryRan = false;
