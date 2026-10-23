@@ -25,6 +25,11 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
     internal const int MaxIssueCommandLength = 4000;
     internal const long MaxFileBytes = 256 * 1024;
 
+    /// <summary>RF-003 default probe — <c>.harness/worker-brief.md</c>;
+    /// same bound as the agent prompt template (16 KB).</summary>
+    internal const string DefaultWorkerBriefPath = ".harness/worker-brief.md";
+    internal const long MaxWorkerBriefBytes = Taskboard.Application.Contracts.Agents.AgentPromptTemplate.MaxLength;
+
     private const string ConfigSetupSection = "Taskboard:Worktree:Setup";
     private const string ConfigPolicyKey = "Taskboard:Worktree:SetupPolicy";
     private const string ConfigIssueCommandKey = "Taskboard:Worktree:IssueCommand";
@@ -75,6 +80,41 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
         return configured is { Length: > 0 and <= MaxIssueCommandLength }
             ? configured
             : doc.IssueCommand;
+    }
+
+    /// <inheritdoc />
+    public string? EffectiveWorkerBrief(string repositoryPath, WorktreeYamlDoc doc)
+    {
+        var relative = doc.WorkerBrief is { Length: > 0 } ? doc.WorkerBrief
+            : File.Exists(Path.Join(repositoryPath, DefaultWorkerBriefPath)) ? DefaultWorkerBriefPath
+            : null;
+        if (relative is null)
+        {
+            return null;
+        }
+
+        var full = Path.GetFullPath(Path.Join(repositoryPath, relative));
+        if (!full.StartsWith(
+                Path.GetFullPath(repositoryPath) + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        try
+        {
+            var info = new FileInfo(full);
+            if (!info.Exists || info.Length is 0 or > MaxWorkerBriefBytes)
+            {
+                return null;
+            }
+            return File.ReadAllText(full);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogWarning(ex, "Could not read worker brief {File}.", full);
+            return null;
+        }
     }
 
     /// <summary><c>Taskboard:Worktree:Setup</c> — scalar or
@@ -144,7 +184,8 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
             Archive: ReadCommandList(map, "archive", logger),
             AgentStartupPolicy: ScalarOf(map, "agentStartupPolicy"),
             DefaultTabs: ReadTabs(map),
-            IssueCommand: ReadIssueCommand(map));
+            IssueCommand: ReadIssueCommand(map),
+            WorkerBrief: ReadWorkerBriefPath(map));
     }
 
     private static List<WorktreeYamlSharedEntry> ReadShared(YamlMappingNode map)
@@ -251,6 +292,22 @@ public sealed class WorktreeYamlReader : IWorktreeYamlReader
     {
         var raw = ScalarOf(map, "issueCommand")?.Trim();
         return raw is { Length: > 0 and <= MaxIssueCommandLength } ? raw : null;
+    }
+
+    /// <summary>SPEC-20261022-sdd-worker-brief RF-003: <c>workerBrief:</c>
+    /// is a repo-relative path to a template <c>.md</c> — absolute paths and
+    /// <c>..</c> escapes are rejected so the read never leaves the repo.</summary>
+    internal static string? ReadWorkerBriefPath(YamlMappingNode map)
+    {
+        var raw = ScalarOf(map, "workerBrief")?.Trim();
+        if (raw is not { Length: > 0 and <= 260 } || Path.IsPathRooted(raw))
+        {
+            return null;
+        }
+        var normalized = raw.Replace('\\', '/');
+        return normalized.Split('/').Any(s => s is ".." or ".")
+            ? null
+            : normalized;
     }
 
     /// <summary>Trims a command string and enforces the length cap; rejects

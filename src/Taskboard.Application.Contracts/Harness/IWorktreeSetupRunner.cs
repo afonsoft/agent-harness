@@ -31,6 +31,13 @@ public interface IWorktreeYamlReader
     /// <c>Taskboard:Worktree:IssueCommand</c> &gt; <c>doc.IssueCommand</c>;
     /// null when neither declares one (RF-007).</summary>
     string? EffectiveIssueCommand(WorktreeYamlDoc doc);
+
+    /// <summary>SPEC-20261022-sdd-worker-brief RF-003: resolves the repo
+    /// worker-brief template — the <c>workerBrief:</c> yaml path wins,
+    /// default probe <c>.harness/worker-brief.md</c>; the file must stay
+    /// under <paramref name="repositoryPath"/> and within the prompt
+    /// template size bound. Returns the raw template text or null.</summary>
+    string? EffectiveWorkerBrief(string repositoryPath, WorktreeYamlDoc doc);
 }
 
 /// <summary>

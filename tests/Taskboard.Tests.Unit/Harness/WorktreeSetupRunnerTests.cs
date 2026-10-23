@@ -440,3 +440,72 @@ public class IssueCommandTemplateTests
         IssueCommandTemplate.Render("   ", "o/r", 1, "t").ShouldBeNull();
     }
 }
+
+/// <summary>SPEC-20261022-sdd-worker-brief RF-003: repo worker-brief
+/// resolution — yaml path wins, default probe, jail + size bounds.</summary>
+public class WorkerBriefReaderTests : IDisposable
+{
+    private readonly string _repo = Path.Combine(
+        Path.GetTempPath(), $"repo-{Guid.NewGuid():N}");
+
+    public WorkerBriefReaderTests() => Directory.CreateDirectory(_repo);
+    public void Dispose() => Directory.Delete(_repo, recursive: true);
+
+    private static WorktreeYamlReader Reader() =>
+        new(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+
+    [Fact]
+    public void Dado_DefaultBriefMd_Quando_Effective_Entao_Conteudo()
+    {
+        var file = Path.Join(_repo, ".harness", "worker-brief.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "custom brief {issueTitle}");
+
+        Reader().EffectiveWorkerBrief(_repo, WorktreeYamlReader.Parse(_repo))
+            .ShouldBe("custom brief {issueTitle}");
+    }
+
+    [Fact]
+    public void Dado_WorkerBriefYamlPath_Quando_Effective_Entao_YamlVence()
+    {
+        Directory.CreateDirectory(Path.Join(_repo, ".harness"));
+        File.WriteAllText(Path.Join(_repo, ".harness", "worktree.yaml"),
+            "workerBrief: docs/my-brief.md\n");
+        Directory.CreateDirectory(Path.Join(_repo, "docs"));
+        File.WriteAllText(Path.Join(_repo, "docs", "my-brief.md"), "yaml brief");
+
+        Reader().EffectiveWorkerBrief(_repo, WorktreeYamlReader.Parse(_repo))
+            .ShouldBe("yaml brief");
+    }
+
+    [Fact]
+    public void Dado_SemBrief_Quando_Effective_Entao_Null()
+    {
+        Reader().EffectiveWorkerBrief(_repo, WorktreeYamlReader.Parse(_repo))
+            .ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("workerBrief: ../escape.md")]
+    [InlineData("workerBrief: /abs/path.md")]
+    [InlineData("workerBrief: sub/../../escape.md")]
+    public void Dado_PathForaDoRepo_Quando_Parse_Entao_Rejeitado(string yaml)
+    {
+        Directory.CreateDirectory(Path.Join(_repo, ".harness"));
+        File.WriteAllText(Path.Join(_repo, ".harness", "worktree.yaml"), yaml + "\n");
+
+        var doc = WorktreeYamlReader.Parse(_repo);
+        doc.WorkerBrief.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Dado_BriefGigante_Quando_Effective_Entao_Null()
+    {
+        var file = Path.Join(_repo, ".harness", "worker-brief.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, new string('x', 17 * 1024));
+
+        Reader().EffectiveWorkerBrief(_repo, WorktreeYamlReader.Parse(_repo))
+            .ShouldBeNull();
+    }
+}

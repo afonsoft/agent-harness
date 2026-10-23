@@ -1,7 +1,9 @@
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Delegation;
+using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Application.Delegation;
 
@@ -14,7 +16,8 @@ namespace Taskboard.Application.Delegation;
 public sealed class TaskPromptRefiner(
     IConfiguration configuration,
     Taskboard.Agents.ISecretRedactor? redactor = null,
-    ILlmProvider? llm = null) : ITaskPromptRefiner
+    ILlmProvider? llm = null,
+    IWorktreeYamlReader? yamlReader = null) : ITaskPromptRefiner
 {
     private const int SpecExcerptLimit = 2048;
     private const int FailureDetailLimit = 1024;
@@ -104,6 +107,38 @@ public sealed class TaskPromptRefiner(
         TaskPromptRefineRequest request, CancellationToken ct)
     {
         var anchors = await FindSpecAnchorsAsync(request, ct).ConfigureAwait(false);
+
+        // SPEC-20261022-sdd-worker-brief RF-003: a repo-level worker brief
+        // (.harness/worktree.yaml workerBrief: or .harness/worker-brief.md)
+        // wins over the builtin sections; placeholders still substitute and
+        // the raw task text stays verbatim via {issueTitle}.
+        var repoTemplate = TryRepoBrief(request);
+        if (repoTemplate is not null)
+        {
+            var repoRules = new List<string> { "repo-worker-brief" };
+            if (anchors.Count > 0)
+            {
+                repoRules.Add("spec-anchors");
+            }
+
+            var rendered = AgentPromptTemplate.Render(
+                repoTemplate, request.RepositoryPath, request.RawPrompt.Trim(),
+                issueBody: null, issueComments: null,
+                specAnchors: anchors.Count > 0 ? string.Join('\n', anchors) : null);
+            var rsb = new StringBuilder(rendered);
+            if (request.Attempt > 1 && !string.IsNullOrWhiteSpace(request.PriorFailureDetail))
+            {
+                rsb.AppendLine();
+                rsb.AppendLine("## Attempt context");
+                rsb.AppendLine(Truncate(request.PriorFailureDetail, FailureDetailLimit));
+                repoRules.Add("attempt-context");
+            }
+
+            return new TaskPromptRefineResult(
+                request.RawPrompt, Truncate(Scrub(rsb.ToString()), RefinedLimit),
+                TaskPromptRefinementModes.Template, anchors, repoRules);
+        }
+
         var sb = new StringBuilder();
         sb.AppendLine("## Task");
         sb.AppendLine(request.RawPrompt.Trim());
@@ -275,6 +310,26 @@ public sealed class TaskPromptRefiner(
         return result.Length > SpecExcerptLimit
             ? result[..SpecExcerptLimit]
             : result;
+    }
+
+    /// <summary>RF-003: resolves the repo worker-brief template —
+    /// best-effort, any read/parse failure falls back to builtin.</summary>
+    private string? TryRepoBrief(TaskPromptRefineRequest request)
+    {
+        if (yamlReader is null || string.IsNullOrWhiteSpace(request.RepositoryPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            return yamlReader.EffectiveWorkerBrief(
+                request.RepositoryPath, yamlReader.Read(request.RepositoryPath));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private string Scrub(string text) =>
