@@ -331,14 +331,17 @@ public sealed class DelegationService : IDelegationService
             new[] { failed.Error, failed.ResultSummary }
                 .Where(s => !string.IsNullOrWhiteSpace(s)));
 
-        // IssueRef isn't persisted — recover the #<n> anchor from the raw
-        // prompt of issue-kind tasks so retry keeps spec anchoring.
-        var issueRef = failed.Kind == "issue"
-            ? System.Text.RegularExpressions.Regex.Match(failed.Prompt, @"#\d+").Value
-            : null;
-
         try
         {
+            // IssueRef isn't persisted — recover the #<n> anchor from the raw
+            // prompt of issue-kind tasks so retry keeps spec anchoring.
+            var issueRef = failed.Kind == "issue"
+                ? System.Text.RegularExpressions.Regex.Match(
+                    failed.Prompt, @"#\d+",
+                    System.Text.RegularExpressions.RegexOptions.None,
+                    TimeSpan.FromMilliseconds(100)).Value
+                : null;
+
             var result = await _refiner.RefineAsync(
                 new TaskPromptRefineRequest(
                     failed.Prompt,
