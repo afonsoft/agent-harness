@@ -129,6 +129,9 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<bool>("IsHibernated")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("LastAutoResumeUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("NativeSessionId")
                         .HasMaxLength(160)
                         .HasColumnType("TEXT");
@@ -3033,6 +3036,9 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("AutoResumeOnFocus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AutoResumeOnMailbox")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("GitHubToken")

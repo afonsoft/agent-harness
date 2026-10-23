@@ -9,7 +9,7 @@
 | Stack | `.NET` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feat/mailbox-wake` |
-| Status | `Draft` |
+| Status | `Implemented` |
 | Origin | ADE gap analysis 2026-10-22 — DeepSeek Harness Agent Teams (inactive teammate cold-resumes on mailbox delivery) |
 
 ## 1. User Story

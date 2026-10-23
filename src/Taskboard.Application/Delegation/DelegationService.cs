@@ -34,6 +34,7 @@ public sealed class DelegationService : IDelegationService
     private readonly TimeProvider _time;
     private readonly IConfiguration _configuration;
     private readonly ITaskPromptRefiner _refiner;
+    private readonly Taskboard.Application.Contracts.Agents.IMailboxWakeService? _mailboxWake;
 
     public DelegationService(
         IDelegationTaskRepository tasks,
@@ -47,7 +48,8 @@ public sealed class DelegationService : IDelegationService
         ITaskPromptRefiner refiner,
         TimeProvider? timeProvider = null,
         IAgentAttentionService? attention = null,
-        ILogger<DelegationService>? logger = null)
+        ILogger<DelegationService>? logger = null,
+        Taskboard.Application.Contracts.Agents.IMailboxWakeService? mailboxWake = null)
     {
         _tasks = tasks;
         _mailbox = mailbox;
@@ -61,6 +63,18 @@ public sealed class DelegationService : IDelegationService
         _time = timeProvider ?? TimeProvider.System;
         _configuration = configuration;
         _refiner = refiner;
+        _mailboxWake = mailboxWake;
+    }
+
+    /// <summary>SPEC-20261022-mailbox-wake: addressed deliveries auto-resume
+    /// hibernated sessions — fire-and-forget on the service's own scope;
+    /// advisory, never blocks or fails the send.</summary>
+    private void FireMailboxWake(string? recipient)
+    {
+        if (_mailboxWake is not null)
+        {
+            _ = _mailboxWake.WakeForRecipientAsync(recipient, CancellationToken.None);
+        }
     }
 
     /// <summary>SPEC-20261020-agent-attention-model: lifecycle/mailbox signal emit — fire-and-log.</summary>
@@ -625,6 +639,7 @@ public sealed class DelegationService : IDelegationService
         }
 
         var message = await _mailbox.AddAsync(effective, ct).ConfigureAwait(false);
+        FireMailboxWake(effective.ToAgent);
         if (string.Equals(message.Kind, AgentMailboxKinds.Escalation, StringComparison.Ordinal))
         {
             await EmitAttentionAsync(
@@ -698,6 +713,7 @@ public sealed class DelegationService : IDelegationService
                 scope, fromAgent, original.FromAgent,
                 $"re:{original.Id} {body.Trim()}", AgentMailboxKinds.Text),
             ct).ConfigureAwait(false);
+        FireMailboxWake(original.FromAgent);
         await _mailbox.MarkReadAsync([original.Id], _time.GetUtcNow().UtcDateTime, ct)
             .ConfigureAwait(false);
         return reply;
@@ -863,6 +879,7 @@ public sealed class DelegationService : IDelegationService
                     scope, request.FromAgent, request.ToAgent ?? "@all",
                     Truncate(request.Question, DetailMaxLength), AgentMailboxKinds.Question),
                 ct).ConfigureAwait(false);
+            FireMailboxWake(request.ToAgent);
             question = await _questions.AddAsync(
                 scope, run.Id, message.Id, request.FromAgent,
                 Truncate(request.Question, DetailMaxLength),

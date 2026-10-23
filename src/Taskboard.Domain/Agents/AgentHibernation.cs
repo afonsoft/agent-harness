@@ -25,6 +25,9 @@ public sealed class AgentHibernation : Entity<string>
     public string? NativeSessionId { get; private set; }
     public string? Cwd { get; private set; }
     public int AutoResumedCount { get; private set; }
+    /// <summary>SPEC-20261022-mailbox-wake RF-002: last auto-resume ATTEMPT —
+    /// the ≥60s storm throttle; attempts count, not successes.</summary>
+    public DateTime? LastAutoResumeUtc { get; private set; }
     /// <summary>RF-009: user pin — hibernate never touches pinned sessions.</summary>
     public bool Pinned { get; private set; }
 
@@ -82,4 +85,7 @@ public sealed class AgentHibernation : Entity<string>
     }
 
     public void SetPinned(bool pinned) => Pinned = pinned;
+
+    /// <summary>mailbox-wake RF-002: stamp an auto-resume attempt.</summary>
+    public void TouchAutoResume(DateTime atUtc) => LastAutoResumeUtc = atUtc;
 }

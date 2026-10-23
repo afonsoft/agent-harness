@@ -111,10 +111,21 @@ public sealed class EfCoreAgentHibernationRepository : IAgentHibernationReposito
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>mailbox-wake RF-002: stamps the throttle window before a
+    /// respawn attempt so failures do not spin.</summary>
+    public async Task MarkAutoResumeAttemptAsync(
+        string sessionKey, DateTime atUtc, CancellationToken ct = default)
+    {
+        var existing = await _context.AgentHibernations
+            .FindAsync([sessionKey], ct).ConfigureAwait(false);
+        existing?.TouchAutoResume(atUtc);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+    }
+
     private static AgentHibernationDto ToDto(AgentHibernation h) =>
         new(h.SessionKey, h.UserId, h.Cli, h.IsHibernated, h.HibernatedAtUtc,
             h.IdleAtUtc, ReadArgv(h.ResumeArgvJson), h.NativeSessionId, h.Cwd,
-            h.AutoResumedCount, h.Pinned);
+            h.AutoResumedCount, h.Pinned, h.LastAutoResumeUtc);
 
     private static IReadOnlyList<string> ReadArgv(string json) =>
         JsonSerializer.Deserialize<string[]>(json) ?? [];
