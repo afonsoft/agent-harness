@@ -102,8 +102,8 @@ Deferred tools emit only a catalog line (name + one-line description) in the sys
 
 - [ ] `read_file`/`file_edit`/`shell_exec` on `~/.ssh/id_rsa`, `~/.aws/credentials`, `~/.docker/config.json` → `SecurityAccessDeniedException`/`credential-path` refusal under every risk tier and every workspace.
 - [x] Issue body containing zero-width + bidi-override chars → prompt carries sanitized text inside UNTRUSTED sentinels; system prompt unchanged across the run.
-- [ ] `GET /api/harness/preflight` on a healthy box → `ready`; with `ANTHROPIC_API_KEY` missing → `warning`/`blocked` with nextAction naming the fix.
-- [ ] `taskctl run --dry-run` spawns no process, persists no run, prints resolved config + verdict.
+- [x] `GET /api/harness/preflight` on a healthy box → `ready`; with `ANTHROPIC_API_KEY` missing → `warning`/`blocked` with nextAction naming the fix.
+- [x] `taskctl run --dry-run` spawns no process, persists no run, prints resolved config + verdict.
 - [ ] Fresh conversation schema omits `browser_use` when no CDP endpoint is reachable; `tool_search("browser")` + `tool_activate("browser_use")` → next call includes its schema.
 - [ ] Token-footprint check: default conversation tool-schema payload shrinks vs. current baseline (assert in eval/test).
 
@@ -111,7 +111,7 @@ Deferred tools emit only a catalog line (name + one-line description) in the sys
 
 - [ ] **T1 (Slice A)** — `SensitivePathDenylist` + `PathJailValidator` integration + classifier arg inspection + audit. Tests first.
 - [x] **T2 (Slice B)** — `UntrustedContentSanitizer` + sentinel wrapping at ingestion points + config + startup warn. Tests first.
-- [ ] **T3 (Slice C)** — `IPreflightCheck` list + report endpoint + `taskctl doctor` + `dryRun` plumbing. Tests first.
+- [x] **T3 (Slice C)** — `IPreflightService` + report endpoint + `taskctl doctor`/`taskctl run --dry-run` + `delegate_task dry_run` + cockpit verdict chip. Tests first.
 - [ ] **T4 (Slice D)** — availability probes + `tool_search`/`tool_activate` + deferred config + cache-prefix invariants. Tests first.
 
 Each slice is an independent PR; order T1→T4 (security first, tokens last).

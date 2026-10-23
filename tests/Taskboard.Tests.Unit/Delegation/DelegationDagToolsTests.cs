@@ -122,6 +122,66 @@ public class DelegationDagToolsTests
         result.Refused.ShouldBeTrue();
     }
 
+    // SPEC-20261023 RF-C03: dry_run resolve a config efetiva + roda preflight —
+    // não persiste task nem despacha.
+    [Fact]
+    public async Task Dado_DryRun_Quando_DelegateTask_Entao_ResolvidoSemPersistir()
+    {
+        var service = Substitute.For<IDelegationService>();
+        var preflight = Substitute.For<IPreflightService>();
+        preflight.RunAsync(Arg.Any<CancellationToken>())
+            .Returns(new PreflightReport("ready",
+                [new PreflightCheck("cli:codex", PreflightCheckStatus.Ok, "ok")]));
+        var tool = new DelegateTaskTool(
+            ScopeWith(c =>
+            {
+                c.AddSingleton(service);
+                c.AddSingleton(preflight);
+            }), Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"fix bug","dry_run":true}"""), Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("\"dryRun\":true");
+        result.Json.ShouldContain("\"cli\":\"codex\"");
+        result.Json.ShouldContain("\"verdict\":\"ready\"");
+        await service.DidNotReceive().CreateTaskAsync(
+            Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
+        await preflight.Received(1).RunAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_DryRunComModel_Quando_DelegateTask_Entao_ProjetaLaunchEfetivo()
+    {
+        var service = Substitute.For<IDelegationService>();
+        var resolver = Substitute.For<IAgentLaunchResolver>();
+        resolver.ResolveLaunchAsync("codex", "gpt-x", "high", Arg.Any<CancellationToken>())
+            .Returns(new LaunchResolution("gpt-x-high", "high", ["--effort", "high"]));
+        var preflight = Substitute.For<IPreflightService>();
+        preflight.RunAsync(Arg.Any<CancellationToken>())
+            .Returns(new PreflightReport("warning",
+                [new PreflightCheck("mcp", PreflightCheckStatus.Warning, "ctx7 down")]));
+        var tool = new DelegateTaskTool(
+            ScopeWith(c =>
+            {
+                c.AddSingleton(service);
+                c.AddSingleton(resolver);
+                c.AddSingleton(preflight);
+            }), Substitute.For<IGitCommandRunner>());
+
+        var result = await tool.ExecuteAsync(
+            Args("""{"prompt":"x","dry_run":true,"model":"gpt-x","effort":"high"}"""),
+            Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        result.Json.ShouldContain("\"model\":\"gpt-x-high\"");
+        result.Json.ShouldContain("\"effort\":\"high\"");
+        result.Json.ShouldContain("\"verdict\":\"warning\"");
+        await service.DidNotReceive().CreateTaskAsync(
+            Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
+    }
+
     // ---- delegate_fanout ----
 
     [Fact]

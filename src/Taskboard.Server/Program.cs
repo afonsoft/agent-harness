@@ -1151,6 +1151,8 @@ void RegisterJobsAndPipelines()
         .GetSection("Taskboard:Pipelines:AutoRetry").Get<PipelineAutoRetryOptions>() ?? new PipelineAutoRetryOptions());
     builder.Services.AddSingleton<PipelineEngine>();
     builder.Services.AddScoped<IPipelineOrchestrator, PipelineExecutionAppService>();
+    // SPEC-20261023 RF-C01: run preflight doctor — pure probes, no side effects.
+    builder.Services.AddScoped<IPreflightService, PreflightService>();
     builder.Services.AddHostedService<PipelineEngineService>();
     // SPEC-20260919-ade-cockpit-hitl: cockpit event stream (buffered replay +
     // SignalR broadcast) e fila in-memory de steer do RF-003.
@@ -1535,6 +1537,10 @@ void MapHarnessEndpoints()
 {
     var harness = api.MapGroup("harness");
 
+    // SPEC-20261023 RF-C01: run preflight doctor — verdict + checks, no side effects.
+    harness.MapGet("preflight", async (IPreflightService preflight, CancellationToken ct) =>
+        Results.Ok(await preflight.RunAsync(ct)));
+
     harness.MapPost("worktrees", async (
             CreateWorktreeRequestDto request,
             IWorkspaceIsolationService isolation,
@@ -1794,6 +1800,7 @@ void MapHarnessEndpoints()
             RunStartRequest request,
             IPipelineOrchestrator orchestrator,
             IRepository<IssueHistoryEvent> history,
+            IPreflightService preflight,
             CancellationToken ct) =>
     {
         // SPEC-20260923-cockpit-run-hardening RF-001: the client sends only
@@ -1802,6 +1809,29 @@ void MapHarnessEndpoints()
         var prompt = string.IsNullOrWhiteSpace(request.SpecPath)
             ? request.Prompt
             : $"{request.Prompt}\n\nSpec: `{request.SpecPath}`";
+
+        // SPEC-20261023 RF-C03: dryRun resolves the effective config and runs
+        // preflight — nothing persists, no pipeline spawns.
+        if (request.DryRun)
+        {
+            var report = await preflight.RunAsync(ct);
+            return Results.Ok(new RunDryRunResult(
+                new ResolvedRunConfig(
+                    request.TemplateId,
+                    request.RepositoryFullName,
+                    request.BaseBranch,
+                    request.IssueId,
+                    prompt,
+                    request.MaxBudgetUsd,
+                    request.AgentOverride,
+                    request.TierOverride,
+                    request.SkipVerification,
+                    request.SingleAgent,
+                    request.SingleAgentType,
+                    request.SingleAgentTier),
+                report.Verdict,
+                report.Checks));
+        }
         var dto = await orchestrator.StartAsync(
             new PipelineStartRequest(
                 request.TemplateId,

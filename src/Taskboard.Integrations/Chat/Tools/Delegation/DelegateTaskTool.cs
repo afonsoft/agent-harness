@@ -37,7 +37,8 @@ public sealed class DelegateTaskTool(
           "model":{"type":"string","description":"Requested launch model — resolved against the CLI's capability"},
           "effort":{"type":"string","description":"Requested launch effort: low|normal|high"},
           "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"},
-          "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this task (default: server config Taskboard:Delegation:PromptRefinement)"}
+          "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this task (default: server config Taskboard:Delegation:PromptRefinement)"},
+          "dry_run":{"type":"boolean","description":"Resolve the effective config and run preflight checks without persisting the task or dispatching (returns resolved + verdict + checks)"}
         },"required":["prompt"]}
         """;
 
@@ -122,6 +123,37 @@ public sealed class DelegateTaskTool(
             {
                 return DelegationToolSupport.Error(ex.Message, "launch preference refused");
             }
+        }
+
+        // SPEC-20261023 RF-C03: dry_run resolves config + runs preflight —
+        // no task persisted, no dispatch.
+        if (ReadBool(arguments, "dry_run"))
+        {
+            await using var dryScope = scopeFactory.CreateAsyncScope();
+            var report = await dryScope.ServiceProvider
+                .GetRequiredService<IPreflightService>()
+                .RunAsync(cancellationToken).ConfigureAwait(false);
+            return DelegationToolSupport.Ok(new
+            {
+                dryRun = true,
+                resolved = new
+                {
+                    cli,
+                    scope,
+                    repositoryPath = repoPath,
+                    useWorktree,
+                    baseSha,
+                    model,
+                    effort,
+                    autonomy,
+                    refine,
+                    launch = launch is null
+                        ? null
+                        : new { model = launch.EffectiveModel, effort = launch.EffectiveEffort, launch.Args },
+                },
+                verdict = report.Verdict,
+                checks = report.Checks,
+            });
         }
 
         if (retryOf is not null)

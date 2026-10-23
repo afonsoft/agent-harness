@@ -248,10 +248,41 @@ else if (_runs is not null)
                           placeholder="O que o pipeline deve fazer…"></textarea>
                 <div class="form-text">O botão acima carrega o prompt padrão de <em>CLI Agents</em> com os placeholders preenchidos — edite livremente antes de iniciar.</div>
             </div>
+            @* SPEC-20261023 RF-C03: verdict chip do dry-run no form de dispatch. *@
+            @if (_dryRun is { } dryRun)
+            {
+                <div class="col-12">
+                    <div class="border rounded p-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge @VerdictBadgeClass(dryRun.Verdict)">preflight: @dryRun.Verdict</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                                    @onclick="DryRunAsync" disabled="@_dryRunning">
+                                @if (_dryRunning) { <Spinner Size="SpinnerSize.Small" /> } Re-check
+                            </button>
+                        </div>
+                        <ul class="list-unstyled small mb-0 mt-2">
+                            @foreach (var check in dryRun.Checks)
+                            {
+                                <li class="mb-1">
+                                    <span class="badge @CheckBadgeClass(check.Status)">@check.Status.ToString().ToLowerInvariant()</span>
+                                    <code>@check.Name</code> — @check.Message
+                                    @if (!string.IsNullOrWhiteSpace(check.NextAction))
+                                    {
+                                        <span class="text-body-secondary">→ @check.NextAction</span>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            }
         </div>
     </BodyTemplate>
     <FooterTemplate>
         <Button Color="ButtonColor.Secondary" Size="ButtonSize.Small" @onclick="() => _startModal.HideAsync()">Cancel</Button>
+        <Button Color="ButtonColor.Info" Outline="true" Size="ButtonSize.Small" @onclick="DryRunAsync" Disabled="@(!CanStart || _starting || _dryRunning)">
+            @if (_dryRunning) { <Spinner Size="SpinnerSize.Small" /> } Preflight
+        </Button>
         <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="StartRunAsync" Disabled="@(!CanStart || _starting)">
             @if (_starting) { <Spinner Size="SpinnerSize.Small" /> } Start
         </Button>
@@ -266,6 +297,8 @@ else if (_runs is not null)
     private bool _loading;
     private bool _reposLoading;
     private bool _starting;
+    private bool _dryRunning;
+    private RunDryRunResult? _dryRun;
     private bool _promptTemplateLoading;
     private Modal _startModal = default!;
     private readonly RunStartForm _start = new();
@@ -479,6 +512,43 @@ else if (_runs is not null)
         _start.BaseBranch = string.IsNullOrWhiteSpace(_start.BaseBranch) ? "main" : _start.BaseBranch;
         _start.RepositoryFullName ??= SelectedRepo.Selected;
         await _startModal.ShowAsync();
+        // SPEC-20261023 RF-C03: verdict chip aparece sozinho quando o form
+        // já abre preenchido (issue/repo/prompt carregados do board).
+        if (CanStart)
+        {
+            _ = DryRunAsync();
+        }
+    }
+
+    private RunStartRequest BuildRequest() =>
+        new(_start.TemplateId!, _start.RepositoryFullName!, _start.BaseBranch ?? "main",
+            string.IsNullOrWhiteSpace(_start.IssueId) ? null : _start.IssueId,
+            string.IsNullOrWhiteSpace(_start.SpecPath) ? null : _start.SpecPath,
+            _start.Prompt!, _start.MaxBudgetUsd,
+            AgentOverride: IsSingleAgent ? _start.AgentType : null,
+            TierOverride: IsSingleAgent ? _start.ModelTier : null,
+            SkipVerification: IsSingleAgent && !_start.RunVerification,
+            StageOverrides: BuildStageOverrides(),
+            SingleAgent: !IsSingleAgent && _start.SingleAgent,
+            SingleAgentType: ParseAgent(_start.SingleAgentType),
+            SingleAgentTier: ParseTier(_start.SingleAgentTier));
+
+    /// <summary>SPEC-20261023 RF-C03: dry-run — resolved config + preflight, sem persistir.</summary>
+    private async Task DryRunAsync()
+    {
+        _dryRunning = true;
+        try
+        {
+            _dryRun = await Client.DryRunAsync(BuildRequest(), _cts.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await ToastService.NotifyAsync(new ToastMessage(ToastType.Warning, $"Preflight: {ex.Message}"));
+        }
+        finally
+        {
+            _dryRunning = false;
+        }
     }
 
     private async Task StartRunAsync()
@@ -486,18 +556,7 @@ else if (_runs is not null)
         _starting = true;
         try
         {
-            var run = await Client.StartRunAsync(new RunStartRequest(
-                _start.TemplateId!, _start.RepositoryFullName!, _start.BaseBranch ?? "main",
-                string.IsNullOrWhiteSpace(_start.IssueId) ? null : _start.IssueId,
-                string.IsNullOrWhiteSpace(_start.SpecPath) ? null : _start.SpecPath,
-                _start.Prompt!, _start.MaxBudgetUsd,
-                AgentOverride: IsSingleAgent ? _start.AgentType : null,
-                TierOverride: IsSingleAgent ? _start.ModelTier : null,
-                SkipVerification: IsSingleAgent && !_start.RunVerification,
-                StageOverrides: BuildStageOverrides(),
-                SingleAgent: !IsSingleAgent && _start.SingleAgent,
-                SingleAgentType: ParseAgent(_start.SingleAgentType),
-                SingleAgentTier: ParseTier(_start.SingleAgentTier)), _cts.Token);
+            var run = await Client.StartRunAsync(BuildRequest(), _cts.Token);
             await _startModal.HideAsync();
             if (run is not null)
             {
@@ -651,6 +710,20 @@ else if (_runs is not null)
 
         return map.Count > 0 ? map : null;
     }
+
+    private static string VerdictBadgeClass(string verdict) => verdict switch
+    {
+        "ready" => "text-bg-success",
+        "warning" => "text-bg-warning",
+        _ => "text-bg-danger",
+    };
+
+    private static string CheckBadgeClass(PreflightCheckStatus status) => status switch
+    {
+        PreflightCheckStatus.Ok => "text-bg-success",
+        PreflightCheckStatus.Warning => "text-bg-warning",
+        _ => "text-bg-danger",
+    };
 
     private static AgentType? ParseAgent(string? value) =>
         Enum.TryParse<AgentType>(value, out var agent) ? agent : null;
