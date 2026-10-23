@@ -54,7 +54,9 @@ public sealed class ProcessIsolationTests
             wrapped.ArgumentList.ShouldContain("--collect");
             wrapped.ArgumentList.ShouldContain("MemoryMax=3G");
             wrapped.ArgumentList.ShouldContain("MemoryHigh=1.5G");
-            wrapped.ArgumentList.ShouldContain("OOMScoreAdjust=500");
+            // OOMScoreAdjust is Exec-context only — invalid via -p on scopes
+            // (systemd-run rejects it); applied through choom instead.
+            wrapped.ArgumentList.ShouldNotContain("OOMScoreAdjust=500");
             // "--" separator then original argv.
             var sep = wrapped.ArgumentList.IndexOf("--");
             sep.ShouldBeGreaterThan(0);
@@ -65,6 +67,42 @@ public sealed class ProcessIsolationTests
             wrapped.WorkingDirectory.ShouldBe("/tmp");
             wrapped.RedirectStandardOutput.ShouldBeTrue();
             wrapped.ArgumentList.Select(a => a.StartsWith("--unit=")).Count(x => x).ShouldBe(1);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", previousXdg);
+            Directory.Delete(runtimeDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Isolate_Quando_ChoomDisponivel_EmbrulhaComOomScore()
+    {
+        var runtimeDir = Path.Combine(Path.GetTempPath(), $"xdg-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(runtimeDir, "systemd"));
+        var previousXdg = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", runtimeDir);
+            var ready = new SystemdScopeProcessIsolator(
+                Config(),
+                NullLogger.Instance,
+                executableLocator: name => name switch
+                {
+                    "systemd-run" => "/usr/bin/systemd-run",
+                    "choom" => "/usr/bin/choom",
+                    _ => null
+                });
+
+            var wrapped = ready.Isolate(BaseInfo(), "pty");
+
+            var sep = wrapped.ArgumentList.IndexOf("--");
+            sep.ShouldBeGreaterThan(0);
+            wrapped.ArgumentList[sep + 1].ShouldBe("/usr/bin/choom");
+            wrapped.ArgumentList[sep + 2].ShouldBe("-n");
+            wrapped.ArgumentList[sep + 3].ShouldBe("500");
+            wrapped.ArgumentList[sep + 4].ShouldBe("--");
+            wrapped.ArgumentList[sep + 5].ShouldBe("/bin/bash");
         }
         finally
         {

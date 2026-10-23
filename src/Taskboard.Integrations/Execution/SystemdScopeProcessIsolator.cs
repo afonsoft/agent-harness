@@ -20,6 +20,7 @@ public sealed class SystemdScopeProcessIsolator : IProcessIsolator
     private readonly ILogger _logger;
     private readonly Func<string, string?> _locator;
     private readonly string? _systemdRun;
+    private readonly string? _choom;
     private readonly string _memoryMax;
     private readonly string _memoryHigh;
     private readonly int _oomScoreAdjust;
@@ -54,6 +55,13 @@ public sealed class SystemdScopeProcessIsolator : IProcessIsolator
                 !string.IsNullOrWhiteSpace(runtimeDir)
                 && Directory.Exists(Path.Combine(runtimeDir, "systemd"));
             _systemdRun = binary is not null && userManagerAvailable ? binary : null;
+            // OOMScoreAdjust is an Exec-context property — invalid via -p on
+            // scope units (systemd-run rejects it and the spawn dies). The
+            // equivalent is choom(8) wrapping the inner command; optional —
+            // a missing binary just skips the adjustment.
+            _choom = _systemdRun is not null && _oomScoreAdjust != 0
+                ? _locator("choom")
+                : null;
             if (_systemdRun is null)
             {
                 _logger.LogWarning(
@@ -117,9 +125,15 @@ public sealed class SystemdScopeProcessIsolator : IProcessIsolator
         isolated.ArgumentList.Add($"MemoryMax={_memoryMax}");
         isolated.ArgumentList.Add($"-p");
         isolated.ArgumentList.Add($"MemoryHigh={_memoryHigh}");
-        isolated.ArgumentList.Add($"-p");
-        isolated.ArgumentList.Add($"OOMScoreAdjust={_oomScoreAdjust}");
         isolated.ArgumentList.Add("--");
+        if (_choom is not null)
+        {
+            isolated.ArgumentList.Add(_choom);
+            isolated.ArgumentList.Add("-n");
+            isolated.ArgumentList.Add(_oomScoreAdjust.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            isolated.ArgumentList.Add("--");
+        }
+
         isolated.ArgumentList.Add(startInfo.FileName);
         foreach (var arg in startInfo.ArgumentList)
         {
@@ -127,8 +141,8 @@ public sealed class SystemdScopeProcessIsolator : IProcessIsolator
         }
 
         _logger.LogInformation(
-            "Spawning {File} inside scope {Scope} (MemoryMax={Max} MemoryHigh={High} OOMScoreAdjust={Adj})",
-            startInfo.FileName, scopeName, _memoryMax, _memoryHigh, _oomScoreAdjust);
+            "Spawning {File} inside scope {Scope} (MemoryMax={Max} MemoryHigh={High} OOMScoreAdjust={Adj} via choom={Choom})",
+            startInfo.FileName, scopeName, _memoryMax, _memoryHigh, _oomScoreAdjust, _choom is not null);
         return isolated;
     }
 
