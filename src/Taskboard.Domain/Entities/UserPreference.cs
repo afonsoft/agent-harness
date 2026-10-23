@@ -19,6 +19,10 @@ public sealed class UserPreference : Entity<Guid>
     /// session automatically when its card/row is focused.</summary>
     public bool AutoResumeOnFocus { get; set; } = true;
 
+    /// <summary>SPEC-20261022-mailbox-wake RF-002: resume a hibernated
+    /// session automatically when an addressed mailbox message lands.</summary>
+    public bool AutoResumeOnMailbox { get; set; } = true;
+
     /// <summary>SPEC-20261020-provider-quota-usage RF-009: user-configured
     /// plan budgets JSON — `{"provider":{"windowKind":tokens}}`; overrides
     /// Taskboard:PlanLimits for the local_estimate fallback.</summary>

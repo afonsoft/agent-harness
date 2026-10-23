@@ -13,7 +13,9 @@ public sealed record AgentHibernationDto(
     string? NativeSessionId,
     string? Cwd,
     int AutoResumedCount,
-    bool Pinned);
+    bool Pinned,
+    /// <summary>SPEC-20261022-mailbox-wake RF-002: storm-throttle stamp.</summary>
+    DateTime? LastAutoResumeUtc = null);
 
 /// <summary>Persistence boundary — the entity stays inside the EF layer.</summary>
 public interface IAgentHibernationRepository
@@ -34,6 +36,10 @@ public interface IAgentHibernationRepository
     Task SetPinnedAsync(string sessionKey, bool pinned, CancellationToken ct = default);
     /// <summary>Clears the hibernated flag; bumps AutoResumedCount on auto resume.</summary>
     Task MarkResumedAsync(string sessionKey, bool auto, CancellationToken ct = default);
+
+    /// <summary>SPEC-20261022-mailbox-wake RF-002: stamps an auto-resume
+    /// attempt — called before respawning so failures still throttle.</summary>
+    Task MarkAutoResumeAttemptAsync(string sessionKey, DateTime atUtc, CancellationToken ct = default);
 }
 
 /// <summary>Context handed to each hibernation guard (RF-003).</summary>
@@ -63,9 +69,9 @@ public sealed record ResumeOutcome(bool Resumed, string? SessionKey = null, stri
 public sealed record FocusOutcome(
     bool Hibernated, bool Resumed, bool Resumable, string? Reason = null);
 
-/// <summary>RF-006/RF-010: per-user hibernation preferences.</summary>
+/// <summary>RF-006/RF-010 + mailbox-wake RF-002: per-user hibernation preferences.</summary>
 public sealed record HibernationPrefsDto(
-    int IdleThresholdMinutes, bool AutoResumeOnFocus);
+    int IdleThresholdMinutes, bool AutoResumeOnFocus, bool AutoResumeOnMailbox = true);
 
 /// <summary>P3: hibernation stats — counts + heuristic memory saved.</summary>
 public sealed record HibernationStatsDto(
@@ -108,6 +114,20 @@ public interface ISessionRespawner
 }
 
 /// <summary>
+/// SPEC-20261022-mailbox-wake: resolves an addressed mailbox recipient to
+/// hibernated session rows and auto-resumes them (preference-gated,
+/// ≥60s per-session throttle). Broadcast-only addresses never wake.
+/// Singleton — resolves its own scope so send paths can fire-and-forget.
+/// </summary>
+public interface IMailboxWakeService
+{
+    /// <summary>Fire when a mailbox message lands for <paramref name="recipient"/>
+    /// (<c>&lt;cli&gt;</c>, <c>&lt;taskId&gt;</c> or <c>@worktree:&lt;runId&gt;</c>);
+    /// <c>@all</c>/<c>@idle</c> and unresolvable recipients are skipped silently.</summary>
+    Task WakeForRecipientAsync(string? recipient, CancellationToken ct = default);
+}
+
+/// <summary>
 /// SPEC-20261020-agent-hibernation: hibernate/resume pipeline — the 60s job
 /// scans candidates, manual actions use the same path minus the threshold.
 /// </summary>
@@ -122,9 +142,12 @@ public interface IAgentHibernationService
         string userId, string sessionKey, CancellationToken ct = default);
 
     /// <summary>RF-005/RF-007: respawn a hibernated session. <paramref name="auto"/>
-    /// bumps AutoResumedCount (focus-triggered auto-resume, RF-006).</summary>
+    /// bumps AutoResumedCount (focus-triggered auto-resume, RF-006).
+    /// <paramref name="reason"/> lands on the SessionResumed feed body
+    /// (e.g. <c>"mailbox"</c> — SPEC-20261022-mailbox-wake).</summary>
     Task<ResumeOutcome> ResumeAsync(
-        string userId, string sessionKey, bool auto = false, CancellationToken ct = default);
+        string userId, string sessionKey, bool auto = false,
+        string? reason = null, CancellationToken ct = default);
 
     /// <summary>RF-006: focus event — auto-resumes when the user pref allows,
     /// else reports the session as resumable for the UI Resume button.</summary>

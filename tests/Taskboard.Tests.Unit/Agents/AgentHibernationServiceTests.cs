@@ -92,6 +92,17 @@ public class AgentHibernationServiceTests
 
             return Task.CompletedTask;
         }
+
+        public Task MarkAutoResumeAttemptAsync(
+            string k, DateTime atUtc, CancellationToken ct = default)
+        {
+            if (Rows.TryGetValue(k, out var r))
+            {
+                Rows[k] = r with { LastAutoResumeUtc = atUtc };
+            }
+
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeTerminator : ISessionTerminator

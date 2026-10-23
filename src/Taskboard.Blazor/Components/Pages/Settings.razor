@@ -473,6 +473,16 @@
                     </div>
                     <div class="setting-row">
                         <div>
+                            <div class="fw-medium">Auto-resume on mailbox</div>
+                            <div class="small text-body-secondary">An addressed mailbox message wakes a hibernated session (broadcast mail never does).</div>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" role="switch" class="form-check-input" checked="@_hibAutoResumeMailbox"
+                                   @onchange="e => _hibAutoResumeMailbox = (bool)e.Value!" aria-label="Auto-resume on mailbox" />
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <div>
                             <div class="fw-medium">Agent idle threshold</div>
                             <div class="small text-body-secondary">Minutes before a done/idle session hibernates (5–1440; default 30).</div>
                         </div>
@@ -1485,6 +1495,7 @@
     private bool _feedPrefsSaving;
     private string? _feedPrefsError;
     private bool _hibAutoResume = true;
+    private bool _hibAutoResumeMailbox = true;
     private int _hibThresholdMinutes = 30;
     private bool _hibPrefsSaving;
     private string? _hibPrefsError;
@@ -1852,6 +1863,7 @@
             if (prefs is not null)
             {
                 _hibAutoResume = prefs.AutoResumeOnFocus;
+                _hibAutoResumeMailbox = prefs.AutoResumeOnMailbox;
                 _hibThresholdMinutes = prefs.IdleThresholdMinutes;
             }
 
@@ -1870,10 +1882,12 @@
         try
         {
             var saved = await Client.SaveHibernationPrefsAsync(
-                new HibernationPrefsDto(_hibThresholdMinutes, _hibAutoResume));
+                new HibernationPrefsDto(
+                    _hibThresholdMinutes, _hibAutoResume, _hibAutoResumeMailbox));
             if (saved is not null)
             {
                 _hibAutoResume = saved.AutoResumeOnFocus;
+                _hibAutoResumeMailbox = saved.AutoResumeOnMailbox;
                 _hibThresholdMinutes = saved.IdleThresholdMinutes;
             }
 

@@ -152,7 +152,8 @@ public sealed class AgentHibernationService : IAgentHibernationService
 
     /// <inheritdoc/>
     public async Task<ResumeOutcome> ResumeAsync(
-        string userId, string sessionKey, bool auto = false, CancellationToken ct = default)
+        string userId, string sessionKey, bool auto = false,
+        string? reason = null, CancellationToken ct = default)
     {
         await using var scope = _services.CreateAsyncScope();
         var records = scope.ServiceProvider.GetRequiredService<IAgentHibernationRepository>();
@@ -186,7 +187,7 @@ public sealed class AgentHibernationService : IAgentHibernationService
             AgentAttentionState.Working, "lifecycle:resumed", ct).ConfigureAwait(false);
         await ProduceFeedAsync(scope.ServiceProvider, userId, AgentFeedKind.SessionResumed,
             $"resumed — {sessionKey}", state: null,
-            needsAttention: false, ct, cli: record.Cli, key: sessionKey)
+            needsAttention: false, ct, cli: record.Cli, key: sessionKey, body: reason)
             .ConfigureAwait(false);
         _logger.LogInformation("Session {SessionKey} resumed.", sessionKey);
         return new ResumeOutcome(true, sessionKey);
@@ -213,8 +214,8 @@ public sealed class AgentHibernationService : IAgentHibernationService
             return new FocusOutcome(true, false, true);
         }
 
-        var resumed = await ResumeAsync(userId, sessionKey, auto: true, ct)
-            .ConfigureAwait(false);
+        var resumed = await ResumeAsync(userId, sessionKey, auto: true,
+            reason: null, ct).ConfigureAwait(false);
         return resumed.Resumed
             ? new FocusOutcome(true, true, false)
             : new FocusOutcome(true, false, true, resumed.Reason);
@@ -238,7 +239,8 @@ public sealed class AgentHibernationService : IAgentHibernationService
 
         var clamped = new HibernationPrefsDto(
             Math.Clamp(prefs.IdleThresholdMinutes, 5, 1440),
-            prefs.AutoResumeOnFocus);
+            prefs.AutoResumeOnFocus,
+            prefs.AutoResumeOnMailbox);
 
         var user = (await users.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault();
         if (user is null)
@@ -247,12 +249,14 @@ public sealed class AgentHibernationService : IAgentHibernationService
             {
                 AgentIdleThresholdMinutes = clamped.IdleThresholdMinutes,
                 AutoResumeOnFocus = clamped.AutoResumeOnFocus,
+                AutoResumeOnMailbox = clamped.AutoResumeOnMailbox,
             }, ct).ConfigureAwait(false);
         }
         else
         {
             user.AgentIdleThresholdMinutes = clamped.IdleThresholdMinutes;
             user.AutoResumeOnFocus = clamped.AutoResumeOnFocus;
+            user.AutoResumeOnMailbox = clamped.AutoResumeOnMailbox;
             await users.UpdateAsync(user, ct).ConfigureAwait(false);
         }
 
@@ -283,7 +287,8 @@ public sealed class AgentHibernationService : IAgentHibernationService
         var user = (await users.ListAsync(ct).ConfigureAwait(false)).FirstOrDefault();
         return new HibernationPrefsDto(
             Math.Clamp(user?.AgentIdleThresholdMinutes ?? 30, 5, 1440),
-            user?.AutoResumeOnFocus ?? true);
+            user?.AutoResumeOnFocus ?? true,
+            user?.AutoResumeOnMailbox ?? true);
     }
 
     /// <inheritdoc/>
@@ -336,13 +341,13 @@ public sealed class AgentHibernationService : IAgentHibernationService
     private async Task ProduceFeedAsync(
         IServiceProvider sp, string userId, AgentFeedKind kind, string title,
         AgentSessionStateDto? state, bool needsAttention, CancellationToken ct,
-        string? cli = null, string? key = null)
+        string? cli = null, string? key = null, string? body = null)
     {
         try
         {
             var sessionKey = key ?? state?.SessionKey;
             await sp.GetRequiredService<IAgentFeedService>().ProduceAsync(
-                new FeedItemRequest(kind, title, null,
+                new FeedItemRequest(kind, title, body,
                     AgentFeedService.DeepLinkFor(sessionKey), sessionKey,
                     cli ?? state?.Cli, null, needsAttention, userId), ct)
                 .ConfigureAwait(false);

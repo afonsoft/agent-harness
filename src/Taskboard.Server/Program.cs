@@ -577,6 +577,8 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<ISessionRespawner>(sp =>
         sp.GetRequiredService<Taskboard.Server.Services.AgentPtyLifecycle>());
     builder.Services.AddSingleton<IAgentHibernationService, AgentHibernationService>();
+    builder.Services.AddSingleton<Taskboard.Application.Contracts.Agents.IMailboxWakeService,
+        Taskboard.Application.Delegation.MailboxWakeService>();
     builder.Services.AddHostedService<AgentHibernationJob>();
     // SPEC-20261020-provider-quota-usage: collectors + roster + warn pipeline.
     builder.Services.AddScoped<IProviderUsageRepository, EfCoreProviderUsageRepository>();
@@ -4577,8 +4579,8 @@ void MapAgentsEndpoints()
     agents.MapPost("sessions/{key}/resume", async (
         string key, HttpContext context,
         IAgentHibernationService hibernation, CancellationToken ct) =>
-        await hibernation.ResumeAsync(SessionsUserId(context), key, auto: false, ct)
-            is { Resumed: true }
+        await hibernation.ResumeAsync(SessionsUserId(context), key, auto: false,
+            reason: null, ct) is { Resumed: true }
                 ? Results.Ok(new { resumed = true })
                 : Results.Conflict(new { error = "resume-refused" }));
 
