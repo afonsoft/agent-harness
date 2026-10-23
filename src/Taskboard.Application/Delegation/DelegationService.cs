@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard;
 using Taskboard.Agents;
@@ -31,6 +32,8 @@ public sealed class DelegationService : IDelegationService
     private readonly IAgentAttentionService? _attention;
     private readonly ILogger<DelegationService>? _logger;
     private readonly TimeProvider _time;
+    private readonly IConfiguration _configuration;
+    private readonly ITaskPromptRefiner _refiner;
 
     public DelegationService(
         IDelegationTaskRepository tasks,
@@ -40,6 +43,8 @@ public sealed class DelegationService : IDelegationService
         IDeliveryRepository deliveries,
         IPendingQuestionRepository questions,
         IDelegationGateRepository gates,
+        IConfiguration configuration,
+        ITaskPromptRefiner refiner,
         TimeProvider? timeProvider = null,
         IAgentAttentionService? attention = null,
         ILogger<DelegationService>? logger = null)
@@ -54,6 +59,8 @@ public sealed class DelegationService : IDelegationService
         _attention = attention;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
+        _configuration = configuration;
+        _refiner = refiner;
     }
 
     /// <summary>SPEC-20261020-agent-attention-model: lifecycle/mailbox signal emit — fire-and-log.</summary>
@@ -103,12 +110,97 @@ public sealed class DelegationService : IDelegationService
         {
             // SPEC-20261020-v2 RF-007: retry reactivates the same task — a new
             // dispatch attempt replaces the legacy "clone task" behavior.
-            return (await RetryTaskAsync(scope, retryOf, ct).ConfigureAwait(false)).Task;
+            return (await RetryTaskAsync(scope, retryOf, request.Refine, ct)
+                .ConfigureAwait(false)).Task;
         }
 
         var run = await EnsureRunAsync(scope, request.Prompt, null, ct).ConfigureAwait(false);
-        return await _tasks.AddAsync(
+        var (refinedRequest, refineResult) = await RefineAsync(
             request with { Scope = scope, RunId = run.Id }, ct).ConfigureAwait(false);
+        var task = await _tasks.AddAsync(refinedRequest, ct).ConfigureAwait(false);
+        await EmitRefinedEventAsync(scope, task.Id, request.Prompt, refineResult, ct)
+            .ConfigureAwait(false);
+        return task;
+    }
+
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-001/004: intercepts
+    /// before persist — prompt stays the submitted text, PromptRefined is
+    /// what the worker receives. Refinement never blocks creation.</summary>
+    private async Task<(CreateDelegationTaskRequest Request, TaskPromptRefineResult? Result)>
+        RefineAsync(CreateDelegationTaskRequest request, CancellationToken ct)
+    {
+        if (request.PromptRefined is not null)
+        {
+            return (request, null); // already refined by the caller (e.g. automation fire)
+        }
+
+        var refineMode = TaskPromptRefinementModes.IsValidOverride(request.Refine)
+            ? request.Refine!
+            : _configuration[TaskPromptRefinementModes.ConfigurationKey]
+                ?? TaskPromptRefinementModes.Default;
+        if (refineMode == TaskPromptRefinementModes.Off)
+        {
+            return (request, null);
+        }
+
+        try
+        {
+            var result = await _refiner.RefineAsync(
+                new TaskPromptRefineRequest(
+                    request.Prompt,
+                    request.CliName,
+                    request.RepositoryPath,
+                    request.UseWorktree ? request.WorkspacePath : null,
+                    request.IssueRef,
+                    PriorFailureDetail: null,
+                    Attempt: 1,
+                    Mode: request.Refine),
+                ct).ConfigureAwait(false);
+            return (request with
+            {
+                PromptRefined = result.Refined,
+                PromptRefinement = result.Mode,
+            }, result);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Refinement is best-effort — creation must never fail on it.
+            _logger?.LogWarning(ex, "prompt refinement skipped for {Scope}", request.Scope);
+            return (request, null);
+        }
+    }
+
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-008: refined_prompt
+    /// diagnostics event on the scope mailbox — surfaces in the merged
+    /// delegation events feed. Advisory; never breaks the write path.</summary>
+    private async Task EmitRefinedEventAsync(
+        string scope, string taskId, string rawPrompt,
+        TaskPromptRefineResult? result, CancellationToken ct)
+    {
+        if (result is null || result.Mode == TaskPromptRefinementModes.Off)
+        {
+            return;
+        }
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                taskId,
+                mode = result.Mode,
+                anchors = result.SpecAnchors.Count,
+                byteDelta = result.Refined.Length - rawPrompt.Length,
+            });
+            await _mailbox.AddAsync(
+                new PostMailboxMessageRequest(
+                    scope, "harness", "coordinator", payload,
+                    AgentMailboxKinds.RefinedPrompt, taskId),
+                ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex, "refined_prompt event failed for {TaskId}", taskId);
+        }
     }
 
     public async Task<DelegationRunDto> EnsureRunAsync(
@@ -150,7 +242,8 @@ public sealed class DelegationService : IDelegationService
     }
 
     public async Task<RetryTaskResult> RetryTaskAsync(
-        string scope, string retryOf, CancellationToken ct = default)
+        string scope, string retryOf, string? refineOverride = null,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(retryOf))
         {
@@ -199,6 +292,11 @@ public sealed class DelegationService : IDelegationService
                 TaskboardDomainErrorCodes.InvalidValue,
                 $"task {taskId} is not retryable");
 
+        // SPEC-20261022-task-prompt-refiner RF-005: the retry brief carries the
+        // previous terminal detail as fix-forward context (AC-02).
+        reactivated = await RefineForRetryAsync(
+            reactivated, task, attempt, refineOverride, ct).ConfigureAwait(false);
+
         var runId = reactivated.RunId
             ?? (await EnsureRunAsync(scope, null, null, ct).ConfigureAwait(false)).Id;
         var dispatchId = $"disp-{Guid.NewGuid():N}";
@@ -209,6 +307,69 @@ public sealed class DelegationService : IDelegationService
                 dispatchId),
             ct).ConfigureAwait(false);
         return new RetryTaskResult(reactivated, dispatch);
+    }
+
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-005: re-refines the raw
+    /// prompt with <c>## Attempt context</c> — the prior failure's terminal
+    /// detail (≤ 1 KB). Mode <c>off</c> or a refiner failure keeps the stored
+    /// refined prompt untouched.</summary>
+    private async Task<DelegationTaskDto> RefineForRetryAsync(
+        DelegationTaskDto reactivated, DelegationTaskDto failed, int attempt,
+        string? refineOverride, CancellationToken ct)
+    {
+        var mode = TaskPromptRefinementModes.IsValidOverride(refineOverride)
+            ? refineOverride!
+            : _configuration[TaskPromptRefinementModes.ConfigurationKey]
+                ?? TaskPromptRefinementModes.Default;
+        if (mode == TaskPromptRefinementModes.Off)
+        {
+            return reactivated;
+        }
+
+        var priorDetail = string.Join(
+            '\n',
+            new[] { failed.Error, failed.ResultSummary }
+                .Where(s => !string.IsNullOrWhiteSpace(s)));
+
+        try
+        {
+            // IssueRef isn't persisted — recover the #<n> anchor from the raw
+            // prompt of issue-kind tasks so retry keeps spec anchoring.
+            var issueRef = failed.Kind == "issue"
+                ? System.Text.RegularExpressions.Regex.Match(
+                    failed.Prompt, @"#\d+",
+                    System.Text.RegularExpressions.RegexOptions.None,
+                    TimeSpan.FromMilliseconds(100)).Value
+                : null;
+
+            var result = await _refiner.RefineAsync(
+                new TaskPromptRefineRequest(
+                    failed.Prompt,
+                    failed.CliName,
+                    failed.RepositoryPath,
+                    failed.UseWorktree ? failed.WorkspacePath : null,
+                    string.IsNullOrEmpty(issueRef) ? null : issueRef,
+                    string.IsNullOrWhiteSpace(priorDetail) ? null : priorDetail,
+                    attempt,
+                    Mode: refineOverride),
+                ct).ConfigureAwait(false);
+            if (result.Mode == TaskPromptRefinementModes.Off)
+            {
+                return reactivated;
+            }
+
+            var updated = await _tasks.ApplyRefinementAsync(
+                reactivated.Id, result.Refined, result.Mode, ct).ConfigureAwait(false);
+            await EmitRefinedEventAsync(
+                reactivated.Scope, reactivated.Id, failed.Prompt, result, ct)
+                .ConfigureAwait(false);
+            return updated ?? reactivated;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex, "retry refinement skipped for {TaskId}", failed.Id);
+            return reactivated;
+        }
     }
 
     public Task<DelegationTaskDto?> AttachWorktreeAsync(

@@ -162,7 +162,8 @@ public class OrchestrationContractToolsTests
     public async Task Dado_RetryOf_Quando_DelegateTask_Entao_ReceiptComDispatchEAttempt()
     {
         var service = Substitute.For<IDelegationService>();
-        service.RetryTaskAsync("conv-1", "task-1", Arg.Any<CancellationToken>())
+        service.RetryTaskAsync(
+                "conv-1", "task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new RetryTaskResult(
                 Task("task-1") with { Status = DelegationTaskStatus.Pending },
                 Dispatch("disp-2", attempt: 2)));
@@ -183,7 +184,8 @@ public class OrchestrationContractToolsTests
     public async Task Dado_RetryRecusado_Quando_DelegateTask_Entao_Refused()
     {
         var service = Substitute.For<IDelegationService>();
-        service.RetryTaskAsync("conv-1", "task-1", Arg.Any<CancellationToken>())
+        service.RetryTaskAsync(
+                "conv-1", "task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns<RetryTaskResult>(_ => throw new Taskboard.DomainException("X", "not retryable"));
         var git = Substitute.For<Taskboard.Integrations.Harness.IGitCommandRunner>();
         var tool = new DelegateTaskTool(TestScopeFactory.WithDelegation(service), git);

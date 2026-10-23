@@ -64,7 +64,8 @@ public interface IDelegationService
     /// pending and registers a new pending dispatch with attempt+1.
     /// </summary>
     Task<RetryTaskResult> RetryTaskAsync(
-        string scope, string retryOf, CancellationToken ct = default);
+        string scope, string retryOf, string? refineOverride = null,
+        CancellationToken ct = default);
 
     /// <summary>
     /// SPEC-20261020-v2 RF-003: FIFO delivery check — without

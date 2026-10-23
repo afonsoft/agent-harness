@@ -76,6 +76,11 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.Effort,
             request.Autonomy);
         entity.SetExtraArgs(request.ExtraArgs);
+        if (request.PromptRefined is not null && request.PromptRefinement is not null)
+        {
+            entity.ApplyRefinement(
+                request.PromptRefined, request.PromptRefinement, DateTime.UtcNow);
+        }
         _context.DelegationTasks.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -145,6 +150,13 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         string id, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.ReactivateForRetry(), ct).ConfigureAwait(false);
 
+    /// <inheritdoc/>
+    public async Task<DelegationTaskDto?> ApplyRefinementAsync(
+        string id, string refined, string mode, CancellationToken ct = default) =>
+        await TransitionAsync(
+            id, t => t.ApplyRefinement(refined, mode, DateTime.UtcNow), ct)
+            .ConfigureAwait(false);
+
     public async Task<DelegationTaskDto?> MarkBlockedAsync(
         string id, string? reason, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.MarkBlocked(reason), ct).ConfigureAwait(false);
@@ -193,7 +205,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.Status, t.ResultSummary, t.Error,
             t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
             t.RunId, t.ActiveDispatchId, t.Model, t.Effort, t.SharedPathsApplied,
-            t.SetupState, t.SetupLogTail, t.ExtraArgs, t.Autonomy);
+            t.SetupState, t.SetupLogTail, t.ExtraArgs, t.Autonomy,
+            t.PromptRefined, t.PromptRefinement);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>

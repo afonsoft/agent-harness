@@ -29,6 +29,8 @@ public class DelegationServiceTests
             _tasks, _mailbox, _runs, _dispatches, _deliveries,
             Substitute.For<IPendingQuestionRepository>(),
             Substitute.For<IDelegationGateRepository>(),
+            TaskPromptRefinerTestSupport.ConfigOff(),
+            Substitute.For<ITaskPromptRefiner>(),
             TimeProvider.System);
     }
 

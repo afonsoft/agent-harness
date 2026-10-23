@@ -521,6 +521,7 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261020-v2 P3: launch preference resolution (model/effort).
     builder.Services.AddScoped<IAgentLaunchResolver, AgentLaunchResolver>();
     builder.Services.AddScoped<IDelegationService, DelegationService>();
+    builder.Services.AddScoped<Taskboard.Application.Contracts.Delegation.ITaskPromptRefiner, Taskboard.Application.Delegation.TaskPromptRefiner>();
     builder.Services.AddScoped<IPromotedLegPrService, PromotedLegPrService>();
     builder.Services.AddHostedService<DelegationDispatcherService>();
 
@@ -2848,7 +2849,9 @@ void MapSettingsAndChatEndpoints()
             new CreateDelegationTaskRequest(
                 prompt, cli, effectiveScope, clone.Path,
                 DependsOn: null, RetryOf: null, FanoutGroupId: null,
-                UseWorktree: true, clone.Path, BaseCommitSha: null),
+                UseWorktree: true, clone.Path, BaseCommitSha: null,
+                Kind: "issue", IssueRef: $"#{request.IssueNumber}",
+                Refine: request.Refine),
             ct);
 
         var session = await isolation.CreateWorktreeAsync(

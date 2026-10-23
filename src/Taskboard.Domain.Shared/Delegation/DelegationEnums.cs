@@ -45,6 +45,10 @@ public static class AgentMailboxKinds
     public const string Heartbeat = "heartbeat";
     public const string Escalation = "escalation";
 
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-008: prompt-refinement
+    /// diagnostics event (mode, anchors found, byte delta).</summary>
+    public const string RefinedPrompt = "refined_prompt";
+
     /// <summary>P3 decision gate — reserved now so persisted kinds stay stable.</summary>
     public const string Decision = "decision";
 

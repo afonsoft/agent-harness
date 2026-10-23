@@ -29,7 +29,8 @@ public sealed class DelegatePlanTool(
               "prompt":{"type":"string","description":"Task instructions for the CLI"},
               "cli":{"type":"string","description":"Agent CLI (builtin or custom def); omit for the chat's default"},
               "deps":{"type":"array","items":{"type":"integer"},"description":"Indices of earlier tasks this one depends on"},
-              "use_worktree":{"type":"boolean","description":"Isolate the task in a git worktree (default false)"}
+              "use_worktree":{"type":"boolean","description":"Isolate the task in a git worktree (default false)"},
+              "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this child (default: server config)"}
             },"required":["prompt"]}},
           "repository_path":{"type":"string","description":"Git repo path — required when any task uses worktree isolation"},
           "base_branch":{"type":"string","description":"Base branch for worktrees (default: repo default)"}

@@ -289,7 +289,7 @@ public sealed class DelegationDispatcherService : BackgroundService
             RepoPath: workdir.Path,
             Branch: null,
             Scope: null,
-            Instructions: $"(delegated task {task.Id})\n\n{task.Prompt}",
+            Instructions: $"(delegated task {task.Id})\n\n{ResolvePrompt(task)}",
             AgentType: agentType,
             // SPEC-20261020-v2 RF-008: launch prefs — absent prefs keep the
             // historical "no model flag, default tier" behavior.
@@ -365,7 +365,7 @@ public sealed class DelegationDispatcherService : BackgroundService
         var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
         // SPEC-20261020-v2 RF-008: model flows through the def's ModelFlag —
         // effort was already refused at create-time for custom defs.
-        var invocation = CustomCliRunner.BuildInvocation(found, task.Prompt, model: task.Model);
+        var invocation = CustomCliRunner.BuildInvocation(found, ResolvePrompt(task), model: task.Model);
         var result = await ChatProcessRunner.RunAsync(
             resolved, invocation.Argv, workdir.Path, CustomCliTimeout, ct, invocation.Stdin)
             .ConfigureAwait(false);
@@ -489,6 +489,11 @@ public sealed class DelegationDispatcherService : BackgroundService
         + $"At most {DelegationPlanCreator.MaxTasks} tasks.\n\nGoal:\n{goal}";
 
     private sealed record WorkdirResolution(string Path, string? SessionRunId);
+
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-004: the worker receives
+    /// the refined brief; raw prompt is the audit copy.</summary>
+    private static string ResolvePrompt(DelegationTaskDto task) =>
+        string.IsNullOrWhiteSpace(task.PromptRefined) ? task.Prompt : task.PromptRefined;
 
     /// <summary>
     /// Worktree tasks run inside their session path; others on the workspace.

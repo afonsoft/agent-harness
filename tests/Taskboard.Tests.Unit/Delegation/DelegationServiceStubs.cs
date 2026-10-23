@@ -22,7 +22,10 @@ internal sealed class DelegationServiceStubs
 
     public DelegationService Service => new(
         Tasks, Mailbox, Runs, Dispatches, Deliveries,
-        Questions, Gates, TimeProvider.System);
+        Questions, Gates,
+            TaskPromptRefinerTestSupport.ConfigOff(),
+            Substitute.For<ITaskPromptRefiner>(),
+            TimeProvider.System);
 
     public static DelegationRunDto RunDto(string scope = "conv-1") =>
         new("run-1", scope, "obj", "assistant", DelegationRunStatus.Open, DateTime.UtcNow, null);
