@@ -141,6 +141,89 @@ public sealed class TaskPromptRefinerTests
     }
 
     [Fact]
+    public async Task Dado_LlmComProvider_Quando_RespostaContemRaw_Entao_ModoLlm()
+    {
+        // RF-003: resposta válida (raw verbatim) → modo llm.
+        var llm = new FakeLlm(_ => "## Task\nfix the bug\n\n## Notes\nsharper");
+        var refiner = new TaskPromptRefiner(
+            Config(TaskPromptRefinementModes.Llm), llm: llm);
+
+        var result = await refiner.RefineAsync(
+            new TaskPromptRefineRequest("fix the bug", "codex", null, null, null, null, 1),
+            CancellationToken.None);
+
+        result.Mode.ShouldBe("llm");
+        result.Refined.ShouldContain("fix the bug");
+        result.Refined.ShouldContain("sharper");
+        llm.Calls.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Dado_LlmComProvider_Quando_RespostaSemRaw_Entao_Fallback()
+    {
+        // RF-003: resposta sem o raw verbatim é rejeitada → template.
+        var llm = new FakeLlm(_ => "rewritten without the original text");
+        var refiner = new TaskPromptRefiner(
+            Config(TaskPromptRefinementModes.Llm), llm: llm);
+
+        var result = await refiner.RefineAsync(
+            new TaskPromptRefineRequest("fix the bug", "codex", null, null, null, null, 1),
+            CancellationToken.None);
+
+        result.Mode.ShouldBe("llm-fallback");
+        result.Refined.ShouldContain("## Task");
+        result.Refined.ShouldContain("fix the bug");
+    }
+
+    [Fact]
+    public async Task Dado_LlmComProvider_Quando_ProviderFalha_Entao_Fallback()
+    {
+        // AC-03: provider lançando → template + llm-fallback.
+        var llm = new FakeLlm(_ => throw new InvalidOperationException("boom"));
+        var refiner = new TaskPromptRefiner(
+            Config(TaskPromptRefinementModes.Llm), llm: llm);
+
+        var result = await refiner.RefineAsync(
+            new TaskPromptRefineRequest("fix the bug", "codex", null, null, null, null, 1),
+            CancellationToken.None);
+
+        result.Mode.ShouldBe("llm-fallback");
+        result.Refined.ShouldContain("## Task");
+    }
+
+    [Fact]
+    public async Task Dado_OverrideNoRequest_Quando_ConfigOff_Entao_OverrideVence()
+    {
+        // override por task vence a config — off global, template na task.
+        var refiner = new TaskPromptRefiner(Config(TaskPromptRefinementModes.Off));
+
+        var result = await refiner.RefineAsync(
+            new TaskPromptRefineRequest(
+                "do", "codex", null, null, null, null, 1,
+                Mode: TaskPromptRefinementModes.Template),
+            CancellationToken.None);
+
+        result.Mode.ShouldBe("template");
+        result.Refined.ShouldContain("## Task");
+    }
+
+    [Fact]
+    public async Task Dado_OverrideOff_Quando_ConfigTemplate_Entao_PromptInalterado()
+    {
+        // override off por task vence a config template.
+        var refiner = new TaskPromptRefiner(Config(TaskPromptRefinementModes.Template));
+
+        var result = await refiner.RefineAsync(
+            new TaskPromptRefineRequest(
+                "do", "codex", null, null, null, null, 1,
+                Mode: TaskPromptRefinementModes.Off),
+            CancellationToken.None);
+
+        result.Mode.ShouldBe("off");
+        result.Refined.ShouldBe("do");
+    }
+
+    [Fact]
     public async Task Dado_Refined_Quando_Serializado_Entao_ContemCamposDeAuditoria()
     {
         // RF-004: DTO expõe promptRefined/promptRefinement.
@@ -157,5 +240,29 @@ public sealed class TaskPromptRefinerTests
     {
         public string? Redact(string? text) =>
             text?.Replace("sk-abcdef123456", "***", StringComparison.Ordinal);
+    }
+
+    private sealed class FakeLlm(Func<string, string> respond)
+        : Taskboard.Application.Contracts.AiChat.ILlmProvider
+    {
+        public string ModelId => "fake";
+        public int Calls { get; private set; }
+
+        public Task<Taskboard.Application.Contracts.AiChat.LlmResponse> CompleteAsync(
+            IReadOnlyList<Taskboard.Application.Contracts.AiChat.LlmMessage> messages,
+            Taskboard.Application.Contracts.AiChat.LlmOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(new Taskboard.Application.Contracts.AiChat.LlmResponse(
+                respond(messages.Last().Content)));
+        }
+
+        public IAsyncEnumerable<Taskboard.Application.Contracts.AiChat.LlmStreamChunk>
+            StreamAsync(
+                IReadOnlyList<Taskboard.Application.Contracts.AiChat.LlmMessage> messages,
+                Taskboard.Application.Contracts.AiChat.LlmOptions? options = null,
+                CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

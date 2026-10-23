@@ -107,7 +107,8 @@ public sealed class BoardDelegateIssueTool(
                     clone.Path,
                     DependsOn: null, RetryOf: null, FanoutGroupId: null,
                     UseWorktree: true, clone.Path, BaseCommitSha: null,
-                    Autonomy: autonomy),
+                    Autonomy: autonomy,
+                    Kind: "issue", IssueRef: $"#{issue.Number}"),
                 cancellationToken).ConfigureAwait(false);
 
             var (_, attached, provisionError) = await DelegationToolSupport

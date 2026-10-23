@@ -36,7 +36,8 @@ public sealed class DelegateTaskTool(
           "base_branch":{"type":"string","description":"Base branch for the worktree (default: repo default)"},
           "model":{"type":"string","description":"Requested launch model — resolved against the CLI's capability"},
           "effort":{"type":"string","description":"Requested launch effort: low|normal|high"},
-          "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"}
+          "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"},
+          "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this task (default: server config Taskboard:Delegation:PromptRefinement)"}
         },"required":["prompt"]}
         """;
 
@@ -94,6 +95,14 @@ public sealed class DelegateTaskTool(
             return DelegationToolSupport.Error("autonomy must be plan|edit|full", "invalid autonomy");
         }
 
+        var refine = ReadString(arguments, "refine")?.Trim().ToLowerInvariant();
+        if (refine is not null
+            && !Taskboard.Application.Contracts.Delegation.TaskPromptRefinementModes
+                .IsValidOverride(refine))
+        {
+            return DelegationToolSupport.Error("refine must be off|template|llm", "invalid refine");
+        }
+
         var scope = DelegationToolSupport.ScopeOf(context);
 
         // SPEC-20261020-v2 RF-008: resolve launch prefs up-front — unknown
@@ -122,7 +131,8 @@ public sealed class DelegateTaskTool(
             {
                 await using var retryScope = scopeFactory.CreateAsyncScope();
                 var retryService = retryScope.ServiceProvider.GetRequiredService<IDelegationService>();
-                var retried = await retryService.RetryTaskAsync(scope, retryOf, cancellationToken)
+                var retried = await retryService.RetryTaskAsync(
+                        scope, retryOf, refine, cancellationToken)
                     .ConfigureAwait(false);
                 context.Activity?.Report("delegated_task", retried.Task.Id);
                 return DelegationToolSupport.Ok(new
@@ -153,7 +163,7 @@ public sealed class DelegateTaskTool(
                     dependsOn.Count == 0 ? null : dependsOn,
                     retryOf, FanoutGroupId: null, useWorktree,
                     repoPath, baseSha, Kind: null, RunId: null, model, effort,
-                    ExtraArgs: null, Autonomy: autonomy),
+                    ExtraArgs: null, Autonomy: autonomy, Refine: refine),
                 cancellationToken).ConfigureAwait(false);
 
             if (useWorktree)

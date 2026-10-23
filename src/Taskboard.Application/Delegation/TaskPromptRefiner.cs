@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Delegation;
 
 namespace Taskboard.Application.Delegation;
@@ -12,17 +13,27 @@ namespace Taskboard.Application.Delegation;
 /// </summary>
 public sealed class TaskPromptRefiner(
     IConfiguration configuration,
-    Taskboard.Agents.ISecretRedactor? redactor = null) : ITaskPromptRefiner
+    Taskboard.Agents.ISecretRedactor? redactor = null,
+    ILlmProvider? llm = null) : ITaskPromptRefiner
 {
     private const int SpecExcerptLimit = 2048;
     private const int FailureDetailLimit = 1024;
     private const int ContextSectionLimit = 4096;
+    private const int RefinedLimit = 32 * 1024;
+    private const int LlmMaxTokens = 1200;
+    private static readonly TimeSpan LlmTimeout = TimeSpan.FromSeconds(20);
+
+    private const string LlmSystemPrompt =
+        "You are a prompt refiner for an AI-Driven Development orchestrator. "
+        + "Rewrite the worker brief below into a sharper self-contained brief. "
+        + "Rules: keep every ## section heading; the '## Task' section MUST "
+        + "contain the original task text verbatim, unmodified; never invent "
+        + "requirements; output only the refined brief, no commentary.";
 
     public async Task<TaskPromptRefineResult> RefineAsync(
         TaskPromptRefineRequest request, CancellationToken ct)
     {
-        var mode = configuration[TaskPromptRefinementModes.ConfigurationKey]
-            ?? TaskPromptRefinementModes.Default;
+        var mode = ResolveMode(request);
         if (mode is TaskPromptRefinementModes.Off)
         {
             return TaskPromptRefineResult.Off(request.RawPrompt);
@@ -30,13 +41,63 @@ public sealed class TaskPromptRefiner(
 
         if (mode is TaskPromptRefinementModes.Llm)
         {
-            // P2: bounded LLM rewrite with template fallback. For now the
-            // seam resolves to the template brief and records the fallback.
-            var fallback = await BuildTemplateAsync(request, ct).ConfigureAwait(false);
-            return fallback with { Mode = TaskPromptRefinementModes.LlmFallback };
+            return await RefineWithLlmAsync(request, ct).ConfigureAwait(false);
         }
 
         return await BuildTemplateAsync(request, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Per-request override wins over configuration; unknown values
+    /// resolve to the template default (never <c>llm-fallback</c>).</summary>
+    private string ResolveMode(TaskPromptRefineRequest request) =>
+        TaskPromptRefinementModes.IsValidOverride(request.Mode)
+            ? request.Mode!
+            : configuration[TaskPromptRefinementModes.ConfigurationKey]
+                is { } configured && TaskPromptRefinementModes.IsValidOverride(configured)
+                ? configured
+                : TaskPromptRefinementModes.Default;
+
+    /// <summary>RF-003: one bounded chat call rewrites the template brief;
+    /// the result must contain the raw prompt verbatim or it is rejected.
+    /// Any failure/timeout/refusal resolves to the template brief with
+    /// mode <c>llm-fallback</c> (AC-03).</summary>
+    private async Task<TaskPromptRefineResult> RefineWithLlmAsync(
+        TaskPromptRefineRequest request, CancellationToken ct)
+    {
+        var template = await BuildTemplateAsync(request, ct).ConfigureAwait(false);
+        if (llm is null)
+        {
+            return template with { Mode = TaskPromptRefinementModes.LlmFallback };
+        }
+
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(LlmTimeout);
+            var response = await llm.CompleteAsync(
+                [
+                    new LlmMessage("system", LlmSystemPrompt),
+                    new LlmMessage("user", template.Refined),
+                ],
+                new LlmOptions(Temperature: 0.2, MaxTokens: LlmMaxTokens),
+                timeout.Token).ConfigureAwait(false);
+
+            var content = Scrub(response.Content?.Trim() ?? string.Empty);
+            if (content.Length == 0
+                || content.Length > RefinedLimit
+                || !content.Contains(request.RawPrompt.Trim(), StringComparison.Ordinal))
+            {
+                return template with { Mode = TaskPromptRefinementModes.LlmFallback };
+            }
+
+            return new TaskPromptRefineResult(
+                request.RawPrompt, content, TaskPromptRefinementModes.Llm,
+                template.SpecAnchors, template.AppliedRules);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return template with { Mode = TaskPromptRefinementModes.LlmFallback };
+        }
     }
 
     private async Task<TaskPromptRefineResult> BuildTemplateAsync(
@@ -86,7 +147,7 @@ public sealed class TaskPromptRefiner(
         sb.AppendLine("- Never invent business rules or acceptance criteria — missing facts are blockers to escalate.");
         sb.AppendLine("- Keep changes within scope; no pushes or remote mutations unless explicitly requested.");
 
-        var refined = Truncate(Scrub(sb.ToString()), 32 * 1024);
+        var refined = Truncate(Scrub(sb.ToString()), RefinedLimit);
         return new TaskPromptRefineResult(
             request.RawPrompt, refined, TaskPromptRefinementModes.Template, anchors, rules);
     }

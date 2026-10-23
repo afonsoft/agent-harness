@@ -9,7 +9,10 @@ namespace Taskboard.Integrations.Delegation;
 
 /// <summary>One spec of a delegation plan (tool arg or coordinator-emitted JSON).</summary>
 public sealed record DelegationPlanSpec(
-    string Prompt, string? Cli, IReadOnlyList<int> Deps, bool UseWorktree);
+    string Prompt, string? Cli, IReadOnlyList<int> Deps, bool UseWorktree,
+    /// <summary>SPEC-20261022-task-prompt-refiner: per-child override
+    /// (<c>off|template|llm</c>); null = server config default.</summary>
+    string? Refine = null);
 
 /// <summary>One created child task of a materialized plan.</summary>
 public sealed record DelegationPlanItem(int Index, string Id, string Cli);
@@ -43,11 +46,21 @@ public static class DelegationPlanParser
                 return null;
             }
 
+            var refine = ReadString(el, "refine")?.Trim().ToLowerInvariant();
+            if (refine is not null
+                && !Taskboard.Application.Contracts.Delegation.TaskPromptRefinementModes
+                    .IsValidOverride(refine))
+            {
+                error = $"tasks[{index}].refine must be off|template|llm";
+                return null;
+            }
+
             specs.Add(new DelegationPlanSpec(
                 prompt,
                 ReadString(el, "cli"),
                 deps,
-                el.TryGetProperty("use_worktree", out var uw) && uw.ValueKind == JsonValueKind.True));
+                el.TryGetProperty("use_worktree", out var uw) && uw.ValueKind == JsonValueKind.True,
+                refine));
             index++;
         }
 
@@ -282,7 +295,8 @@ public sealed class DelegationPlanCreator(IServiceScopeFactory scopeFactory)
             new CreateDelegationTaskRequest(
                 spec.Prompt, cli, plan.Scope, plan.WorkspacePath,
                 dependsOn, RetryOf: null, FanoutGroupId: null,
-                spec.UseWorktree, plan.RepoPath, BaseCommitSha: null),
+                spec.UseWorktree, plan.RepoPath, BaseCommitSha: null,
+                Refine: spec.Refine),
             ct).ConfigureAwait(false);
 
         if (!spec.UseWorktree)

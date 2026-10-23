@@ -172,7 +172,13 @@ public sealed record CreateDelegationTaskRequest(
     /// <summary>SPEC-20261022-task-prompt-refiner: refined brief + mode
     /// (applied by the repository when both are present).</summary>
     string? PromptRefined = null,
-    string? PromptRefinement = null);
+    string? PromptRefinement = null,
+    /// <summary>SPEC-20261022-task-prompt-refiner: issue anchor (e.g. <c>#123</c>)
+    /// used for spec matching.</summary>
+    string? IssueRef = null,
+    /// <summary>SPEC-20261022-task-prompt-refiner: per-task override
+    /// (<c>off|template|llm</c>); null = server config default.</summary>
+    string? Refine = null);
 
 /// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
 public sealed record LaunchResolution(
@@ -205,7 +211,10 @@ public sealed record DelegateIssueRequest(
     int IssueNumber,
     string Title,
     string? Body = null,
-    string? Cli = null);
+    string? Cli = null,
+    /// <summary>SPEC-20261022-task-prompt-refiner: per-task override
+    /// (<c>off|template|llm</c>); null = server config default.</summary>
+    string? Refine = null);
 
 /// <summary>Create request for a mailbox message.</summary>
 public sealed record PostMailboxMessageRequest(

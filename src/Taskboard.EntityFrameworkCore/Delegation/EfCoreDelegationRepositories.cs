@@ -150,6 +150,13 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         string id, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.ReactivateForRetry(), ct).ConfigureAwait(false);
 
+    /// <inheritdoc/>
+    public async Task<DelegationTaskDto?> ApplyRefinementAsync(
+        string id, string refined, string mode, CancellationToken ct = default) =>
+        await TransitionAsync(
+            id, t => t.ApplyRefinement(refined, mode, DateTime.UtcNow), ct)
+            .ConfigureAwait(false);
+
     public async Task<DelegationTaskDto?> MarkBlockedAsync(
         string id, string? reason, CancellationToken ct = default) =>
         await TransitionAsync(id, t => t.MarkBlocked(reason), ct).ConfigureAwait(false);

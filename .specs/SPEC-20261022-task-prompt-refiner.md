@@ -9,7 +9,7 @@
 | Stack | `.NET` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feat/task-prompt-refiner` |
-| Status | `Draft` |
+| Status | `Implemented` |
 | Origin | ADD/SDD review 2026-10-22 — "sempre melhorar os prompts da tarefa" |
 
 ## 1. User Story

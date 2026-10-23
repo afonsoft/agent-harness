@@ -45,6 +45,11 @@ public interface IDelegationTaskRepository
     /// <summary>SPEC-20261020-v2 RF-007: failed/stale/cancelled → pending for a new dispatch attempt.</summary>
     Task<DelegationTaskDto?> ReactivateForRetryAsync(string id, CancellationToken ct = default);
 
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-005: persist the re-refined
+    /// brief on retry (attempt context) — audit fields only, status untouched.</summary>
+    Task<DelegationTaskDto?> ApplyRefinementAsync(
+        string id, string refined, string mode, CancellationToken ct = default);
+
     /// <summary>SPEC-20261020-v2 RF-005/RF-010: non-terminal → blocked with a structured reason.</summary>
     Task<DelegationTaskDto?> MarkBlockedAsync(string id, string? reason, CancellationToken ct = default);
 

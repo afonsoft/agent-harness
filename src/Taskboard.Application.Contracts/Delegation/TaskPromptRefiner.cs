@@ -10,7 +10,9 @@ public sealed record TaskPromptRefineRequest(
     string? Workdir,
     string? IssueRef,
     string? PriorFailureDetail,
-    int Attempt);
+    int Attempt,
+    /// <summary>Per-call override (<c>off|template|llm</c>); null = config default.</summary>
+    string? Mode = null);
 
 /// <summary>Refinement outcome — <see cref="Refined"/> is what the worker
 /// receives; <see cref="Mode"/> records how it was produced.</summary>
@@ -41,8 +43,14 @@ public static class TaskPromptRefinementModes
     public const string LlmFallback = "llm-fallback";
 
     public const string ConfigurationKey = "Taskboard:Delegation:PromptRefinement";
+    public const string LlmModelConfigurationKey = "Taskboard:Delegation:PromptRefineLlmModel";
     public const string Default = Template;
 
     public static bool IsValid(string? value) =>
         value is Off or Template or Llm or LlmFallback;
+
+    /// <summary>Valid as a caller-supplied override — <c>llm-fallback</c> is
+    /// an outcome, never an input.</summary>
+    public static bool IsValidOverride(string? value) =>
+        value is Off or Template or Llm;
 }

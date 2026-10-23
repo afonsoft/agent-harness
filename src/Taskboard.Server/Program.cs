@@ -2849,7 +2849,9 @@ void MapSettingsAndChatEndpoints()
             new CreateDelegationTaskRequest(
                 prompt, cli, effectiveScope, clone.Path,
                 DependsOn: null, RetryOf: null, FanoutGroupId: null,
-                UseWorktree: true, clone.Path, BaseCommitSha: null),
+                UseWorktree: true, clone.Path, BaseCommitSha: null,
+                Kind: "issue", IssueRef: $"#{request.IssueNumber}",
+                Refine: request.Refine),
             ct);
 
         var session = await isolation.CreateWorktreeAsync(
