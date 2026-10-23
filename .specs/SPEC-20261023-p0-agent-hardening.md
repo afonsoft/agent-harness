@@ -109,7 +109,7 @@ Deferred tools emit only a catalog line (name + one-line description) in the sys
 
 ## 7. Task Plan
 
-- [ ] **T1 (Slice A)** — `SensitivePathDenylist` + `PathJailValidator` integration + classifier arg inspection + audit. Tests first.
+- [x] **T1 (Slice A)** — `SensitivePathDenylist` + `PathJailValidator` integration + classifier arg inspection + audit. Tests first.
 - [ ] **T2 (Slice B)** — `UntrustedContentSanitizer` + sentinel wrapping at ingestion points + config + startup warn. Tests first.
 - [ ] **T3 (Slice C)** — `IPreflightCheck` list + report endpoint + `taskctl doctor` + `dryRun` plumbing. Tests first.
 - [ ] **T4 (Slice D)** — availability probes + `tool_search`/`tool_activate` + deferred config + cache-prefix invariants. Tests first.
