@@ -2062,6 +2062,15 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(16000)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PromptRefined")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PromptRefinement")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RefinedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RepositoryPath")
                         .HasMaxLength(512)
                         .HasColumnType("TEXT");

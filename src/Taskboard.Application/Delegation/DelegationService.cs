@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Taskboard;
 using Taskboard.Agents;
@@ -31,6 +32,8 @@ public sealed class DelegationService : IDelegationService
     private readonly IAgentAttentionService? _attention;
     private readonly ILogger<DelegationService>? _logger;
     private readonly TimeProvider _time;
+    private readonly IConfiguration _configuration;
+    private readonly ITaskPromptRefiner _refiner;
 
     public DelegationService(
         IDelegationTaskRepository tasks,
@@ -40,6 +43,8 @@ public sealed class DelegationService : IDelegationService
         IDeliveryRepository deliveries,
         IPendingQuestionRepository questions,
         IDelegationGateRepository gates,
+        IConfiguration configuration,
+        ITaskPromptRefiner refiner,
         TimeProvider? timeProvider = null,
         IAgentAttentionService? attention = null,
         ILogger<DelegationService>? logger = null)
@@ -54,6 +59,8 @@ public sealed class DelegationService : IDelegationService
         _attention = attention;
         _logger = logger;
         _time = timeProvider ?? TimeProvider.System;
+        _configuration = configuration;
+        _refiner = refiner;
     }
 
     /// <summary>SPEC-20261020-agent-attention-model: lifecycle/mailbox signal emit — fire-and-log.</summary>
@@ -108,7 +115,53 @@ public sealed class DelegationService : IDelegationService
 
         var run = await EnsureRunAsync(scope, request.Prompt, null, ct).ConfigureAwait(false);
         return await _tasks.AddAsync(
-            request with { Scope = scope, RunId = run.Id }, ct).ConfigureAwait(false);
+            await RefineAsync(request with { Scope = scope, RunId = run.Id }, scope, run.Id, ct)
+                .ConfigureAwait(false), ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-001/004: intercepts
+    /// before persist — prompt stays the submitted text, PromptRefined is
+    /// what the worker receives. Refinement never blocks creation.</summary>
+    private async Task<CreateDelegationTaskRequest> RefineAsync(
+        CreateDelegationTaskRequest request, string scope, string runId, CancellationToken ct)
+    {
+        if (request.PromptRefined is not null)
+        {
+            return request; // already refined by the caller (e.g. automation fire)
+        }
+
+        var refineMode = _configuration[TaskPromptRefinementModes.ConfigurationKey]
+            ?? TaskPromptRefinementModes.Default;
+        if (refineMode == TaskPromptRefinementModes.Off)
+        {
+            return request;
+        }
+
+        try
+        {
+            var result = await _refiner.RefineAsync(
+                new TaskPromptRefineRequest(
+                    request.Prompt,
+                    request.CliName,
+                    request.RepositoryPath,
+                    request.UseWorktree ? request.WorkspacePath : null,
+                    IssueRef: request.Kind == "issue" ? request.RepositoryPath : null,
+                    PriorFailureDetail: null,
+                    Attempt: 1),
+                ct).ConfigureAwait(false);
+            return request with
+            {
+                PromptRefined = result.Refined,
+                PromptRefinement = result.Mode,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Refinement is best-effort — creation must never fail on it.
+            _logger?.LogWarning(ex, "prompt refinement skipped for {Scope}", scope);
+            return request;
+        }
     }
 
     public async Task<DelegationRunDto> EnsureRunAsync(

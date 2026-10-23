@@ -28,7 +28,9 @@ public class OrchestrationContractP2ServiceTests
     {
         _service = new DelegationService(
             _tasks, _mailbox, _runs, _dispatches, _deliveries,
-            _questions, _gates, TimeProvider.System);
+            _questions, _gates, TaskPromptRefinerTestSupport.ConfigOff(),
+            Substitute.For<ITaskPromptRefiner>(),
+            TimeProvider.System);
     }
 
     private static DelegationRunDto Run() =>

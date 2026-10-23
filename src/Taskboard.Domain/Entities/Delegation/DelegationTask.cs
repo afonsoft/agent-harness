@@ -28,6 +28,23 @@ public sealed class DelegationTask : AggregateRoot<string>
 
     public string Prompt { get; private set; } = string.Empty;
 
+    /// <summary>SPEC-20261022-task-prompt-refiner: refined self-contained
+    /// brief the worker actually receives (null = raw prompt used as-is).</summary>
+    public string? PromptRefined { get; private set; }
+
+    /// <summary>Refinement mode: off|template|llm|llm-fallback.</summary>
+    public string? PromptRefinement { get; private set; }
+
+    public DateTime? RefinedAt { get; private set; }
+
+    /// <summary>Records the refined brief before persist (RF-004).</summary>
+    public void ApplyRefinement(string refined, string mode, DateTime at)
+    {
+        PromptRefined = refined;
+        PromptRefinement = mode;
+        RefinedAt = at;
+    }
+
     /// <summary>AgentType name or custom-def id/display/executable.</summary>
     public string CliName { get; private set; } = string.Empty;
 

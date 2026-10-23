@@ -33,7 +33,10 @@ public sealed record DelegationTaskDto(
     string? SetupLogTail = null,
     IReadOnlyList<string>? ExtraArgs = null,
     /// <summary>SPEC-20261022-cli-autonomy-profiles RF-004: effective level (resolved at create).</summary>
-    string? Autonomy = null);
+    string? Autonomy = null,
+    /// <summary>SPEC-20261022-task-prompt-refiner RF-004: refined brief + mode.</summary>
+    string? PromptRefined = null,
+    string? PromptRefinement = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
@@ -165,7 +168,11 @@ public sealed record CreateDelegationTaskRequest(
     string? Effort = null,
     IReadOnlyList<string>? ExtraArgs = null,
     /// <summary>SPEC-20261022-cli-autonomy-profiles: <c>plan|edit|full</c>; null = configured default.</summary>
-    string? Autonomy = null);
+    string? Autonomy = null,
+    /// <summary>SPEC-20261022-task-prompt-refiner: refined brief + mode
+    /// (applied by the repository when both are present).</summary>
+    string? PromptRefined = null,
+    string? PromptRefinement = null);
 
 /// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
 public sealed record LaunchResolution(

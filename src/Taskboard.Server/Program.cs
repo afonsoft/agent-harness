@@ -521,6 +521,7 @@ void RegisterAcpAndAgentServices()
     // SPEC-20261020-v2 P3: launch preference resolution (model/effort).
     builder.Services.AddScoped<IAgentLaunchResolver, AgentLaunchResolver>();
     builder.Services.AddScoped<IDelegationService, DelegationService>();
+    builder.Services.AddScoped<Taskboard.Application.Contracts.Delegation.ITaskPromptRefiner, Taskboard.Application.Delegation.TaskPromptRefiner>();
     builder.Services.AddScoped<IPromotedLegPrService, PromotedLegPrService>();
     builder.Services.AddHostedService<DelegationDispatcherService>();
 
