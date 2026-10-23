@@ -426,7 +426,7 @@
                                 <tbody>
                                     @foreach (var session in group.Sessions)
                                     {
-                                        <tr @key="session.TranscriptPath">
+                                        <tr @key="SessionRowKey(session)">
                                             <td>
                                                 <div class="fw-semibold text-truncate" style="max-width: 24rem;"
                                                      title="@session.Title">
@@ -945,6 +945,10 @@
     private IEnumerable<SessionCliChipDto> SessionChips =>
         _sessionIndex?.Chips
         ?? SessionSources.Select(s => new SessionCliChipDto(s, 0, _hiddenClis.Contains(s)));
+
+    // devin rows all share the same TranscriptPath (sessions.db holds every
+    // session) — cli+id is the per-session identity, keeping @key unique.
+    private static string SessionRowKey(SessionIndexEntryDto s) => s.Cli + "@" + s.SessionId;
 
     // SPEC-20261007 RF-001/RF-004: mailbox replies + fan-out compare modal.
     private string? _openReplyId;
