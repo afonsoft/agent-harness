@@ -679,6 +679,10 @@ void RegisterWorkspaceAndChatServices()
     // SPEC-20261011-chat-workspace-panel RF-004: shared todo store — the Todo
     // tool writes during runs; the workspace panel's Tasks tab reads it.
     builder.Services.AddSingleton(new ChatTodoStore(environment.GetDataDir()));
+    // SPEC-20261022-session-event-log P1: durable append-only per-session
+    // event log under ~/.agent-harness/sessions/{sessionId}/events.jsonl.
+    builder.Services.AddSingleton<Taskboard.Application.Contracts.Agents.ISessionEventLog>(
+        new Taskboard.Application.Agents.SessionEventLog(environment.GetDataDir()));
     builder.Services.AddSingleton<IChatWorkspaceDiffService>(sp => new GitWorkspaceDiffService(
         sp.GetRequiredService<IGitCommandRunner>()));
     builder.Services.AddSingleton<GenerateImageTool>(sp => new GenerateImageTool(

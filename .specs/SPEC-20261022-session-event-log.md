@@ -9,7 +9,7 @@
 | Stack | `.NET` |
 | Repository | `afonsoft/agent-harness` |
 | Branch | `feat/session-event-log` |
-| Status | `Draft` |
+| Status | `Implemented (P1 — JSONL event log; P2 projection seam pendente)` |
 | Origin | ADE gap analysis 2026-10-22 — DeepSeek Harness durable `SessionEvent` log (generation-versioned JSONL + migration chain + projection seam) |
 
 ## 1. User Story
@@ -66,7 +66,7 @@ Internal contracts only (`ISessionEventLog`, `ISessionEventReader`, `ISessionPro
 
 ## 7. Task Plan
 
-- [ ] **P1** — `SessionEvent` vocabulary + JSONL writer/reader + generation tag + refuse-future; unit tests incl. fixtures.
+- [x] **P1** — `SessionEvent` vocabulary + JSONL writer/reader + generation tag + refuse-future; unit tests incl. fixtures.
 - [ ] **P2** — projection registry + turn-boundary projection; wire one consumer.
 - [ ] **P3** — migration chain mechanism + hibernation/resume read-path cut-over.
 
