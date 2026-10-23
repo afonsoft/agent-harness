@@ -63,7 +63,7 @@ tests/Taskboard.Tests.Unit/Integrations/Execution/*               (new tests)
 ## 4. Requirements
 
 ### RF-001: Spawn isolation via systemd-run scope
-- **Description:** When `Harness:ProcessIsolation:Enabled=true` (default true) and `systemd-run` + a user systemd manager are available, agent/PTY child processes must run inside a transient scope `harness-agent-<shortId>` with `MemoryMax`, `MemoryHigh` and `OOMScoreAdjust` taken from configuration (defaults: `MemoryMax=2G`, `MemoryHigh=1.5G`, `OOMScoreAdjust=500`).
+- **Description:** When `Harness:ProcessIsolation:Enabled=true` (default true) and `systemd-run` + a user systemd manager are available, agent/PTY child processes must run inside a transient scope `harness-agent-<shortId>` with `MemoryMax`/`MemoryHigh` via `-p` and `OOMScoreAdjust` applied by a `choom -n` wrapper inside the scope (OOMScoreAdjust is Exec-context-only — `-p` on a scope makes `systemd-run` exit 1 and kills the spawn; observed in prod 2026-10-23) (defaults: `MemoryMax=2G`, `MemoryHigh=1.5G`, `OOMScoreAdjust=500`).
 - **Rules:** argv passed verbatim after `--` (no shell interpolation); working directory honored (`--same-dir`/equivalent or explicit `cd` wrapper); scope cleanup via `--collect`; `OOMScoreAdjust` chosen so the kernel prefers killing the agent over the server.
 - **Input → Output:** spawn request (executable + argv + workdir + env) → `Process` handle identical in behavior to today's direct spawn (stdin/stdout/stderr redirection preserved).
 
@@ -145,7 +145,7 @@ No other contract changes.
 
 ## Implementation Notes (2026-10-22)
 
-**Delivered:** `IProcessIsolator` + `SystemdScopeProcessIsolator` (`systemd-run --user --scope --collect --quiet`, per-scope `MemoryMax`/`MemoryHigh`/`OOMScoreAdjust`) + `NoopProcessIsolator` fallback; `MemoryPressureGate` (PSI `some avg60`, fail-open, rising-edge Warn) + `GET /api/diagnostics/memory` (`memory.current|high|max|events` + PSI sample). Config: `Harness:ProcessIsolation:{Enabled,MemoryMax,MemoryHigh,OomScoreAdjust,ScopePrefix}`, `Harness:MemoryPressure:{SomeAvg60Max,PressureFile}`; `Harness:MemoryPressure:PressureFile` overrides `MEMORY_PRESSURE_WATCH` env (explicit config wins), which overrides `/proc/self/cgroup` self-resolution.
+**Delivered:** `IProcessIsolator` + `SystemdScopeProcessIsolator` (`systemd-run --user --scope --collect --quiet`, per-scope `MemoryMax`/`MemoryHigh` via `-p` + `OOMScoreAdjust` via in-scope `choom`) + `NoopProcessIsolator` fallback; `MemoryPressureGate` (PSI `some avg60`, fail-open, rising-edge Warn) + `GET /api/diagnostics/memory` (`memory.current|high|max|events` + PSI sample). Config: `Harness:ProcessIsolation:{Enabled,MemoryMax,MemoryHigh,OomScoreAdjust,ScopePrefix}`, `Harness:MemoryPressure:{SomeAvg60Max,PressureFile}`; `Harness:MemoryPressure:PressureFile` overrides `MEMORY_PRESSURE_WATCH` env (explicit config wins), which overrides `/proc/self/cgroup` self-resolution.
 
 **Spawn coverage (T1 inventory):**
 
