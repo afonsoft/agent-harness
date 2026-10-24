@@ -134,7 +134,8 @@ public sealed class ChatService(
     IChatMessageSearchIndex? searchIndex = null,
     IChatToolRiskClassifier? riskClassifier = null,
     ChatTodoStore? todoStore = null,
-    IDeferredToolCatalog? deferredCatalog = null) : IChatRunExecutor
+    IDeferredToolCatalog? deferredCatalog = null,
+    IChatHookRegistry? hooks = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -1520,13 +1521,29 @@ public sealed class ChatService(
             ? null
             : await workspaceDiff.SnapshotAsync(workspacePath, ct).ConfigureAwait(false);
 
+        // SPEC-20261024-p1-agent-reliability RF-E02: run.start — a block
+        // aborts the run before the first provider call.
+        var runStart = await RunHooksAsync(new HookContext(
+            ChatHookEvents.RunStart, "run",
+            ConversationId: convId, RunId: run.Id.Value, WorkspacePath: workspacePath,
+            Meta: BuildRunMeta(provider, conversation)), ct).ConfigureAwait(false);
+        foreach (var runWarn in runStart.Warnings)
+        {
+            yield return new ChatStatusEvent("hook_note", $"{runWarn.Hook}: {runWarn.Reason}");
+        }
+
+        if (runStart.Block is { } runBlock)
+        {
+            state.Error = $"blocked by hook '{runBlock.Hook}': {runBlock.Reason}";
+        }
+
         var maxIterations = ParseInt("Taskboard:Chat:MaxToolIterations", 8);
         // Reasoning models burn output tokens on reasoning_content before the
         // answer — without an explicit budget gateways cap too low and the
         // turn ends with empty content.
         var maxTokens = ParseInt("Taskboard:Chat:MaxTokens", 4096);
 
-        for (var iteration = 0; iteration < maxIterations; iteration++)
+        for (var iteration = 0; iteration < maxIterations && state.Error is null; iteration++)
         {
             // SPEC-20261012-chat-run-controls RF-002: cooperative park at a
             // turn boundary — before compaction and the provider call.
@@ -1609,7 +1626,7 @@ public sealed class ChatService(
                 break;
             }
 
-            await foreach (var ev in RunToolCallsAsync(run, toolCalls, provider, toolSet, conversation, wire, state, stoppingToken, ct)
+            await foreach (var ev in RunToolCallsAsync(run, toolCalls, provider, toolSet, conversation, workspacePath, wire, state, stoppingToken, ct)
                 .ConfigureAwait(false))
             {
                 yield return ev;
@@ -1657,6 +1674,24 @@ public sealed class ChatService(
 
         await conversations.SaveChangesAsync(stoppingToken.IsCancellationRequested ? CancellationToken.None : stoppingToken)
             .ConfigureAwait(false);
+
+        // RF-E02: run.end — verdicts surface as notes; a block vetoes the run
+        // outcome and the done event reports the error.
+        var runEnd = await RunHooksAsync(new HookContext(
+            ChatHookEvents.RunEnd, "run",
+            ConversationId: convId, RunId: run.Id.Value, WorkspacePath: workspacePath,
+            Meta: BuildRunMeta(provider, conversation, state.Error)),
+            stoppingToken.IsCancellationRequested ? CancellationToken.None : stoppingToken).ConfigureAwait(false);
+        foreach (var endVerdict in runEnd.Verdicts)
+        {
+            yield return new ChatStatusEvent("hook_note", $"{endVerdict.Hook}: {endVerdict.Reason}");
+        }
+
+        if (runEnd.Block is { } endBlock)
+        {
+            state.Error = $"blocked by hook '{endBlock.Hook}': {endBlock.Reason}";
+        }
+
         yield return new ChatDoneEvent(state.TokensIn, state.TokensOut, state.Error is null ? "stop" : "error", state.Error);
     }
 
@@ -1972,6 +2007,7 @@ public sealed class ChatService(
         ChatProviderSnapshot provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
+        string? workspacePath,
         List<OpenAiChatMessage> wire,
         TurnState state,
         CancellationToken stoppingToken,
@@ -1993,7 +2029,7 @@ public sealed class ChatService(
                 var aborted = false;
                 await foreach (var ev in RunParallelBatchAsync(
                         run, toolCalls.GetRange(i, batchEnd - i + 1), provider, toolSet,
-                        conversation, wire, state, stoppingToken, ct, () => aborted = true)
+                        conversation, workspacePath, wire, state, stoppingToken, ct, () => aborted = true)
                         .ConfigureAwait(false))
                 {
                     yield return ev;
@@ -2021,6 +2057,30 @@ public sealed class ChatService(
                 yield break;
             }
 
+            // SPEC-20261024-p1-agent-reliability RF-E02/E03: tool.before —
+            // hooks run before the approval gate; a block becomes a synthetic
+            // refusal persisted like a gate deny (the gate never sees the
+            // call, so no approval row is created).
+            var before = await RunHooksAsync(new HookContext(
+                ChatHookEvents.ToolBefore, toolCall.Name, ParseToolArgs(toolCall.ArgumentsJson),
+                ConversationId: conversation.Id.Value, RunId: run.Id.Value,
+                WorkspacePath: workspacePath), ct).ConfigureAwait(false);
+            foreach (var beforeWarn in before.Warnings)
+            {
+                yield return new ChatStatusEvent("hook_note", $"{beforeWarn.Hook}: {beforeWarn.Reason}");
+            }
+
+            if (before.Block is { } beforeBlock)
+            {
+                var blockedJson = JsonSerializer.Serialize(
+                    new { error = $"blocked by hook '{beforeBlock.Hook}': {beforeBlock.Reason}" });
+                yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
+                yield return new ChatToolResultEvent(toolCall.Name, blockedJson, true, beforeBlock.Reason);
+                await PersistDeniedToolResultAsync(
+                    conversation, wire, toolCall, blockedJson, refused: true, ct).ConfigureAwait(false);
+                continue;
+            }
+
             // SPEC-20261005-chat-tool-approval RF-002: the gate resolves the
             // per-call policy BEFORE execution — ask parks on a persisted
             // ChatApproval, deny becomes a synthetic refusal, allow falls
@@ -2042,17 +2102,11 @@ public sealed class ChatService(
 
             if (gateJson?.ResultJson is not null)
             {
-                var deniedJson = gateJson.ResultJson;
-                var deniedReason = gateJson.RefusalReason;
-                var deniedRefused = gateJson.Refused;
                 yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
-                yield return new ChatToolResultEvent(toolCall.Name, deniedJson, deniedRefused, deniedReason);
-                var deniedMessage = ChatMessage.CreateTool(
-                    conversation.Id, toolCall.Id, toolCall.Name, deniedJson, refused: deniedRefused, UtcNow);
-                await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
-                await IndexMessageSafeAsync(deniedMessage, ct).ConfigureAwait(false);
-                await messages.SaveChangesAsync(ct).ConfigureAwait(false);
-                wire.Add(new OpenAiChatMessage("tool", deniedJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
+                yield return new ChatToolResultEvent(
+                    toolCall.Name, gateJson.ResultJson, gateJson.Refused, gateJson.RefusalReason);
+                await PersistDeniedToolResultAsync(
+                    conversation, wire, toolCall, gateJson.ResultJson, gateJson.Refused, ct).ConfigureAwait(false);
                 continue;
             }
 
@@ -2083,6 +2137,11 @@ public sealed class ChatService(
             yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
             await PersistToolResultAsync(run, conversation, wire, state, toolCall,
                 resultJson, refused, imageUrls, shotIds, ct).ConfigureAwait(false);
+            await foreach (var afterNote in RunToolAfterHooksAsync(
+                    run, conversation, workspacePath, toolCall, resultJson, ct).ConfigureAwait(false))
+            {
+                yield return afterNote;
+            }
         }
     }
 
@@ -2108,6 +2167,7 @@ public sealed class ChatService(
         ChatProviderSnapshot provider,
         IReadOnlyDictionary<string, IChatTool> toolSet,
         ChatConversation conversation,
+        string? workspacePath,
         List<OpenAiChatMessage> wire,
         TurnState state,
         CancellationToken stoppingToken,
@@ -2126,6 +2186,25 @@ public sealed class ChatService(
             if (ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
             {
                 yield break;
+            }
+
+            // RF-E02/E03: tool.before per call — a block marks the entry
+            // denied and the gate never sees it (same rule as sequential).
+            var before = await RunHooksAsync(new HookContext(
+                ChatHookEvents.ToolBefore, toolCall.Name, ParseToolArgs(toolCall.ArgumentsJson),
+                ConversationId: conversation.Id.Value, RunId: run.Id.Value,
+                WorkspacePath: workspacePath), ct).ConfigureAwait(false);
+            foreach (var beforeWarn in before.Warnings)
+            {
+                yield return new ChatStatusEvent("hook_note", $"{beforeWarn.Hook}: {beforeWarn.Reason}");
+            }
+
+            if (before.Block is { } batchBlock)
+            {
+                gates[k] = (toolCall,
+                    JsonSerializer.Serialize(new { error = $"blocked by hook '{batchBlock.Hook}': {batchBlock.Reason}" }),
+                    true, batchBlock.Reason, null);
+                continue;
             }
 
             var gateJson = await ApplyApprovalGateAsync(run, conversation, provider, toolSet, toolCall, ct, stoppingToken)
@@ -2162,12 +2241,8 @@ public sealed class ChatService(
 
             yield return new ChatToolCallEvent(g.Call.Name, g.Call.ArgumentsJson);
             yield return new ChatToolResultEvent(g.Call.Name, g.DenyJson, g.Denied, g.Reason);
-            var deniedMessage = ChatMessage.CreateTool(
-                conversation.Id, g.Call.Id, g.Call.Name, g.DenyJson, refused: g.Denied, UtcNow);
-            await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
-            await IndexMessageSafeAsync(deniedMessage, ct).ConfigureAwait(false);
-            await messages.SaveChangesAsync(ct).ConfigureAwait(false);
-            wire.Add(new OpenAiChatMessage("tool", g.DenyJson, ToolCallId: g.Call.Id, Name: g.Call.Name));
+            await PersistDeniedToolResultAsync(conversation, wire, g.Call, g.DenyJson, g.Denied, ct)
+                .ConfigureAwait(false);
         }
 
         if (runnable.Count == 0)
@@ -2234,7 +2309,87 @@ public sealed class ChatService(
             yield return new ChatToolResultEvent(call.Name, outcome.Json, outcome.Refused, outcome.Reason);
             await PersistToolResultAsync(run, conversation, wire, state, call,
                 outcome.Json, outcome.Refused, outcome.ImageUrls, outcome.ShotIds, ct).ConfigureAwait(false);
+            await foreach (var afterNote in RunToolAfterHooksAsync(
+                    run, conversation, workspacePath, call, outcome.Json, ct).ConfigureAwait(false))
+            {
+                yield return afterNote;
+            }
         }
+    }
+
+    /// <summary>
+    /// SPEC-20261024-p1-agent-reliability RF-E02: runs the hooks resolved for
+    /// one lifecycle event; inert when no registry is wired or the engine is
+    /// disabled (<c>Taskboard:Chat:Hooks:Enabled</c> — the registry also
+    /// self-gates).
+    /// </summary>
+    private async Task<HookRunResult> RunHooksAsync(HookContext context, CancellationToken ct) =>
+        hooks is { Enabled: true }
+            ? await hooks.RunAsync(context, ct).ConfigureAwait(false)
+            : HookRunResult.Allow;
+
+    /// <summary>
+    /// tool.after — the call already ran, so every non-allow verdict surfaces
+    /// as a status note instead of mutating the outcome.
+    /// </summary>
+    private async IAsyncEnumerable<ChatStreamEvent> RunToolAfterHooksAsync(
+        ChatRun run, ChatConversation conversation, string? workspacePath,
+        OpenAiToolCall toolCall, string resultJson, [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (hooks is not { Enabled: true })
+        {
+            yield break;
+        }
+
+        var after = await RunHooksAsync(new HookContext(
+            ChatHookEvents.ToolAfter, toolCall.Name, ParseToolArgs(toolCall.ArgumentsJson),
+            ResultHead: ResultHead(resultJson),
+            ConversationId: conversation.Id.Value, RunId: run.Id.Value,
+            WorkspacePath: workspacePath), ct).ConfigureAwait(false);
+        foreach (var verdict in after.Verdicts)
+        {
+            yield return new ChatStatusEvent("hook_note", $"{verdict.Hook}: {verdict.Reason}");
+        }
+    }
+
+    private static Dictionary<string, string> BuildRunMeta(
+        ChatProviderSnapshot provider, ChatConversation conversation, string? error = null)
+    {
+        var meta = new Dictionary<string, string> { ["provider"] = provider.Name, ["model"] = conversation.Model };
+        if (error is not null)
+        {
+            meta["error"] = error;
+        }
+
+        return meta;
+    }
+
+    private static JsonElement ParseToolArgs(string argumentsJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(argumentsJson);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+
+    private static string ResultHead(string resultJson) =>
+        resultJson.Length <= 512 ? resultJson : string.Concat(resultJson.AsSpan(0, 512), "…");
+
+    /// <summary>Synthetic refusal row + wire entry — shared by the approval-gate deny and hook blocks.</summary>
+    private async Task PersistDeniedToolResultAsync(
+        ChatConversation conversation, List<OpenAiChatMessage> wire,
+        OpenAiToolCall toolCall, string deniedJson, bool refused, CancellationToken ct)
+    {
+        var deniedMessage = ChatMessage.CreateTool(conversation.Id, toolCall.Id, toolCall.Name, deniedJson, refused, UtcNow);
+        await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(deniedMessage, ct).ConfigureAwait(false);
+        await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+        wire.Add(new OpenAiChatMessage("tool", deniedJson, ToolCallId: toolCall.Id, Name: toolCall.Name));
     }
 
     /// <summary>Persisted tool row + wire entry — shared by sequential and batched paths.</summary>
