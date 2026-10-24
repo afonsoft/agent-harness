@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Taskboard.Application.Contracts.Chat;
+using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Integrations.Chat.Tools;
 
@@ -10,8 +11,12 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// </summary>
 public sealed class WebSearchTool(
     Func<string, string, string, ISearchBackend?> resolveBackend,
-    int maxResults = 5) : IChatTool
+    int maxResults = 5,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01: snippets/titles are external content — sanitized,
+    // not wrapped (short list metadata, not embedded blocks).
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     public string Name => "web_search";
     public string Description =>
         "Search the public web and return the top results (title, url, snippet). "
@@ -57,7 +62,12 @@ public sealed class WebSearchTool(
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
                 query,
-                results = results.Select(r => new { title = r.Title, url = r.Url, snippet = r.Snippet }).ToList(),
+                results = results.Select(r => new
+                {
+                    title = _defense.Sanitize(r.Title),
+                    url = r.Url,
+                    snippet = _defense.Sanitize(r.Snippet),
+                }).ToList(),
             }));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)

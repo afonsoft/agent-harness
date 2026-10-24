@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
+using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Integrations.Chat.Tools.Delegation;
 
@@ -10,8 +11,12 @@ namespace Taskboard.Integrations.Chat.Tools.Delegation;
 /// to <c>@all</c>/<c>@idle</c>, the picked CLI, the scope or any local task —
 /// and marks them read by default.
 /// </summary>
-public sealed class AgentInboxTool(IServiceScopeFactory scopeFactory) : IChatTool
+public sealed class AgentInboxTool(
+    IServiceScopeFactory scopeFactory,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01: mailbox payloads are agent-written untrusted content.
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     public string Name => "agent_inbox";
     public string Description =>
         "[deprecated — prefer agent_check with durable deliveries] Read mailbox "
@@ -62,7 +67,7 @@ public sealed class AgentInboxTool(IServiceScopeFactory scopeFactory) : IChatToo
                 m.FromAgent,
                 m.ToAgent,
                 m.Kind,
-                m.Payload,
+                Payload = _defense.Apply(m.Payload, "mailbox"),
                 m.CreatedAt,
                 m.ReadAt,
             }),

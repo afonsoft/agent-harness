@@ -4,16 +4,22 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Chat;
+using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Integrations.Chat.Tools;
 
 /// <summary>
 /// Fetches a URL and returns its readable text — the open-webui
 /// <c>fetch_url</c> builtin (SPEC-20261001-ai-chat-openwebui). Only http/https
-/// is allowed; HTML is stripped to text, truncated, and secret-scrubbed.
+/// is allowed; HTML is stripped to text, truncated, secret-scrubbed and
+/// prompt-defensed (SPEC-20261023 RF-B01: page text is untrusted).
 /// </summary>
-public sealed class FetchUrlTool(HttpClient http, ISecretRedactor? redactor = null) : IChatTool
+public sealed class FetchUrlTool(
+    HttpClient http,
+    ISecretRedactor? redactor = null,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     internal const int DefaultMaxChars = 12_000;
     internal const int AbsoluteMaxChars = 40_000;
 
@@ -92,7 +98,7 @@ public sealed class FetchUrlTool(HttpClient http, ISecretRedactor? redactor = nu
                 status = (int)response.StatusCode,
                 contentType,
                 truncated,
-                content = text,
+                content = _defense.Apply(text, "fetch_url"),
             }));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.GitHub;
+using Taskboard.Application.Contracts.Harness;
 using static Taskboard.Integrations.Chat.Tools.Board.BoardToolSupport;
 
 namespace Taskboard.Integrations.Chat.Tools.Board;
@@ -9,8 +10,12 @@ namespace Taskboard.Integrations.Chat.Tools.Board;
 /// SPEC-20261004-chat-board-tools RF-001: compact list of board cards — a card
 /// is a GitHub issue, a column is a label (<see cref="GitHubBoardColumn"/>).
 /// </summary>
-public sealed class BoardListIssuesTool(IGitHubService github) : IChatTool
+public sealed class BoardListIssuesTool(
+    IGitHubService github,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01: issue titles are external untrusted content.
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     public string Name => "board_list_issues";
     public string Description =>
         "List cards on the board for a GitHub repository. A card is a GitHub issue and its "
@@ -49,7 +54,7 @@ public sealed class BoardListIssuesTool(IGitHubService github) : IChatTool
                 .Select(i => new
                 {
                     number = i.Number,
-                    title = i.Title.Length > 120 ? i.Title[..120] : i.Title,
+                    title = _defense.Sanitize(i.Title.Length > 120 ? i.Title[..120] : i.Title),
                     column = i.Column.ToDisplayName(),
                     labels = i.Labels,
                     url = i.HtmlUrl,
@@ -63,8 +68,12 @@ public sealed class BoardListIssuesTool(IGitHubService github) : IChatTool
 /// <summary>
 /// SPEC-20261004-chat-board-tools RF-002: full issue body + last 5 comments.
 /// </summary>
-public sealed class BoardGetIssueTool(IGitHubService github) : IChatTool
+public sealed class BoardGetIssueTool(
+    IGitHubService github,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01/RF-B02: issue body and comments are untrusted.
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     public string Name => "board_get_issue";
     public string Description =>
         "Get a board card (GitHub issue) by number: title, body, column, labels and the last "
@@ -105,15 +114,20 @@ public sealed class BoardGetIssueTool(IGitHubService github) : IChatTool
                 issue = new
                 {
                     number = issue.Number,
-                    title = issue.Title,
-                    body = issue.Body,
+                    title = _defense.Sanitize(issue.Title),
+                    body = issue.Body is null ? null : _defense.Apply(issue.Body, "github_issue"),
                     column = issue.Column.ToDisplayName(),
                     labels = issue.Labels,
                     state = issue.State,
                     priority = issue.Priority,
                     url = issue.HtmlUrl
                 },
-                comments = comments.Select(c => new { c.AuthorLogin, c.Body, c.CreatedAt })
+                comments = comments.Select(c => new
+                {
+                    c.AuthorLogin,
+                    Body = c.Body is null ? null : _defense.Apply(c.Body, "github_issue_comment"),
+                    c.CreatedAt,
+                })
             });
         });
     }

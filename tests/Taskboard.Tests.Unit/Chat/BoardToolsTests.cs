@@ -101,7 +101,12 @@ public class BoardToolsTests
 
         result.Refused.ShouldBeFalse();
         result.Json.ShouldContain("Fix the thing");
-        result.Json.ShouldContain("first");
+        // SPEC-20261023 RF-B02: body/comentários são conteúdo externo não-confiável.
+        using var doc = JsonDocument.Parse(result.Json);
+        doc.RootElement.GetProperty("issue").GetProperty("body").GetString()
+            .ShouldBe("<<<UNTRUSTED github_issue>>>\nbody 7\n<<<END_UNTRUSTED>>>");
+        doc.RootElement.GetProperty("comments")[0].GetProperty("Body").GetString()
+            .ShouldBe("<<<UNTRUSTED github_issue_comment>>>\nfirst\n<<<END_UNTRUSTED>>>");
     }
 
     // ---- board_create_issue (RF-003) ----

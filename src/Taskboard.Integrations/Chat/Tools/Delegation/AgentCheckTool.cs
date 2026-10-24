@@ -4,6 +4,7 @@ using Taskboard;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Dtos;
+using Taskboard.Application.Contracts.Harness;
 
 namespace Taskboard.Integrations.Chat.Tools.Delegation;
 
@@ -13,8 +14,12 @@ namespace Taskboard.Integrations.Chat.Tools.Delegation;
 /// batch (≤50) over undelivered messages. <c>ack</c> commits a delivery and
 /// returns the next; <c>peek</c>/<c>all</c> never consume.
 /// </summary>
-public sealed class AgentCheckTool(IServiceScopeFactory scopeFactory) : IChatTool
+public sealed class AgentCheckTool(
+    IServiceScopeFactory scopeFactory,
+    PromptDefensePolicy? promptDefense = null) : IChatTool
 {
+    // SPEC-20261023 RF-B01: mailbox payloads are agent-written untrusted content.
+    private readonly PromptDefensePolicy _defense = promptDefense ?? PromptDefensePolicy.Shared;
     public string Name => "agent_check";
     public string Description =>
         "Check mailbox deliveries for this conversation. Returns the current "
@@ -80,7 +85,7 @@ public sealed class AgentCheckTool(IServiceScopeFactory scopeFactory) : IChatToo
                     m.FromAgent,
                     m.ToAgent,
                     m.Kind,
-                    m.Payload,
+                    Payload = _defense.Apply(m.Payload, "mailbox"),
                     dispatchId = m.DispatchId,
                     m.CreatedAt,
                 }),
