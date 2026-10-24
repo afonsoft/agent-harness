@@ -106,6 +106,7 @@ skills-lock.json        # Manifesto fixado de afonsoft/skills
 1. Modificar `common.props` ou `Directory.Build.props` → avisar no PR.
 2. Adicionar novo pacote NuGet → justificar na descrição do PR.
 3. Mudar rota HTTP → versionar ou documentar breaking change.
+4. Merge de PR sempre com `--delete-branch` (squash) — branches mergeadas são deletadas na hora; nunca deletar branch cujo tip não seja ancestor de `main` sem confirmar que o PR mergeou.
 
 ---
 
