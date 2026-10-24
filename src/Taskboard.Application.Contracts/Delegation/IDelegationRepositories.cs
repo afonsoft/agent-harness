@@ -30,9 +30,11 @@ public interface IDelegationTaskRepository
     /// <summary>→ running + started/heartbeat stamps.</summary>
     Task<DelegationTaskDto?> MarkRunningAsync(string id, DateTime now, CancellationToken ct = default);
 
-    /// <summary>→ done with summary (or failed/stale/cancelled with detail).</summary>
+    /// <summary>→ done with summary (or failed/stale/cancelled with detail).
+    /// <paramref name="schemaValid"/> annotates the output_schema verdict (RF-G01).</summary>
     Task<DelegationTaskDto?> FinalizeAsync(
-        string id, DelegationTaskStatus terminal, string? detail, DateTime now, CancellationToken ct = default);
+        string id, DelegationTaskStatus terminal, string? detail, DateTime now,
+        bool? schemaValid = null, CancellationToken ct = default);
 
     Task<DelegationTaskDto?> HeartbeatAsync(string id, DateTime now, CancellationToken ct = default);
 

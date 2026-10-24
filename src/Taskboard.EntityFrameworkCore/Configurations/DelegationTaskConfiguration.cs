@@ -26,6 +26,8 @@ public sealed class DelegationTaskConfiguration : IEntityTypeConfiguration<Deleg
         builder.Property(t => t.RetryOf).HasMaxLength(96);
         builder.Property(t => t.FanoutGroupId).HasMaxLength(96);
         builder.Property(t => t.Kind).IsRequired().HasMaxLength(32);
+        builder.Property(t => t.Role).IsRequired().HasMaxLength(16);
+        builder.Property(t => t.OutputSchema).HasMaxLength(8192);
         builder.Property(t => t.WorktreeRunId).HasMaxLength(96);
         builder.Property(t => t.WorkspacePath).IsRequired().HasMaxLength(512);
         builder.Property(t => t.RepositoryPath).HasMaxLength(512);

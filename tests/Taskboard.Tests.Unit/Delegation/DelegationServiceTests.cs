@@ -121,7 +121,8 @@ public class DelegationServiceTests
         await _tasks.DidNotReceive().MarkReadyAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _tasks.DidNotReceive().FinalizeAsync(
             Arg.Any<string>(), Arg.Any<DelegationTaskStatus>(),
-            Arg.Any<string?>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<DateTime>(),
+            Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -137,7 +138,7 @@ public class DelegationServiceTests
         await _tasks.Received(1).FinalizeAsync(
             "task-2", DelegationTaskStatus.Cancelled,
             Arg.Is<string?>(s => s!.Contains("task-1")),
-            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+            Arg.Any<DateTime>(), Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 
     // ---- finalize + mailbox ----
@@ -146,7 +147,8 @@ public class DelegationServiceTests
     public async Task Dado_RunSucesso_Quando_Finaliza_Entao_PostaWorkerDone()
     {
         _tasks.FinalizeAsync("task-1", DelegationTaskStatus.Done,
-                Arg.Any<string?>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<DateTime>(),
+                Arg.Any<bool?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Done));
 
         await _service.FinishRunAsync("task-1", succeeded: true, "ok");
@@ -163,7 +165,8 @@ public class DelegationServiceTests
     public async Task Dado_RunFalha_Quando_Finaliza_Entao_PostaEscalation()
     {
         _tasks.FinalizeAsync("task-1", DelegationTaskStatus.Failed,
-                Arg.Any<string?>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<DateTime>(),
+                Arg.Any<bool?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Failed));
 
         await _service.FinishRunAsync("task-1", succeeded: false, "boom");
@@ -184,7 +187,8 @@ public class DelegationServiceTests
         };
         _tasks.ListOpenAsync(Arg.Any<CancellationToken>()).Returns([running]);
         _tasks.FinalizeAsync("task-1", DelegationTaskStatus.Failed,
-                Arg.Any<string?>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                Arg.Any<string?>(), Arg.Any<DateTime>(),
+                Arg.Any<bool?>(), Arg.Any<CancellationToken>())
             .Returns(running with { Status = DelegationTaskStatus.Failed });
 
         var swept = await _service.SweepStaleHeartbeatsAsync(
@@ -194,7 +198,7 @@ public class DelegationServiceTests
         await _tasks.Received(1).FinalizeAsync(
             "task-1", DelegationTaskStatus.Failed,
             Arg.Is<string?>(s => s!.Contains("heartbeat")),
-            Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+            Arg.Any<DateTime>(), Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -12,5 +12,7 @@
     <PackageReference Include="Tomlyn" />
     <!-- SPEC-20261001-chat-mcp-client: MCP client side of the same SDK the server uses. -->
     <PackageReference Include="ModelContextProtocol" />
+    <!-- SPEC-20261024-p1-agent-reliability RF-G01: delegate_task output_schema validation. -->
+    <PackageReference Include="JsonSchema.Net" />
   </ItemGroup>
 </Project>

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
+using Taskboard.Delegation;
 using Taskboard.Dtos;
 using Taskboard.Integrations.Harness;
 using Taskboard;
@@ -38,6 +39,8 @@ public sealed class DelegateTaskTool(
           "effort":{"type":"string","description":"Requested launch effort: low|normal|high"},
           "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"},
           "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this task (default: server config Taskboard:Delegation:PromptRefinement)"},
+          "role":{"type":"string","enum":["orchestrator","leaf"],"description":"Contract role: orchestrator may produce child tasks; leaf cannot delegate further (default: leaf; coordinate tasks are always orchestrators)"},
+          "output_schema":{"type":"string","description":"JSON Schema string the worker's final reply must satisfy — the completion result is annotated schema_valid (false keeps the full child output)"},
           "dry_run":{"type":"boolean","description":"Resolve the effective config and run preflight checks without persisting the task or dispatching (returns resolved + verdict + checks)"}
         },"required":["prompt"]}
         """;
@@ -104,6 +107,21 @@ public sealed class DelegateTaskTool(
             return DelegationToolSupport.Error("refine must be off|template|llm", "invalid refine");
         }
 
+        // SPEC-20261024-p1-agent-reliability RF-G01/G02: contractual role +
+        // output schema — both validated up-front; the entity re-checks.
+        var role = ReadString(arguments, "role")?.Trim().ToLowerInvariant();
+        if (role is not null && !DelegationTaskRoles.IsValidName(role))
+        {
+            return DelegationToolSupport.Error("role must be orchestrator|leaf", "invalid role");
+        }
+
+        var outputSchema = ReadString(arguments, "output_schema")?.Trim();
+        if (outputSchema is not null && !IsJson(outputSchema))
+        {
+            return DelegationToolSupport.Error(
+                "output_schema must be a valid JSON schema", "invalid output_schema");
+        }
+
         var scope = DelegationToolSupport.ScopeOf(context);
 
         // SPEC-20261020-v2 RF-008: resolve launch prefs up-front — unknown
@@ -147,6 +165,8 @@ public sealed class DelegateTaskTool(
                     effort,
                     autonomy,
                     refine,
+                    role,
+                    outputSchema,
                     launch = launch is null
                         ? null
                         : new { model = launch.EffectiveModel, effort = launch.EffectiveEffort, launch.Args },
@@ -195,7 +215,8 @@ public sealed class DelegateTaskTool(
                     dependsOn.Count == 0 ? null : dependsOn,
                     retryOf, FanoutGroupId: null, useWorktree,
                     repoPath, baseSha, Kind: null, RunId: null, model, effort,
-                    ExtraArgs: null, Autonomy: autonomy, Refine: refine),
+                    ExtraArgs: null, Autonomy: autonomy, Refine: refine,
+                    Role: role, OutputSchema: outputSchema),
                 cancellationToken).ConfigureAwait(false);
 
             if (useWorktree)
@@ -234,6 +255,8 @@ public sealed class DelegateTaskTool(
             retryOf = task.RetryOf,
             useWorktree = task.UseWorktree,
             worktreeRunId = task.WorktreeRunId,
+            role = task.Role,
+            outputSchema = task.OutputSchema,
             launch = launch is null
                 ? null
                 : new
@@ -291,6 +314,19 @@ public sealed class DelegateTaskTool(
 
     private static bool ReadBool(JsonElement args, string name) =>
         args.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.True;
+
+    private static bool IsJson(string text)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     private static IReadOnlyList<string> ReadStringList(JsonElement args, string name)
     {

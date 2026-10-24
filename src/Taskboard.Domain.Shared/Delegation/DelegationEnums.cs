@@ -88,3 +88,24 @@ public static class DelegationTaskKinds
     public const string Task = "task";
     public const string Coordinate = "coordinate";
 }
+
+/// <summary>
+/// SPEC-20261024-p1-agent-reliability RF-G02: contractual delegation role.
+/// <c>orchestrator</c> tasks may produce child tasks (coordinator plans);
+/// <c>leaf</c> tasks cannot delegate further — the depth guard already
+/// blocks recursion, the role makes the boundary explicit.
+/// </summary>
+public static class DelegationTaskRoles
+{
+    public const string Orchestrator = "orchestrator";
+    public const string Leaf = "leaf";
+
+    public static bool IsValidName(string? name) =>
+        name is Orchestrator or Leaf;
+
+    /// <summary>Default role for a kind — coordinators orchestrate, everything else is a leaf.</summary>
+    public static string DefaultFor(string? kind) =>
+        string.Equals(kind, DelegationTaskKinds.Coordinate, StringComparison.Ordinal)
+            ? Orchestrator
+            : Leaf;
+}

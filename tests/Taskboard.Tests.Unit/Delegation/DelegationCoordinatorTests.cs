@@ -269,7 +269,8 @@ public class DelegationCoordinatorTests
             Arg.Any<CancellationToken>());
         await delegation.Received(1).FinishRunAsync(
             "coord-1", true,
-            Arg.Is<string?>(s => s!.Contains("plan materialized")), Arg.Any<CancellationToken>());
+            Arg.Is<string?>(s => s!.Contains("plan materialized")),
+            Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -330,6 +331,7 @@ public class DelegationCoordinatorTests
             Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
         await delegation.Received(1).FinishRunAsync(
             "coord-1", false,
-            Arg.Is<string?>(s => s!.Contains("plan")), Arg.Any<CancellationToken>());
+            Arg.Is<string?>(s => s!.Contains("plan")),
+            Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 }

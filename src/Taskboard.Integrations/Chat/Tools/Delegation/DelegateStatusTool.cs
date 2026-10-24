@@ -73,6 +73,8 @@ public sealed class DelegateStatusTool(IServiceScopeFactory scopeFactory) : ICha
                 x.WorktreeRunId,
                 x.ResultSummary,
                 x.Error,
+                x.Role,
+                x.SchemaValid,
                 x.LastHeartbeatAt,
             }),
         });

@@ -36,7 +36,13 @@ public sealed record DelegationTaskDto(
     string? Autonomy = null,
     /// <summary>SPEC-20261022-task-prompt-refiner RF-004: refined brief + mode.</summary>
     string? PromptRefined = null,
-    string? PromptRefinement = null);
+    string? PromptRefinement = null,
+    /// <summary>SPEC-20261024-p1-agent-reliability RF-G02: <c>orchestrator|leaf</c> contract.</summary>
+    string? Role = null,
+    /// <summary>SPEC-20261024-p1-agent-reliability RF-G01: declared output contract.</summary>
+    string? OutputSchema = null,
+    /// <summary>RF-G01: completion verdict — null = no contract/not evaluated.</summary>
+    bool? SchemaValid = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
@@ -178,7 +184,14 @@ public sealed record CreateDelegationTaskRequest(
     string? IssueRef = null,
     /// <summary>SPEC-20261022-task-prompt-refiner: per-task override
     /// (<c>off|template|llm</c>); null = server config default.</summary>
-    string? Refine = null);
+    string? Refine = null,
+    /// <summary>SPEC-20261024-p1-agent-reliability RF-G02:
+    /// <c>orchestrator|leaf</c>; null = kind default (leaf; coordinators
+    /// are always orchestrators).</summary>
+    string? Role = null,
+    /// <summary>SPEC-20261024-p1-agent-reliability RF-G01: JSON Schema
+    /// string for the worker's final output (≤ 8192 chars).</summary>
+    string? OutputSchema = null);
 
 /// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
 public sealed record LaunchResolution(
