@@ -10,9 +10,16 @@ namespace Taskboard.Integrations.Harness.Security;
 /// RF-001). Splits the command line into pipeline/chain segments, resolves path
 /// arguments against the worktree jail and takes the worst segment risk.
 /// Fail-closed: substitutions, globs and unknown binaries classify Dangerous.
+/// Credential-path args deny as <c>credential-path</c> — unapprovable
+/// (SPEC-20261023-p0-agent-hardening RF-A02).
 /// </summary>
 public sealed class DynamicCommandClassifier : ICommandRiskClassifier
 {
+    private readonly SensitivePathDenylist _denylist;
+
+    public DynamicCommandClassifier(SensitivePathDenylist? denylist = null)
+        => _denylist = denylist ?? SensitivePathDenylist.Shared;
+
     // Always dangerous regardless of arguments — elevation, network egress,
     // arbitrary interpreters, environment dumps, destructive system tools.
     private static readonly HashSet<string> DangerousBinaries = new(StringComparer.Ordinal)
@@ -70,7 +77,11 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         foreach (var segment in segments)
         {
             var assessment = ClassifySegment(segment, worktreePath);
-            if (assessment.RiskLevel > worst.RiskLevel)
+            // Tie-break: credential-path beats a plain Dangerous segment —
+            // otherwise `sudo x && cat .ssh/id_rsa` would surface as an
+            // approvable Dangerous and the credential read could be approved.
+            if (assessment.RiskLevel > worst.RiskLevel
+                || (assessment.DeniesCredentialPath && !worst.DeniesCredentialPath))
             {
                 worst = assessment;
             }
@@ -79,7 +90,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         return worst;
     }
 
-    private static CommandRiskAssessment ClassifySegment(
+    private CommandRiskAssessment ClassifySegment(
         IReadOnlyList<string> tokens, string worktreePath)
     {
         if (tokens.Count == 0)
@@ -119,7 +130,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         };
     }
 
-    private static CommandRiskAssessment ClassifyGit(
+    private CommandRiskAssessment ClassifyGit(
         IReadOnlyList<string> args, string worktreePath)
     {
         var sub = args.FirstOrDefault(a => !a.StartsWith('-'));
@@ -146,7 +157,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         }
     }
 
-    private static CommandRiskAssessment ClassifyReadOnlyGit(
+    private CommandRiskAssessment ClassifyReadOnlyGit(
         string sub, IReadOnlyList<string> args, string worktreePath)
     {
         // branch/tag/stash são Safe apenas sem flags destrutivas — checado abaixo.
@@ -173,7 +184,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         return CheckPaths(args.Skip(1).ToList(), worktreePath, SecurityRiskLevel.Safe);
     }
 
-    private static CommandRiskAssessment ClassifyDotnet(
+    private CommandRiskAssessment ClassifyDotnet(
         IReadOnlyList<string> args, string worktreePath)
     {
         var sub = args.FirstOrDefault(a => !a.StartsWith('-'));
@@ -192,7 +203,7 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         }
     }
 
-    private static CommandRiskAssessment ClassifyNpm(
+    private CommandRiskAssessment ClassifyNpm(
         IReadOnlyList<string> args, string worktreePath)
     {
         var sub = args.FirstOrDefault(a => !a.StartsWith('-'));
@@ -208,13 +219,22 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         };
     }
 
-    private static CommandRiskAssessment ClassifyRm(
+    private CommandRiskAssessment ClassifyRm(
         IReadOnlyList<string> args, string worktreePath)
     {
         var targets = args.Where(a => !a.StartsWith('-')).ToList();
         if (targets.Count == 0)
         {
             return new(SecurityRiskLevel.Dangerous, "rm sem alvo — fail-closed.");
+        }
+
+        foreach (var target in targets)
+        {
+            TryResolveInsideJail(target, worktreePath, out var resolved);
+            if (TryDenySensitivePath(target, resolved) is { } deny)
+            {
+                return deny;
+            }
         }
 
         var outside = targets.FirstOrDefault(target => !TryResolveInsideJail(target, worktreePath));
@@ -233,8 +253,11 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
     /// Applies the jail check to every path-looking argument; the minimum level
     /// is <paramref name="baseLevel"/> and any escaping target escalates to
     /// Dangerous. Globs and <c>$VAR</c> expansions are unresolvable → Dangerous.
+    /// Credential-path matches on the raw arg or the resolved path deny as
+    /// <c>credential-path</c> (RF-A02) — the check runs before jail resolution
+    /// so <c>~/.ssh/…</c> reports credential-path, not a generic escape.
     /// </summary>
-    private static CommandRiskAssessment CheckPaths(
+    private CommandRiskAssessment CheckPaths(
         IReadOnlyList<string> args, string worktreePath, SecurityRiskLevel baseLevel)
     {
         var level = baseLevel;
@@ -246,6 +269,12 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             var arg = args[i];
             if (IsRedirect(arg))
             {
+                if (i + 1 < args.Count
+                    && TryDenySensitivePath(args[i + 1], null) is { } redirectDeny)
+                {
+                    return redirectDeny;
+                }
+
                 if (RedirectEscapes(args, i, worktreePath))
                 {
                     return new(SecurityRiskLevel.Dangerous, "Redirect para fora do worktree.", EscapesSandbox: true);
@@ -263,11 +292,21 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
                 continue;
             }
 
-            if (!TryResolveInsideJail(arg, worktreePath))
+            if (TryDenySensitivePath(arg, null) is { } deny)
+            {
+                return deny;
+            }
+
+            if (!TryResolveInsideJail(arg, worktreePath, out var resolved))
             {
                 return new(SecurityRiskLevel.Dangerous,
                     $"Caminho '{arg}' escapa ou não resolve dentro do worktree.",
                     EscapesSandbox: true);
+            }
+
+            if (TryDenySensitivePath(arg, resolved) is { } resolvedDeny)
+            {
+                return resolvedDeny;
             }
 
             i++;
@@ -284,6 +323,25 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         return new(level, message);
     }
 
+    /// <summary>
+    /// Credential-path check on the raw arg (covers globs/<c>~</c> that never
+    /// resolve) and, when available, the canonical resolved path (covers
+    /// <c>sub/../.ssh/x</c> and symlink targets). Reports the pattern class —
+    /// never the path — per RF-A03.
+    /// </summary>
+    private CommandRiskAssessment? TryDenySensitivePath(string arg, string? resolved)
+    {
+        if (_denylist.TryMatch(arg, out var cls)
+            || (resolved is not null && _denylist.TryMatch(resolved, out cls)))
+        {
+            return new(SecurityRiskLevel.Dangerous,
+                $"credential-path: {cls} — acesso a credenciais negado.",
+                DeniesCredentialPath: true);
+        }
+
+        return null;
+    }
+
     private static bool IsRedirect(string arg) => arg is ">" or ">>" or "1>" or "2>" or "&>";
 
     private static bool RedirectEscapes(IReadOnlyList<string> args, int i, string worktreePath)
@@ -298,7 +356,12 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
             || arg.Contains('*') || arg.Contains('?');
 
     private static bool TryResolveInsideJail(string arg, string worktreePath)
+        => TryResolveInsideJail(arg, worktreePath, out _);
+
+    private static bool TryResolveInsideJail(string arg, string worktreePath, out string? resolved)
     {
+        resolved = null;
+
         // Glob puro: expande para todo o worktree — amplo demais para ser seguro.
         if (arg is "*" or "**" or "*.*")
         {
@@ -323,7 +386,13 @@ public sealed class DynamicCommandClassifier : ICommandRiskClassifier
         try
         {
             var full = Path.GetFullPath(arg, worktreePath);
-            return WorkspacePaths.IsUnder(worktreePath, full);
+            if (!WorkspacePaths.IsUnder(worktreePath, full))
+            {
+                return false;
+            }
+
+            resolved = full;
+            return true;
         }
         catch
         {
