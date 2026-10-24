@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Channels;
@@ -1976,8 +1977,38 @@ public sealed class ChatService(
         CancellationToken stoppingToken,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        foreach (var toolCall in toolCalls)
+        // SPEC-20261023 P1 (hermes/openharness): consecutive non-mutating calls
+        // execute in parallel (bounded) — the gate and persistence stay
+        // sequential so ordering, approvals and EF access are unchanged.
+        for (var i = 0; i < toolCalls.Count; i++)
         {
+            var batchEnd = i;
+            while (batchEnd + 1 < toolCalls.Count && IsParallelSafe(toolSet, toolCalls[batchEnd + 1]))
+            {
+                batchEnd++;
+            }
+
+            if (batchEnd > i && IsParallelSafe(toolSet, toolCalls[i]))
+            {
+                var aborted = false;
+                await foreach (var ev in RunParallelBatchAsync(
+                        run, toolCalls.GetRange(i, batchEnd - i + 1), provider, toolSet,
+                        conversation, wire, state, stoppingToken, ct, () => aborted = true)
+                        .ConfigureAwait(false))
+                {
+                    yield return ev;
+                }
+
+                if (aborted)
+                {
+                    yield break;
+                }
+
+                i = batchEnd;
+                continue;
+            }
+
+            var toolCall = toolCalls[i];
             // SPEC-20261012-chat-run-controls RF-002: park between tool
             // results — no tool executes while the run is paused.
             await foreach (var ev in ParkOnPauseBoundaryAsync(run, ct, stoppingToken).ConfigureAwait(false))
@@ -2050,44 +2081,205 @@ public sealed class ChatService(
             yield return new ChatStatusEvent("idle", null);
             yield return new ChatToolCallEvent(toolCall.Name, toolCall.ArgumentsJson);
             yield return new ChatToolResultEvent(toolCall.Name, resultJson, refused, refusalReason);
+            await PersistToolResultAsync(run, conversation, wire, state, toolCall,
+                resultJson, refused, imageUrls, shotIds, ct).ConfigureAwait(false);
+        }
+    }
 
-            var toolMessage = ChatMessage.CreateTool(conversation.Id, toolCall.Id, toolCall.Name, resultJson, refused, UtcNow);
-            // B-17: tools that persist files (generate_image) return the path in
-            // the result payload — attach it so the transcript renders the image.
-            if (TryReadImagePath(resultJson) is { } imagePath)
+    /// <summary>
+    /// SPEC-20261023 P1: a call joins a parallel batch only when it cannot
+    /// mutate state or prompt the user — read-only builtins without the
+    /// confirmation gate. Mutating/gated/delegating tools stay sequential.
+    /// </summary>
+    private static bool IsParallelSafe(IReadOnlyDictionary<string, IChatTool> toolSet, OpenAiToolCall toolCall) =>
+        toolSet.TryGetValue(toolCall.Name, out var tool)
+        && !ChatCapabilityRules.MutatingTools.Contains(toolCall.Name)
+        && !tool.RequiresConfirmation
+        && tool.Kind == ChatCapabilityKind.BuiltinTool;
+
+    /// <summary>
+    /// Bounded-parallel execution of a consecutive non-mutating batch — gates
+    /// run sequentially first (deny/abort unchanged), executions fan out (max
+    /// 4), then results persist and land on the wire in call order.
+    /// </summary>
+    private async IAsyncEnumerable<ChatStreamEvent> RunParallelBatchAsync(
+        ChatRun run,
+        List<OpenAiToolCall> batch,
+        ChatProviderSnapshot provider,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatConversation conversation,
+        List<OpenAiChatMessage> wire,
+        TurnState state,
+        CancellationToken stoppingToken,
+        [EnumeratorCancellation] CancellationToken ct,
+        Action markAborted)
+    {
+        var gates = new (OpenAiToolCall Call, string? DenyJson, bool Denied, string? Reason, ChatStreamEvent? Notice)?[batch.Count];
+        for (var k = 0; k < batch.Count; k++)
+        {
+            var toolCall = batch[k];
+            await foreach (var ev in ParkOnPauseBoundaryAsync(run, ct, stoppingToken).ConfigureAwait(false))
             {
-                toolMessage.AttachImage(imagePath, UtcNow);
+                yield return ev;
             }
 
-            await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
-            await IndexMessageSafeAsync(toolMessage, ct).ConfigureAwait(false);
-            await messages.SaveChangesAsync(ct).ConfigureAwait(false);
-            // SPEC-20261016-chat-browser-tool RF-003: browser shots and other
-            // tool-made attachments bind to their tool message so they render
-            // inline (and escape the orphan sweep).
-            if (shotIds is { Count: > 0 } && attachmentRepository is not null)
+            if (ct.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
             {
+                yield break;
+            }
+
+            var gateJson = await ApplyApprovalGateAsync(run, conversation, provider, toolSet, toolCall, ct, stoppingToken)
+                .ConfigureAwait(false);
+            if (gateJson is { Abort: true })
+            {
+                markAborted();
+                yield break;
+            }
+
+            ChatStreamEvent? notice = gateJson is { Notice: { } n }
+                ? new ChatRiskNoticeEvent(toolCall.Id, toolCall.Name, n.RiskValue, n.Reason)
+                : null;
+            gates[k] = gateJson?.ResultJson is not null
+                ? (toolCall, gateJson.ResultJson, gateJson.Refused, gateJson.RefusalReason, notice)
+                : (toolCall, null, false, null, notice);
+        }
+
+        // Denied calls persist their synthetic refusal inline, in order.
+        var runnable = new List<(int K, OpenAiToolCall Call)>();
+        for (var k = 0; k < batch.Count; k++)
+        {
+            var g = gates[k]!.Value;
+            if (g.Notice is not null)
+            {
+                yield return g.Notice;
+            }
+
+            if (g.DenyJson is null)
+            {
+                runnable.Add((k, g.Call));
+                continue;
+            }
+
+            yield return new ChatToolCallEvent(g.Call.Name, g.Call.ArgumentsJson);
+            yield return new ChatToolResultEvent(g.Call.Name, g.DenyJson, g.Denied, g.Reason);
+            var deniedMessage = ChatMessage.CreateTool(
+                conversation.Id, g.Call.Id, g.Call.Name, g.DenyJson, refused: g.Denied, UtcNow);
+            await messages.AddAsync(deniedMessage, ct).ConfigureAwait(false);
+            await IndexMessageSafeAsync(deniedMessage, ct).ConfigureAwait(false);
+            await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+            wire.Add(new OpenAiChatMessage("tool", g.DenyJson, ToolCallId: g.Call.Id, Name: g.Call.Name));
+        }
+
+        if (runnable.Count == 0)
+        {
+            yield break;
+        }
+
+        // Fan out (bounded) — each call gets its own activity channel drained
+        // into a shared queue emitted after execution.
+        var progress = new ConcurrentQueue<ChatStreamEvent>();
+        var gate = new SemaphoreSlim(4);
+        var tasks = runnable.Select(async r =>
+        {
+            var activity = Channel.CreateUnbounded<ChatStreamEvent>();
+            var drain = Task.Run(async () =>
+            {
+                await foreach (var ev in activity.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+                {
+                    progress.Enqueue(ev);
+                }
+            }, ct);
+            (string Json, bool Refused, string? Reason, IReadOnlyList<string>? ImageUrls, IReadOnlyList<string>? ShotIds) outcome;
+            try
+            {
+                await gate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    await BindAttachmentsAsync(conversation.Id, toolMessage.Id, shotIds, ct)
+                    outcome = await ExecuteToolAsync(r.Call, provider, toolSet, conversation, run, activity.Writer, ct)
                         .ConfigureAwait(false);
                 }
-                catch (Exception ex) when (ex is ChatValidationException or ChatConflictException)
+                finally
                 {
-                    // A bad id must not kill the run — the shot stays staged
-                    // and the sweep collects it.
+                    gate.Release();
                 }
             }
-            // RF-006: oversized results spill to disk — the wire keeps a capped
-            // head + spill:// pointer (persisted history stays whole, RNF-001).
-            var wireResult = SpillToolResult(run, resultJson, state);
-            // SPEC-20261005-chat-attachments-feedback RF-004: read_image /
-            // attach:// results land as image_url parts on the wire tool
-            // message; the persisted row keeps JSON only.
-            wire.Add(new OpenAiChatMessage(
-                "tool", wireResult, ToolCallId: toolCall.Id, Name: toolCall.Name,
-                ImageUrls: imageUrls));
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                outcome = (JsonSerializer.Serialize(new { error = $"tool '{r.Call.Name}' failed: {ex.Message}" }), true, "execution failed", null, null);
+            }
+            finally
+            {
+                activity.Writer.TryComplete();
+            }
+
+            await drain.ConfigureAwait(false);
+            return (r.K, r.Call, outcome);
+        }).ToList();
+
+        yield return new ChatStatusEvent("running_tool", string.Join(", ", runnable.Select(r => r.Call.Name)));
+        var outcomes = await Task.WhenAll(tasks).ConfigureAwait(false);
+        while (progress.TryDequeue(out var ev2))
+        {
+            yield return ev2;
         }
+
+        yield return new ChatStatusEvent("idle", null);
+        foreach (var (k, call, outcome) in outcomes.OrderBy(t => t.K))
+        {
+            yield return new ChatToolCallEvent(call.Name, call.ArgumentsJson);
+            yield return new ChatToolResultEvent(call.Name, outcome.Json, outcome.Refused, outcome.Reason);
+            await PersistToolResultAsync(run, conversation, wire, state, call,
+                outcome.Json, outcome.Refused, outcome.ImageUrls, outcome.ShotIds, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Persisted tool row + wire entry — shared by sequential and batched paths.</summary>
+    private async Task PersistToolResultAsync(
+        ChatRun run, ChatConversation conversation, List<OpenAiChatMessage> wire,
+        TurnState state, OpenAiToolCall toolCall,
+        string resultJson, bool refused, IReadOnlyList<string>? imageUrls,
+        IReadOnlyList<string>? shotIds, CancellationToken ct)
+    {
+        var toolMessage = ChatMessage.CreateTool(conversation.Id, toolCall.Id, toolCall.Name, resultJson, refused, UtcNow);
+        // B-17: tools that persist files (generate_image) return the path in
+        // the result payload — attach it so the transcript renders the image.
+        if (TryReadImagePath(resultJson) is { } imagePath)
+        {
+            toolMessage.AttachImage(imagePath, UtcNow);
+        }
+
+        await messages.AddAsync(toolMessage, ct).ConfigureAwait(false);
+        await IndexMessageSafeAsync(toolMessage, ct).ConfigureAwait(false);
+        await messages.SaveChangesAsync(ct).ConfigureAwait(false);
+        // SPEC-20261016-chat-browser-tool RF-003: browser shots and other
+        // tool-made attachments bind to their tool message so they render
+        // inline (and escape the orphan sweep).
+        if (shotIds is { Count: > 0 } && attachmentRepository is not null)
+        {
+            try
+            {
+                await BindAttachmentsAsync(conversation.Id, toolMessage.Id, shotIds, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is ChatValidationException or ChatConflictException)
+            {
+                // A bad id must not kill the run — the shot stays staged
+                // and the sweep collects it.
+            }
+        }
+        // RF-006: oversized results spill to disk — the wire keeps a capped
+        // head + spill:// pointer (persisted history stays whole, RNF-001).
+        var wireResult = SpillToolResult(run, resultJson, state);
+        // SPEC-20261005-chat-attachments-feedback RF-004: read_image /
+        // attach:// results land as image_url parts on the wire tool
+        // message; the persisted row keeps JSON only.
+        wire.Add(new OpenAiChatMessage(
+            "tool", wireResult, ToolCallId: toolCall.Id, Name: toolCall.Name,
+            ImageUrls: imageUrls));
     }
 
     private static string? TryReadImagePath(string resultJson)
