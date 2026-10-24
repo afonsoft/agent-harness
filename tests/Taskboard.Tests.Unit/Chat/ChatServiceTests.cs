@@ -2105,6 +2105,80 @@ public sealed class ChatServiceTests : IDisposable
             async () => await _service.CancelSteerAsync(a.Id, steer.Id.Value));
     }
 
+    [Fact]
+    public async Task Dado_ChamadasReadOnly_Quando_Executa_Entao_BatchParalelo()
+    {
+        // SPEC-20261023 P1: chamadas não-mutantes consecutivas rodam em
+        // paralelo (bounded) — gate e persistência seguem sequenciais.
+        var tracker = new ConcurrencyTracker();
+        var tools = Enumerable.Range(0, 3)
+            .Select(i => (IChatTool)new FakeSlowTool($"slow_{i}", tracker))
+            .ToList();
+        var handler = new ParallelToolProviderHandler();
+        var service = NewService(handler, new ChatRunCoordinator(), extraTools: tools);
+        var conversation = await service.CreateConversationAsync(
+            new CreateChatConversationRequest(_provider.Id, "m1"));
+
+        var events = await RunTurnAsync(service, new ChatRunCoordinator(), conversation.Id, "go");
+
+        tracker.Max.ShouldBeGreaterThanOrEqualTo(2);
+        _context.ChangeTracker.Clear();
+        var toolMessages = _context.ChatMessages
+            .Where(m => m.Role == ChatMessageRole.Tool)
+            .OrderBy(m => m.CreatedAt)
+            .ToList();
+        toolMessages.Count.ShouldBe(3);
+        toolMessages.Select(m => m.ToolCallId).ShouldBe(["call_0", "call_1", "call_2"]);
+        events.OfType<ChatDoneEvent>().ShouldHaveSingleItem().Error.ShouldBeNull();
+    }
+
+    private sealed class ConcurrencyTracker
+    {
+        private int _current;
+        public int Max;
+
+        public async Task WaitAsync(CancellationToken ct)
+        {
+            var now = Interlocked.Increment(ref _current);
+            int prev;
+            do { prev = Max; } while (now > prev && Interlocked.CompareExchange(ref Max, now, prev) != prev);
+            await Task.Delay(250, ct);
+            Interlocked.Decrement(ref _current);
+        }
+    }
+
+    private sealed class FakeSlowTool(string name, ConcurrencyTracker tracker) : IChatTool
+    {
+        public string Name => name;
+        public string Description => name;
+        public string ParametersJson => """{"type":"object","properties":{}}""";
+
+        public async Task<ChatToolResult> ExecuteAsync(
+            JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
+        {
+            await tracker.WaitAsync(cancellationToken);
+            return new ChatToolResult("{\"ok\":true}");
+        }
+    }
+
+    private sealed class ParallelToolProviderHandler : HttpMessageHandler
+    {
+        private int _calls;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            var call = Interlocked.Increment(ref _calls);
+            var body = call == 1
+                ? """data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_0","function":{"name":"slow_0","arguments":"{}"}},{"index":1,"id":"call_1","function":{"name":"slow_1","arguments":"{}"}},{"index":2,"id":"call_2","function":{"name":"slow_2","arguments":"{}"}}]}}]}""" + "\ndata: [DONE]\n"
+                : """data: {"choices":[{"delta":{"content":"done"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}""" + "\ndata: [DONE]\n";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            };
+        }
+    }
+
     /// <summary>Provider fake: 1ª chamada devolve tool_calls, 2ª devolve a resposta final.</summary>
     private sealed class FakeProviderHandler : HttpMessageHandler
     {
