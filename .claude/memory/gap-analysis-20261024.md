@@ -46,7 +46,7 @@
 | GAP-architecture-adr-records | architecture | REJEITADO | — | — | — | AD-0001..AD-0004 em docs/architecture/adr/ (f1e7021) |
 | GAP-documentation-chat-wave-sync | documentation | REJEITADO | — | — | — | entregue afbccec; nova onda é gap separado acima |
 | GAP-format-denylist-drift | operation | REJEITADO | — | — | — | resolvido hoje via format-fix nos merges #642/#643; verify local limpo |
-| GAP-operation-orphaned-worktree-setup-p3 | operation | INCONCLUSIVO | — | — | — | tip `115376b` ("dedupe P3 boilerplate") ausente de main apesar do PR #615 merged — trabalho órfão ou refactor superado? perguntar |
+| GAP-operation-orphaned-worktree-setup-p3 | operation | RESOLVIDO | — | — | — | tip `115376b` ausente de main apesar do PR #615 merged — merge real feito em `chore/merge-worktree-setup-p3` → PR #654: conflitos resolvidos a favor de HEAD, árvore final idêntica a main (refactor superado por prompt-defense/worker-brief/autonomy); merge registra ancestrality e branch aposentada |
 
 ## 4. Approval gate
 
@@ -64,5 +64,5 @@
 
 ## 7. Pendencies
 
-- `INCONCLUSIVO`: commit órfão `115376b` em `feat/worktree-setup-scripts-p3` — decidir com o dono se o refactor de dedupe ainda é desejado.
+- ~~`INCONCLUSIVO`: commit órfão `115376b` em `feat/worktree-setup-scripts-p3`~~ → RESOLVIDO: merge real executado (PR #654); refactor integralmente superado pela evolução posterior de main — diff final vazio, merge apenas registra ancestrality para aposentar a branch.
 - `feat/p1-delegation-v3` local existe (T7 não iniciado) — fora do escopo deste audit, já trackado na #641.
