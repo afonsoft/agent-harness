@@ -21,14 +21,18 @@
 | 2026-09-23 | Eventos duráveis: `IAgentExecutionEventSink` persiste lifecycle/verification/error/approval/steer/metric (espelhados `run:`→`issue:`); `GET /runs/{id}/events` retorna envelope `CockpitEventsPage` (durável + buffer live-only) | Replay sobrevive restart; antes só `output` voltava do buffer volátil | Só aumentar o buffer em memória |
 | 2026-09-23 | PTY do run via `TerminalHub.OpenForRun(runId)` — cwd = worktree persistido, path resolvido server-side e confinado ao worktree root (`RunShell.razor` reusa plumbing xterm.js de `terminal.js`) | Nunca confiar em path vindo do client para abrir shell | Aceitar `repositoryPath`/workdir arbitrário do client |
 | 2026-09-23 | Aprovação com resumo: `ApprovalRequestDto.Summary` (repo + run curto + stage + handoff) → toast + `Notification` do browser (`taskboardNotify`) + modal; deny → `Failed` terminal | Operador precisava abrir a página do run para perceber o gate | Só modal in-page |
+| 2026-10-20 | Delegation DAG v2: run/dispatch/mailbox/gates em `Domain/Delegation` + `IDelegationService`; `delegate_task` cria tasks num DAG por scope com retry/worktree | Orquestração multi-agente audível sem chat intermediando cada passo | Chamadas diretas orchestration por task |
+| 2026-10-21 | Worktree isolation por delegated task + setup scripts (`SetupState`/`SetupLogTail` no preamble) | Workers paralelos sem pisar no checkout compartilhado | Execução inline no workspace |
+| 2026-10-23 | P0 hardening: `SensitivePathDenylist` fail-closed (credential-path refusal), `UntrustedContentSanitizer` + wrap `UNTRUSTED`, preflight `ready|warning|blocked`, deferred tools `tool_search`/`tool_activate` | Port dos padrões de harness-engineering (ecc/OpenHarness) para leak-proof tool surface | Approvable-path para tudo; sanitize só no provider |
+| 2026-10-24 | P1 hooks: `IChatHookRegistry` (evento+matcher, allow/warn/block, fail-open default) emitido em run.start/end, tool.before/after, mcp.call | Guardrails declarativos sem recompilar política | Somente approval gate por tool |
+| 2026-10-24 | `ChatMemoryStore` singleton + `MemoryConsolidationService` (dedupe/expiry/LRU, diário) | Fatos da memória do chat degradam com o tempo; lock compartilhado entre tool e job | Store por-consumidor (locks separados no mesmo arquivo) |
 
 ## Débitos Técnicos
 
 | Item | Impacto | Prioridade |
 |---|---|---|
-| Persistência real de anexos | Médio | Média |
-| Integração LLM real | Alto | Média |
 | UI Blazor/MAUI | Alto | Baixa (fase 2) |
+| `src/Taskboard.AiChat` projeto vazio na sln | Baixo | Baixa (SPEC-20261008-remove-empty-aichat-project, draft) |
 
 ## Lições Aprendidas
 
