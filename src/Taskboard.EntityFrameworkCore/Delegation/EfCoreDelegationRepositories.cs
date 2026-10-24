@@ -74,7 +74,9 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.RunId,
             request.Model,
             request.Effort,
-            request.Autonomy);
+            request.Autonomy,
+            request.Role,
+            request.OutputSchema);
         entity.SetExtraArgs(request.ExtraArgs);
         if (request.PromptRefined is not null && request.PromptRefinement is not null)
         {
@@ -95,14 +97,14 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
 
     public async Task<DelegationTaskDto?> FinalizeAsync(
         string id, DelegationTaskStatus terminal, string? detail,
-        DateTime now, CancellationToken ct = default)
+        DateTime now, bool? schemaValid = null, CancellationToken ct = default)
     {
         return await TransitionAsync(id, t =>
         {
             switch (terminal)
             {
                 case DelegationTaskStatus.Done:
-                    t.MarkDone(detail, now);
+                    t.MarkDone(detail, now, schemaValid);
                     break;
                 case DelegationTaskStatus.Failed:
                     t.MarkFailed(detail ?? "failed", now);
@@ -206,7 +208,7 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
             t.RunId, t.ActiveDispatchId, t.Model, t.Effort, t.SharedPathsApplied,
             t.SetupState, t.SetupLogTail, t.ExtraArgs, t.Autonomy,
-            t.PromptRefined, t.PromptRefinement);
+            t.PromptRefined, t.PromptRefinement, t.Role, t.OutputSchema, t.SchemaValid);
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>

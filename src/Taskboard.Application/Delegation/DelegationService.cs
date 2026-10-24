@@ -433,7 +433,7 @@ public sealed class DelegationService : IDelegationService
                     await _tasks.FinalizeAsync(
                         task.Id, DelegationTaskStatus.Cancelled,
                         CancelDetail(task, deps),
-                        _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+                        _time.GetUtcNow().UtcDateTime, ct: ct).ConfigureAwait(false);
                 }
 
                 changed++;
@@ -452,7 +452,8 @@ public sealed class DelegationService : IDelegationService
             t.Status == DelegationTaskStatus.Running
             && (t.LastHeartbeatAt is null || now - t.LastHeartbeatAt.Value > timeout)))
         {
-            await FinishRunAsync(task.Id, succeeded: false, "dispatcher lost (heartbeat timeout)", ct)
+            await FinishRunAsync(
+                task.Id, succeeded: false, "dispatcher lost (heartbeat timeout)", ct: ct)
                 .ConfigureAwait(false);
             swept++;
         }
@@ -502,7 +503,8 @@ public sealed class DelegationService : IDelegationService
     }
 
     public async Task<DelegationTaskDto?> FinishRunAsync(
-        string id, bool succeeded, string? detail, CancellationToken ct = default)
+        string id, bool succeeded, string? detail,
+        bool? schemaValid = null, CancellationToken ct = default)
     {
         var now = _time.GetUtcNow().UtcDateTime;
         var task = await _tasks.FinalizeAsync(
@@ -510,6 +512,7 @@ public sealed class DelegationService : IDelegationService
             succeeded ? DelegationTaskStatus.Done : DelegationTaskStatus.Failed,
             Truncate(detail),
             now,
+            schemaValid,
             CancellationToken.None).ConfigureAwait(false);
         if (task is null)
         {
@@ -536,12 +539,15 @@ public sealed class DelegationService : IDelegationService
         }
 
         var kind = succeeded ? AgentMailboxKinds.WorkerDone : AgentMailboxKinds.Escalation;
+        // RF-G01: a failed contract verdict is annotation, not a task
+        // failure — the mailbox flag lets the parent route on it.
+        var schemaNote = schemaValid == false ? " [schema_valid:false]" : string.Empty;
         await _mailbox.AddAsync(
             new PostMailboxMessageRequest(
                 task.Scope,
                 task.CliName,
                 "@all",
-                $"task {task.Id} ({task.CliName}) {(succeeded ? "done" : "failed")}: {Truncate(detail, 500)}",
+                $"task {task.Id} ({task.CliName}) {(succeeded ? "done" : "failed")}: {Truncate(detail, 500)}{schemaNote}",
                 kind,
                 TaskId: task.Id,
                 DispatchId: activeDispatch),
@@ -559,7 +565,7 @@ public sealed class DelegationService : IDelegationService
     {
         var task = await _tasks.FinalizeAsync(
             id, DelegationTaskStatus.Stale, reason,
-            _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+            _time.GetUtcNow().UtcDateTime, ct: ct).ConfigureAwait(false);
         if (task is not null)
         {
             await EmitAttentionAsync(
@@ -575,7 +581,7 @@ public sealed class DelegationService : IDelegationService
     {
         var task = await _tasks.FinalizeAsync(
             id, DelegationTaskStatus.Cancelled, reason,
-            _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+            _time.GetUtcNow().UtcDateTime, ct: ct).ConfigureAwait(false);
         if (task is not null)
         {
             await EmitAttentionAsync(
@@ -1179,8 +1185,16 @@ public sealed class DelegationService : IDelegationService
             // task kind (implement|research|review) — specPath/acRefs arrive
             // with the task-prompt-refiner anchors.
             taskKind = task.Kind,
+            // SPEC-20261024-p1-agent-reliability RF-G01/G02: the worker
+            // brief declares the contract — role bounds delegation, the
+            // output schema (when set) is what schema_valid is checked
+            // against on completion.
+            role = task.Role,
+            outputSchema = task.OutputSchema,
             mailbox = new { addr = task.Id, send = "agent_send", check = "agent_check" },
-            contract = "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive",
+            contract = task.OutputSchema is null
+                ? "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive"
+                : "report worker_done with taskId+dispatchId when finished; heartbeats keep the task alive; final reply MUST be a single JSON value conforming to outputSchema",
         });
 
     private enum Verdict

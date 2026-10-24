@@ -89,7 +89,8 @@ public class DelegationDispatcherTests
 
         await _delegation.Received(1).FinishRunAsync(
             "task-1", false,
-            Arg.Is<string?>(s => s!.Contains("not found")), Arg.Any<CancellationToken>());
+            Arg.Is<string?>(s => s!.Contains("not found")),
+            Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -112,7 +113,8 @@ public class DelegationDispatcherTests
         await WaitInflightAsync();
 
         await _delegation.Received(1).FinishRunAsync(
-            "task-1", true, Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            "task-1", true, Arg.Any<string?>(),
+            Arg.Any<bool?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

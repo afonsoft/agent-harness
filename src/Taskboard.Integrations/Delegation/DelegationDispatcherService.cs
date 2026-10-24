@@ -249,11 +249,35 @@ public sealed class DelegationDispatcherService : BackgroundService
 
         if (run.State == AgentRunState.Succeeded)
         {
-            await FinishAsync(task.Id, ok: true, $"run {run.Id} succeeded").ConfigureAwait(false);
+            // RF-G01: the builtin run's logs carry the worker output —
+            // validate against the declared contract when one exists.
+            var schemaValid = task.OutputSchema is null
+                ? (bool?)null
+                : OutputSchemaValidator.Evaluate(
+                    task.OutputSchema, await WorkerOutputAsync(issueId, ct).ConfigureAwait(false));
+            await FinishAsync(task.Id, ok: true, $"run {run.Id} succeeded", schemaValid)
+                .ConfigureAwait(false);
         }
         else
         {
             await FinishAsync(task.Id, ok: false, $"run {run.Id} {run.State}").ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>RF-G01: builtin runs persist output as run logs — the tail
+    /// (≤64KB) is the worker's reply material for schema evaluation.</summary>
+    private async Task<string?> WorkerOutputAsync(string issueId, CancellationToken ct)
+    {
+        try
+        {
+            var logs = await _orchestration.GetLogsAsync(issueId, ct).ConfigureAwait(false);
+            var text = string.Join("\n", logs.Select(l => l.Content));
+            return text.Length > 65536 ? text[^65536..] : text;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "could not read run logs for schema validation of {IssueId}", issueId);
+            return null;
         }
     }
 
@@ -289,7 +313,7 @@ public sealed class DelegationDispatcherService : BackgroundService
             RepoPath: workdir.Path,
             Branch: null,
             Scope: null,
-            Instructions: $"(delegated task {task.Id})\n\n{ResolvePrompt(task)}",
+            Instructions: $"(delegated task {task.Id})\n\n{WorkerBrief(task)}",
             AgentType: agentType,
             // SPEC-20261020-v2 RF-008: launch prefs — absent prefs keep the
             // historical "no model flag, default tier" behavior.
@@ -340,7 +364,10 @@ public sealed class DelegationDispatcherService : BackgroundService
         }
 
         var summary = string.IsNullOrWhiteSpace(result.Stdout) ? "(no output)" : result.Stdout;
-        await FinishAsync(task.Id, ok: true, Truncate(summary)).ConfigureAwait(false);
+        var schemaValid = task.OutputSchema is null
+            ? (bool?)null
+            : OutputSchemaValidator.Evaluate(task.OutputSchema, result.Stdout);
+        await FinishAsync(task.Id, ok: true, Truncate(summary), schemaValid).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -365,7 +392,7 @@ public sealed class DelegationDispatcherService : BackgroundService
         var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
         // SPEC-20261020-v2 RF-008: model flows through the def's ModelFlag —
         // effort was already refused at create-time for custom defs.
-        var invocation = CustomCliRunner.BuildInvocation(found, ResolvePrompt(task), model: task.Model);
+        var invocation = CustomCliRunner.BuildInvocation(found, WorkerBrief(task), model: task.Model);
         var result = await ChatProcessRunner.RunAsync(
             resolved, invocation.Argv, workdir.Path, CustomCliTimeout, ct, invocation.Stdin)
             .ConfigureAwait(false);
@@ -393,6 +420,16 @@ public sealed class DelegationDispatcherService : BackgroundService
     private async Task ExecuteCoordinatorAsync(
         DelegationTaskDto task, AgentType? agentType, CancellationToken ct)
     {
+        // SPEC-20261024-p1-agent-reliability RF-G02: the plan materializes
+        // child tasks — a leaf cannot delegate further. Null tolerates
+        // pre-contract rows/DTOs; only an explicit leaf blocks.
+        if (string.Equals(task.Role, DelegationTaskRoles.Leaf, StringComparison.Ordinal))
+        {
+            await FinishAsync(task.Id, ok: false,
+                "coordinate task requires role orchestrator").ConfigureAwait(false);
+            return;
+        }
+
         var planner = task with { Prompt = BuildPlannerPrompt(task.Prompt) };
         string? output;
         if (agentType is { } builtin)
@@ -495,6 +532,15 @@ public sealed class DelegationDispatcherService : BackgroundService
     private static string ResolvePrompt(DelegationTaskDto task) =>
         string.IsNullOrWhiteSpace(task.PromptRefined) ? task.Prompt : task.PromptRefined;
 
+    /// <summary>SPEC-20261024-p1-agent-reliability RF-G01: the worker brief
+    /// declares the output contract so the schema verdict is expected.</summary>
+    private static string WorkerBrief(DelegationTaskDto task) =>
+        task.OutputSchema is null
+            ? ResolvePrompt(task)
+            : ResolvePrompt(task)
+                + "\n\nOutput contract: your final reply MUST be a single JSON "
+                + "value conforming to this JSON Schema:\n" + task.OutputSchema;
+
     /// <summary>
     /// Worktree tasks run inside their session path; others on the workspace.
     /// <c>SessionRunId</c> is set when the path came from a live isolation
@@ -520,14 +566,15 @@ public sealed class DelegationDispatcherService : BackgroundService
         return new WorkdirResolution(task.WorkspacePath, null);
     }
 
-    private async Task FinishAsync(string taskId, bool ok, string detail)
+    private async Task FinishAsync(string taskId, bool ok, string detail, bool? schemaValid = null)
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var delegation = scope.ServiceProvider.GetRequiredService<IDelegationService>();
             var task = await delegation.FinishRunAsync(
-                taskId, ok, _redactor.Redact(detail), CancellationToken.None).ConfigureAwait(false);
+                taskId, ok, _redactor.Redact(detail), schemaValid, CancellationToken.None)
+                .ConfigureAwait(false);
             if (task is null)
             {
                 _logger.LogWarning("delegated task {TaskId} vanished before finalize", taskId);

@@ -177,7 +177,7 @@ public class OrchestrationContractServiceTests
         var finished = TaskDto("task-1", status: DelegationTaskStatus.Done, activeDispatch: "disp-1");
         _tasks.FinalizeAsync(
                 "task-1", DelegationTaskStatus.Done, Arg.Any<string?>(),
-                Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+                Arg.Any<DateTime>(), Arg.Any<bool?>(), Arg.Any<CancellationToken>())
             .Returns(finished);
         _dispatches.TransitionAsync(
                 "disp-1", DispatchState.Settled, null, Arg.Any<DateTime>(), Arg.Any<CancellationToken>())

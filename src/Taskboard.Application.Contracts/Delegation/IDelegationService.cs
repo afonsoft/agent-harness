@@ -32,8 +32,12 @@ public interface IDelegationService
     /// <summary>ready → running (stamps start + heartbeat).</summary>
     Task<DelegationTaskDto?> BeginRunAsync(string id, DateTime now, CancellationToken ct = default);
 
-    /// <summary>running → done/failed + posts worker_done/escalation to the scope mailbox.</summary>
-    Task<DelegationTaskDto?> FinishRunAsync(string id, bool succeeded, string? detail, CancellationToken ct = default);
+    /// <summary>running → done/failed + posts worker_done/escalation to the scope mailbox.
+    /// <paramref name="schemaValid"/> annotates the output_schema verdict (RF-G01;
+    /// <c>false</c> keeps the child output intact).</summary>
+    Task<DelegationTaskDto?> FinishRunAsync(
+        string id, bool succeeded, string? detail,
+        bool? schemaValid = null, CancellationToken ct = default);
 
     /// <summary>ready → stale (stale-base guard).</summary>
     Task<DelegationTaskDto?> MarkStaleAsync(string id, string reason, CancellationToken ct = default);

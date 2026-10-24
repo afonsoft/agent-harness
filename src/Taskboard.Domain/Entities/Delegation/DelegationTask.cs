@@ -104,6 +104,27 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// </summary>
     public string? Autonomy { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261024-p1-agent-reliability RF-G02: contractual delegation
+    /// role — <c>orchestrator|leaf</c>. Leaf tasks cannot produce child
+    /// tasks; coordinators require <c>orchestrator</c>.
+    /// </summary>
+    public string Role { get; private set; } = DelegationTaskRoles.Leaf;
+
+    /// <summary>
+    /// SPEC-20261024-p1-agent-reliability RF-G01: JSON Schema the worker's
+    /// final output must satisfy — declared in the worker brief; the
+    /// completion annotates <see cref="SchemaValid"/>.
+    /// </summary>
+    public string? OutputSchema { get; private set; }
+
+    /// <summary>
+    /// RF-G01: completion verdict against <see cref="OutputSchema"/> —
+    /// <c>null</c> = no contract or not evaluated; <c>false</c> annotates
+    /// the result without discarding the child's output.
+    /// </summary>
+    public bool? SchemaValid { get; private set; }
+
     public DelegationTaskStatus Status { get; private set; } = DelegationTaskStatus.Pending;
     public string? ResultSummary { get; private set; }
     public string? Error { get; private set; }
@@ -147,6 +168,8 @@ public sealed class DelegationTask : AggregateRoot<string>
         string? model = null,
         string? effort = null,
         string? autonomy = null,
+        string? role = null,
+        string? outputSchema = null,
         DateTime? now = null)
     {
         if (string.IsNullOrWhiteSpace(prompt))
@@ -174,6 +197,40 @@ public sealed class DelegationTask : AggregateRoot<string>
                 "autonomy must be plan|edit|full");
         }
 
+        // SPEC-20261024-p1-agent-reliability RF-G02: contractual role —
+        // coordinators orchestrate by definition; a leaf coordinator is a
+        // contradiction (it could never materialize its plan).
+        var effectiveKind = string.IsNullOrWhiteSpace(kind) ? DelegationTaskKinds.Task : kind.Trim();
+        var effectiveRole = string.IsNullOrWhiteSpace(role)
+            ? DelegationTaskRoles.DefaultFor(effectiveKind)
+            : role.Trim().ToLowerInvariant();
+        if (!DelegationTaskRoles.IsValidName(effectiveRole))
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "role must be orchestrator|leaf");
+        }
+
+        if (effectiveKind == DelegationTaskKinds.Coordinate && effectiveRole != DelegationTaskRoles.Orchestrator)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                "coordinate tasks must have role orchestrator");
+        }
+
+        // RF-G01: the contract is a JSON Schema document — it must parse.
+        string? schema = null;
+        if (outputSchema is not null)
+        {
+            schema = outputSchema.Trim();
+            if (schema.Length is 0 or > 8192 || !IsJson(schema))
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    "output_schema must be a valid JSON schema (≤ 8192 chars)");
+            }
+        }
+
         return new DelegationTask($"task-{Guid.NewGuid():N}")
         {
             Scope = string.IsNullOrWhiteSpace(scope) ? "harness" : scope.Trim(),
@@ -182,7 +239,9 @@ public sealed class DelegationTask : AggregateRoot<string>
             DependsOnJson = JsonSerializer.Serialize(dependsOn ?? []),
             RetryOf = retryOf,
             FanoutGroupId = fanoutGroupId,
-            Kind = string.IsNullOrWhiteSpace(kind) ? DelegationTaskKinds.Task : kind.Trim(),
+            Kind = effectiveKind,
+            Role = effectiveRole,
+            OutputSchema = schema,
             UseWorktree = useWorktree,
             WorkspacePath = workspacePath,
             RepositoryPath = repositoryPath,
@@ -247,6 +306,7 @@ public sealed class DelegationTask : AggregateRoot<string>
         Status = DelegationTaskStatus.Pending;
         Error = null;
         ResultSummary = null;
+        SchemaValid = null;
         FinishedAt = null;
         LastHeartbeatAt = null;
         ActiveDispatchId = null;
@@ -267,10 +327,12 @@ public sealed class DelegationTask : AggregateRoot<string>
         LastHeartbeatAt = StartedAt;
     }
 
-    public void MarkDone(string? summary, DateTime? now = null)
+    public void MarkDone(string? summary, DateTime? now = null, bool? schemaValid = null)
     {
         Status = DelegationTaskStatus.Done;
         ResultSummary = summary;
+        // RF-G01: annotation only — a false verdict never discards the output.
+        SchemaValid = schemaValid;
         FinishedAt = now ?? DateTime.UtcNow;
     }
 
@@ -309,6 +371,19 @@ public sealed class DelegationTask : AggregateRoot<string>
 
         Status = DelegationTaskStatus.Blocked;
         ResultSummary = string.IsNullOrWhiteSpace(reason) ? ResultSummary : reason.Trim();
+    }
+
+    private static bool IsJson(string text)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Gate resolved — back to pending so the deps verdict decides.</summary>

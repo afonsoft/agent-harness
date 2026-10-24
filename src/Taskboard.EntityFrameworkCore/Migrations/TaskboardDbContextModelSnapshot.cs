@@ -2060,6 +2060,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("OutputSchema")
+                        .HasMaxLength(8192)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Prompt")
                         .IsRequired()
                         .HasMaxLength(16000)
@@ -2086,9 +2090,17 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(96)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RunId")
                         .HasMaxLength(96)
                         .HasColumnType("TEXT");
+
+                    b.Property<bool?>("SchemaValid")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Scope")
                         .IsRequired()
