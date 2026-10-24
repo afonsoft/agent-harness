@@ -50,16 +50,17 @@
 
 ## 4. Approval gate
 
-- Decision: pendente — SPECs Draft gerados; aguardando `sim/não` do usuário.
+- Decision: approved — usuário (`aprovadas, pode executa-las`) | Date: 2026-10-24
 
 ## 5. Issues
 
-- Epic: gap-analysis-20261024 → pendente do gate.
-- Slices: pendentes do gate.
+- Epic: gap-analysis-20261024 → https://github.com/afonsoft/agent-harness/issues/644 (closed)
+- Slices: #645 scanner-hermeticity → PR #651 merged (68cd592); #646 docs-sync → PR #652 merged (3e02e8a); #647 repo-hygiene → PR #649 merged (552d7ef) + #634 closed + 85 merged remote branches deleted; #648 memory-ledger → PR #650 merged (a9c6594)
 
 ## 6. Orchestrator handoff
 
-- Não executado (gate pendente).
+- Executado inline nesta sessão (slices entregues como PRs individuais, todos squash-merged).
+- Kept non-ancestor remote branches: `devin/p1-workspace-cli-registry`, `feat/agents-feed-notifications-p2`, `feat/worktree-setup-scripts-p3`, `feature/agent-task-…-issue-1-…`
 
 ## 7. Pendencies
 
