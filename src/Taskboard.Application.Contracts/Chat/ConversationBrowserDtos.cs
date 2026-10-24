@@ -42,6 +42,12 @@ public interface IBrowserSessionPool
 {
     Task<BrowserActionResult> ExecuteAsync(
         string conversationId, BrowserAction action, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SPEC-20261023-p0-agent-hardening RF-D01: cheap probe — Chromium binary
+    /// present and launch not already failed; never spawns the browser.
+    /// </summary>
+    Task<bool> IsAvailableAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>

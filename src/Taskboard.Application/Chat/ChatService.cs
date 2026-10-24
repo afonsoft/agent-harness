@@ -132,7 +132,8 @@ public sealed class ChatService(
     IChatWorkspaceDiffService? workspaceDiff = null,
     IChatMessageSearchIndex? searchIndex = null,
     IChatToolRiskClassifier? riskClassifier = null,
-    ChatTodoStore? todoStore = null) : IChatRunExecutor
+    ChatTodoStore? todoStore = null,
+    IDeferredToolCatalog? deferredCatalog = null) : IChatRunExecutor
 {
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -1493,8 +1494,19 @@ public sealed class ChatService(
         // SPEC-20261001-chat-capability-registry FR-003: effective tool set —
         // disabled capabilities never reach the provider payload.
         var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
-        var wire = await BuildTranscriptAsync(conversation, toolSet, run.TriggerMessageId, ct).ConfigureAwait(false);
-        var toolDefs = BuildToolDefinitions(toolSet);
+        var convId = conversation.Id.Value;
+        // SPEC-20261023 RF-D01/D02: partition the set — deferred tools emit a
+        // catalog line in the system prompt instead of a JSON schema, and
+        // unavailable tools (failed probes) omit the schema entirely.
+        ChatToolPlan? plan = null;
+        if (deferredCatalog is not null)
+        {
+            var probeContext = NewToolContext(provider, conversation, run, toolSet, activity: null);
+            plan = await deferredCatalog.PlanAsync(convId, toolSet, probeContext, ct).ConfigureAwait(false);
+        }
+
+        var wire = await BuildTranscriptAsync(conversation, toolSet, plan, run.TriggerMessageId, ct).ConfigureAwait(false);
+        var toolDefs = BuildToolDefinitions(toolSet, plan, convId);
         var state = new TurnState();
 
         // SPEC-20261005-chat-attachments-feedback RF-007: run-start workspace
@@ -1531,7 +1543,7 @@ public sealed class ChatService(
             // SPEC-20261005-chat-context-management RF-002: pressure check
             // before EACH provider call — prune (+summarize) the wire when it
             // crosses the effective budget; wire-only, history never mutates.
-            await foreach (var ev in MaybeCompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+            await foreach (var ev in MaybeCompactWireAsync(run, provider, conversation, wire, toolSet, plan, state, stoppingToken, ct)
                 .ConfigureAwait(false))
             {
                 yield return ev;
@@ -1564,7 +1576,7 @@ public sealed class ChatService(
                 {
                     state.OverflowRetried = true;
                     state.Error = null;
-                    await foreach (var ev in ForceCompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+                    await foreach (var ev in ForceCompactWireAsync(run, provider, conversation, wire, toolSet, plan, state, stoppingToken, ct)
                         .ConfigureAwait(false))
                     {
                         yield return ev;
@@ -1601,6 +1613,11 @@ public sealed class ChatService(
             {
                 yield return ev;
             }
+
+            // SPEC-20261023 RF-D02: tool_activate promotions are append-only —
+            // rebuild the defs so new schemas ride the next provider call
+            // without reordering the existing (cached) prefix.
+            toolDefs = BuildToolDefinitions(toolSet, plan, convId);
 
             if (runCts.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
             {
@@ -2101,6 +2118,7 @@ public sealed class ChatService(
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatToolPlan? plan,
         TurnState state,
         CancellationToken stoppingToken,
         [EnumeratorCancellation] CancellationToken ct)
@@ -2114,7 +2132,7 @@ public sealed class ChatService(
         var compacted = false;
         if (EstimatePressure(wire, state) >= limit)
         {
-            compacted = await CompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+            compacted = await CompactWireAsync(run, provider, conversation, wire, toolSet, plan, state, stoppingToken, ct)
                 .ConfigureAwait(false);
             if (compacted)
             {
@@ -2141,6 +2159,7 @@ public sealed class ChatService(
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatToolPlan? plan,
         TurnState state,
         CancellationToken stoppingToken,
         [EnumeratorCancellation] CancellationToken ct)
@@ -2150,7 +2169,7 @@ public sealed class ChatService(
             yield break;
         }
 
-        if (await CompactWireAsync(run, provider, conversation, wire, toolSet, state, stoppingToken, ct)
+        if (await CompactWireAsync(run, provider, conversation, wire, toolSet, plan, state, stoppingToken, ct)
             .ConfigureAwait(false))
         {
             var limit = ChatContextBudget.CompactLimit(configuration);
@@ -2172,6 +2191,7 @@ public sealed class ChatService(
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatToolPlan? plan,
         TurnState state,
         CancellationToken stoppingToken,
         CancellationToken ct)
@@ -2181,7 +2201,7 @@ public sealed class ChatService(
         if (EstimatePressure(wire, state) >= ChatContextBudget.CompactLimit(configuration))
         {
             summarized = await SummarizePrefixAsync(
-                provider, conversation, wire, toolSet, run.TriggerMessageId, stoppingToken, ct)
+                provider, conversation, wire, toolSet, plan, run.TriggerMessageId, stoppingToken, ct)
                 .ConfigureAwait(false);
         }
 
@@ -2253,6 +2273,7 @@ public sealed class ChatService(
         ChatConversation conversation,
         List<OpenAiChatMessage> wire,
         IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatToolPlan? plan,
         ChatMessageId? triggerMessageId,
         CancellationToken stoppingToken,
         CancellationToken ct)
@@ -2343,7 +2364,7 @@ public sealed class ChatService(
         await messages.SaveChangesAsync(ct).ConfigureAwait(false);
 
         // RNF-001: rebuild the wire under the new bound — history stays whole.
-        var rebuilt = await BuildTranscriptAsync(conversation, toolSet, triggerMessageId, ct)
+        var rebuilt = await BuildTranscriptAsync(conversation, toolSet, plan, triggerMessageId, ct)
             .ConfigureAwait(false);
         wire.Clear();
         wire.AddRange(rebuilt);
@@ -2404,7 +2425,7 @@ public sealed class ChatService(
         var toolSet = await capabilities.ResolveToolSetAsync(ct).ConfigureAwait(false);
         var wire = new List<OpenAiChatMessage>();
         var state = new TurnState();
-        if (!await SummarizePrefixAsync(provider, conversation, wire, toolSet, null, ct, ct).ConfigureAwait(false))
+        if (!await SummarizePrefixAsync(provider, conversation, wire, toolSet, plan: null, null, ct, ct).ConfigureAwait(false))
         {
             throw new ChatValidationException("Nothing to compact — history already fits the budget.");
         }
@@ -3108,25 +3129,7 @@ public sealed class ChatService(
             return (JsonSerializer.Serialize(new { error = "invalid tool arguments" }), true, "bad arguments", null, null);
         }
 
-        var context = new ChatToolContext(
-            // Agent-chat: an explicit workspace wins; otherwise the bound repo
-            // resolves (null → the default ~/repos root).
-            WorkspacePath: ResolveWorkspacePath(conversation),
-            ProviderId: provider.Id,
-            ProviderBaseUrl: provider.BaseUrl,
-            ProviderApiKey: provider.ApiKey,
-            ImageModel: ResolveImageModel(provider.Id),
-            SearchBackend: configuration["Taskboard:Chat:SearchBackend"] ?? "none",
-            SearchUrl: configuration["Taskboard:Chat:SearchUrl"] ?? string.Empty,
-            SearchApiKey: configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty,
-            ConversationId: conversation.Id.Value,
-            Model: conversation.Model,
-            DelegationDepth: 0,
-            Activity: new ChannelActivityReporter(activity),
-            ToolSet: toolSet,
-            DefaultAgentCli: conversation.AgentCli,
-            DefaultAgentModel: conversation.AgentModel,
-            RunId: run.Id.Value);
+        var context = NewToolContext(provider, conversation, run, toolSet, new ChannelActivityReporter(activity));
 
         try
         {
@@ -3152,6 +3155,7 @@ public sealed class ChatService(
     private async Task<List<OpenAiChatMessage>> BuildTranscriptAsync(
         ChatConversation conversation,
         IReadOnlyDictionary<string, IChatTool> toolSet,
+        ChatToolPlan? plan,
         ChatMessageId? triggerMessageId,
         CancellationToken ct)
     {
@@ -3173,7 +3177,8 @@ public sealed class ChatService(
         var wire = new List<OpenAiChatMessage>
         {
             new("system", SystemPrompt(
-                toolSet, await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false), planMode)),
+                toolSet, conversation.Id.Value, plan,
+                await SkillCatalogSectionAsync(toolSet, ct).ConfigureAwait(false), planMode)),
         };
 
         // SPEC-20261005-chat-attachments-feedback RF-002/RF-004: bound
@@ -3266,10 +3271,26 @@ public sealed class ChatService(
     }
 
     private string SystemPrompt(
-        IReadOnlyDictionary<string, IChatTool> toolSet, string skillCatalog, string? planMode = null)
+        IReadOnlyDictionary<string, IChatTool> toolSet, string conversationId,
+        ChatToolPlan? plan, string skillCatalog, string? planMode = null)
     {
         var workdir = workspace.ResolveCardWorkdir(null, out _);
-        var toolNames = string.Join(", ", toolSet.Keys.Order());
+        // SPEC-20261023 RF-D02: deferred tools leave the call list (a catalog
+        // section names them instead); promoted tools rejoin as callable.
+        var promoted = deferredCatalog?.PromotedNames(conversationId) ?? (IReadOnlyList<string>)[];
+        var deferred = plan?.Deferred ?? (IReadOnlyList<DeferredToolEntry>)[];
+        var deferredNames = deferred.Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
+        var toolNames = string.Join(", ", toolSet.Keys
+            .Where(k => !deferredNames.Contains(k) || promoted.Contains(k, StringComparer.Ordinal))
+            .Order());
+        var deferredSection = deferred.Count == 0
+            ? string.Empty
+            : "\nDeferred tools — hidden until enabled. Call tool_search to find one by keyword, then tool_activate to enable it:\n"
+                + string.Join('\n', deferred.Select(e =>
+                {
+                    var desc = e.Description is { Length: > 120 } ? string.Concat(e.Description.AsSpan(0, 120), "…") : e.Description;
+                    return $"- {e.Name} — {desc}{(e.Available ? "" : " [unavailable]")}";
+                }));
         // RNF-003: the section text is config-owned (Taskboard:Chat:PlanMode:Section).
         var planSection = planMode == ChatPlanModes.On
             ? $"\n{ChatPlanMode.Section(configuration)}"
@@ -3296,7 +3317,7 @@ public sealed class ChatService(
             — tool results come back to you so you can report the real outcome. Chain tool
             calls when a task needs several steps. Prefer tools over answering from memory;
             keep answers concise and use markdown.
-            {skillCatalog}{planSection}{orchestrationSection}{defenseSection}
+            {skillCatalog}{planSection}{orchestrationSection}{defenseSection}{deferredSection}
             """;
     }
 
@@ -3343,12 +3364,46 @@ public sealed class ChatService(
         }
     }
 
-    private static List<OpenAiToolDefinition> BuildToolDefinitions(IReadOnlyDictionary<string, IChatTool> toolSet)
-    {
-        return toolSet.Select(kv => new OpenAiToolDefinition(kv.Key, kv.Value.Description, kv.Value.ParametersJson))
-            .OrderBy(t => t.Name, StringComparer.Ordinal)
-            .ToList();
-    }
+    /// <summary>
+    /// SPEC-20261023 RF-D02: active schemas sorted (stable prefix) + promoted
+    /// schemas appended in activation order — promotion never removes or
+    /// reorders, preserving the provider cache prefix.
+    /// </summary>
+    private List<OpenAiToolDefinition> BuildToolDefinitions(
+        IReadOnlyDictionary<string, IChatTool> toolSet, ChatToolPlan? plan, string conversationId) =>
+        DeferredToolWire.BuildDefinitions(
+            toolSet, plan, deferredCatalog?.PromotedNames(conversationId));
+
+    /// <summary>
+    /// Shared tool/probe context — the same provider/workspace/model values a
+    /// real call would see, so <see cref="IChatTool.IsAvailableAsync"/> probes
+    /// judge availability under real conditions (RF-D01).
+    /// </summary>
+    private ChatToolContext NewToolContext(
+        ChatProviderSnapshot provider,
+        ChatConversation conversation,
+        ChatRun run,
+        IReadOnlyDictionary<string, IChatTool> toolSet,
+        IChatActivityReporter? activity) =>
+        new(
+            // Agent-chat: an explicit workspace wins; otherwise the bound repo
+            // resolves (null → the default ~/repos root).
+            WorkspacePath: ResolveWorkspacePath(conversation),
+            ProviderId: provider.Id,
+            ProviderBaseUrl: provider.BaseUrl,
+            ProviderApiKey: provider.ApiKey,
+            ImageModel: ResolveImageModel(provider.Id),
+            SearchBackend: configuration["Taskboard:Chat:SearchBackend"] ?? "none",
+            SearchUrl: configuration["Taskboard:Chat:SearchUrl"] ?? string.Empty,
+            SearchApiKey: configuration["Taskboard:Chat:SearchApiKey"] ?? string.Empty,
+            ConversationId: conversation.Id.Value,
+            Model: conversation.Model,
+            DelegationDepth: 0,
+            Activity: activity,
+            ToolSet: toolSet,
+            DefaultAgentCli: conversation.AgentCli,
+            DefaultAgentModel: conversation.AgentModel,
+            RunId: run.Id.Value);
 
     private int ParseInt(string key, int defaultValue)
     {

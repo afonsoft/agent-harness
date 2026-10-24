@@ -34,6 +34,52 @@ public sealed class BrowserSessionPool(
     private IPlaywright? _playwright;
     private bool _launchFailed;
 
+    /// <summary>
+    /// SPEC-20261023-p0-agent-hardening RF-D01: filesystem-only probe — a prior
+    /// launch failure or a missing Chromium install marks the tool unavailable
+    /// (it lands in the deferred catalog) without spawning anything.
+    /// </summary>
+    public Task<bool> IsAvailableAsync(CancellationToken cancellationToken)
+    {
+        if (_launchFailed)
+        {
+            return Task.FromResult(false);
+        }
+
+        if (_playwright is not null || !_sessions.IsEmpty)
+        {
+            return Task.FromResult(true);
+        }
+
+        return Task.FromResult(ChromiumInstalled());
+    }
+
+    /// <summary>Playwright browser cache layout: {root}/chromium-*/chrome-*/chrome (or headless shell).</summary>
+    private static bool ChromiumInstalled()
+    {
+        var root = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH");
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            root = OperatingSystem.IsWindows()
+                ? Path.Join(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ms-playwright")
+                : OperatingSystem.IsMacOS()
+                    ? Path.Join(home, "Library", "Caches", "ms-playwright")
+                    : Path.Join(home, ".cache", "ms-playwright");
+        }
+
+        try
+        {
+            return Directory.Exists(root)
+                && Directory.EnumerateDirectories(root, "chromium*")
+                    .Any(d => Directory.EnumerateFiles(d, "chrome*", SearchOption.AllDirectories).Any());
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     /// <summary>DI entry point — real Playwright lazily on first call.</summary>
     public BrowserSessionPool(string dataDir, ILogger<BrowserSessionPool> logger)
         : this(dataDir, logger, () => Playwright.CreateAsync())

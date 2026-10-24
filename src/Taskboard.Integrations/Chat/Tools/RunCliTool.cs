@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Taskboard.Agents;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Chat;
 
 namespace Taskboard.Integrations.Chat.Tools;
@@ -23,6 +25,24 @@ public sealed class RunCliTool(
     public string ParametersJson => """
         {"type":"object","properties":{"cli":{"type":"string","description":"Installed CLI binary name (e.g. devin, claude, opencode, taskctl); omit to use the conversation's selected agent CLI"},"args":{"type":"array","items":{"type":"string"},"description":"Arguments for the CLI"}}}
         """;
+
+    /// <summary>
+    /// SPEC-20261023 RF-D01: available when at least one allowlisted binary
+    /// resolves on PATH or an enabled custom CLI def resolves — otherwise the
+    /// schema stays deferred (custom CLIs not installed).
+    /// </summary>
+    public async Task<bool> IsAvailableAsync(ChatToolContext context, CancellationToken cancellationToken)
+    {
+        if (KnownBinaries.Any(binary => ResolveOnPath(binary) is not null))
+        {
+            return true;
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var defs = scope.ServiceProvider.GetRequiredService<IAgentCliDefinitionRepository>();
+        var list = await defs.ListAsync(cancellationToken).ConfigureAwait(false);
+        return list.Any(d => d.Enabled && CustomCliRunner.ResolveExecutable(d.Executable) is not null);
+    }
 
     public async Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)

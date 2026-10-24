@@ -18,6 +18,15 @@ public sealed class GenerateImageTool(OpenAiCompatibleClient client, ChatImageSt
         {"type":"object","properties":{"prompt":{"type":"string","description":"Image prompt"},"size":{"type":"string","description":"Optional size, e.g. 1024x1024"}},"required":["prompt"]}
         """;
 
+    /// <summary>
+    /// SPEC-20261023 RF-D01: the image endpoint needs both a provider key and
+    /// an image-capable model — without them the schema stays deferred.
+    /// </summary>
+    public Task<bool> IsAvailableAsync(ChatToolContext context, CancellationToken cancellationToken) =>
+        Task.FromResult(
+            !string.IsNullOrWhiteSpace(context.ProviderApiKey)
+            && !string.IsNullOrWhiteSpace(context.ImageModel));
+
     public async Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
     {

@@ -701,6 +701,10 @@ void RegisterWorkspaceAndChatServices()
     // (default sanitize+wrap — unknown values fail safe).
     builder.Services.AddSingleton(sp =>
         PromptDefensePolicy.FromConfiguration(sp.GetRequiredService<IConfiguration>()));
+    // SPEC-20261023 RF-D01/D02/D03: session-scoped deferred tool catalog —
+    // probes, catalog state and append-only promotions keyed by conversation.
+    builder.Services.AddSingleton<IDeferredToolCatalog>(sp =>
+        new DeferredToolCatalog(sp.GetRequiredService<IConfiguration>()));
     builder.Services.AddSingleton<IReadOnlyDictionary<string, IChatTool>>(sp =>
     {
         var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-search");
@@ -824,6 +828,10 @@ void RegisterWorkspaceAndChatServices()
             new BrowserUseTool(
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<PromptDefensePolicy>()),
+            // SPEC-20261023 RF-D02: deferred-tool discovery + activation —
+            // always active so the model can promote hidden tools.
+            new ToolSearchTool(sp.GetRequiredService<IDeferredToolCatalog>()),
+            new ToolActivateTool(sp.GetRequiredService<IDeferredToolCatalog>()),
             // SPEC-20261005-chat-jobs-schedule-search RF-002/RF-005/RF-010:
             // background-job, schedule and FTS search tools.
             new JobListTool(sp.GetRequiredService<IChatJobService>(), configuration),
