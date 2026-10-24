@@ -14,7 +14,9 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// <c>replace_all</c>) instead of rewriting the whole file. Path-jailed like
 /// <see cref="WriteFileTool"/>.
 /// </summary>
-public sealed class EditFileTool(IChatFileEditTracker? editTracker = null) : IChatTool
+public sealed class EditFileTool(
+    IChatFileEditTracker? editTracker = null,
+    SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "edit_file";
     public string Description =>
@@ -43,7 +45,7 @@ public sealed class EditFileTool(IChatFileEditTracker? editTracker = null) : ICh
 
         try
         {
-            var full = PathJailValidator.Validate(path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(path, context.WorkspacePath, denylist);
             if (!File.Exists(full))
             {
                 return new ChatToolResult(ErrorJson($"file not found: {path}"), RefusalReason: "file not found");
@@ -125,7 +127,8 @@ public sealed class EditFileTool(IChatFileEditTracker? editTracker = null) : ICh
 /// files (path-jailed root), skipping binaries, heavy dirs and files above
 /// 1&nbsp;MB. Returns <c>path:line: text</c> matches capped at 200.
 /// </summary>
-public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
+public sealed class SearchFilesTool(
+    ISecretRedactor redactor, SensitivePathDenylist? denylist = null) : IChatTool
 {
     private const int MaxMatches = 200;
     private const long MaxFileBytes = 1_048_576;
@@ -174,10 +177,10 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
 
         try
         {
-            var root = PathJailValidator.Validate(path.Length == 0 ? "." : path, context.WorkspacePath);
+            var root = PathJailValidator.Validate(path.Length == 0 ? "." : path, context.WorkspacePath, denylist);
             var files = File.Exists(root)
                 ? [root]
-                : EnumerateFiles(root, includeRegex, cancellationToken);
+                : EnumerateFiles(root, includeRegex, cancellationToken, denylist);
             var matches = new List<object>();
             foreach (var file in files)
             {
@@ -240,8 +243,11 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
         }
     }
 
-    internal static IEnumerable<string> EnumerateFiles(string root, Regex? includeRegex, CancellationToken ct)
+    internal static IEnumerable<string> EnumerateFiles(
+        string root, Regex? includeRegex, CancellationToken ct,
+        SensitivePathDenylist? denylist = null)
     {
+        var list = denylist ?? SensitivePathDenylist.Shared;
         var pending = new Stack<string>();
         pending.Push(root);
         while (pending.Count > 0 && !ct.IsCancellationRequested)
@@ -249,6 +255,13 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
             var dir = pending.Pop();
             foreach (var entry in EnumerateEntries(dir))
             {
+                // RF-A01: credential-path entries are never descended into nor
+                // yielded — a workspace-wide search must not read .ssh/ & co.
+                if (list.TryMatch(entry, out _))
+                {
+                    continue;
+                }
+
                 var name = Path.GetFileName(entry);
                 if (Directory.Exists(entry))
                 {
@@ -294,7 +307,7 @@ public sealed class SearchFilesTool(ISecretRedactor redactor) : IChatTool
 /// pattern (<c>**</c>, <c>*</c>, <c>?</c>, alternates like <c>*.{cs,razor}</c>),
 /// path-jailed, skipping the same heavy dirs as <see cref="SearchFilesTool"/>.
 /// </summary>
-public sealed class FindFilesTool() : IChatTool
+public sealed class FindFilesTool(SensitivePathDenylist? denylist = null) : IChatTool
 {
     private const int MaxResults = 500;
 
@@ -325,8 +338,8 @@ public sealed class FindFilesTool() : IChatTool
 
         try
         {
-            var root = PathJailValidator.Validate(path.Length == 0 ? "." : path, context.WorkspacePath);
-            var matches = SearchFilesTool.EnumerateFiles(root, includeRegex: null, cancellationToken)
+            var root = PathJailValidator.Validate(path.Length == 0 ? "." : path, context.WorkspacePath, denylist);
+            var matches = SearchFilesTool.EnumerateFiles(root, includeRegex: null, cancellationToken, denylist)
                 .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
                 .Where(relative => regex.IsMatch(relative))
                 .OrderBy(relative => relative, StringComparer.Ordinal)
@@ -422,7 +435,8 @@ public sealed class FindFilesTool() : IChatTool
 /// git subcommands are never exposed here — <c>shell_exec</c> stays the
 /// gateway for anything that writes.
 /// </summary>
-public sealed class GitTool(ISecretRedactor redactor) : IChatTool
+public sealed class GitTool(
+    ISecretRedactor redactor, SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "git";
     public string Description =>
@@ -468,7 +482,7 @@ public sealed class GitTool(ISecretRedactor redactor) : IChatTool
             // escape never reaches git.
             if (path.Length > 0)
             {
-                PathJailValidator.Validate(path, context.WorkspacePath);
+                PathJailValidator.Validate(path, context.WorkspacePath, denylist);
             }
 
             var result = await ChatProcessRunner.RunAsync("git", argv, context.WorkspacePath,
@@ -516,7 +530,8 @@ public sealed class GitTool(ISecretRedactor redactor) : IChatTool
 /// the OpenCode verify loop: <c>dotnet test</c> with an optional filter,
 /// path-jailed, timeout-bounded and secret-scrubbed.
 /// </summary>
-public sealed class RunTestsTool(ISecretRedactor redactor) : IChatTool
+public sealed class RunTestsTool(
+    ISecretRedactor redactor, SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "run_tests";
     public string Description =>
@@ -555,7 +570,7 @@ public sealed class RunTestsTool(ISecretRedactor redactor) : IChatTool
             var argv = new List<string> { "test" };
             if (path.Length > 0)
             {
-                var full = PathJailValidator.Validate(path, context.WorkspacePath);
+                var full = PathJailValidator.Validate(path, context.WorkspacePath, denylist);
                 argv.Add(File.Exists(full) || Directory.Exists(full) ? full : path);
             }
 

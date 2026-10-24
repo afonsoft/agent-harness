@@ -28,10 +28,12 @@ public sealed class PermissionGateway : IPermissionGateway
     };
 
     private readonly ICommandRiskClassifier _classifier;
+    private readonly SensitivePathDenylist _denylist;
 
-    public PermissionGateway(ICommandRiskClassifier classifier)
+    public PermissionGateway(ICommandRiskClassifier classifier, SensitivePathDenylist? denylist = null)
     {
         _classifier = classifier;
+        _denylist = denylist ?? SensitivePathDenylist.Shared;
     }
 
     public Task<SecurityEvaluationDto> EvaluateAsync(
@@ -51,14 +53,15 @@ public sealed class PermissionGateway : IPermissionGateway
     {
         if (ReadToolNames.Contains(toolName))
         {
-            // Path jail: lança SecurityAccessDeniedException fora do worktree.
-            PathJailValidator.Validate(command, worktreePath);
+            // Path jail: lança SecurityAccessDeniedException fora do worktree
+            // ou em credential-path (SPEC-20261023-p0-agent-hardening RF-A01).
+            PathJailValidator.Validate(command, worktreePath, _denylist);
             return new(SecurityRiskLevel.Safe, "Leitura confinada ao worktree.");
         }
 
         if (WriteToolNames.Contains(toolName))
         {
-            PathJailValidator.Validate(command, worktreePath);
+            PathJailValidator.Validate(command, worktreePath, _denylist);
             return new(SecurityRiskLevel.WorkspaceWrite, "Escrita confinada ao worktree.");
         }
 
@@ -69,11 +72,13 @@ public sealed class PermissionGateway : IPermissionGateway
     private static SecurityEvaluationDto Decide(
         CommandRiskAssessment assessment, SecurityPolicyMode policy)
     {
-        // Escape de sandbox é deny duro — approval humana não torna seguro.
-        if (assessment.EscapesSandbox)
+        // Escape de sandbox e credential-path são deny duro — approval
+        // humana não torna seguro (SPEC-20261023-p0-agent-hardening RF-A02).
+        if (assessment.EscapesSandbox || assessment.DeniesCredentialPath)
         {
+            var block = assessment.DeniesCredentialPath ? "credential-path" : "escape do sandbox";
             return new(false, nameof(SecurityRiskLevel.Dangerous), false,
-                $"{assessment.Reason} (bloqueio permanente: escape do sandbox)");
+                $"{assessment.Reason} (bloqueio permanente: {block})");
         }
 
         return (assessment.RiskLevel, policy) switch
