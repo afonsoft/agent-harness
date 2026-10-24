@@ -13,9 +13,13 @@ public static class PathJailValidator
 {
     /// <summary>
     /// Returns the canonical absolute path inside <paramref name="worktreePath"/>,
-    /// or throws <see cref="SecurityAccessDeniedException"/>.
+    /// or throws <see cref="SecurityAccessDeniedException"/>. Credential-paths
+    /// matching <paramref name="denylist"/> deny regardless of tier or approval
+    /// (SPEC-20261023-p0-agent-hardening RF-A01) — the exception carries only
+    /// the pattern class (RF-A03), never the secret path.
     /// </summary>
-    public static string Validate(string path, string worktreePath)
+    public static string Validate(
+        string path, string worktreePath, SensitivePathDenylist? denylist = null)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -43,9 +47,22 @@ public static class PathJailValidator
             throw new SecurityAccessDeniedException($"Path '{path}' escapes sandbox boundary.");
         }
 
+        var list = denylist ?? SensitivePathDenylist.Shared;
+        if (list.TryMatch(full, out var cls))
+        {
+            throw new SecurityAccessDeniedException($"credential-path: {cls}");
+        }
+
         // Symlink escape: se o caminho já existe, o alvo real também deve estar
         // dentro do jail (FileInfo.ResolveLinkTarget devolve o destino final).
-        return ResolveLinks(full, worktreePath);
+        var resolved = ResolveLinks(full, worktreePath);
+        if (!string.Equals(resolved, full, StringComparison.Ordinal)
+            && list.TryMatch(resolved, out var resolvedCls))
+        {
+            throw new SecurityAccessDeniedException($"credential-path: {resolvedCls}");
+        }
+
+        return resolved;
     }
 
     private static string ResolveLinks(string full, string worktreePath)

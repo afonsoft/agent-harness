@@ -460,10 +460,24 @@ public sealed class ChatJobsScheduleSearchTests : IDisposable
         var output = await jobs.GetOutputAsync(conversation.Id.Value, job.Id, tailBytes: 4096);
         output.ShouldNotBeNull();
         output.OutputTail.ShouldContain("hello-job");
-        // RF-001: a conclusão vira nota de sistema no transcript.
-        (await _context.ChatMessages.AnyAsync(m =>
-            m.ConversationId == conversation.Id && m.Content.Contains("hello-job")))
-            .ShouldBeTrue("a conclusão do job posta uma system note");
+        // RF-001: a conclusão vira nota de sistema no transcript — a nota é
+        // postada no SettleAsync *depois* do status virar terminal: poll até
+        // a linha aparecer, igual ao WaitForStatusAsync acima.
+        var noteDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        var notePosted = false;
+        while (DateTime.UtcNow < noteDeadline)
+        {
+            if (await _context.ChatMessages.AnyAsync(m =>
+                    m.ConversationId == conversation.Id && m.Content.Contains("hello-job")))
+            {
+                notePosted = true;
+                break;
+            }
+
+            await Task.Delay(100);
+        }
+
+        notePosted.ShouldBeTrue("a conclusão do job posta uma system note");
     }
 
     [Fact]

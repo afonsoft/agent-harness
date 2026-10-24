@@ -113,6 +113,29 @@ public class PermissionGatewayTests
         result.RiskLevel.ShouldBe(nameof(SecurityRiskLevel.Dangerous));
     }
 
+    // SPEC-20261023-p0-agent-hardening RF-A02: credential-path é deny duro —
+    // approval humana não torna acesso a credenciais seguro (nem sob Standard).
+    [Theory]
+    [InlineData(SecurityPolicyMode.Standard)]
+    [InlineData(SecurityPolicyMode.Strict)]
+    [InlineData(SecurityPolicyMode.Autonomous)]
+    public async Task Dado_CredentialPath_Quando_Evaluate_Entao_DeniedSemApproval(SecurityPolicyMode policy)
+    {
+        var result = await _sut.EvaluateAsync("bash", "cat .ssh/id_rsa", Worktree, policy);
+
+        result.Allowed.ShouldBeFalse();
+        result.RequiresApproval.ShouldBeFalse();
+        result.RiskLevel.ShouldBe(nameof(SecurityRiskLevel.Dangerous));
+        result.Reason.ShouldContain("credential-path");
+    }
+
+    [Fact]
+    public async Task Dado_ReadCredentialPath_Quando_Evaluate_Entao_SecurityAccessDenied()
+    {
+        await Should.ThrowAsync<SecurityAccessDeniedException>(
+            () => _sut.EvaluateAsync("read_file", ".ssh/id_rsa", Worktree));
+    }
+
     // AC-03: segredo mascarado no stream.
     [Fact]
     public void Dado_OutputComToken_Quando_ScrubSecrets_Entao_Redacted()

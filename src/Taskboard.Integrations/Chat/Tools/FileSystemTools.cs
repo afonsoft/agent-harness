@@ -9,7 +9,8 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// <summary>Reads a file inside the workspace — path-jailed (RF-006).</summary>
 public sealed class ReadFileTool(
     ISecretRedactor redactor, ISpillStore? spillStore = null,
-    ChatAttachmentStore? attachmentStore = null) : IChatTool
+    ChatAttachmentStore? attachmentStore = null,
+    SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "read_file";
     public string Description =>
@@ -117,7 +118,7 @@ public sealed class ReadFileTool(
 
         try
         {
-            var full = PathJailValidator.Validate(path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(path, context.WorkspacePath, denylist);
             var content = await File.ReadAllTextAsync(full, cancellationToken).ConfigureAwait(false);
             var total = content.Length;
             if (offset > 0)
@@ -151,7 +152,9 @@ public sealed class ReadFileTool(
 }
 
 /// <summary>Writes a file inside the workspace — path-jailed (RF-006).</summary>
-public sealed class WriteFileTool(IChatFileEditTracker? editTracker = null) : IChatTool
+public sealed class WriteFileTool(
+    IChatFileEditTracker? editTracker = null,
+    SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "write_file";
     public string Description =>
@@ -173,7 +176,7 @@ public sealed class WriteFileTool(IChatFileEditTracker? editTracker = null) : IC
             : string.Empty;
         try
         {
-            var full = PathJailValidator.Validate(path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(path, context.WorkspacePath, denylist);
             var dir = Path.GetDirectoryName(full);
             if (!string.IsNullOrEmpty(dir))
             {
@@ -219,7 +222,7 @@ public sealed class WriteFileTool(IChatFileEditTracker? editTracker = null) : IC
 }
 
 /// <summary>Lists a workspace directory — path-jailed (RF-006).</summary>
-public sealed class ListDirTool() : IChatTool
+public sealed class ListDirTool(SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "list_dir";
     public string Description => "List files and directories inside the workspace (path-jailed).";
@@ -235,7 +238,7 @@ public sealed class ListDirTool() : IChatTool
             : string.Empty;
         try
         {
-            var full = PathJailValidator.Validate(string.IsNullOrWhiteSpace(path) ? "." : path, context.WorkspacePath);
+            var full = PathJailValidator.Validate(string.IsNullOrWhiteSpace(path) ? "." : path, context.WorkspacePath, denylist);
             var entries = Directory
                 .EnumerateFileSystemEntries(full)
                 .Select(e => $"{(Directory.Exists(e) ? "d" : "-")} {Path.GetFileName(e)}")

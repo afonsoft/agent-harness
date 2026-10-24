@@ -11,7 +11,9 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// <see cref="ChatToolResult.ImageDataUrls"/> feeds the wire <c>image_url</c>
 /// part; the JSON keeps only a descriptor so persisted rows stay small.
 /// </summary>
-public sealed class ReadImageTool(ChatAttachmentStore? attachmentStore = null) : IChatTool
+public sealed class ReadImageTool(
+    ChatAttachmentStore? attachmentStore = null,
+    SensitivePathDenylist? denylist = null) : IChatTool
 {
     public string Name => "read_image";
     public string Description =>
@@ -59,7 +61,7 @@ public sealed class ReadImageTool(ChatAttachmentStore? attachmentStore = null) :
         {
             try
             {
-                full = PathJailValidator.Validate(path, context.WorkspacePath);
+                full = PathJailValidator.Validate(path, context.WorkspacePath, denylist);
             }
             catch (SecurityAccessDeniedException ex)
             {

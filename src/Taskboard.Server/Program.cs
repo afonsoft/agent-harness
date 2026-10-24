@@ -651,6 +651,11 @@ void RegisterWorkspaceAndChatServices()
         sp.GetService<IMemoryService>(),
         sp.GetRequiredService<ILogger<ProjectContextCompiler>>()));
     builder.Services.AddSingleton<IContextCompactor, ContextCompactor>();
+    // SPEC-20261023-p0-agent-hardening RF-A01: credential-path denylist —
+    // builtins fixos + padrões extras do operador (append-only).
+    builder.Services.AddSingleton(sp => new Taskboard.Integrations.Harness.Security.SensitivePathDenylist(
+        sp.GetRequiredService<IConfiguration>()
+            .GetSection("Taskboard:Security:DenyPathPatterns").Get<string[]>() ?? []));
     // SPEC-20260919-harness-security-permission-gateway: singletons puros (sem estado).
     builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>();
     builder.Services.AddSingleton<SecretScrubber>();
@@ -720,18 +725,31 @@ void RegisterWorkspaceAndChatServices()
             new ReadFileTool(
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetRequiredService<ISpillStore>(),
-                sp.GetRequiredService<ChatAttachmentStore>()),
-            new WriteFileTool(sp.GetRequiredService<IChatFileEditTracker>()),
-            new EditFileTool(sp.GetRequiredService<IChatFileEditTracker>()),
+                sp.GetRequiredService<ChatAttachmentStore>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
+            new WriteFileTool(
+                sp.GetRequiredService<IChatFileEditTracker>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
+            new EditFileTool(
+                sp.GetRequiredService<IChatFileEditTracker>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
             // SPEC-20261005-chat-attachments-feedback RF-003/RF-007: attach://
             // image reads (image_url wire parts) + declared deliverables.
-            new ReadImageTool(sp.GetRequiredService<ChatAttachmentStore>()),
+            new ReadImageTool(
+                sp.GetRequiredService<ChatAttachmentStore>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
             new PresentTool(sp.GetRequiredService<IChatFileEditTracker>()),
-            new ListDirTool(),
-            new FindFilesTool(),
-            new SearchFilesTool(sp.GetRequiredService<ISecretRedactor>()),
-            new GitTool(sp.GetRequiredService<ISecretRedactor>()),
-            new RunTestsTool(sp.GetRequiredService<ISecretRedactor>()),
+            new ListDirTool(sp.GetRequiredService<SensitivePathDenylist>()),
+            new FindFilesTool(sp.GetRequiredService<SensitivePathDenylist>()),
+            new SearchFilesTool(
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
+            new GitTool(
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
+            new RunTestsTool(
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<SensitivePathDenylist>()),
             new TodoTool(sp.GetRequiredService<ChatTodoStore>()),
             new RunCliTool(
                 sp.GetRequiredService<ISecretRedactor>(),

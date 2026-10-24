@@ -74,4 +74,43 @@ public class PathJailValidatorTests : IDisposable
     public void Dado_NovoArquivoInexistenteDentro_Quando_Validate_Entao_Aceita()
         => PathJailValidator.Validate("novo/dir/arquivo.txt", _worktree)
             .ShouldContain("novo");
+
+    // SPEC-20261023-p0-agent-hardening RF-A01: credential-path dentro do
+    // worktree (repo de dotfiles, workspace livre) é deny duro — nem Standard
+    // nem aprovação humana tornam o acesso seguro.
+    [Theory]
+    [InlineData(".ssh/id_rsa")]
+    [InlineData(".aws/credentials")]
+    [InlineData(".gnupg/secring.gpg")]
+    [InlineData(".kube/config")]
+    [InlineData("dotfiles/.ssh/config")]
+    [InlineData(".agent-harness/secrets.json")]
+    public void Dado_CredentialPathDentroDoWorktree_Quando_Validate_Entao_SecurityAccessDenied(string path)
+    {
+        var ex = Should.Throw<SecurityAccessDeniedException>(() => PathJailValidator.Validate(path, _worktree));
+
+        ex.Message.ShouldContain("credential-path");
+    }
+
+    [Fact]
+    public void Dado_SymlinkDentroParaCredentialPath_Quando_Validate_Entao_SecurityAccessDenied()
+    {
+        var sshDir = Path.Combine(_worktree, ".ssh");
+        Directory.CreateDirectory(sshDir);
+        var real = Path.Combine(sshDir, "id_rsa");
+        File.WriteAllText(real, "x");
+        File.CreateSymbolicLink(Path.Combine(_worktree, "alias.txt"), real);
+
+        Should.Throw<SecurityAccessDeniedException>(
+            () => PathJailValidator.Validate("alias.txt", _worktree));
+    }
+
+    [Fact]
+    public void Dado_DenylistExtraOperador_Quando_Validate_Entao_SecurityAccessDenied()
+    {
+        var denylist = new SensitivePathDenylist(["*/vault/*"]);
+
+        Should.Throw<SecurityAccessDeniedException>(
+            () => PathJailValidator.Validate("vault/token", _worktree, denylist));
+    }
 }
