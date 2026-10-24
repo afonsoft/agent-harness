@@ -127,24 +127,24 @@ public sealed class SensitivePathDenylist
                     b.Append('.');
                     break;
                 case '[':
-                {
-                    var close = pattern.IndexOf(']', i + 1);
-                    if (close < 0)
                     {
-                        b.Append("\\[");
+                        var close = pattern.IndexOf(']', i + 1);
+                        if (close < 0)
+                        {
+                            b.Append("\\[");
+                            break;
+                        }
+
+                        var body = pattern.Substring(i + 1, close - i - 1);
+                        if (body.StartsWith('!'))
+                        {
+                            body = "^" + body[1..];
+                        }
+
+                        b.Append('[').Append(body).Append(']');
+                        i = close;
                         break;
                     }
-
-                    var body = pattern.Substring(i + 1, close - i - 1);
-                    if (body.StartsWith('!'))
-                    {
-                        body = "^" + body[1..];
-                    }
-
-                    b.Append('[').Append(body).Append(']');
-                    i = close;
-                    break;
-                }
                 default:
                     b.Append(Regex.Escape(c.ToString()));
                     break;
