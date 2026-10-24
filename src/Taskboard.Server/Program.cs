@@ -693,6 +693,9 @@ void RegisterWorkspaceAndChatServices()
     // SPEC-20261011-chat-workspace-panel RF-004: shared todo store — the Todo
     // tool writes during runs; the workspace panel's Tasks tab reads it.
     builder.Services.AddSingleton(new ChatTodoStore(environment.GetDataDir()));
+    // SPEC-20261024-p1-agent-reliability RF-F01: chat memory store — shared
+    // by the MemoryTool and the consolidation job (one store, one file lock).
+    builder.Services.AddSingleton(new ChatMemoryStore(environment.GetDataDir()));
     // SPEC-20261022-session-event-log P1: durable append-only per-session
     // event log under ~/.agent-harness/sessions/{sessionId}/events.jsonl.
     builder.Services.AddSingleton<Taskboard.Application.Contracts.Agents.ISessionEventLog>(
@@ -779,7 +782,7 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetRequiredService<PromptDefensePolicy>()),
             new MemoryTool(
-                new ChatMemoryStore(environment.GetDataDir()),
+                sp.GetRequiredService<ChatMemoryStore>(),
                 sp.GetRequiredService<ISecretRedactor>()),
             new DateTimeTool(),
             new CalculatorTool(),
@@ -941,6 +944,7 @@ void RegisterWorkspaceAndChatServices()
     });
     builder.Services.AddHostedService<ChatRunDispatcherService>();
     builder.Services.AddHostedService<ChatRunRetentionService>();
+    builder.Services.AddHostedService<MemoryConsolidationService>();
     // SPEC-20261005-chat-jobs-schedule-search RF-001/RF-002: process registry
     // for background jobs — singleton shared by the tools and the endpoints;
     // output files under ~/.agent-harness/jobs/.
@@ -1180,6 +1184,14 @@ void RegisterJobsAndPipelines()
         "Chat run retention",
         "Purges finished ChatRun rows past the retention window.",
         DefaultIntervalSeconds: 21600,
+        MinIntervalSeconds: 3600));
+    // SPEC-20261024-p1-agent-reliability RF-F01: memory consolidation —
+    // dedupe/expiry/LRU cap of chat memory facts, daily by default.
+    builder.Services.AddSingleton(new JobDefinition(
+        MemoryConsolidationService.JobKey,
+        "Memory consolidation",
+        "Dedupes, expires and LRU-caps chat memory facts.",
+        DefaultIntervalSeconds: 86400,
         MinIntervalSeconds: 3600));
 
     // SPEC-20260919-ade-multi-agent-orchestration: DAG de agentes especializados

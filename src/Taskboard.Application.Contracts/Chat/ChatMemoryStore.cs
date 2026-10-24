@@ -100,6 +100,52 @@ public sealed class ChatMemoryStore(string dataDir)
         }
     }
 
+    /// <summary>
+    /// SPEC-20261024-p1-agent-reliability RF-F01: one atomic consolidation
+    /// pass under the store lock — expires facts whose <c>UpdatedAt</c> is
+    /// older than <paramref name="cutoffUtc"/>, dedupes identical content
+    /// keeping the freshest entry, then LRU-caps at <paramref name="maxFacts"/>.
+    /// The file is rewritten only when the set actually changed.
+    /// </summary>
+    public ChatMemoryConsolidationReport Consolidate(DateTime cutoffUtc, int maxFacts)
+    {
+        lock (_gate)
+        {
+            var items = ReadUnsafe();
+            if (items.Count == 0)
+            {
+                return new ChatMemoryConsolidationReport(0, 0, 0, 0);
+            }
+
+            var expired = items.RemoveAll(m => m.UpdatedAt < cutoffUtc);
+
+            var seen = new Dictionary<string, ChatMemoryItem>(StringComparer.Ordinal);
+            var deduped = 0;
+            foreach (var item in items.OrderByDescending(m => m.UpdatedAt))
+            {
+                if (!seen.TryAdd(item.Content, item))
+                {
+                    deduped++;
+                }
+            }
+
+            var kept = seen.Values.OrderByDescending(m => m.UpdatedAt).ToList();
+            var cap = Math.Max(1, maxFacts);
+            var evicted = Math.Max(0, kept.Count - cap);
+            if (evicted > 0)
+            {
+                kept = kept.Take(cap).ToList();
+            }
+
+            if (expired > 0 || deduped > 0 || evicted > 0)
+            {
+                WriteUnsafe(kept);
+            }
+
+            return new ChatMemoryConsolidationReport(kept.Count, deduped, expired, evicted);
+        }
+    }
+
     private List<ChatMemoryItem> ReadUnsafe()
     {
         try
@@ -131,3 +177,6 @@ public sealed class ChatMemoryStore(string dataDir)
 
 /// <summary>One remembered fact — free-form text chosen by the model.</summary>
 public sealed record ChatMemoryItem(Guid Id, string Content, DateTime CreatedAt, DateTime UpdatedAt);
+
+/// <summary>RF-F02: outcome of one <see cref="ChatMemoryStore.Consolidate"/> pass.</summary>
+public sealed record ChatMemoryConsolidationReport(int Kept, int Deduped, int Expired, int Evicted);
