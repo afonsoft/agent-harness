@@ -480,6 +480,16 @@ GET    /api/local/delegation/events                              → SSE
 
 Delegation tasks form a dependency DAG (`pending→ready` promotion via `POST .../tasks/{id}/promote`, stale-base guard, retry-of); `POST .../tasks/from-issue` creates a task from a board issue. The mailbox carries typed messages (`text`/`worker_done`/`heartbeat`/`escalation`/`decision`) routed by scope and recipient — `reply`/`dismiss` act on individual messages; escalations and decisions surface in the dashboard's **Needs You** column. `GET .../dashboard` aggregates tasks, runs, mailbox alerts and idle CLIs for `/agents`. `GET .../fanout/{groupId}/compare` diffs N parallel fan-out runs of the same prompt. `GET .../events` streams delegation changes as SSE.
 
+### Harness — Preflight & Agent Sessions
+
+```http
+GET  /api/harness/preflight                     → { verdict: ready|warning|blocked, checks[] }
+POST /api/harness/runs                          { ..., dryRun: true } → resolved config + verdict, nothing spawned
+GET  /api/agents/sessions?cli=<name>&take=<n>   → recent CLI sessions on the server host
+```
+
+`GET /api/harness/preflight` runs the read-only doctor probes (SPEC-20261023-p0-agent-hardening T3) and returns a verdict plus per-check `nextAction` hints — `taskctl doctor` mirrors it locally (exit 0/2). `POST /api/harness/runs` accepts `dryRun` to resolve the effective config + run the same probes without persisting the run or spawning an agent; the `delegate_task` chat tool exposes the same path as `dry_run`. `GET /api/agents/sessions` lists recent agent-CLI sessions scanned under `Taskboard:HomeDir` (falls back to the real user profile when unset — injected home keeps tests hermetic).
+
 ### Web Push (push subscriptions)
 
 ```http
