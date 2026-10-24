@@ -559,7 +559,13 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddScoped<IAgentBoardService, AgentBoardService>();
     builder.Services.AddScoped<IAgentBoardReadMarkerRepository, EfCoreAgentBoardReadMarkerRepository>();
     builder.Services.AddScoped<IWorkspaceCheckpointService, WorkspaceCheckpointService>();
-    builder.Services.AddSingleton<IAgentSessionScanner, AgentSessionScanner>();
+    // SPEC-20261024-agent-session-scanner-hermeticity: scan under the
+    // configured home (Taskboard:HomeDir) — never the real user profile in
+    // tests/integration runs.
+    builder.Services.AddSingleton<IAgentSessionScanner>(
+        _ => new AgentSessionScanner(
+            builder.Configuration["Taskboard:HomeDir"]
+                ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
     // SPEC-20261020-session-history-parity RF-001/RF-005: enriched index +
     // per-CLI visibility. The index service is a singleton (60s rebuild gate).
     builder.Services.AddScoped<ISessionCliVisibilityRepository, EfCoreSessionCliVisibilityRepository>();

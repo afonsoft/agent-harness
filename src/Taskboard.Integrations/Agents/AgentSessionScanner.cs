@@ -35,7 +35,10 @@ public sealed class AgentSessionScanner : IAgentSessionScanner
     {
     }
 
-    internal AgentSessionScanner(string home)
+    /// <summary>SPEC-20261024-agent-session-scanner-hermeticity: explicit home
+    /// root — DI passes <c>Taskboard:HomeDir</c> so tests never scan the real
+    /// developer home.</summary>
+    public AgentSessionScanner(string home)
     {
         _home = home;
     }
