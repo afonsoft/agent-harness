@@ -6,6 +6,7 @@ using Taskboard.Application.Contracts.AiChat;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Configuration;
 using Taskboard.Application.Contracts.Delegation;
+using Taskboard.Application.Contracts.Harness;
 using Taskboard.Application.Contracts.Jobs;
 using Taskboard.Application.Contracts.Mcp;
 using Taskboard.Application.Contracts.Operations;
@@ -1163,6 +1164,18 @@ public sealed class TaskboardClient
         var response = await _httpClient.PostAsJsonAsync("/api/harness/runs", request, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<PipelineExecutionDto>(cancellationToken);
+    }
+
+    /// <summary>
+    /// SPEC-20261023 RF-C03: dry-run — resolve a config efetiva + preflight no
+    /// servidor sem persistir run nem spawnar processo.
+    /// </summary>
+    public async Task<RunDryRunResult?> DryRunAsync(RunStartRequest request, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            "/api/harness/runs", request with { DryRun = true }, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<RunDryRunResult>(cancellationToken);
     }
 
     /// <summary>Snapshot do run: execução + telemetria + worktree.</summary>

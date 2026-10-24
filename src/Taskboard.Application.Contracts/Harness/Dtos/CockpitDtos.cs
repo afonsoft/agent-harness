@@ -54,7 +54,9 @@ public sealed record RunStartRequest(
     /// <summary>The single CLI for the run, or null for Auto.</summary>
     AgentType? SingleAgentType = null,
     /// <summary>Tier applied to every AgentWork stage, or null to keep stage defaults.</summary>
-    AgentModelTier? SingleAgentTier = null);
+    AgentModelTier? SingleAgentTier = null,
+    /// <summary>SPEC-20261023 RF-C03: resolve config + run preflight, persist nothing.</summary>
+    bool DryRun = false);
 
 /// <summary>Body for `POST /api/harness/runs/{id}/steer` (RF-003).</summary>
 public sealed record SteerRequest(string Instruction);
