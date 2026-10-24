@@ -48,6 +48,17 @@ public sealed class BrowserUseTool(
     /// <summary>RF-007: every action surfaces an approval card.</summary>
     public bool RequiresConfirmation => true;
 
+    /// <summary>
+    /// SPEC-20261023 RF-D01: available only when the pool reports a usable
+    /// Chromium — the schema is withheld (deferred) when no browser exists.
+    /// </summary>
+    public async Task<bool> IsAvailableAsync(ChatToolContext context, CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var pool = scope.ServiceProvider.GetService<IBrowserSessionPool>();
+        return pool is not null && await pool.IsAvailableAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken)
     {

@@ -32,6 +32,15 @@ public interface IChatTool
     /// <summary>Origin label (e.g. MCP server name); null for builtins.</summary>
     string? Origin => null;
 
+    /// <summary>
+    /// SPEC-20261023-p0-agent-hardening RF-D01: availability probe run before
+    /// each turn — <c>false</c> omits the schema (the tool lands in the
+    /// deferred catalog marked unavailable). Results are TTL-cached per
+    /// conversation; the default is "always available".
+    /// </summary>
+    Task<bool> IsAvailableAsync(ChatToolContext context, CancellationToken cancellationToken)
+        => Task.FromResult(true);
+
     Task<ChatToolResult> ExecuteAsync(JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken);
 }
 

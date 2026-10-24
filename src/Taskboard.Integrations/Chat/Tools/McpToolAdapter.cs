@@ -26,6 +26,14 @@ public sealed class McpToolAdapter(
     public ChatCapabilityKind Kind => ChatCapabilityKind.McpTool;
     public string? Origin => serverName;
 
+    /// <summary>
+    /// SPEC-20261023 RF-D01/D03: adapter tools defer while their server is
+    /// unreachable — the schema returns once health recovers.
+    /// </summary>
+    public Task<bool> IsAvailableAsync(ChatToolContext context, CancellationToken cancellationToken) =>
+        Task.FromResult(
+            manager.GetServers().FirstOrDefault(s => s.Name == serverName)?.Healthy ?? false);
+
     public Task<ChatToolResult> ExecuteAsync(
         JsonElement arguments, ChatToolContext context, CancellationToken cancellationToken) =>
         manager.CallAsync(serverName, remoteToolName, arguments, context, cancellationToken);
