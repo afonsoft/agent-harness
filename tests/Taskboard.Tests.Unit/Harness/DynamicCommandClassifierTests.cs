@@ -114,4 +114,56 @@ public class DynamicCommandClassifierTests
     public void Dado_PathAbsolutoDentroDoWorktree_Quando_Classify_Entao_WorkspaceWrite()
         => _sut.Classify($"touch {Path.Combine(Worktree, "a.txt")}", Worktree)
             .RiskLevel.ShouldBe(SecurityRiskLevel.WorkspaceWrite);
+
+    // SPEC-20261023-p0-agent-hardening RF-A02 — credential-path é recusa
+    // fail-closed `credential-path`; nenhuma aprovação pode aprová-lo.
+    [Theory]
+    [InlineData("cat .ssh/id_rsa")]              // credential-path dentro do worktree
+    [InlineData("cat ~/.ssh/id_rsa")]            // ~ falha jail, mas denylist classifica antes
+    [InlineData("cat .ssh/*")]                   // glob sobre dir sensível
+    [InlineData("cp .aws/credentials backup")]
+    [InlineData("head .gnupg/secring.gpg")]
+    [InlineData("cat .kube/config")]
+    [InlineData("ls .agent-harness/secrets.json")]
+    public void Dado_LeituraDeCredentialPath_Quando_Classify_Entao_NegadoSemApproval(string command)
+    {
+        var result = _sut.Classify(command, Worktree);
+
+        result.RiskLevel.ShouldBe(SecurityRiskLevel.Dangerous);
+        result.DeniesCredentialPath.ShouldBeTrue();
+        result.Reason.ShouldContain("credential-path:");
+    }
+
+    [Fact]
+    public void Dado_RedirectParaCredentialPath_Quando_Classify_Entao_NegadoSemApproval()
+    {
+        var result = _sut.Classify("echo x > .ssh/authorized_keys", Worktree);
+
+        result.DeniesCredentialPath.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Dado_RmDeCredentialPath_Quando_Classify_Entao_NegadoSemApproval()
+    {
+        var result = _sut.Classify("rm -rf .ssh", Worktree);
+
+        result.RiskLevel.ShouldBe(SecurityRiskLevel.Dangerous);
+        result.DeniesCredentialPath.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("sudo apt update && cat .ssh/id_rsa")]   // credential vence Dangerous comum no tie
+    [InlineData("git status && cat .aws/credentials")]
+    public void Dado_CadeiaComSegmentoCredential_Quando_Classify_Entao_NegadoSemApproval(string command)
+    {
+        var result = _sut.Classify(command, Worktree);
+
+        result.RiskLevel.ShouldBe(SecurityRiskLevel.Dangerous);
+        result.DeniesCredentialPath.ShouldBeTrue(
+            "credential-path deve vencer o tie-break contra Dangerous comum — senão vira aprovável");
+    }
+
+    [Fact]
+    public void Dado_ComandoBenigno_Quando_Classify_Entao_DeniesCredentialPathFalso()
+        => _sut.Classify("cat README.md", Worktree).DeniesCredentialPath.ShouldBeFalse();
 }
