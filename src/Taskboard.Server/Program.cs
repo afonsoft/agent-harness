@@ -29,6 +29,7 @@ using Taskboard.Application.Delegation;
 using Taskboard.Application.GitHub;
 using Taskboard.Application.Harness;
 using Taskboard.Integrations.Chat;
+using Taskboard.Integrations.Chat.Hooks;
 using Taskboard.Integrations.Chat.SearchBackends;
 using Taskboard.Integrations.Chat.Tools;
 using Taskboard.Integrations.Chat.Tools.Board;
@@ -710,6 +711,17 @@ void RegisterWorkspaceAndChatServices()
     // probes, catalog state and append-only promotions keyed by conversation.
     builder.Services.AddSingleton<IDeferredToolCatalog>(sp =>
         new DeferredToolCatalog(sp.GetRequiredService<IConfiguration>()));
+    // SPEC-20261024-p1-agent-reliability RF-E01/E03: chat hook engine —
+    // lifecycle hooks resolved per event + matcher and folded allow|warn|block.
+    // Master switch Taskboard:Chat:Hooks:Enabled (default on). Built-ins:
+    // config-protection (denylist-backed) and mcp-health-check (warn-only).
+    builder.Services.AddSingleton<IChatHook>(sp => new ConfigProtectionHook(
+        sp.GetService<SensitivePathDenylist>(), environment.GetDataDir()));
+    builder.Services.AddSingleton<IChatHook, McpHealthCheckHook>();
+    builder.Services.AddSingleton<IChatHookRegistry>(sp => new ChatHookRegistry(
+        sp.GetServices<IChatHook>(),
+        sp.GetRequiredService<IConfiguration>(),
+        sp.GetRequiredService<ILogger<ChatHookRegistry>>()));
     builder.Services.AddSingleton<IReadOnlyDictionary<string, IChatTool>>(sp =>
     {
         var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("chat-search");
@@ -959,7 +971,8 @@ void RegisterWorkspaceAndChatServices()
             sp.GetRequiredService<IConfiguration>(),
             sp.GetRequiredService<ILoggerFactory>(),
             sp.GetService<ISecretRedactor>(),
-            homeDir));
+            homeDir,
+            hooks: sp.GetService<IChatHookRegistry>()));
     // SPEC-20260919-harness-verification-loop: motor + evidência + loop fechado.
     builder.Services.AddSingleton<IProcessRunner, ProcessCommandRunner>();
     builder.Services.AddSingleton<IVerificationEngine, DotNetVerificationEngine>();

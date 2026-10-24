@@ -2,9 +2,12 @@ using System.Text.Json;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
+using Taskboard.Application.Chat;
 using Taskboard.Application.Contracts.Chat;
 using Taskboard.Application.Contracts.Mcp;
+using Taskboard.Integrations.Chat.Hooks;
 using Taskboard.Integrations.Mcp;
 using Xunit;
 
@@ -21,7 +24,7 @@ public class ChatMcpClientManagerTests
     private static IConfiguration Config(Dictionary<string, string?> values) =>
         new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 
-    private static ChatToolContext Ctx() => new(
+    private static ChatToolContext Ctx(IChatActivityReporter? activity = null) => new(
         WorkspacePath: "/tmp",
         ProviderId: Guid.NewGuid(),
         ProviderBaseUrl: "http://localhost",
@@ -29,7 +32,35 @@ public class ChatMcpClientManagerTests
         ImageModel: "",
         SearchBackend: "none",
         SearchUrl: "",
-        SearchApiKey: "");
+        SearchApiKey: "",
+        Activity: activity);
+
+    private static IChatHookRegistry Hooks(
+        IEnumerable<IChatHook> hooks, bool enabled = true) =>
+        new ChatHookRegistry(hooks,
+            Config(new() { [ChatHookRegistry.EnabledKey] = enabled ? "true" : "false" }),
+            NullLogger<ChatHookRegistry>.Instance);
+
+    private sealed class RecordingActivity : IChatActivityReporter
+    {
+        public List<(string Phase, string Label)> Events { get; } = [];
+        public void Report(string phase, string label) => Events.Add((phase, label));
+    }
+
+    private sealed class RecordingHook(
+        Func<HookContext, CancellationToken, Task<HookVerdict>> run) : IChatHook
+    {
+        public List<HookContext> Seen { get; } = [];
+        public string Name => "recorder";
+        public string Event => ChatHookEvents.McpCall;
+        public string Matcher => ".*";
+
+        public Task<HookVerdict> RunAsync(HookContext context, CancellationToken cancellationToken)
+        {
+            Seen.Add(context);
+            return run(context, cancellationToken);
+        }
+    }
 
     [Fact]
     public async Task Dado_McpDisabled_Quando_GetTools_Entao_ZeroToolsMcp()
@@ -113,6 +144,116 @@ public class ChatMcpClientManagerTests
             Ctx(), CancellationToken.None);
         result.Refused.ShouldBeTrue();
         result.Json.ShouldContain("unavailable");
+    }
+
+    // ---- SPEC-20261024-p1-agent-reliability RF-E02/E03: mcp.call ----
+
+    [Fact]
+    public async Task Dado_ServerDegradado_Quando_Call_Entao_McpCallAvisaSaude()
+    {
+        var activity = new RecordingActivity();
+        await using var manager = new ChatMcpClientManager(
+            Config(new()
+            {
+                [ChatMcpClientManager.EnabledKey] = "true",
+                [ChatMcpClientManager.ServersKey] = """[{"name":"dead","command":"definitely-not-a-real-command-xyz"}]""",
+            }),
+            LoggerFactory.Create(_ => { }),
+            redactor: null,
+            hooks: Hooks([new McpHealthCheckHook()]));
+
+        (await manager.GetToolsAsync(CancellationToken.None)).ShouldBeEmpty();
+        manager.GetServers().Single().Healthy.ShouldBeFalse();
+        var result = await manager.CallAsync(
+            "dead", "anything", JsonDocument.Parse("{}").RootElement,
+            Ctx(activity), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        var note = activity.Events.Single(e => e.Phase == "hook_note");
+        note.Label.ShouldContain("mcp-health-check");
+        note.Label.ShouldContain("degraded");
+    }
+
+    [Fact]
+    public async Task Dado_ServerSaudavel_Quando_Call_Entao_McpCallSemNota()
+    {
+        using var server = new FakeMcpServer();
+        var activity = new RecordingActivity();
+        var hook = new RecordingHook((_, _) => Task.FromResult(HookVerdict.Allow));
+        await using var manager = new ChatMcpClientManager(
+            Config(new()
+            {
+                [ChatMcpClientManager.EnabledKey] = "true",
+                [ChatMcpClientManager.ServersKey] =
+                    $$"""[{"name":"fake","command":"{{server.Command}}","args":{{JsonSerializer.Serialize(server.Args)}}}]""",
+            }),
+            LoggerFactory.Create(_ => { }),
+            redactor: null,
+            hooks: Hooks([hook, new McpHealthCheckHook()]));
+
+        await manager.GetToolsAsync(CancellationToken.None);
+        var result = await manager.CallAsync(
+            "fake", "echo", JsonDocument.Parse("""{"text":"hi"}""").RootElement,
+            Ctx(activity), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        var ctx = hook.Seen.ShouldHaveSingleItem();
+        ctx.Subject.ShouldBe("mcp_fake_echo");
+        ctx.Meta!["server"].ShouldBe("fake");
+        ctx.Meta!["healthy"].ShouldBe("true");
+        activity.Events.ShouldNotContain(e => e.Phase == "hook_note");
+    }
+
+    [Fact]
+    public async Task Dado_BlockNoMcpCall_Quando_Call_Entao_RecusaAntesDoDispatch()
+    {
+        using var server = new FakeMcpServer();
+        var blocker = new RecordingHook(
+            (_, _) => Task.FromResult(HookVerdict.Block("política")));
+        await using var manager = new ChatMcpClientManager(
+            Config(new()
+            {
+                [ChatMcpClientManager.EnabledKey] = "true",
+                [ChatMcpClientManager.ServersKey] =
+                    $$"""[{"name":"fake","command":"{{server.Command}}","args":{{JsonSerializer.Serialize(server.Args)}}}]""",
+            }),
+            LoggerFactory.Create(_ => { }),
+            redactor: null,
+            hooks: Hooks([blocker]));
+
+        await manager.GetToolsAsync(CancellationToken.None);
+        var result = await manager.CallAsync(
+            "fake", "echo", JsonDocument.Parse("""{"text":"hi"}""").RootElement,
+            Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeTrue();
+        result.Json.ShouldContain("blocked by hook");
+        result.Json.ShouldContain("recorder");
+    }
+
+    [Fact]
+    public async Task Dado_EngineDesabilitada_Quando_Call_Entao_HookNaoRoda()
+    {
+        using var server = new FakeMcpServer();
+        var hook = new RecordingHook((_, _) => Task.FromResult(HookVerdict.Allow));
+        await using var manager = new ChatMcpClientManager(
+            Config(new()
+            {
+                [ChatMcpClientManager.EnabledKey] = "true",
+                [ChatMcpClientManager.ServersKey] =
+                    $$"""[{"name":"fake","command":"{{server.Command}}","args":{{JsonSerializer.Serialize(server.Args)}}}]""",
+            }),
+            LoggerFactory.Create(_ => { }),
+            redactor: null,
+            hooks: Hooks([hook], enabled: false));
+
+        await manager.GetToolsAsync(CancellationToken.None);
+        var result = await manager.CallAsync(
+            "fake", "echo", JsonDocument.Parse("""{"text":"hi"}""").RootElement,
+            Ctx(), CancellationToken.None);
+
+        result.Refused.ShouldBeFalse();
+        hook.Seen.ShouldBeEmpty();
     }
 
     [Fact]

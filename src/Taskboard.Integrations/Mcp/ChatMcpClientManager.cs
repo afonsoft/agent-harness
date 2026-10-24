@@ -52,12 +52,14 @@ public sealed class ChatMcpClientManager : IMcpClientManager
 
     private readonly Func<ChatMcpServerSpec, IClientTransport>? _transportFactory;
     private readonly Func<GlobalAgentsMcpLoad> _globalLoader;
+    private readonly IChatHookRegistry? _hooks;
 
     public ChatMcpClientManager(
         IConfiguration configuration,
         ILoggerFactory loggerFactory,
         ISecretRedactor? redactor = null,
-        string? homeDirectory = null)
+        string? homeDirectory = null,
+        IChatHookRegistry? hooks = null)
         : this(
             configuration,
             loggerFactory,
@@ -67,7 +69,8 @@ public sealed class ChatMcpClientManager : IMcpClientManager
                 Path.Join(
                     homeDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".agents"),
-                loggerFactory.CreateLogger<GlobalAgentsMcpLoader>()).Load)
+                loggerFactory.CreateLogger<GlobalAgentsMcpLoader>()).Load,
+            hooks)
     {
     }
 
@@ -78,13 +81,15 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         ILoggerFactory loggerFactory,
         ISecretRedactor? redactor,
         Func<ChatMcpServerSpec, IClientTransport>? transportFactory,
-        Func<GlobalAgentsMcpLoad>? globalLoader = null)
+        Func<GlobalAgentsMcpLoad>? globalLoader = null,
+        IChatHookRegistry? hooks = null)
     {
         _configuration = configuration;
         _loggerFactory = loggerFactory;
         _redactor = redactor;
         _transportFactory = transportFactory;
         _globalLoader = globalLoader ?? (() => GlobalAgentsMcpLoad.Empty);
+        _hooks = hooks;
         _logger = loggerFactory.CreateLogger<ChatMcpClientManager>();
     }
 
@@ -386,6 +391,36 @@ public sealed class ChatMcpClientManager : IMcpClientManager
         CancellationToken cancellationToken)
     {
         context.Activity?.Report("running_mcp", $"{serverName}/{remoteToolName}");
+
+        // SPEC-20261024-p1-agent-reliability RF-E02/E03: mcp.call — hooks
+        // inspect the call with live server health in Meta; warnings surface
+        // as status notes, a block refuses the call before dispatch.
+        if (_hooks is { Enabled: true })
+        {
+            var meta = new Dictionary<string, string> { ["server"] = serverName };
+            if (_statuses.TryGetValue(serverName, out var status))
+            {
+                meta["healthy"] = status.Healthy ? "true" : "false";
+                if (status.Error is not null)
+                {
+                    meta["error"] = status.Error;
+                }
+            }
+
+            var verdict = await _hooks.RunAsync(new HookContext(
+                ChatHookEvents.McpCall, $"mcp_{serverName}_{remoteToolName}", arguments,
+                ConversationId: context.ConversationId, WorkspacePath: context.WorkspacePath,
+                Meta: meta), cancellationToken).ConfigureAwait(false);
+            foreach (var warn in verdict.Warnings)
+            {
+                context.Activity?.Report("hook_note", $"{warn.Hook}: {warn.Reason}");
+            }
+
+            if (verdict.Block is { } block)
+            {
+                return ErrorResult($"blocked by hook '{block.Hook}': {block.Reason}");
+            }
+        }
 
         var result = await InvokeAsync(serverName, remoteToolName, arguments, context, cancellationToken, retried: false)
             .ConfigureAwait(false);
