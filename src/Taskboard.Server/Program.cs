@@ -953,6 +953,17 @@ void RegisterWorkspaceAndChatServices()
     // registered notifier inside each run's scope.
     builder.Services.AddScoped<IChatRunNotifier, SignalRChatRunNotifier>();
     builder.Services.AddScoped<IChatRunNotifier, WebPushChatRunNotifier>();
+    // SPEC-20261025 C1: Slack channel — Socket Mode inbound bridge +
+    // approval-card notifier. Off unless Taskboard:Channels:Slack:Enabled
+    // + xoxb/xapp tokens; scoped like the other notifiers.
+    builder.Services.AddScoped<IChatRunNotifier, Taskboard.Server.Services.Slack.SlackChannelNotifier>();
+    builder.Services.AddScoped<Taskboard.Server.Services.Slack.SlackApiClient>();
+    builder.Services.AddHttpClient("slack", static client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+    builder.Services.AddScoped<IChatChannelBridge, ChatChannelBridge>();
+    builder.Services.AddHostedService<Taskboard.Server.Services.Slack.SlackChannelService>();
     builder.Services.AddScoped<VapidKeyService>();
     builder.Services.AddScoped<IWebPushSender, WebPushSender>();
     builder.Services.AddHttpClient("webpush", static client =>

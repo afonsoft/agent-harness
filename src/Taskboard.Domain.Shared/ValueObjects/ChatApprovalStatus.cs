@@ -47,6 +47,9 @@ public sealed record ChatApprovalDecidedBy : StringValueObject
         "auto:low",
         "auto:medium",
         "auto:high",
+        // SPEC-20261025 C1: a human decision arriving over a chat channel
+        // (Slack etc.) — the channel name audits the path, not the bot.
+        "channel:slack",
     };
 
     public static readonly ChatApprovalDecidedBy Ui = new("ui");
@@ -55,6 +58,9 @@ public sealed record ChatApprovalDecidedBy : StringValueObject
 
     /// <summary>The <c>auto:&lt;risk&gt;</c> audit marker (SPEC-20261013).</summary>
     public static ChatApprovalDecidedBy ForAutoRisk(string risk) => new($"auto:{risk}");
+
+    /// <summary>The <c>channel:&lt;name&gt;</c> audit marker (SPEC-20261025 C1).</summary>
+    public static ChatApprovalDecidedBy ForChannel(string channel) => new($"channel:{channel}");
 
     public ChatApprovalDecidedBy(string value)
         : base(value, AllowedValues)

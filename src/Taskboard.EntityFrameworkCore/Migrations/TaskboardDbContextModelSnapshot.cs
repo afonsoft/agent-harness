@@ -1055,6 +1055,49 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("ChatAttachments", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Entities.Chat.ChatChannelBinding", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ConversationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalChannelId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalThreadId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalUserId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId");
+
+                    b.HasIndex("Channel", "ExternalChannelId", "ExternalThreadId")
+                        .IsUnique();
+
+                    b.ToTable("ChatChannelBindings", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Entities.Chat.ChatConversation", b =>
                 {
                     b.Property<string>("Id")
@@ -3151,6 +3194,15 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                 });
 
             modelBuilder.Entity("Taskboard.Domain.Entities.Chat.ChatAttachment", b =>
+                {
+                    b.HasOne("Taskboard.Domain.Entities.Chat.ChatConversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Taskboard.Domain.Entities.Chat.ChatChannelBinding", b =>
                 {
                     b.HasOne("Taskboard.Domain.Entities.Chat.ChatConversation", null)
                         .WithMany()

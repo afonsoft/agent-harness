@@ -91,7 +91,7 @@ catalog", C1 as "P2b channels", C4+C5 as "P2c extensibility".
 - [x] C2: `Sandbox=docker` routes an `echo` through a container (asserted in
   test with a fake runner); worktree writes land on the host; `$HOME` files
   are unreachable; docker-socket absence falls back to host + WARN.
-- [ ] C1: a Slack message becomes a conversation user-message; a pending
+- [x] C1: a Slack message becomes a conversation user-message; a pending
   approval card renders an Approve/Reject action in-channel; the decision
   lands on the same `ChatApproval` row as a UI click.
 - [ ] C4: `lsp document_symbols` on the workspace returns symbols via the
@@ -102,6 +102,6 @@ catalog", C1 as "P2b channels", C4+C5 as "P2c extensibility".
 
 - [x] **T10 (C3)** — skills pins + kill list.
 - [x] **T11 (C2)** — docker sandbox runner + preflight + fallback.
-- [ ] **T12 (C1)** — Slack channel adapter + remote approvals.
+- [x] **T12 (C1)** — Slack channel adapter + remote approvals.
 - [ ] **T13 (C4)** — LSP tool (deferred-catalog citizen).
 - [ ] **T14 (C5)** — plugin model ADR.
