@@ -12,6 +12,7 @@ using Taskboard.Application.Contracts.Harness;
 using Taskboard.Application.Contracts.Skills;
 using Taskboard.Application.Contracts.Workspace;
 using Taskboard.Chat;
+using Taskboard.Diagnostics;
 using Taskboard.Domain.Entities.Chat;
 using Taskboard.Repositories;
 using Taskboard.ValueObjects;
@@ -514,7 +515,27 @@ public sealed class ChatService(
         string conversationId, string runId, CancellationToken ct = default)
     {
         var run = await runRepository.GetAsync(ChatRunId.From(runId), ct).ConfigureAwait(false);
-        return run is null || run.ConversationId.Value != conversationId ? null : ToDto(run);
+        return run is null || run.ConversationId.Value != conversationId
+            ? null : ToDto(run, await BuildDiagnosticsAsync(run, ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// SPEC-20261024-p1-agent-reliability RF-T9: diagnostics card for terminal
+    /// non-success runs — tool failures are read back from the persisted
+    /// tool-result messages written since the run was created.
+    /// </summary>
+    private async Task<RunDiagnosticsDto?> BuildDiagnosticsAsync(ChatRun run, CancellationToken ct)
+    {
+        if (!RunDiagnosticsClassifier.IsTerminalFailure(run.Status.Value))
+            return null;
+        var toolMessages = await messages.Query
+            .Where(m => m.ConversationId == run.ConversationId
+                && m.Role == ChatMessageRole.Tool
+                && m.ToolName != null
+                && m.CreatedAt >= run.CreatedAt)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+        return ChatRunDiagnostics.ForRun(run, toolMessages);
     }
 
     public async Task<bool> DeleteConversationAsync(string id, CancellationToken ct = default)
@@ -1462,7 +1483,10 @@ public sealed class ChatService(
         var active = run.Status.IsActive;
         return new ChatRunSyncDto(
             await EnrichMessagesAsync(rows, ct).ConfigureAwait(false),
-            ToDto(run),
+            // RF-T9: reuse the already-loaded transcript — tool failures are
+            // read back from the persisted tool-result messages, no re-query.
+            ToDto(run, ChatRunDiagnostics.ForRun(run,
+                rows.Where(m => m.Role == ChatMessageRole.Tool && m.CreatedAt >= run.CreatedAt).ToList())),
             live?.Partial ?? (active ? run.PartialContent : null),
             live?.PartialReasoning ?? (active ? run.PartialReasoning : null),
             live?.LastSeq ?? 0,
@@ -3839,7 +3863,7 @@ public sealed class ChatService(
         provider.CreatedAt,
         provider.UpdatedAt);
 
-    private static ChatRunDto ToDto(ChatRun run) => new(
+    private static ChatRunDto ToDto(ChatRun run, RunDiagnosticsDto? diagnostics = null) => new(
         run.Id.Value,
         run.ConversationId.Value,
         run.Status.Value,
@@ -3852,7 +3876,8 @@ public sealed class ChatService(
         run.FinishedAt,
         run.ContextTokensLimit,
         run.CompactionCount,
-        run.PausedAt);
+        run.PausedAt,
+        diagnostics);
 
     private static ChatApprovalDto ToDto(ChatApproval approval) => new(
         approval.Id.Value,

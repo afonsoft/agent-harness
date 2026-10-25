@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Delegation;
+using Taskboard.Diagnostics;
 using Taskboard.Domain.Entities.Delegation;
 using Taskboard.Dtos;
 using Taskboard.EntityFrameworkCore.Data;
@@ -208,7 +209,40 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.CreatedAt, t.StartedAt, t.FinishedAt, t.LastHeartbeatAt, t.Kind,
             t.RunId, t.ActiveDispatchId, t.Model, t.Effort, t.SharedPathsApplied,
             t.SetupState, t.SetupLogTail, t.ExtraArgs, t.Autonomy,
-            t.PromptRefined, t.PromptRefinement, t.Role, t.OutputSchema, t.SchemaValid);
+            t.PromptRefined, t.PromptRefinement, t.Role, t.OutputSchema, t.SchemaValid,
+            BuildDiagnostics(t));
+
+    /// <summary>
+    /// SPEC-20261024-p1-agent-reliability RF-T9: diagnostics card for
+    /// failed/cancelled tasks, derived from the row itself — status events
+    /// come from the lifecycle stamps, error class from <see cref="RunDiagnosticsClassifier"/>.
+    /// Tasks are not tool-runners, so the tool-failure and pressure
+    /// sections stay empty.
+    /// </summary>
+    private static RunDiagnosticsDto? BuildDiagnostics(DelegationTask t)
+    {
+        if (t.Status is not (DelegationTaskStatus.Failed or DelegationTaskStatus.Cancelled))
+            return null;
+        var status = t.Status.ToString().ToLowerInvariant();
+        var events = new List<string>
+        {
+            $"created {t.CreatedAt:O} kind={t.Kind} role={t.Role}",
+        };
+        if (t.ActiveDispatchId is { } dispatch) events.Add($"dispatch {dispatch}");
+        if (t.StartedAt is { } started) events.Add($"started {started:O}");
+        if (t.RetryOf is { } retry) events.Add($"retry-of {retry}");
+        if (t.FinishedAt is { } finished)
+            events.Add($"finished {finished:O} status={status}"
+                + (t.SchemaValid is { } v ? $" schema_valid={v.ToString().ToLowerInvariant()}" : ""));
+        if (t.Error is { } error) events.Add($"error: {RunDiagnosticsClassifier.Trim(error)}");
+        return new RunDiagnosticsDto(
+            RunDiagnosticsClassifier.ClassifyError(status, t.Error),
+            [],
+            events.TakeLast(RunDiagnosticsClassifier.MaxEvents).ToList(),
+            ContextTokensLimit: null,
+            CompactionCount: 0,
+            PressureState: null);
+    }
 }
 
 /// <summary>EF Core store for the agent mailbox (SPEC-20261005 RF-002).</summary>
