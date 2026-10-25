@@ -96,7 +96,7 @@ catalog", C1 as "P2b channels", C4+C5 as "P2c extensibility".
   lands on the same `ChatApproval` row as a UI click.
 - [x] C4: `lsp document_symbols` on the workspace returns symbols via the
   deferred-tool path (activate → schema → call).
-- [ ] C5: ADR merged under `.specs/` recording the decision + consequences.
+- [x] C5: ADR merged under `.specs/` recording the decision + consequences.
 
 ## 5. Task plan
 
@@ -104,4 +104,4 @@ catalog", C1 as "P2b channels", C4+C5 as "P2c extensibility".
 - [x] **T11 (C2)** — docker sandbox runner + preflight + fallback.
 - [x] **T12 (C1)** — Slack channel adapter + remote approvals.
 - [x] **T13 (C4)** — LSP tool (deferred-catalog citizen).
-- [ ] **T14 (C5)** — plugin model ADR.
+- [x] **T14 (C5)** — plugin model ADR.
