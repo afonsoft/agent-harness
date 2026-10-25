@@ -436,7 +436,8 @@ public sealed class FindFilesTool(SensitivePathDenylist? denylist = null) : ICha
 /// gateway for anything that writes.
 /// </summary>
 public sealed class GitTool(
-    ISecretRedactor redactor, SensitivePathDenylist? denylist = null) : IChatTool
+    ISecretRedactor redactor, SensitivePathDenylist? denylist = null,
+    IChatToolSandbox? sandbox = null) : IChatTool
 {
     public string Name => "git";
     public string Description =>
@@ -486,7 +487,7 @@ public sealed class GitTool(
             }
 
             var result = await ChatProcessRunner.RunAsync("git", argv, context.WorkspacePath,
-                TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+                TimeSpan.FromSeconds(30), cancellationToken, sandbox: sandbox).ConfigureAwait(false);
             var output = redactor.Redact(
                 ChatProcessRunner.Truncate($"{result.Stdout}{result.Stderr}"));
             return new ChatToolResult(JsonSerializer.Serialize(new
@@ -494,6 +495,7 @@ public sealed class GitTool(
                 action,
                 exitCode = result.ExitCode,
                 timedOut = result.TimedOut,
+                sandboxWarning = result.SandboxWarning,
                 output,
             }));
         }
@@ -531,7 +533,8 @@ public sealed class GitTool(
 /// path-jailed, timeout-bounded and secret-scrubbed.
 /// </summary>
 public sealed class RunTestsTool(
-    ISecretRedactor redactor, SensitivePathDenylist? denylist = null) : IChatTool
+    ISecretRedactor redactor, SensitivePathDenylist? denylist = null,
+    IChatToolSandbox? sandbox = null) : IChatTool
 {
     public string Name => "run_tests";
     public string Description =>
@@ -584,13 +587,14 @@ public sealed class RunTestsTool(
             }
 
             var result = await ChatProcessRunner.RunAsync("dotnet", argv, context.WorkspacePath,
-                TimeSpan.FromSeconds(timeoutSeconds), cancellationToken).ConfigureAwait(false);
+                TimeSpan.FromSeconds(timeoutSeconds), cancellationToken, sandbox: sandbox).ConfigureAwait(false);
             var output = redactor.Redact(
                 ChatProcessRunner.Truncate($"{result.Stdout}{result.Stderr}"));
             return new ChatToolResult(JsonSerializer.Serialize(new
             {
                 exitCode = result.ExitCode,
                 timedOut = result.TimedOut,
+                sandboxWarning = result.SandboxWarning,
                 output,
             }));
         }

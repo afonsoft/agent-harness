@@ -19,7 +19,8 @@ public sealed class ShellExecTool(
     ICommandRiskClassifier classifier,
     ISecretRedactor redactor,
     IChatJobService? jobs = null,
-    IConfiguration? configuration = null) : IChatTool
+    IConfiguration? configuration = null,
+    IChatToolSandbox? sandbox = null) : IChatTool
 {
     internal const int MaxOutputChars = 16_000;
 
@@ -91,13 +92,14 @@ public sealed class ShellExecTool(
             ? Math.Clamp(tv, 5, 300)
             : 60;
         var result = await ChatProcessRunner.RunAsync("/bin/sh", ["-c", command], context.WorkspacePath,
-            TimeSpan.FromSeconds(timeoutSeconds), cancellationToken).ConfigureAwait(false);
+            TimeSpan.FromSeconds(timeoutSeconds), cancellationToken, sandbox: sandbox).ConfigureAwait(false);
         var output = redactor.Redact(ChatProcessRunner.Truncate(
             $"exitCode: {result.ExitCode}\nstdout:\n{result.Stdout}\nstderr:\n{result.Stderr}"));
         return new ChatToolResult(JsonSerializer.Serialize(new
         {
             exitCode = result.ExitCode,
             timedOut = result.TimedOut,
+            sandboxWarning = result.SandboxWarning,
             output,
         }));
     }
@@ -109,13 +111,14 @@ public sealed class ShellExecTool(
 /// <summary>Process execution helper shared by the confined chat tools.</summary>
 internal static class ChatProcessRunner
 {
-    public static async Task<(int ExitCode, string Stdout, string Stderr, bool TimedOut)> RunAsync(
+    public static async Task<(int ExitCode, string Stdout, string Stderr, bool TimedOut, string? SandboxWarning)> RunAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         string workingDirectory,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        string? stdin = null)
+        string? stdin = null,
+        IChatToolSandbox? sandbox = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -136,10 +139,26 @@ internal static class ChatProcessRunner
 
         WithoutHarnessEnv.Apply(startInfo.Environment, workingDirectory);
 
+        // SPEC-20261025 C2: second-layer sandbox — Wrap rewrites the argv to
+        // `docker run …`; when the socket is down we run on the host and the
+        // caller surfaces the warning in the tool result.
+        string? sandboxWarning = null;
+        if (sandbox?.Enabled == true)
+        {
+            if (await sandbox.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
+            {
+                sandbox.Wrap(startInfo);
+            }
+            else
+            {
+                sandboxWarning = $"sandbox '{sandbox.Name}' unavailable — executed on host";
+            }
+        }
+
         using var process = Process.Start(startInfo);
         if (process is null)
         {
-            return (-1, string.Empty, $"failed to start {fileName}", false);
+            return (-1, string.Empty, $"failed to start {fileName}", false, sandboxWarning);
         }
 
         if (stdin is not null)
@@ -178,7 +197,8 @@ internal static class ChatProcessRunner
         return (process.HasExited ? process.ExitCode : -1,
             Trim(await stdout.ConfigureAwait(false)),
             Trim(await stderr.ConfigureAwait(false)),
-            timedOut);
+            timedOut,
+            sandboxWarning);
     }
 
     public static string Truncate(string value) =>
