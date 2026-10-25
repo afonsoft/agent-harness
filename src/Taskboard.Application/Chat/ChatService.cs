@@ -3714,10 +3714,11 @@ public sealed class ChatService(
         try
         {
             var discovered = await skills.DiscoverAsync(ct).ConfigureAwait(false);
-            var lines = discovered
-                .Where(sk => string.Equals(sk.Source, SkillDiscoverySource.Agents, StringComparison.OrdinalIgnoreCase))
-                .Where(sk => capabilities.IsCapabilityEnabled($"skill:{sk.Name}"))
-                .OrderBy(sk => sk.Name, StringComparer.OrdinalIgnoreCase)
+            var lines = ChatSkillRules.OrderCatalog(
+                    discovered
+                        .Where(sk => string.Equals(sk.Source, SkillDiscoverySource.Agents, StringComparison.OrdinalIgnoreCase))
+                        .Where(sk => capabilities.IsCapabilityEnabled($"skill:{sk.Name}")),
+                    configuration, sk => sk.Name)
                 .Take(40)
                 .Select(sk =>
                 {

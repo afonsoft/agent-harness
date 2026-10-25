@@ -34,7 +34,14 @@ public static class ChatCapabilityRules
             _ => ChatCapabilityKind.BuiltinTool,
         };
 
-        return IsMasterOn(configuration, kind) && !DisabledIds(configuration).Contains(capabilityId);
+        if (!IsMasterOn(configuration, kind) || DisabledIds(configuration).Contains(capabilityId))
+        {
+            return false;
+        }
+
+        // SPEC-20261025 C3: the environment kill list also gates skill ids.
+        return kind != ChatCapabilityKind.Skill
+            || !ChatSkillRules.Disabled(configuration).Contains(capabilityId["skill:".Length..]);
     }
 
     public static bool IsMasterOn(IConfiguration configuration, ChatCapabilityKind kind)

@@ -813,6 +813,14 @@
                                                 {
                                                     <span class="badge text-bg-warning">mutating</span>
                                                 }
+                                                @if (cap.Kind == ChatCapabilityKind.Skill)
+                                                {
+                                                    <button type="button" class="btn btn-sm @(IsSkillPinned(cap.Name) ? "btn-warning" : "btn-outline-secondary")"
+                                                            title="Pin keeps the skill at the top of the prompt catalog (max 5)"
+                                                            @onclick="() => ToggleSkillPinAsync(cap)" disabled="@_chatBusy">
+                                                        @(IsSkillPinned(cap.Name) ? "pinned" : "pin")
+                                                    </button>
+                                                }
                                             </td>
                                             <td>
                                                 @if (cap.Kind is ChatCapabilityKind.BuiltinTool or ChatCapabilityKind.McpTool)
@@ -2511,6 +2519,69 @@
             }
 
             await ToastService.NotifyAsync(new(ToastType.Success, $"{cap.Id} {(cap.Enabled ? "disabled" : "enabled")}"));
+            await LoadConfigurationAsync();
+            await LoadChatStateAsync();
+        }
+        finally
+        {
+            _chatBusy = false;
+        }
+    }
+
+    // SPEC-20261025 C3: skill pins — Taskboard:Chat:Skills:Pinned (ordered
+    // JSON list, max 5) toggled per skill row like the disabled list.
+    private bool IsSkillPinned(string skillName) =>
+        SkillPinList().Contains(skillName, StringComparer.OrdinalIgnoreCase);
+
+    private List<string> SkillPinList()
+    {
+        var raw = _configEntries
+            .FirstOrDefault(e => e.Key == "Taskboard:Chat:Skills:Pinned")?.EffectiveValue;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(raw) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private async Task ToggleSkillPinAsync(ChatCapability cap)
+    {
+        var pins = SkillPinList();
+        var existing = pins.FindIndex(p => string.Equals(p, cap.Name, StringComparison.OrdinalIgnoreCase));
+        if (existing >= 0)
+        {
+            pins.RemoveAt(existing);
+        }
+        else if (pins.Count >= 5)
+        {
+            await ToastService.NotifyAsync(new(ToastType.Warning, "Pin limit is 5 — unpin another skill first."));
+            return;
+        }
+        else
+        {
+            pins.Add(cap.Name);
+        }
+
+        _chatBusy = true;
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(pins);
+            var error = await Client.SetConfigurationValueAsync("Taskboard:Chat:Skills:Pinned", json);
+            if (error is not null)
+            {
+                await ToastService.NotifyAsync(new(ToastType.Danger, $"Failed to pin {cap.Name}: {error}"));
+                return;
+            }
+
+            await ToastService.NotifyAsync(new(ToastType.Success, $"{cap.Name} {(existing >= 0 ? "unpinned" : "pinned")}"));
             await LoadConfigurationAsync();
             await LoadChatStateAsync();
         }
