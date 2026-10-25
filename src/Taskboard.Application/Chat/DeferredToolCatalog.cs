@@ -22,7 +22,7 @@ public sealed class DeferredToolCatalog(
 
     /// <summary>RF-D03 default deferred set — heavy/conditional schemas.</summary>
     public static readonly FrozenSet<string> DefaultDeferred =
-        new[] { "browser_use", "generate_image", "code_interpreter" }.ToFrozenSet(StringComparer.Ordinal);
+        new[] { "browser_use", "generate_image", "code_interpreter", "lsp" }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Discovery meta-tools can never be deferred — they are the activation path.</summary>
     public static readonly FrozenSet<string> MetaTools =

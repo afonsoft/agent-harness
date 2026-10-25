@@ -668,6 +668,10 @@ void RegisterWorkspaceAndChatServices()
     // the socket is unreachable.
     builder.Services.AddSingleton<Taskboard.Application.Contracts.Chat.IChatToolSandbox>(sp =>
         new Taskboard.Integrations.Chat.Tools.DockerChatSandbox(sp.GetRequiredService<IConfiguration>()));
+    // SPEC-20261025 C4: LSP session pool — one server process per workspace,
+    // idle-reaped; singleton so sessions survive across runs.
+    builder.Services.AddSingleton<Taskboard.Application.Contracts.Chat.ILspClientPool>(sp =>
+        new Taskboard.Integrations.Chat.Lsp.LspClientPool(sp.GetRequiredService<IConfiguration>()));
     // SPEC-20260919-harness-security-permission-gateway: singletons puros (sem estado).
     builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>();
     builder.Services.AddSingleton<SecretScrubber>();
@@ -787,6 +791,11 @@ void RegisterWorkspaceAndChatServices()
             new CodeInterpreterTool(
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetRequiredService<IChatToolSandbox>()),
+            // SPEC-20261025 C4: language-server queries — deferred-catalog
+            // citizen (schema activates via tool_activate("lsp")).
+            new LspTool(
+                sp.GetRequiredService<ILspClientPool>(),
+                sp.GetService<SensitivePathDenylist>()),
             // B-18: backend resolved per execution from the live config values
             // carried by the tool context — Settings changes need no restart.
             new WebSearchTool(
