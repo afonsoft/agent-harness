@@ -3362,7 +3362,16 @@ public sealed class ChatService(
         var allow = outcome == "allow";
         try
         {
-            approval.DecideFromUi(allow, request.Reason, UtcNow);
+            // SPEC-20261025 C1: channel decisions record channel + human actor;
+            // UI clicks keep the "ui" marker. Same row, same gate semantics.
+            if (request.Channel is { Length: > 0 } channel)
+            {
+                approval.DecideFromChannel(allow, channel, request.Actor, request.Reason, UtcNow);
+            }
+            else
+            {
+                approval.DecideFromUi(allow, request.Reason, UtcNow);
+            }
         }
         catch (DomainException)
         {

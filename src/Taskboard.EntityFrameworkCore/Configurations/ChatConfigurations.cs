@@ -639,3 +639,36 @@ public sealed class ChatScheduleConfiguration : IEntityTypeConfiguration<ChatSch
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+/// <summary>SPEC-20261025 C1: external-channel ↔ conversation bindings.</summary>
+public sealed class ChatChannelBindingConfiguration : IEntityTypeConfiguration<ChatChannelBinding>
+{
+    public void Configure(EntityTypeBuilder<ChatChannelBinding> builder)
+    {
+        builder.ToTable("ChatChannelBindings");
+
+        builder.Property(b => b.Id)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatChannelBindingId>());
+
+        builder.HasKey(b => b.Id);
+
+        builder.Property(b => b.Channel).HasMaxLength(32).IsRequired();
+        builder.Property(b => b.ExternalChannelId).HasMaxLength(128).IsRequired();
+        builder.Property(b => b.ExternalThreadId).HasMaxLength(128).IsRequired();
+        builder.Property(b => b.ExternalUserId).HasMaxLength(128);
+        builder.Property(b => b.ConversationId)
+            .HasMaxLength(128)
+            .HasConversion(new StringIdValueConverter<ChatConversationId>());
+        builder.Property(b => b.CreatedAt);
+
+        // One row per channel thread; approval cards look the binding up by conversation.
+        builder.HasIndex(b => new { b.Channel, b.ExternalChannelId, b.ExternalThreadId }).IsUnique();
+        builder.HasIndex(b => b.ConversationId);
+
+        builder.HasOne<ChatConversation>()
+            .WithMany()
+            .HasForeignKey(b => b.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

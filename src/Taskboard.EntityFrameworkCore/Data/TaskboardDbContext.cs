@@ -53,6 +53,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<ChatJob> ChatJobs => Set<ChatJob>();
     public DbSet<ChatSchedule> ChatSchedules => Set<ChatSchedule>();
     public DbSet<ChatPushSubscription> ChatPushSubscriptions => Set<ChatPushSubscription>();
+    public DbSet<ChatChannelBinding> ChatChannelBindings => Set<ChatChannelBinding>();
     public DbSet<DelegationTask> DelegationTasks => Set<DelegationTask>();
     public DbSet<AgentMailboxMessage> AgentMailboxMessages => Set<AgentMailboxMessage>();
     public DbSet<DelegationRun> DelegationRuns => Set<DelegationRun>();

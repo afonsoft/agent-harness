@@ -252,7 +252,14 @@ public sealed record DecideChatApprovalRequest(
     string Outcome,
     string? Reason = null,
     /// <summary>RF-004: add the tool to the conversation allowed-list (allow only).</summary>
-    bool RememberTool = false);
+    bool RememberTool = false,
+    /// <summary>
+    /// SPEC-20261025 C1: non-UI decision channel ("slack"); null → the click
+    /// came from the harness UI. Recorded as <c>channel:&lt;name&gt;</c>.
+    /// </summary>
+    string? Channel = null,
+    /// <summary>Channel-side human actor (e.g. "@afonso") — stamped into the audit note.</summary>
+    string? Actor = null);
 
 /// <summary>Body of <c>POST /api/local/chat/conversations/{id}/plan-mode</c> (RF-001).</summary>
 public sealed record SetChatPlanModeRequest(bool Active);

@@ -150,6 +150,21 @@ public sealed class ChatApproval : AggregateRoot<ChatApprovalId>
             ChatApprovalDecidedBy.Ui,
             now);
 
+    /// <summary>
+    /// SPEC-20261025 C1: an answer arriving over a chat channel (Slack) —
+    /// the audit records the channel and the human actor, never the bot.
+    /// </summary>
+    public void DecideFromChannel(
+        bool allow, string channel, string? actor, string? reason, DateTime? now = null) =>
+        Decide(
+            allow ? ChatApprovalStatus.AllowedOnce : ChatApprovalStatus.Rejected,
+            ComposeDecision(
+                $"{(allow ? "allow" : "deny")} via {channel}"
+                    + (string.IsNullOrWhiteSpace(actor) ? string.Empty : $" by {actor.Trim()}"),
+                reason),
+            ChatApprovalDecidedBy.ForChannel(channel),
+            now);
+
     /// <summary>Run stop/host shutdown while pending → cancelled (fail-closed).</summary>
     public void Cancel(DateTime? now = null)
     {
