@@ -1,3 +1,5 @@
+using Taskboard.Diagnostics;
+
 namespace Taskboard.Application.Contracts.Chat;
 
 /// <summary>Provider catalog DTO — the API key never leaves the server (RF-001).</summary>
@@ -115,7 +117,9 @@ public sealed record ChatRunDto(
     int? ContextTokensLimit = null,
     int CompactionCount = 0,
     // SPEC-20261012-chat-run-controls: parked-run timestamp (null = not paused).
-    DateTime? PausedAt = null);
+    DateTime? PausedAt = null,
+    // SPEC-20261024-p1-agent-reliability RF-T9: card attached on failed/cancelled runs.
+    RunDiagnosticsDto? Diagnostics = null);
 
 /// <summary>
 /// The <c>chat.sync</c> payload of the attach stream (RF-003): durable state

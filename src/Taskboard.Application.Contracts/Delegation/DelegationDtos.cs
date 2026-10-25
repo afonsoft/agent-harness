@@ -1,4 +1,5 @@
 using Taskboard.Delegation;
+using Taskboard.Diagnostics;
 
 namespace Taskboard.Dtos;
 
@@ -42,7 +43,9 @@ public sealed record DelegationTaskDto(
     /// <summary>SPEC-20261024-p1-agent-reliability RF-G01: declared output contract.</summary>
     string? OutputSchema = null,
     /// <summary>RF-G01: completion verdict — null = no contract/not evaluated.</summary>
-    bool? SchemaValid = null);
+    bool? SchemaValid = null,
+    /// <summary>SPEC-20261024-p1-agent-reliability RF-T9: card attached on failed/cancelled tasks.</summary>
+    RunDiagnosticsDto? Diagnostics = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
