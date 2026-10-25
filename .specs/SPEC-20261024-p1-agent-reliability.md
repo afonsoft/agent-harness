@@ -90,19 +90,19 @@ error class. Surfaced via the existing run-detail DTO + cockpit panel.
 
 ## 4. Acceptance criteria
 
-- [ ] `write_file` on a protected config path → hook blocks with `config-protection` verdict before the tool executes; `Taskboard:Chat:Hooks:Enabled=false` disables the engine.
-- [ ] Consolidation job on a seeded store → dedupe+expiry counts reported; facts capped at `MaxFacts`.
-- [ ] `delegate_task` with `output_schema` + a worker returning non-conforming JSON → parent sees `schema_valid:false` with the full child output intact.
-- [ ] `dotnet test --filter Evals` runs the scenario suite offline.
-- [ ] `REGRESSION.md` has the two seeded rows and the append convention documented.
-- [ ] A failed chat run shows a diagnostics card with the failing tool + pressure stats.
+- [x] `write_file` on a protected config path → hook blocks with `config-protection` verdict before the tool executes; `Taskboard:Chat:Hooks:Enabled=false` disables the engine.
+- [x] Consolidation job on a seeded store → dedupe+expiry counts reported; facts capped at `MaxFacts`.
+- [x] `delegate_task` with `output_schema` + a worker returning non-conforming JSON → parent sees `schema_valid:false` with the full child output intact.
+- [x] `dotnet test --filter Evals` runs the scenario suite offline.
+- [x] `REGRESSION.md` has the two seeded rows and the append convention documented.
+- [x] A failed chat run shows a diagnostics card with the failing tool + pressure stats.
 
 ## 5. Task plan
 
-- [ ] **T5 (Slice E)** — hook contracts + registry + lifecycle emission + 2 built-in hooks. Tests first.
-- [ ] **T6 (Slice F)** — consolidation job + config + report. Tests first.
-- [ ] **T7 (Slice G)** — `output_schema`/`role`/`model` on delegate_task + contract validation. Tests first.
-- [ ] **T8 (Slice H)** — `evals/` scenarios + `REGRESSION.md` seed. Tests first.
-- [ ] **T9 (Slice I)** — run introspection card + cockpit surface. Tests first.
+- [x] **T5 (Slice E)** — hook contracts + registry + lifecycle emission + 2 built-in hooks. Tests first.
+- [x] **T6 (Slice F)** — consolidation job + config + report. Tests first.
+- [x] **T7 (Slice G)** — `output_schema`/`role`/`model` on delegate_task + contract validation. Tests first.
+- [x] **T8 (Slice H)** — `evals/` scenarios + `REGRESSION.md` seed. Tests first.
+- [x] **T9 (Slice I)** — run introspection card + cockpit surface. Tests first.
 
 Each slice is an independent PR; order T5→T9.
