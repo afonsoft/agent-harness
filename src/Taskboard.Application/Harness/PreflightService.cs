@@ -17,7 +17,8 @@ public sealed class PreflightService(
     IAgentCliStatusService cliStatus,
     IRepository<ChatProvider> providers,
     IMcpClientManager mcp,
-    IConfiguration configuration) : IPreflightService
+    IConfiguration configuration,
+    Taskboard.Application.Contracts.Chat.IChatToolSandbox? sandbox = null) : IPreflightService
 {
     internal static readonly TimeSpan CheckBudget = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan GlobalBudget = TimeSpan.FromSeconds(8);
@@ -38,6 +39,7 @@ public sealed class PreflightService(
             ("worktree-root", _ => Task.FromResult(CheckWorktreeRoot())),
             ("mcp", CheckMcpAsync),
             ("chat-provider", CheckChatProviderAsync),
+            ("chat-sandbox", CheckChatSandboxAsync),
             ("disk", _ => Task.FromResult(CheckDisk())),
         ];
 
@@ -160,6 +162,23 @@ public sealed class PreflightService(
 
         return [new PreflightCheck("chat-provider", PreflightCheckStatus.Ok,
             withKey > 0 ? $"{withKey} provider(s) with key" : "provider key via environment")];
+    }
+
+    // SPEC-20261025 C2: only surfaces when the operator enabled sandbox mode —
+    // off means host exec by design, so there is nothing to warn about.
+    private async Task<IEnumerable<PreflightCheck>> CheckChatSandboxAsync(CancellationToken ct)
+    {
+        if (sandbox is null || !sandbox.Enabled)
+        {
+            return [];
+        }
+
+        return await sandbox.IsAvailableAsync(ct).ConfigureAwait(false)
+            ? [new PreflightCheck("chat-sandbox", PreflightCheckStatus.Ok,
+                $"{sandbox.Name} reachable — chat exec tools run containerized")]
+            : [new PreflightCheck("chat-sandbox", PreflightCheckStatus.Warning,
+                $"{sandbox.Name} unreachable — chat exec tools fall back to host",
+                "start docker or set Taskboard:Chat:Sandbox=off")];
     }
 
     private IEnumerable<PreflightCheck> CheckDisk()

@@ -663,6 +663,11 @@ void RegisterWorkspaceAndChatServices()
     builder.Services.AddSingleton(sp => new Taskboard.Integrations.Harness.Security.SensitivePathDenylist(
         sp.GetRequiredService<IConfiguration>()
             .GetSection("Taskboard:Security:DenyPathPatterns").Get<string[]>() ?? []));
+    // SPEC-20261025 C2: second-layer exec sandbox — off unless
+    // Taskboard:Chat:Sandbox=docker; tools fall back to host + warning when
+    // the socket is unreachable.
+    builder.Services.AddSingleton<Taskboard.Application.Contracts.Chat.IChatToolSandbox>(sp =>
+        new Taskboard.Integrations.Chat.Tools.DockerChatSandbox(sp.GetRequiredService<IConfiguration>()));
     // SPEC-20260919-harness-security-permission-gateway: singletons puros (sem estado).
     builder.Services.AddSingleton<ICommandRiskClassifier, DynamicCommandClassifier>();
     builder.Services.AddSingleton<SecretScrubber>();
@@ -742,7 +747,8 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<ICommandRiskClassifier>(),
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetService<IChatJobService>(),
-                configuration),
+                configuration,
+                sp.GetRequiredService<IChatToolSandbox>()),
             new ReadFileTool(
                 sp.GetRequiredService<ISecretRedactor>(),
                 sp.GetRequiredService<ISpillStore>(),
@@ -767,15 +773,20 @@ void RegisterWorkspaceAndChatServices()
                 sp.GetRequiredService<SensitivePathDenylist>()),
             new GitTool(
                 sp.GetRequiredService<ISecretRedactor>(),
-                sp.GetRequiredService<SensitivePathDenylist>()),
+                sp.GetRequiredService<SensitivePathDenylist>(),
+                sp.GetRequiredService<IChatToolSandbox>()),
             new RunTestsTool(
                 sp.GetRequiredService<ISecretRedactor>(),
-                sp.GetRequiredService<SensitivePathDenylist>()),
+                sp.GetRequiredService<SensitivePathDenylist>(),
+                sp.GetRequiredService<IChatToolSandbox>()),
             new TodoTool(sp.GetRequiredService<ChatTodoStore>()),
             new RunCliTool(
                 sp.GetRequiredService<ISecretRedactor>(),
-                sp.GetRequiredService<IServiceScopeFactory>()),
-            new CodeInterpreterTool(sp.GetRequiredService<ISecretRedactor>()),
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<IChatToolSandbox>()),
+            new CodeInterpreterTool(
+                sp.GetRequiredService<ISecretRedactor>(),
+                sp.GetRequiredService<IChatToolSandbox>()),
             // B-18: backend resolved per execution from the live config values
             // carried by the tool context — Settings changes need no restart.
             new WebSearchTool(

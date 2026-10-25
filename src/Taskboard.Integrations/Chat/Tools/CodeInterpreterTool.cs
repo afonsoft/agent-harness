@@ -12,7 +12,7 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// isolation is best-effort (documented limitation; full isolation needs a
 /// container sandbox, out of scope).
 /// </summary>
-public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
+public sealed class CodeInterpreterTool(ISecretRedactor redactor, IChatToolSandbox? sandbox = null) : IChatTool
 {
     private const string FilePlaceholder = "{file}";
 
@@ -65,7 +65,7 @@ public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
                     : a)
                 .ToList();
             var result = await ChatProcessRunner.RunAsync(runtime.FileName, args, tmpDir,
-                TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+                TimeSpan.FromSeconds(60), cancellationToken, sandbox: sandbox).ConfigureAwait(false);
             var output = redactor.Redact(ChatProcessRunner.Truncate(
                 $"exitCode: {result.ExitCode}\nstdout:\n{result.Stdout}\nstderr:\n{result.Stderr}"));
             return new ChatToolResult(JsonSerializer.Serialize(new
@@ -73,6 +73,7 @@ public sealed class CodeInterpreterTool(ISecretRedactor redactor) : IChatTool
                 language,
                 exitCode = result.ExitCode,
                 timedOut = result.TimedOut,
+                sandboxWarning = result.SandboxWarning,
                 output,
             }));
         }

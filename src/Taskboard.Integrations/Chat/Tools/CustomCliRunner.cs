@@ -96,11 +96,12 @@ internal static class CustomCliRunner
         string workingDirectory,
         ISecretRedactor redactor,
         CancellationToken cancellationToken,
-        string? displayName = null)
+        string? displayName = null,
+        IChatToolSandbox? sandbox = null)
     {
         var result = await ChatProcessRunner.RunAsync(
             resolvedPath, argv, workingDirectory,
-            TimeSpan.FromSeconds(120), cancellationToken, stdin).ConfigureAwait(false);
+            TimeSpan.FromSeconds(120), cancellationToken, stdin, sandbox).ConfigureAwait(false);
 
         var output = redactor.Redact(ChatProcessRunner.Truncate(
             $"exitCode: {result.ExitCode}\nstdout:\n{result.Stdout}\nstderr:\n{result.Stderr}"));
@@ -109,6 +110,7 @@ internal static class CustomCliRunner
             cli = displayName ?? Path.GetFileName(resolvedPath),
             exitCode = result.ExitCode,
             timedOut = result.TimedOut,
+            sandboxWarning = result.SandboxWarning,
             output,
         }));
     }

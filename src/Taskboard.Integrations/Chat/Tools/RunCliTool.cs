@@ -13,7 +13,8 @@ namespace Taskboard.Integrations.Chat.Tools;
 /// </summary>
 public sealed class RunCliTool(
     ISecretRedactor redactor,
-    Microsoft.Extensions.DependencyInjection.IServiceScopeFactory scopeFactory) : IChatTool
+    Microsoft.Extensions.DependencyInjection.IServiceScopeFactory scopeFactory,
+    IChatToolSandbox? sandbox = null) : IChatTool
 {
     public string Name => "run_cli";
     public string Description =>
@@ -77,7 +78,7 @@ public sealed class RunCliTool(
         }
 
         var result = await ChatProcessRunner.RunAsync(resolved, args, context.WorkspacePath,
-            TimeSpan.FromSeconds(120), cancellationToken).ConfigureAwait(false);
+            TimeSpan.FromSeconds(120), cancellationToken, sandbox: sandbox).ConfigureAwait(false);
         var output = redactor.Redact(ChatProcessRunner.Truncate(
             $"exitCode: {result.ExitCode}\nstdout:\n{result.Stdout}\nstderr:\n{result.Stderr}"));
         return new ChatToolResult(JsonSerializer.Serialize(new
@@ -85,6 +86,7 @@ public sealed class RunCliTool(
             cli,
             exitCode = result.ExitCode,
             timedOut = result.TimedOut,
+            sandboxWarning = result.SandboxWarning,
             output,
         }));
     }
@@ -137,7 +139,7 @@ public sealed class RunCliTool(
 
         return await CustomCliRunner.ExecAsync(
             resolved, args, stdin: null, context.WorkspacePath, redactor,
-            cancellationToken, def.DisplayName).ConfigureAwait(false);
+            cancellationToken, def.DisplayName, sandbox).ConfigureAwait(false);
     }
 
     private static string? ResolveOnPath(string binary)

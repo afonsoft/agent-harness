@@ -88,7 +88,7 @@ catalog", C1 as "P2b channels", C4+C5 as "P2c extensibility".
 
 - [x] C3: a pinned skill survives the ≤40 cap; a disabled skill never reaches
   the catalog; both toggleable via config + Settings.
-- [ ] C2: `Sandbox=docker` routes an `echo` through a container (asserted in
+- [x] C2: `Sandbox=docker` routes an `echo` through a container (asserted in
   test with a fake runner); worktree writes land on the host; `$HOME` files
   are unreachable; docker-socket absence falls back to host + WARN.
 - [ ] C1: a Slack message becomes a conversation user-message; a pending
@@ -101,7 +101,7 @@ catalog", C1 as "P2b channels", C4+C5 as "P2c extensibility".
 ## 5. Task plan
 
 - [x] **T10 (C3)** — skills pins + kill list.
-- [ ] **T11 (C2)** — docker sandbox runner + preflight + fallback.
+- [x] **T11 (C2)** — docker sandbox runner + preflight + fallback.
 - [ ] **T12 (C1)** — Slack channel adapter + remote approvals.
 - [ ] **T13 (C4)** — LSP tool (deferred-catalog citizen).
 - [ ] **T14 (C5)** — plugin model ADR.
