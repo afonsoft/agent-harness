@@ -2956,6 +2956,34 @@ void MapSettingsAndChatEndpoints()
         }
     });
 
+    // SPEC-20261020-v2 RF-007: retry a failed/stale/cancelled task — same task
+    // reactivated, dispatch attempt+1. `model` swaps the launch model (e.g. the
+    // previous one was rejected for schema-budget/quota); `refine` overrides
+    // the prompt-refiner mode for this attempt.
+    api.MapPost("local/delegation/tasks/{id}/retry", async (
+        string id, string? scope, RetryDelegationTaskRequest? body,
+        IDelegationTaskRepository tasks, IDelegationService delegation,
+        CancellationToken ct) =>
+    {
+        var task = await tasks.GetAsync(id, ct);
+        if (task is null)
+        {
+            return Results.NotFound(new { error = "delegation-task-not-found" });
+        }
+
+        var effectiveScope = string.IsNullOrWhiteSpace(scope) ? task.Scope : scope;
+        try
+        {
+            var result = await delegation.RetryTaskAsync(
+                effectiveScope, id, body?.Refine, body?.Model, ct);
+            return Results.Accepted(value: result);
+        }
+        catch (DomainException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    });
+
     // SPEC-20261009 RF-003: board issue → delegated task in a fresh worktree.
     api.MapPost("local/delegation/tasks/from-issue", async (
         DelegateIssueRequest request, string? scope,

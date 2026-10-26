@@ -82,7 +82,7 @@ public class DelegationServiceTests
                 "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
                 ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
                 null, null, DateTime.UtcNow, null, null, null));
-        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<CancellationToken>())
+        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
 
         var task = await _service.CreateTaskAsync(Request(retryOf: "task-1"));
@@ -91,6 +91,71 @@ public class DelegationServiceTests
         task.Status.ShouldBe(DelegationTaskStatus.Pending);
         await _tasks.DidNotReceive().AddAsync(
             Arg.Any<CreateDelegationTaskRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_RetryComModel_Quando_CriaTask_Entao_ReativaComModelNovo()
+    {
+        // RF-007 ext: --retry_of + --model troca o modelo da nova tentativa
+        // (schema-budget/quota no modelo anterior).
+        _tasks.ListByIdsAsync(Arg.Any<IReadOnlyCollection<string>>(), "conv-1", Arg.Any<CancellationToken>())
+            .Returns([TaskDto("task-1", status: DelegationTaskStatus.Failed)]);
+        _dispatches.LatestAttemptAsync("task-1", Arg.Any<CancellationToken>()).Returns(1);
+        _dispatches.AddAsync(Arg.Any<CreateDispatchRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new DispatchDto(
+                "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
+                ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
+                null, null, DateTime.UtcNow, null, null, null));
+        _tasks.ReactivateForRetryAsync("task-1", "gpt-5.6", Arg.Any<CancellationToken>())
+            .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
+
+        var request = new CreateDelegationTaskRequest(
+            "do work", "codex", "conv-1", "/ws",
+            RetryOf: "task-1", Model: "gpt-5.6");
+        await _service.CreateTaskAsync(request);
+
+        await _tasks.Received(1).ReactivateForRetryAsync(
+            "task-1", "gpt-5.6", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_TaskFalha_Quando_RetrySemModel_Entao_ReativaSemTrocarModel()
+    {
+        _tasks.ListByIdsAsync(Arg.Any<IReadOnlyCollection<string>>(), "conv-1", Arg.Any<CancellationToken>())
+            .Returns([TaskDto("task-1", status: DelegationTaskStatus.Failed)]);
+        _dispatches.LatestAttemptAsync("task-1", Arg.Any<CancellationToken>()).Returns(1);
+        _dispatches.AddAsync(Arg.Any<CreateDispatchRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new DispatchDto(
+                "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
+                ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
+                null, null, DateTime.UtcNow, null, null, null));
+        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
+
+        await _service.RetryTaskAsync("conv-1", "task-1");
+
+        await _tasks.Received(1).ReactivateForRetryAsync(
+            "task-1", null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_TaskFalha_Quando_RetryComModel_Entao_TrocaModel()
+    {
+        _tasks.ListByIdsAsync(Arg.Any<IReadOnlyCollection<string>>(), "conv-1", Arg.Any<CancellationToken>())
+            .Returns([TaskDto("task-1", status: DelegationTaskStatus.Failed)]);
+        _dispatches.LatestAttemptAsync("task-1", Arg.Any<CancellationToken>()).Returns(1);
+        _dispatches.AddAsync(Arg.Any<CreateDispatchRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new DispatchDto(
+                "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
+                ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
+                null, null, DateTime.UtcNow, null, null, null));
+        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
+
+        await _service.RetryTaskAsync("conv-1", "task-1", model: "opencode/claude-sonnet-5");
+
+        await _tasks.Received(1).ReactivateForRetryAsync(
+            "task-1", "opencode/claude-sonnet-5", Arg.Any<CancellationToken>());
     }
 
     // ---- dependency resolution ----

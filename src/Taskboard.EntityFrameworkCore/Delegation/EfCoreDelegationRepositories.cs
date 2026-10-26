@@ -150,8 +150,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
         }, ct).ConfigureAwait(false);
 
     public async Task<DelegationTaskDto?> ReactivateForRetryAsync(
-        string id, CancellationToken ct = default) =>
-        await TransitionAsync(id, t => t.ReactivateForRetry(), ct).ConfigureAwait(false);
+        string id, string? model = null, CancellationToken ct = default) =>
+        await TransitionAsync(id, t => t.ReactivateForRetry(model), ct).ConfigureAwait(false);
 
     /// <inheritdoc/>
     public async Task<DelegationTaskDto?> ApplyRefinementAsync(

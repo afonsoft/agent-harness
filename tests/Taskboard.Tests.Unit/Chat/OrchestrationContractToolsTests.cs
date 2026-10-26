@@ -163,7 +163,8 @@ public class OrchestrationContractToolsTests
     {
         var service = Substitute.For<IDelegationService>();
         service.RetryTaskAsync(
-                "conv-1", "task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                "conv-1", "task-1", Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
             .Returns(new RetryTaskResult(
                 Task("task-1") with { Status = DelegationTaskStatus.Pending },
                 Dispatch("disp-2", attempt: 2)));
@@ -185,7 +186,8 @@ public class OrchestrationContractToolsTests
     {
         var service = Substitute.For<IDelegationService>();
         service.RetryTaskAsync(
-                "conv-1", "task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                "conv-1", "task-1", Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
             .Returns<RetryTaskResult>(_ => throw new Taskboard.DomainException("X", "not retryable"));
         var git = Substitute.For<Taskboard.Integrations.Harness.IGitCommandRunner>();
         var tool = new DelegateTaskTool(TestScopeFactory.WithDelegation(service), git);

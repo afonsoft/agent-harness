@@ -703,6 +703,23 @@ public sealed class TaskboardClient
             : (null, await ReadErrorAsync(response, cancellationToken));
     }
 
+    /// <summary>
+    /// SPEC-20261020-v2 RF-007: retry a failed/stale/cancelled task — same task
+    /// reactivated, dispatch attempt+1. <paramref name="model"/> troca o modelo
+    /// de lançamento (schema-budget/quota costuma rejeitar o anterior).
+    /// </summary>
+    public async Task<(RetryTaskResult? Result, string? Error)> RetryDelegationTaskAsync(
+        string taskId, string? model = null, string? refine = null, string? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.PostAsJsonAsync(
+            $"/api/local/delegation/tasks/{Uri.EscapeDataString(taskId)}/retry{(string.IsNullOrWhiteSpace(scope) ? "" : $"?scope={Uri.EscapeDataString(scope)}")}",
+            new RetryDelegationTaskRequest(model, refine), cancellationToken);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<RetryTaskResult>(cancellationToken), null)
+            : (null, await ReadErrorAsync(response, cancellationToken));
+    }
+
     /// <summary>SPEC-20261009 RF-003: delegate a board issue into the DAG (worktree leg).</summary>
     public async Task<(DelegationTaskDto? Task, string? Error)> DelegateIssueAsync(
         DelegateIssueRequest request, string? scope = null, CancellationToken cancellationToken = default)

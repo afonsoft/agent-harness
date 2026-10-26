@@ -110,6 +110,13 @@ public sealed record DelegationRunShowDto(
 /// <summary>SPEC-20261020-v2 RF-007: retry receipt — same task, attempt+1 dispatch.</summary>
 public sealed record RetryTaskResult(DelegationTaskDto Task, DispatchDto Dispatch);
 
+/// <summary>
+/// RF-007 retry request (REST): <paramref name="Model"/> troca o modelo de
+/// lançamento da nova tentativa — útil quando o anterior foi rejeitado por
+/// schema-budget/quota; <paramref name="Refine"/> override do prompt-refiner.
+/// </summary>
+public sealed record RetryDelegationTaskRequest(string? Model = null, string? Refine = null);
+
 /// <summary>SPEC-20261020-v2 RF-004: wire shape of a worker question.</summary>
 public sealed record PendingQuestionDto(
     string Id,

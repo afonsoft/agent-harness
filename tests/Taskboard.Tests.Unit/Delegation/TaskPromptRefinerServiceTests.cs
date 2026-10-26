@@ -139,7 +139,7 @@ public sealed class TaskPromptRefinerServiceTests
             .Returns([TaskDto(status: DelegationTaskStatus.Failed,
                 error: "exit 1: build failed")]);
         f.Dispatches.LatestAttemptAsync("task-1", Arg.Any<CancellationToken>()).Returns(1);
-        f.Tasks.ReactivateForRetryAsync("task-1", Arg.Any<CancellationToken>())
+        f.Tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto(status: DelegationTaskStatus.Pending));
         f.Dispatches.AddAsync(Arg.Any<CreateDispatchRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
@@ -175,7 +175,7 @@ public sealed class TaskPromptRefinerServiceTests
         f.Tasks.ListByIdsAsync(Arg.Any<IReadOnlyCollection<string>>(), "conv-1", Arg.Any<CancellationToken>())
             .Returns([TaskDto(status: DelegationTaskStatus.Failed, error: "boom")]);
         f.Dispatches.LatestAttemptAsync("task-1", Arg.Any<CancellationToken>()).Returns(1);
-        f.Tasks.ReactivateForRetryAsync("task-1", Arg.Any<CancellationToken>())
+        f.Tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto(status: DelegationTaskStatus.Pending));
         f.Dispatches.AddAsync(Arg.Any<CreateDispatchRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
