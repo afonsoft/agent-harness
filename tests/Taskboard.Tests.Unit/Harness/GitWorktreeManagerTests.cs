@@ -121,6 +121,24 @@ public class GitWorktreeManagerTests : IDisposable
         log.StandardOutput.ShouldContain("automated task");
     }
 
+    // Guardrail: agente que já commitou deixa a árvore limpa — commit vira
+    // no-op idempotente (devolve HEAD) em vez de falhar com "nothing to commit".
+    [Fact]
+    public async Task Dado_WorktreeLimpoJaCommitado_Quando_Commit_Entao_DevolveHeadSemFalhar()
+    {
+        var dto = await _sut.CreateWorktreeAsync("run_clean", _repoPath, "main", "clean");
+        var head = await _git.RunAsync(dto.Path, ["rev-parse", "HEAD"]);
+
+        var sha = await _sut.CommitAsync("run_clean", "feat(agent): run_clean", "Harness <harness@local>");
+
+        sha.ShouldBe(head.StandardOutput.Trim());
+        _sessions.Items.Single(s => s.RunId == "run_clean").CommitSha.ShouldBe(sha);
+
+        // nenhum commit extra foi criado
+        var count = await _git.RunAsync(dto.Path, ["rev-list", "--count", "HEAD"]);
+        count.StandardOutput.Trim().ShouldBe("1");
+    }
+
     // Covers RF-004 / AC-04: remove limpa diretório e worktree list
     [Fact]
     public async Task Dado_WorktreeAtivo_Quando_Remove_Entao_DiretorioRemovidoEStatusRemoved()

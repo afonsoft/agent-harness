@@ -2745,3 +2745,9 @@ html[data-terminal-focus] .terminal-focus-exit {
 .usage-pulse {
     animation: usage-pulse-kf 1.6s ease-in-out infinite;
 }
+
+/* Agents board: cartão destacado pelo deep-link ?focus=. */
+.board-card-focus {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 1px;
+}

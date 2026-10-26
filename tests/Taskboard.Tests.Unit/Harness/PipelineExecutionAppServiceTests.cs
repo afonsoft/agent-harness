@@ -100,7 +100,8 @@ public class PipelineExecutionAppServiceTests : IDisposable
                 "/repo/taskboard", "main", null, false,
                 DateTime.UtcNow, DateTime.UtcNow, 1));
         _isolation.GetDiffAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new WorkspaceDiffDto(0, 0, 0, [], ""));
+            .Returns(new WorkspaceDiffDto(1, 3, 1,
+                [new WorkspaceDiffFileDto("README.md", "Modified", 3, 1)], "patch"));
         _isolation.PushAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("harness/run-1");
         _gitHub.CreatePullRequestAsync(
@@ -201,5 +202,119 @@ public class PipelineExecutionAppServiceTests : IDisposable
         var prUrl = await _sut.CreatePullRequestAsync("run-inexistente", "feat: jwt", null, CancellationToken.None);
 
         prUrl.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_RunSemDiffVsBase_Quando_CreatePr_Entao_InvalidPipelineState()
+    {
+        // Branch igual à base — o GitHub recusaria o PR com 422; a API corta antes.
+        ConfigurarWorktreeEGitHub();
+        _isolation.GetDiffAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new WorkspaceDiffDto(0, 0, 0, [], ""));
+        var exec = SalvarExecucaoConcluida();
+
+        var ex = await Should.ThrowAsync<DomainException>(
+            () => _sut.CreatePullRequestAsync(exec.Id.Value, "feat: jwt", null, CancellationToken.None));
+
+        ex.Code.ShouldBe(TaskboardDomainErrorCodes.InvalidPipelineState);
+        await _gitHub.DidNotReceive().CreatePullRequestAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _gitHub.DidNotReceive().UpdateIssueColumnAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<GitHubBoardColumn?>(),
+            Arg.Any<GitHubBoardColumn>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_TituloEmBranco_Quando_CreatePr_Entao_TituloDaIssue()
+    {
+        ConfigurarWorktreeEGitHub();
+        var exec = SalvarExecucaoConcluida();
+
+        await _sut.CreatePullRequestAsync(exec.Id.Value, null, null, CancellationToken.None);
+
+        await _gitHub.Received(1).CreatePullRequestAsync(
+            "afonsoft/agent-harness", "itest issue", "harness/run-1", "main",
+            null, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_RunCompletadaComIssueEDiff_Quando_FinalizeRun_Entao_AbrePrECardEmReview()
+    {
+        ConfigurarWorktreeEGitHub();
+        var exec = SalvarExecucaoConcluida();
+
+        await _sut.FinalizeRunAsync(exec.Id.Value, CancellationToken.None);
+
+        await _gitHub.Received(1).CreatePullRequestAsync(
+            "afonsoft/agent-harness", "itest issue", "harness/run-1", "main",
+            null, Arg.Any<CancellationToken>());
+        await _gitHub.Received(1).UpdateIssueColumnAsync(
+            "afonsoft/agent-harness", 5, GitHubBoardColumn.InProgress,
+            GitHubBoardColumn.InReview, Arg.Any<CancellationToken>());
+        await _gitHub.Received(1).AddIssueCommentAsync(
+            "afonsoft/agent-harness", 5,
+            Arg.Is<string>(body => body.Contains(PrUrl)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_RunCompletadaComIssueSemDiff_Quando_FinalizeRun_Entao_CardEmReviewSemPr()
+    {
+        ConfigurarWorktreeEGitHub();
+        _isolation.GetDiffAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new WorkspaceDiffDto(0, 0, 0, [], ""));
+        var exec = SalvarExecucaoConcluida();
+
+        await _sut.FinalizeRunAsync(exec.Id.Value, CancellationToken.None);
+
+        await _gitHub.DidNotReceive().CreatePullRequestAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _gitHub.Received(1).UpdateIssueColumnAsync(
+            "afonsoft/agent-harness", 5, GitHubBoardColumn.InProgress,
+            GitHubBoardColumn.InReview, Arg.Any<CancellationToken>());
+        await _gitHub.Received(1).AddIssueCommentAsync(
+            "afonsoft/agent-harness", 5,
+            Arg.Is<string>(body => !body.Contains(PrUrl)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_FalhaAoAbrirPr_Quando_FinalizeRun_Entao_CardEmReviewMesmoAssim()
+    {
+        // Best-effort: o run já completou — falha no git/GitHub não pode
+        // desfazer o resultado nem impedir o card de sair de in_progress.
+        ConfigurarWorktreeEGitHub();
+        _gitHub.CreatePullRequestAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<string>>(_ => throw new InvalidOperationException("github down"));
+        var exec = SalvarExecucaoConcluida();
+
+        await _sut.FinalizeRunAsync(exec.Id.Value, CancellationToken.None);
+
+        await _gitHub.Received(1).UpdateIssueColumnAsync(
+            "afonsoft/agent-harness", 5, GitHubBoardColumn.InProgress,
+            GitHubBoardColumn.InReview, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_RunNaoCompletada_Quando_FinalizeRun_Entao_NadaAcontece()
+    {
+        var exec = PipelineExecution.Create(
+            PipelineTemplates.SingleAgent, "afonsoft/agent-harness", "/repo/taskboard", "main",
+            "77", "Implementar JWT", DateTime.UtcNow);
+        _context.PipelineExecutions.Add(exec);
+        _context.SaveChanges();
+
+        await _sut.FinalizeRunAsync(exec.Id.Value, CancellationToken.None);
+
+        await _gitHub.DidNotReceive().CreatePullRequestAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _gitHub.DidNotReceive().UpdateIssueColumnAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<GitHubBoardColumn?>(),
+            Arg.Any<GitHubBoardColumn>(), Arg.Any<CancellationToken>());
     }
 }

@@ -15,6 +15,17 @@ window.taskboard = {
         }
     },
 
+    // Agents board ?focus= deep-link — rola até o card. Retorna false quando o
+    // elemento não está renderizado (board ainda carregando ou card ausente).
+    focusCard: function (id) {
+        var el = document.getElementById(id);
+        if (!el) {
+            return false;
+        }
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+    },
+
     // SPEC-20260922-ai-chat-command-bar RF-004: a modal must not gain
     // aria-hidden while a descendant still holds focus — blur first so
     // assistive tech never sees focus hidden inside the closing element.

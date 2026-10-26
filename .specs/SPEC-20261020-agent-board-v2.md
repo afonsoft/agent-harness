@@ -72,7 +72,11 @@ virtualização para >1k cards (paging incremental apenas).
   count no header); preferência salva em `UserSettings` por usuário.
 - RF-006 Clique no card → navega `deepLink` e chama `POST
   /api/agents/board/cards/{id}/read` (marca unread=false, broadcast SignalR
-  `agent.board.read` para outras abas).
+  `agent.board.read` para outras abas). Deep-links `/agents?...` são
+  navegações same-page: `OnAfterRenderAsync` re-aplica `tab`/`q`/`state`/
+  `hasPr`/`focus` quando a URI muda — sem isso o clique não produzia efeito
+  visível. `?focus=<id-sem-prefixo>` destaca o card (`board-card-focus`) e
+  rola até ele (`taskboard.focusCard`).
 - RF-007 Unread: vira `true` em transições `worker_done`, `escalation`,
   `decision`/`question` nova, `blocked`; zera ao abrir o card. Badge no item
   de menu "Agents" = soma de unread (SPEC-20261020-agents-feed-notifications
