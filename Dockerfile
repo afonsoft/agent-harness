@@ -1,7 +1,7 @@
 # Build stage. Base images are pinned by digest (SPEC-20261003-ops-hardening
 # RF-001) so builds are reproducible — refresh the digests deliberately:
 #   docker buildx imagetools inspect mcr.microsoft.com/dotnet/sdk:10.0
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 
 # Fixed package-cache path shared between the root-owned build stage and the
