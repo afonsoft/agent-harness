@@ -34,7 +34,7 @@ RUN dotnet format Taskboard.sln --verify-no-changes --no-restore --severity warn
 
 # Runtime stage (digest-pinned like the build stage — same refresh command,
 # swap dotnet/sdk for dotnet/aspnet).
-FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:d5633778c754e89a386882eddf8dbee6942447a8a4b8267c19cf1e1158d0b0ac AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:de0ee358cdd672f7017a003bed21e9ac9ed48a27c922a59b18175b6e82fa7fee AS runtime
 WORKDIR /app
 
 # git: skills repository sync (SPEC-20260915-skills-repo-sync)
