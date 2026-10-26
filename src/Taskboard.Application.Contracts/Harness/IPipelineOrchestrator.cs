@@ -49,12 +49,21 @@ public interface IPipelineOrchestrator
     /// Commits pending worktree changes, pushes the run branch and opens the
     /// PR (SPEC-20260919-ade-cockpit-hitl RF-005). When the run is bound to a
     /// board issue the card moves to <c>in_review</c> and the PR link is
-    /// commented on the issue. Returns the PR URL; `null` when the run does
+    /// commented on the issue. <paramref name="title"/> em branco deriva do
+    /// título da issue vinculada. Returns the PR URL; `null` when the run does
     /// not exist; throws `InvalidPipelineState` (409) when the run is not
-    /// Completed or has no worktree.
+    /// Completed, has no worktree or produced no diff vs the base.
     /// </summary>
     Task<string?> CreatePullRequestAsync(
-        string pipelineExecutionId, string title, string? body, CancellationToken cancellationToken = default);
+        string pipelineExecutionId, string? title, string? body, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Auto-finalize de um run Completed com issue vinculada: abre o PR quando
+    /// há diff vs base (commit pendente → push → PR) e sempre move o card para
+    /// <c>in_review</c> com comentário. Best-effort — nunca lança; o resultado
+    /// do run já está persistido e não depende de git/GitHub.
+    /// </summary>
+    Task FinalizeRunAsync(string pipelineExecutionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Pauses the execution between stages — in-flight stages finish, nothing

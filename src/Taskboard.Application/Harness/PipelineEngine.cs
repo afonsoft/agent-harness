@@ -132,7 +132,7 @@ public sealed class PipelineEngine
         foreach (var exec in active)
         {
             dispatched += await DispatchExecutionAsync(
-                    exec, repo, isolation, finOpsDispatch, eligibleAgents, cancellationToken)
+                    exec, repo, isolation, scope.ServiceProvider, finOpsDispatch, eligibleAgents, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -143,6 +143,7 @@ public sealed class PipelineEngine
         PipelineExecution exec,
         IRepository<PipelineExecution> repo,
         IWorkspaceIsolationService isolation,
+        IServiceProvider services,
         IFinOpsService? finOpsDispatch,
         IReadOnlySet<AgentType>? eligibleAgents,
         CancellationToken cancellationToken)
@@ -187,6 +188,10 @@ public sealed class PipelineEngine
         if (exec.Status != statusBefore)
         {
             await PublishRunStatusAsync(exec).ConfigureAwait(false);
+            if (exec.Status is PipelineStatus.Completed)
+            {
+                await FinalizeCompletedRunAsync(exec, services).ConfigureAwait(false);
+            }
         }
 
         try
@@ -538,6 +543,10 @@ public sealed class PipelineEngine
             if (exec.Status != statusBefore)
             {
                 await PublishRunStatusAsync(exec).ConfigureAwait(false);
+                if (exec.Status is PipelineStatus.Completed)
+                {
+                    await FinalizeCompletedRunAsync(exec, scope.ServiceProvider).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -554,6 +563,28 @@ public sealed class PipelineEngine
             cts.Dispose();
             _runningStages.TryRemove(key, out _);
             await DispatchPendingAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Runs bound to a board issue auto-finalize on completion — pending work is
+    /// committed/pushed, the PR opens and the card moves to in_review
+    /// (SPEC-20260919-ade-cockpit-hitl RF-005, extended to auto-create).
+    /// Best-effort: failures never undo the already-persisted run outcome.
+    /// </summary>
+    private async Task FinalizeCompletedRunAsync(PipelineExecution exec, IServiceProvider services)
+    {
+        try
+        {
+            var orchestrator = services.GetService<IPipelineOrchestrator>();
+            if (orchestrator is not null)
+            {
+                await orchestrator.FinalizeRunAsync(exec.Id.Value, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Pipeline {Id}: post-completion finalize failed.", exec.Id.Value);
         }
     }
 

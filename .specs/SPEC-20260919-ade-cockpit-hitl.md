@@ -113,9 +113,11 @@ src/Taskboard.Client/wwwroot/js/diff-viewer.js                       [new]
 - **Input → Output:** Evento `ApprovalRequired` → Alerta no topo do Cockpit com botões de ação.
 
 ### RF-005: Ação de Conclusão / Pull Request
-- **Description:** Quando o run atinge status `Completed` e as verificações forem verdes, o Cockpit habilita o botão "Criar Pull Request".
-- **Rules:** Ao clicar, o sistema comita o worktree (se pendente), envia o push para o remote e abre o PR via Octokit no repositório GitHub correspondente, exibindo o link resultante.
-- **Implementação:** `IPipelineOrchestrator.CreatePullRequestAsync` (`PipelineExecutionAppService`) orquestra commit→push→PR. Quando o run está vinculado a uma issue do board (`PipelineExecution.IssueId`), a issue é resolvida por `GetIssuesAsync` (match `IssueDto.Id`), o card move para `in_review` (`UpdateIssueColumnAsync` com a coluna atual) e o link do PR é comentado na issue (`AddIssueCommentAsync`) — best-effort: falhas no board não derrubam a request, pois o PR já existe.
+- **Description:** Quando o run atinge status `Completed` e as verificações forem verdes, o Cockpit habilita o botão "Criar Pull Request". Runs vinculados a uma issue do board **auto-finalizam** ao completar — sem ação manual.
+- **Rules:** Ao clicar (ou na finalização automática), o sistema comita o worktree (se pendente), envia o push para o remote e abre o PR via Octokit no repositório GitHub correspondente, exibindo o link resultante.
+- **Implementação:** `IPipelineOrchestrator.CreatePullRequestAsync` (`PipelineExecutionAppService`) orquestra commit→push→PR. `GitWorktreeManager.CommitAsync` é idempotente: worktree limpo (agente já commitou) devolve o HEAD em vez de falhar com `nothing to commit`. Um run sem diff vs a base é rejeitado com `InvalidPipelineState` antes de chamar o GitHub (que retornaria 422). `title` em branco deriva do título da issue vinculada.
+- **Auto-finalize:** a transição para `Completed` (`PipelineEngine` — tanto no término do último estágio quanto numa aprovação que completa o run) dispara `IPipelineOrchestrator.FinalizeRunAsync` quando `PipelineExecution.IssueId` está preenchido: abre o PR quando há diff vs base e **sempre** move o card para `in_review` com um comentário na issue (link do PR, ou nota de conclusão sem PR). Best-effort — falhas de git/GitHub nunca desfazem o resultado persistido do run.
+- **Board:** a issue é resolvida por `GetIssuesAsync` (match `IssueDto.Id`), o card move para `in_review` (`UpdateIssueColumnAsync` com a coluna atual) e o link do PR é comentado na issue (`AddIssueCommentAsync`) — best-effort: falhas no board não derrubam a request, pois o PR já existe.
 
 ---
 

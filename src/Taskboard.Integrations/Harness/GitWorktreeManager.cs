@@ -313,6 +313,20 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     {
         var session = await RequireSessionAsync(runId, cancellationToken);
 
+        // O agente pode já ter commitado — numa árvore limpa `git commit` sai
+        // 1 com "nothing to commit" no stdout e derrubava create-pr/promote.
+        // Idempotente: árvore limpa devolve o HEAD atual.
+        var status = await _git.RunAsync(session.Path, ["status", "--porcelain"], GitTimeout, cancellationToken);
+        EnsureSuccess(status, "git status");
+        if (string.IsNullOrWhiteSpace(status.StandardOutput))
+        {
+            var head = await _git.RunAsync(session.Path, ["rev-parse", "HEAD"], GitTimeout, cancellationToken);
+            EnsureSuccess(head, "git rev-parse");
+            var cleanSha = head.StandardOutput.Trim();
+            await _sessions.RecordCommitAsync(runId, cleanSha, cancellationToken);
+            return cleanSha;
+        }
+
         var add = await _git.RunAsync(session.Path, ["add", "-A"], GitTimeout, cancellationToken);
         EnsureSuccess(add, "git add");
 
@@ -477,9 +491,16 @@ public sealed class GitWorktreeManager : IWorkspaceIsolationService
     {
         if (result.TimedOut || result.ExitCode != 0)
         {
+            // git imprime algumas falhas só no stdout (ex.: "nothing to commit").
+            var detail = result.StandardError.Trim();
+            if (detail.Length == 0)
+            {
+                detail = result.StandardOutput.Trim();
+            }
+
             throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidValue,
-                $"{operation} failed{(result.TimedOut ? " (timeout)" : "")}: {result.StandardError.Trim()}");
+                $"{operation} failed{(result.TimedOut ? " (timeout)" : "")}: {detail}");
         }
     }
 

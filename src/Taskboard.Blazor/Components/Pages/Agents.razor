@@ -113,7 +113,7 @@
                                 <ul class="list-unstyled mb-0 small">
                                     @foreach (var card in items)
                                     {
-                                        <li class="mb-2 rounded p-2 @CardTint(card)" role="button" tabindex="0"
+                                        <li id="@CardDomId(card.Id)" class="mb-2 rounded p-2 @CardTint(card) @FocusRing(card)" role="button" tabindex="0"
                                             @key="card.Id" @onclick="() => OpenCardAsync(card)"
                                             @onkeydown="e => OnCardKeyDown(e, card)">
                                             <div class="d-flex align-items-center gap-2">
@@ -935,6 +935,10 @@
         ("prompt", "Prompt"),
     ];
     private string _activeTab = "dashboard";
+    // ?focus= deep-link: card destacado + scroll pendente até o board renderizar.
+    private string? _focusedCardId;
+    private bool _focusPending;
+    private string? _lastDeepLinkUri;
 
     // Sources scanned by AgentSessionScanner.Include (same slugs `?cli=` uses).
     private static readonly string[] SessionSources =
@@ -972,50 +976,102 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // ?tab= / ?cli= deep link — refresh/URL preserva aba e CLI escolhido.
-        if (!firstRender)
+        // ?tab= / ?cli= / ?focus= deep links — aplicados no primeiro render E em
+        // navegações same-page: o DeepLink de um card só muda a query string,
+        // e sem re-aplicar os parâmetros o clique não fazia nada visível.
+        var uri = Navigation.Uri;
+        var uriChanged = !string.Equals(uri, _lastDeepLinkUri, StringComparison.Ordinal);
+        _lastDeepLinkUri = uri;
+
+        if (firstRender || uriChanged)
+        {
+            var tab = ResolveQueryValue("tab");
+            if (tab is not null && AgentsTabs.Any(t => t.Id == tab))
+            {
+                _activeTab = tab;
+            }
+
+            var cli = ResolveQueryValue("cli");
+            if (cli is not null && SessionSources.Contains(cli, StringComparer.OrdinalIgnoreCase))
+            {
+                _selectedCli = SessionSources.First(s =>
+                    string.Equals(s, cli, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // session-history-parity: the index lists all CLIs — no picker-first.
+            if (_activeTab == "sessions")
+            {
+                await LoadSessionsAsync();
+            }
+
+            // RF-004/RF-005: deep-linkable filters + persisted show-idle toggle.
+            _boardQuery = ResolveQueryValue("q");
+            _boardCli = ResolveQueryValue("cli") is { Length: > 0 } q && _activeTab == "dashboard"
+                ? q : _boardCli;
+            _boardState = ResolveQueryValue("state");
+            _boardHasPr = string.Equals(ResolveQueryValue("hasPr"), "true", StringComparison.OrdinalIgnoreCase);
+
+            var focus = ResolveQueryValue("focus");
+            _focusedCardId = focus is { Length: > 0 } ? focus : null;
+            _focusPending = _focusedCardId is not null;
+
+            if (firstRender)
+            {
+                try
+                {
+                    _showIdle = "1" == await JS.InvokeAsync<string?>(
+                        "localStorage.getItem", ShowIdleStorageKey);
+                }
+                catch (JSException) { }
+            }
+            if (FiltersActive())
+            {
+                await LoadDashboardAsync();
+            }
+
+            StateHasChanged();
+            return;
+        }
+
+        await ScrollToFocusedCardAsync();
+    }
+
+    /// <summary>Rola até o card apontado por ?focus= assim que o board renderiza.</summary>
+    private async Task ScrollToFocusedCardAsync()
+    {
+        if (!_focusPending || string.IsNullOrEmpty(_focusedCardId) || _board is null)
         {
             return;
         }
 
-        var tab = ResolveQueryValue("tab");
-        if (tab is not null && AgentsTabs.Any(t => t.Id == tab))
-        {
-            _activeTab = tab;
-        }
-
-        var cli = ResolveQueryValue("cli");
-        if (cli is not null && SessionSources.Contains(cli, StringComparer.OrdinalIgnoreCase))
-        {
-            _selectedCli = SessionSources.First(s =>
-                string.Equals(s, cli, StringComparison.OrdinalIgnoreCase));
-        }
-
-        // session-history-parity: the index lists all CLIs — no picker-first.
-        if (_activeTab == "sessions")
-        {
-            await LoadSessionsAsync();
-        }
-
-        // RF-004/RF-005: deep-linkable filters + persisted show-idle toggle.
-        _boardQuery = ResolveQueryValue("q");
-        _boardCli = ResolveQueryValue("cli") is { Length: > 0 } q && _activeTab == "dashboard"
-            ? q : _boardCli;
-        _boardState = ResolveQueryValue("state");
-        _boardHasPr = string.Equals(ResolveQueryValue("hasPr"), "true", StringComparison.OrdinalIgnoreCase);
+        // O ?focus= chega sem o prefixo de kind — resolve o card real para o DOM id.
+        var card = BoardColumns().SelectMany(c => c.Items).FirstOrDefault(IsFocused);
         try
         {
-            _showIdle = "1" == await JS.InvokeAsync<string?>(
-                "localStorage.getItem", ShowIdleStorageKey);
+            if (card is null
+                || await JS.InvokeAsync<bool>("taskboard.focusCard", CardDomId(card.Id)))
+            {
+                _focusPending = false;
+            }
         }
-        catch (JSException) { }
-        if (FiltersActive())
+        catch (JSException)
         {
-            await LoadDashboardAsync();
+            _focusPending = false;
         }
-
-        StateHasChanged();
     }
+
+    /// <summary>?focus= chega sem o prefixo de kind (ex.: task-… → card "task:task-…").</summary>
+    private bool IsFocused(AgentBoardCard card) =>
+        !string.IsNullOrEmpty(_focusedCardId)
+        && (string.Equals(card.Id, _focusedCardId, StringComparison.Ordinal)
+            || card.Id.EndsWith($":{_focusedCardId}", StringComparison.Ordinal));
+
+    private string FocusRing(AgentBoardCard card) =>
+        IsFocused(card) ? "board-card-focus" : "";
+
+    private static string CardDomId(string cardId) =>
+        "agent-card-" + new string(cardId.Select(c =>
+            char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray());
 
     private string? ResolveQueryValue(string name)
     {

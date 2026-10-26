@@ -272,7 +272,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
     }
 
     public async Task<string?> CreatePullRequestAsync(
-        string pipelineExecutionId, string title, string? body, CancellationToken cancellationToken = default)
+        string pipelineExecutionId, string? title, string? body, CancellationToken cancellationToken = default)
     {
         var execution = await FindAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
         if (execution is null)
@@ -280,6 +280,66 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
             return null;
         }
 
+        var issue = await FindBoundIssueAsync(execution, cancellationToken).ConfigureAwait(false);
+        var prUrl = await CreatePullRequestCoreAsync(execution, issue, title, body, cancellationToken)
+            .ConfigureAwait(false);
+        await PublishIssueReviewAsync(execution, issue, prUrl, cancellationToken).ConfigureAwait(false);
+        return prUrl;
+    }
+
+    /// <inheritdoc />
+    public async Task FinalizeRunAsync(string pipelineExecutionId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var execution = await FindAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+            if (execution is null
+                || execution.Status is not PipelineStatus.Completed
+                || string.IsNullOrWhiteSpace(execution.IssueId))
+            {
+                return;
+            }
+
+            var issue = await FindBoundIssueAsync(execution, cancellationToken).ConfigureAwait(false);
+            if (issue is null)
+            {
+                _logger.LogWarning(
+                    "Run {RunId}: issue {IssueId} not found on {Repo} — card not moved to in_review.",
+                    execution.Id.Value, execution.IssueId, execution.RepositoryFullName);
+                return;
+            }
+
+            // Sem diff vs base não há nada para revisar via PR — o card ainda
+            // sai de in_progress para sinalizar que o run terminou.
+            string? prUrl = null;
+            try
+            {
+                var diff = await _isolation.GetDiffAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+                if (diff.FilesChanged > 0)
+                {
+                    prUrl = await CreatePullRequestCoreAsync(execution, issue, null, null, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex,
+                    "Run {RunId}: auto create-PR failed — the card still moves to in_review.",
+                    execution.Id.Value);
+            }
+
+            await PublishIssueReviewAsync(execution, issue, prUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Run {RunId}: finalize failed.", pipelineExecutionId);
+        }
+    }
+
+    /// <summary>RF-005 core: guards → commit pendente → push → PR. Sem efeitos de board.</summary>
+    private async Task<string> CreatePullRequestCoreAsync(
+        PipelineExecution execution, IssueDto? issue, string? title, string? body, CancellationToken cancellationToken)
+    {
         if (execution.Status != PipelineStatus.Completed)
         {
             throw new DomainException(
@@ -287,7 +347,7 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                 $"Run is {execution.Status} — a PR can only be created once the pipeline completes.");
         }
 
-        var session = await _isolation.GetAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
+        var session = await _isolation.GetAsync(execution.Id.Value, cancellationToken).ConfigureAwait(false);
         if (session is null)
         {
             throw new DomainException(
@@ -295,35 +355,38 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
                 "Run has no worktree — nothing to push.");
         }
 
-        // RF-005: commit pending changes, push the worktree branch, open the PR.
-        var diff = await _isolation.GetDiffAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
-        if (diff.FilesChanged > 0)
+        var effectiveTitle = !string.IsNullOrWhiteSpace(title)
+            ? title
+            : issue?.Title ?? $"chore: harness run {execution.Id.Value}";
+
+        // O diff conta mudanças commitadas E pendentes — zero arquivos aqui
+        // significa branch igual à base, e o GitHub recusaria o PR com 422.
+        var diff = await _isolation.GetDiffAsync(execution.Id.Value, cancellationToken).ConfigureAwait(false);
+        if (diff.FilesChanged == 0)
         {
-            await _isolation.CommitAsync(pipelineExecutionId, title, "Harness <harness@taskboard.local>", cancellationToken)
-                .ConfigureAwait(false);
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidPipelineState,
+                $"Run produced no changes vs '{session.BaseBranch}' — nothing to open a PR for.");
         }
 
-        var branch = await _isolation.PushAsync(pipelineExecutionId, cancellationToken).ConfigureAwait(false);
-        var prUrl = await _gitHub.CreatePullRequestAsync(
-            execution.RepositoryFullName, title, branch, execution.BaseBranch, body, cancellationToken)
+        // CommitAsync é idempotente: árvore limpa (agente já commitou) devolve
+        // o HEAD em vez de falhar com "nothing to commit".
+        await _isolation.CommitAsync(execution.Id.Value, effectiveTitle, "Harness <harness@taskboard.local>", cancellationToken)
             .ConfigureAwait(false);
 
-        await PublishIssueReviewAsync(execution, prUrl, cancellationToken).ConfigureAwait(false);
-        return prUrl;
+        var branch = await _isolation.PushAsync(execution.Id.Value, cancellationToken).ConfigureAwait(false);
+        return await _gitHub.CreatePullRequestAsync(
+            execution.RepositoryFullName, effectiveTitle, branch, execution.BaseBranch, body, cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Board bookkeeping once the PR exists: the bound issue card moves to
-    /// <c>in_review</c> and the PR link lands as a comment
-    /// (SPEC-20260919-ade-cockpit-hitl RF-005). Best-effort — the PR was
-    /// already created, so GitHub board failures never fail the request.
-    /// </summary>
-    private async Task PublishIssueReviewAsync(
-        PipelineExecution execution, string prUrl, CancellationToken cancellationToken)
+    /// <summary>Resolve a issue do board vinculada ao run (<c>IssueId</c> → <see cref="IssueDto"/>), ou null.</summary>
+    private async Task<IssueDto?> FindBoundIssueAsync(
+        PipelineExecution execution, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(execution.IssueId))
         {
-            return;
+            return null;
         }
 
         try
@@ -333,23 +396,52 @@ public sealed class PipelineExecutionAppService : IPipelineOrchestrator
             if (issue is null)
             {
                 _logger.LogWarning(
-                    "Run {RunId}: issue {IssueId} not found on {Repo} — card not moved to in_review.",
+                    "Run {RunId}: issue {IssueId} not found on {Repo}.",
                     execution.Id.Value, execution.IssueId, execution.RepositoryFullName);
-                return;
             }
 
+            return issue;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Run {RunId}: could not resolve issue {IssueId} on {Repo}.",
+                execution.Id.Value, execution.IssueId, execution.RepositoryFullName);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Board bookkeeping once the run finishes: the bound issue card moves to
+    /// <c>in_review</c> and a comment lands on the issue — o link do PR quando
+    /// ele existe, senão uma nota de conclusão sem PR
+    /// (SPEC-20260919-ade-cockpit-hitl RF-005). Best-effort — falhas no board
+    /// nunca derrubam a request.
+    /// </summary>
+    private async Task PublishIssueReviewAsync(
+        PipelineExecution execution, IssueDto? issue, string? prUrl, CancellationToken cancellationToken)
+    {
+        if (issue is null)
+        {
+            return;
+        }
+
+        try
+        {
             await _gitHub.UpdateIssueColumnAsync(
                 execution.RepositoryFullName, issue.Number, issue.Column,
                 GitHubBoardColumn.InReview, cancellationToken).ConfigureAwait(false);
             await _gitHub.AddIssueCommentAsync(
                 execution.RepositoryFullName, issue.Number,
-                $"Pull request opened by Harness: {prUrl}",
+                prUrl is not null
+                    ? $"Pull request opened by Harness: {prUrl}"
+                    : $"Run `{execution.Id.Value}` completed — no pull request was created.",
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "Run {RunId}: could not move issue {IssueId} to in_review or comment the PR link.",
+                "Run {RunId}: could not move issue {IssueId} to in_review or comment on it.",
                 execution.Id.Value, execution.IssueId);
         }
     }

@@ -94,6 +94,7 @@ tests/Taskboard.Tests.Unit/Harness/GitWorktreeManagerTests.cs          [new]
 
 ### RF-003: Commit e Push de Alterações
 - **Description:** Permitir que o agente ou o harness comite as mudanças do worktree com mensagem estruturada (ex: `feat(agent): [runId] automated task execution`).
+- **Rules:** `CommitAsync` é idempotente — quando `git status --porcelain` está vazio (o agente já commitou tudo), devolve o `HEAD` atual sem criar commit, em vez de falhar com `nothing to commit` (que sai no stdout e produzia a mensagem de erro vazia `git commit failed:`). Falhas de git reportam stderr **ou** stdout quando stderr está vazio.
 - **Input → Output:** `CommitAsync(runId, message, author)` → `CommitSha`.
 
 ### RF-004: Teardown e Cleanup
