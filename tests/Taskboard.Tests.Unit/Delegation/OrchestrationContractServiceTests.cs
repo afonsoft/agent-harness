@@ -254,7 +254,7 @@ public class OrchestrationContractServiceTests
                 var r = (CreateDispatchRequest)ci[0];
                 return DispatchDtoOf("disp-2", r.TaskId, r.Attempt, DispatchState.Pending);
             });
-        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<CancellationToken>())
+        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending, runId: "run-1"));
 
         var result = await _service.RetryTaskAsync("conv-1", "disp-1");
@@ -279,7 +279,7 @@ public class OrchestrationContractServiceTests
                 var r = (CreateDispatchRequest)ci[0];
                 return DispatchDtoOf("disp-3", r.TaskId, r.Attempt, DispatchState.Pending);
             });
-        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<CancellationToken>())
+        _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending, runId: "run-1"));
 
         var result = await _service.RetryTaskAsync("conv-1", "task-1");

@@ -124,7 +124,9 @@ public sealed class DelegationService : IDelegationService
         {
             // SPEC-20261020-v2 RF-007: retry reactivates the same task — a new
             // dispatch attempt replaces the legacy "clone task" behavior.
-            return (await RetryTaskAsync(scope, retryOf, request.Refine, ct)
+            // request.Model rides along so `--retry_of X --model Y` swaps the
+            // launch model of the new attempt.
+            return (await RetryTaskAsync(scope, retryOf, request.Refine, request.Model, ct)
                 .ConfigureAwait(false)).Task;
         }
 
@@ -257,7 +259,7 @@ public sealed class DelegationService : IDelegationService
 
     public async Task<RetryTaskResult> RetryTaskAsync(
         string scope, string retryOf, string? refineOverride = null,
-        CancellationToken ct = default)
+        string? model = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(retryOf))
         {
@@ -301,7 +303,7 @@ public sealed class DelegationService : IDelegationService
         }
 
         var attempt = await _dispatches.LatestAttemptAsync(taskId, ct).ConfigureAwait(false) + 1;
-        var reactivated = await _tasks.ReactivateForRetryAsync(taskId, ct).ConfigureAwait(false)
+        var reactivated = await _tasks.ReactivateForRetryAsync(taskId, model, ct).ConfigureAwait(false)
             ?? throw new DomainException(
                 TaskboardDomainErrorCodes.InvalidValue,
                 $"task {taskId} is not retryable");

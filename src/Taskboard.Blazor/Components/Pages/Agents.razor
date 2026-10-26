@@ -4,6 +4,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IAgentPromptTemplateService PromptTemplateService
+@inject IAgentModelCatalogService ModelCatalog
 @inject ILocaleService L
 @inject ToastService ToastService
 
@@ -140,6 +141,17 @@
                                                         <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
                                                                 @onclick="() => OpenCompareAsync(card.FanoutGroupId)">
                                                             <Icon Name="IconName.ColumnsGap" class="me-1" />Compare legs
+                                                        </Button>
+                                                    </span>
+                                                }
+                                                @if (card.Kind == "task" && IsRetryable(card))
+                                                {
+                                                    @* RF-007: retry com troca de modelo — schema-budget/quota do
+                                                       modelo anterior não deve obrigar o usuário a recriar a task. *@
+                                                    <span @onclick:stopPropagation="true">
+                                                        <Button Color="ButtonColor.Link" Size="ButtonSize.Small" Class="p-0"
+                                                                @onclick="() => OpenRetryModalAsync(card)">
+                                                            <Icon Name="IconName.ArrowClockwise" class="me-1" />Retry
                                                         </Button>
                                                     </span>
                                                 }
@@ -831,6 +843,38 @@
         </Button>
     </FooterTemplate>
 </Modal>
+
+@* RF-007 retry: model swap on the new attempt (schema-budget/quota rejects). *@
+<Modal @ref="_retryModal" Title="Retry task" Fullscreen="ModalFullscreen.SmallDown">
+    <BodyTemplate>
+        <p class="small text-body-secondary mb-1 text-truncate" title="@_retryCard?.SessionTitle">@_retryCard?.SessionTitle</p>
+        <div class="mb-1">
+            <label class="form-label small mb-1">Model <span class="text-body-secondary">(empty keeps the previous one)</span></label>
+            <input class="form-control form-control-sm font-monospace" list="agents-retry-models"
+                   @bind="_retryModel" placeholder="e.g. opencode/claude-sonnet-5" />
+            <datalist id="agents-retry-models">
+                @foreach (var m in _retryModels)
+                {
+                    <option value="@m"></option>
+                }
+            </datalist>
+        </div>
+        @if (!string.IsNullOrEmpty(_retryError))
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mt-2 small">@_retryError</Alert>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="() => _retryModal.HideAsync()">Cancel</Button>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SubmitRetryAsync" Disabled="_retryBusy">
+            @if (_retryBusy)
+            {
+                <Spinner Size="SpinnerSize.Small" Class="me-1" />
+            }
+            Retry
+        </Button>
+    </FooterTemplate>
+</Modal>
 </div>
 
 <div class="tab-pane" role="tabpanel" aria-label="Prompt" hidden="@(_activeTab != "prompt")">
@@ -1356,6 +1400,73 @@
         if (!string.IsNullOrWhiteSpace(card.DeepLink) && card.Kind != "scope")
         {
             Navigation.NavigateTo(card.DeepLink);
+        }
+    }
+
+    // RF-007 retry-with-model: task cards failed/stale (Blocked) ou cancelled (Exited).
+    private Modal _retryModal = default!;
+    private AgentBoardCard? _retryCard;
+    private string? _retryModel;
+    private List<string> _retryModels = [];
+    private string? _retryError;
+    private bool _retryBusy;
+
+    private static bool IsRetryable(AgentBoardCard card) =>
+        card.State is AgentAttentionState.Blocked or AgentAttentionState.Exited;
+
+    private async Task OpenRetryModalAsync(AgentBoardCard card)
+    {
+        _retryCard = card;
+        _retryModel = null;
+        _retryError = null;
+        _retryModels = [];
+
+        // CLIs builtin expõem catálogo vivo; custom defs ficam com input livre.
+        if (Enum.TryParse<AgentType>(card.CliName, ignoreCase: true, out var agentType)
+            && AgentCliModels.SupportsModelSelection(agentType))
+        {
+            try
+            {
+                _retryModels = (await ModelCatalog.ListAvailableAsync(agentType)).ToList();
+            }
+            catch (Exception)
+            {
+                // probe falhou — o input continua aceitando texto livre
+            }
+        }
+
+        await _retryModal.ShowAsync();
+    }
+
+    private async Task SubmitRetryAsync()
+    {
+        if (_retryCard is null)
+        {
+            return;
+        }
+
+        _retryBusy = true;
+        _retryError = null;
+        try
+        {
+            var taskId = _retryCard.Id.StartsWith("task:", StringComparison.Ordinal)
+                ? _retryCard.Id[5..]
+                : _retryCard.Id;
+            var (result, error) = await Client.RetryDelegationTaskAsync(taskId, _retryModel);
+            if (error is not null)
+            {
+                _retryError = error;
+                return;
+            }
+
+            await _retryModal.HideAsync();
+            await ToastService.NotifyAsync(new(ToastType.Success,
+                $"Retry enfileirado — attempt {result?.Dispatch.Attempt} em {_retryCard.CliName}."));
+            await LoadDashboardAsync();
+        }
+        finally
+        {
+            _retryBusy = false;
         }
     }
 

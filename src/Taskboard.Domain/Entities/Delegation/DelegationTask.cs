@@ -293,8 +293,10 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// SPEC-20261020-v2 RF-007: retry reactivates the same task — the new
     /// dispatch attempt is created by the service; deps re-evaluate from
     /// <c>pending</c> so a still-running dep keeps it waiting.
+    /// <paramref name="model"/>, quando informado, troca o modelo de lançamento
+    /// da nova tentativa (ex.: schema-budget/quota rejeitou o modelo anterior).
     /// </summary>
-    public void ReactivateForRetry()
+    public void ReactivateForRetry(string? model = null)
     {
         if (!IsRetryable)
         {
@@ -310,6 +312,11 @@ public sealed class DelegationTask : AggregateRoot<string>
         FinishedAt = null;
         LastHeartbeatAt = null;
         ActiveDispatchId = null;
+
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            Model = model.Trim();
+        }
     }
 
     public void MarkReady()

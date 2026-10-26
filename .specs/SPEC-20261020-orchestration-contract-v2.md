@@ -93,7 +93,14 @@ antigos de `worker_done` sem dispatchId. Out of scope: workers federados
   cleanup worker), `delegate_worker_retain`, `delegate_worker_abandon`.
 - RF-007 `retry_of` aponta para Dispatch (não task): cria `Dispatch.Attempt+1`
   no mesmo `TaskId`, herdando worktree/task; `--retry_of` não herda
-  `--on/worktree` (explícito).
+  `--on/worktree` (explícito). `retry_of` também aceita `taskId` legado
+  (resolve para o último dispatch da task). `model`/`effort`/`refine` podem
+  ser passados junto a `retry_of` para trocar o lançamento da nova tentativa
+  (ex.: schema-budget ou quota no modelo anterior); `model` não vazio
+  substitui `DelegationTask.Model`, vazio/nulo mantém o anterior. REST:
+  `POST /api/local/delegation/tasks/{id}/retry` com body `{model, refine}`
+  retorna 202 + `RetryTaskResult` (404 task desconhecida, 400 estado não
+  retentável).
 - RF-008 `delegate_task`/`delegate_plan`: `model`, `effort` opcionais por
   item; adapter `IAgentAdapter.ResolveLaunch(cli, model, effort)` retorna
   `{effectiveModel?, effectiveEffort?, args[]}`; CLI sem suporte → erro

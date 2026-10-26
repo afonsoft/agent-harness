@@ -66,10 +66,12 @@ public interface IDelegationService
     /// SPEC-20261020-v2 RF-007: retry — <paramref name="retryOf"/> may point at
     /// a dispatch id or (compat) a task id. Reactivates the same task as
     /// pending and registers a new pending dispatch with attempt+1.
+    /// <paramref name="model"/>, quando informado, troca o modelo de lançamento
+    /// da nova tentativa (schema-budget/quota costuma rejeitar o anterior).
     /// </summary>
     Task<RetryTaskResult> RetryTaskAsync(
         string scope, string retryOf, string? refineOverride = null,
-        CancellationToken ct = default);
+        string? model = null, CancellationToken ct = default);
 
     /// <summary>
     /// SPEC-20261020-v2 RF-003: FIFO delivery check — without

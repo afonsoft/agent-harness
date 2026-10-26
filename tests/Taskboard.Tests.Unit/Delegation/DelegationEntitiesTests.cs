@@ -71,6 +71,37 @@ public class DelegationEntitiesTests
         task.IsRetryable.ShouldBeTrue();
     }
 
+    // RF-007 ext: retry pode trocar o modelo de lançamento da nova tentativa
+    // (schema-budget/quota no modelo anterior); vazio/nulo mantém o anterior.
+    [Fact]
+    public void Dado_TaskFalhaComModel_Quando_ReativaComModelNovo_Entao_TrocaModel()
+    {
+        var task = DelegationTask.Create("p", "opencode", "conv-1", "/ws",
+            model: "gemini-3.1-flash-lite");
+        task.MarkFailed("schema exceeds the configured processing budget");
+
+        task.ReactivateForRetry("opencode/claude-sonnet-5");
+
+        task.Status.ShouldBe(DelegationTaskStatus.Pending);
+        task.Model.ShouldBe("opencode/claude-sonnet-5");
+        task.Error.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Dado_TaskFalhaComModel_Quando_ReativaSemModel_Entao_MantemAnterior()
+    {
+        var task = DelegationTask.Create("p", "opencode", "conv-1", "/ws",
+            model: "gemini-3.1-flash-lite");
+        task.MarkFailed("boom");
+
+        task.ReactivateForRetry();
+        task.Model.ShouldBe("gemini-3.1-flash-lite");
+
+        task.MarkFailed("boom again");
+        task.ReactivateForRetry("  ");
+        task.Model.ShouldBe("gemini-3.1-flash-lite");
+    }
+
     [Fact]
     public void Dado_PayloadVazio_Quando_CriaMensagem_Entao_Recusa()
     {

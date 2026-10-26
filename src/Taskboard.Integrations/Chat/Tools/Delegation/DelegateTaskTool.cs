@@ -184,7 +184,7 @@ public sealed class DelegateTaskTool(
                 await using var retryScope = scopeFactory.CreateAsyncScope();
                 var retryService = retryScope.ServiceProvider.GetRequiredService<IDelegationService>();
                 var retried = await retryService.RetryTaskAsync(
-                        scope, retryOf, refine, cancellationToken)
+                        scope, retryOf, refine, launch?.EffectiveModel, cancellationToken)
                     .ConfigureAwait(false);
                 context.Activity?.Report("delegated_task", retried.Task.Id);
                 return DelegationToolSupport.Ok(new
