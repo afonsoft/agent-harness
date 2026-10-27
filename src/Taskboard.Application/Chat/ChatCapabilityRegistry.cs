@@ -25,17 +25,25 @@ public sealed class ChatCapabilityRegistry(
         var list = new List<ChatCapability>();
         var allTools = tools.Values.Concat(await McpToolsAsync(cancellationToken).ConfigureAwait(false));
 
-        foreach (var tool in allTools.OrderBy(t => t.Name, StringComparer.Ordinal))
+        // FR-001: uma linha por Id — o CapabilityId é a chave do toggle
+        // (Disabled/IsCapabilityEnabled), então tools que dividem a mesma
+        // capability (ex.: automation_create/list/run → "agent:automation")
+        // agregam numa única linha; Ids repetidos quebram o @key do Blazor.
+        foreach (var group in allTools
+            .GroupBy(t => t.CapabilityId, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal))
         {
+            var ordered = group.OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
+            var first = ordered[0];
             list.Add(new ChatCapability(
-                tool.CapabilityId,
-                tool.Kind,
-                tool.Name,
-                tool.Description,
-                IsCapabilityEnabled(tool.CapabilityId),
-                tool.RequiresConfirmation || MutatingTools.Contains(tool.Name),
-                tool.Origin,
-                ApprovalPolicy: ToolPolicy(tool.Name)));
+                group.Key,
+                first.Kind,
+                ordered.Count == 1 ? first.Name : string.Join(", ", ordered.Select(t => t.Name)),
+                first.Description,
+                IsCapabilityEnabled(group.Key),
+                ordered.Any(t => t.RequiresConfirmation || MutatingTools.Contains(t.Name)),
+                first.Origin,
+                ApprovalPolicy: ordered.Count == 1 ? ToolPolicy(first.Name) : null));
         }
 
         if (IsMasterOn(ChatCapabilityKind.Skill))
