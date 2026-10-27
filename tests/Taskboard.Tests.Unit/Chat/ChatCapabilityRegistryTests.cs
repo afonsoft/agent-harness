@@ -152,6 +152,44 @@ public class ChatCapabilityRegistryTests
     }
 
     [Fact]
+    public async Task Dado_ToolsComMesmoCapabilityId_Quando_Lista_Entao_RowUnicaComNomesAgregados()
+    {
+        // FR-001: o catálogo emite uma linha por Id — automation_create/list/run
+        // dividem "agent:automation"; Ids duplicados quebram o @key do Blazor.
+        var registry = Build(
+            new Dictionary<string, IChatTool>
+            {
+                ["automation_run"] = Tool("automation_run", "agent:automation", ChatCapabilityKind.AgentDelegation),
+                ["automation_create"] = Tool("automation_create", "agent:automation", ChatCapabilityKind.AgentDelegation),
+                ["automation_list"] = Tool("automation_list", "agent:automation", ChatCapabilityKind.AgentDelegation),
+            });
+
+        var list = await registry.ListAsync();
+
+        list.GroupBy(c => c.Id).ShouldAllBe(g => g.Count() == 1);
+        var row = list.Single(c => c.Id == "agent:automation");
+        row.Kind.ShouldBe(ChatCapabilityKind.AgentDelegation);
+        row.Name.ShouldBe("automation_create, automation_list, automation_run");
+    }
+
+    [Fact]
+    public async Task Dado_CapabilityCompartilhadaDesabilitada_Quando_Resolve_Entao_TodasAsToolsAusentes()
+    {
+        var registry = Build(
+            new Dictionary<string, IChatTool>
+            {
+                ["automation_create"] = Tool("automation_create", "agent:automation", ChatCapabilityKind.AgentDelegation),
+                ["automation_list"] = Tool("automation_list", "agent:automation", ChatCapabilityKind.AgentDelegation),
+                ["echo"] = Tool("echo"),
+            },
+            config: new() { ["Taskboard:Chat:Capabilities:Disabled"] = """["agent:automation"]""" });
+
+        var set = await registry.ResolveToolSetAsync();
+
+        set.Keys.ShouldBe(["echo"]);
+    }
+
+    [Fact]
     public void Dado_IdDesconhecidoEmDisabled_Quando_Checa_Entao_IgnoradoSemErro()
     {
         var registry = Build(

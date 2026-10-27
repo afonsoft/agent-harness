@@ -13,6 +13,39 @@
 <Modal @ref="_installModal" Size="ModalSize.Large" Fullscreen="ModalFullscreen.SmallDown" IsScrollable="true" />
 <Modal @ref="_modelsModal" Fullscreen="ModalFullscreen.SmallDown" />
 
+@* RF-007 retry: model swap on the new attempt (schema-budget/quota rejects).
+   Root-level — inside a hidden tab-pane the backdrop shows but the dialog stays hidden. *@
+<Modal @ref="_retryModal" Title="Retry task" Fullscreen="ModalFullscreen.SmallDown">
+    <BodyTemplate>
+        <p class="small text-body-secondary mb-1 text-truncate" title="@_retryCard?.SessionTitle">@_retryCard?.SessionTitle</p>
+        <div class="mb-1">
+            <label class="form-label small mb-1">Model <span class="text-body-secondary">(empty keeps the previous one)</span></label>
+            <input class="form-control form-control-sm font-monospace" list="agents-retry-models"
+                   @bind="_retryModel" placeholder="e.g. opencode/claude-sonnet-5" />
+            <datalist id="agents-retry-models">
+                @foreach (var m in _retryModels)
+                {
+                    <option value="@m"></option>
+                }
+            </datalist>
+        </div>
+        @if (!string.IsNullOrEmpty(_retryError))
+        {
+            <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mt-2 small">@_retryError</Alert>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="() => _retryModal.HideAsync()">Cancel</Button>
+        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SubmitRetryAsync" Disabled="_retryBusy">
+            @if (_retryBusy)
+            {
+                <Spinner Size="SpinnerSize.Small" Class="me-1" />
+            }
+            Retry
+        </Button>
+    </FooterTemplate>
+</Modal>
+
 <h1 class="h4 fw-bold mb-1">CLI Agents</h1>
 <p class="small text-body-secondary mb-4">Agent CLIs detected on this machine. Open a terminal to authenticate or manage each CLI.</p>
 @* SPEC-20261020-provider-quota-usage RF-006: quota roster strip. *@
@@ -844,37 +877,6 @@
     </FooterTemplate>
 </Modal>
 
-@* RF-007 retry: model swap on the new attempt (schema-budget/quota rejects). *@
-<Modal @ref="_retryModal" Title="Retry task" Fullscreen="ModalFullscreen.SmallDown">
-    <BodyTemplate>
-        <p class="small text-body-secondary mb-1 text-truncate" title="@_retryCard?.SessionTitle">@_retryCard?.SessionTitle</p>
-        <div class="mb-1">
-            <label class="form-label small mb-1">Model <span class="text-body-secondary">(empty keeps the previous one)</span></label>
-            <input class="form-control form-control-sm font-monospace" list="agents-retry-models"
-                   @bind="_retryModel" placeholder="e.g. opencode/claude-sonnet-5" />
-            <datalist id="agents-retry-models">
-                @foreach (var m in _retryModels)
-                {
-                    <option value="@m"></option>
-                }
-            </datalist>
-        </div>
-        @if (!string.IsNullOrEmpty(_retryError))
-        {
-            <Alert Color="AlertColor.Danger" Dismissable="false" class="py-1 mt-2 small">@_retryError</Alert>
-        }
-    </BodyTemplate>
-    <FooterTemplate>
-        <Button Color="ButtonColor.Secondary" Outline="true" Size="ButtonSize.Small" @onclick="() => _retryModal.HideAsync()">Cancel</Button>
-        <Button Color="ButtonColor.Primary" Size="ButtonSize.Small" @onclick="SubmitRetryAsync" Disabled="_retryBusy">
-            @if (_retryBusy)
-            {
-                <Spinner Size="SpinnerSize.Small" Class="me-1" />
-            }
-            Retry
-        </Button>
-    </FooterTemplate>
-</Modal>
 </div>
 
 <div class="tab-pane" role="tabpanel" aria-label="Prompt" hidden="@(_activeTab != "prompt")">
