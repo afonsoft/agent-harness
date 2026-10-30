@@ -1,0 +1,66 @@
+/* 
+ * DESIGN TOKENS: Engineering Workspace (OpenWebUI Style)
+ * Ref: SPEC-20250522-layout-unification-openwebui
+ */
+
+:root {
+    /* Colors - Neutral & Deep Dark */
+    --harness-bg-main: #0d1117;
+    --harness-bg-sidebar: #161b22;
+    --harness-bg-surface: #21262d;
+    --harness-bg-tertiary: #30363d;
+    
+    /* Borders - Subtle & Sharp */
+    --harness-border-subtle: #30363d;
+    --harness-border-strong: #484f58;
+    
+    /* Accent */
+    --harness-accent-primary: #2f81f7;
+    --harness-accent-hover: #58a6ff;
+    
+    /* Status - Indicator only (no heavy backgrounds) */
+    --status-not-started: #8b949e;
+    --status-in-progress: #388bfd;
+    --status-delayed: #d29922;
+    --status-on-hold: #8b949e;
+    --status-completed: #3fb950;
+    --status-archived: #484f58;
+
+    /* Shape - Technical/IDE */
+    --harness-radius-sm: 2px;
+    --harness-radius-md: 4px;
+    --harness-radius-lg: 6px;
+
+    /* Typography & Density */
+    --harness-font-size-base: 13px;
+    --harness-font-size-small: 12px;
+    --harness-spacing-compact: 0.4rem;
+    --harness-spacing-normal: 0.75rem;
+}
+
+/* Global Overrides for Cleanliness */
+body {
+    background-color: var(--harness-bg-main) !important;
+    color: #c9d1d9 !important;
+    font-size: var(--harness-font-size-base) !important;
+}
+
+.app-shell {
+    background-color: var(--harness-bg-main);
+}
+
+/* Removing heavy shadows and rounded corners from legacy components */
+.card, .modal-content, .dropdown-menu, .nav-pills .nav-link {
+    border-radius: var(--harness-radius-md) !important;
+    box-shadow: none !important;
+    border: 1px solid var(--harness-border-subtle) !important;
+}
+
+/* High Density utility */
+.p-compact {
+    padding: var(--harness-spacing-compact) !important;
+}
+
+.m-compact {
+    margin: var(--harness-spacing-compact) !important;
+}
