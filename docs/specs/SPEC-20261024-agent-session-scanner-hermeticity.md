@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Status | **Approved** |
+| Status | **Completed** |
 | Owner | @afonsoft |
 | Ticket | GAP-tests-agent-session-scanner-hermeticity |
 | Área | `src/Taskboard.Integrations/Agents/AgentSessionScanner.cs`, `tests/Taskboard.Tests.Integration/` |

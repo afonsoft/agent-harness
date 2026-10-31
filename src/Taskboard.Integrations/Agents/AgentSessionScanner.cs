@@ -35,6 +35,13 @@ public sealed class AgentSessionScanner : IAgentSessionScanner
     {
     }
 
+    /// <summary>SPEC-20261024-agent-session-scanner-hermeticity: configuration-driven
+    /// home root using <c>Taskboard:HomeDir</c> with fallback to UserProfile.</summary>
+    public AgentSessionScanner(Microsoft.Extensions.Configuration.IConfiguration configuration)
+        : this(configuration["Taskboard:HomeDir"] ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+    {
+    }
+
     /// <summary>SPEC-20261024-agent-session-scanner-hermeticity: explicit home
     /// root — DI passes <c>Taskboard:HomeDir</c> so tests never scan the real
     /// developer home.</summary>
