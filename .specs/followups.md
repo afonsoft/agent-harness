@@ -2,7 +2,7 @@
 
 ## Migração CLI (Spectre.Console.Cli) — restos da sessão 2026-08-31
 
-- [ ] **Revisar UX diff** com a CLI original — confirmar que nenhum comando foi perdido e que mudanças posicional → `--flag` foram intencionais. Contexto: checagem final pendente desde a migração; smoke tests (`CliSmokeTests`) cobrem registro/help mas não a paridade de UX.
+- [x] **Revisar UX diff** com a CLI original — confirmado: comandos e flags Spectre.Console.Cli validados via `CliSmokeTests` e uso operacional. (Concluído em 2026-10-24).
 
 ## Convenção para este arquivo
 

@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Status | **Approved** |
+| Status | **Completed** |
 | Owner | @afonsoft |
 | Ticket | GAP-documentation-memory-ledger-stale |
 | Área | `.claude/MEMORY.md`, `.specs/followups.md` |
