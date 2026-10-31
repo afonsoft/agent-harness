@@ -158,6 +158,29 @@ public class AgentSessionScannerTests : IDisposable
             .ShouldBe(["--conversation", "id1"]);
     }
 
+    [Fact]
+    public void Dado_ConfiguracaoComHomeDir_Quando_InstanciarScanner_Entao_UsaHomeConfigurado()
+    {
+        var config = new StubConfiguration(new() { ["Taskboard:HomeDir"] = _root });
+
+        var scanner = new AgentSessionScanner(config);
+        scanner.ShouldNotBeNull();
+    }
+
+    private sealed class StubConfiguration : Microsoft.Extensions.Configuration.IConfiguration
+    {
+        private readonly Dictionary<string, string?> _data;
+        public StubConfiguration(Dictionary<string, string?> data) => _data = data;
+        public string? this[string key]
+        {
+            get => _data.TryGetValue(key, out var val) ? val : null;
+            set => _data[key] = value;
+        }
+        public Microsoft.Extensions.Configuration.IConfigurationSection GetSection(string key) => throw new NotImplementedException();
+        public IEnumerable<Microsoft.Extensions.Configuration.IConfigurationSection> GetChildren() => throw new NotImplementedException();
+        public Microsoft.Extensions.Primitives.IChangeToken GetReloadToken() => NSubstitute.Substitute.For<Microsoft.Extensions.Primitives.IChangeToken>();
+    }
+
     private static async Task Exec(SqliteConnection conn, string sql)
     {
         await using var cmd = conn.CreateCommand();
