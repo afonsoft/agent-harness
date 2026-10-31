@@ -1,0 +1,108 @@
+# SPEC-20261023-openwebui-layout-enhancement
+
+## 0. Metadata
+| Field | Value |
+|---|---|
+| Feature | OpenWebUI Layout & Design Enhancement |
+| Type | Frontend |
+| Stack | Blazor WebAssembly / .NET 10 / CSS / Bootstrap 5.3 |
+| Repository | afonsoft/agent-harness |
+| Branch | feature/Antigravity-20261023-openwebui-layout-enhancement |
+| Ticket | TICKET-UI-001 |
+| Status | `Completed` |
+
+## 1. User Story
+As a developer and AI orchestrator user using Harness,
+I want the UI layout, color tokens, typography, and micro-interactions to be elevated to match the clean, polished aesthetic of OpenWebUI (as seen in `afonsoft/openwebuicode`),
+So that the workbench feels cohesive, professional, visually distraction-free, and optimized for high-density agent coding sessions.
+
+### Problem Context
+While `agent-harness` (`Harness`) currently integrates `tokens-clean.css` and a dark theme inspired by GitHub/OpenWebUI, several legacy components, modals, sidebar margins, card elevations, and color contrasts still retain generic Bootstrap or mismatched styles. Comparing with `afonsoft/openwebuicode`, OpenWebUI emphasizes seamless glassmorphism, refined neutral scales (`#0f172a` / `#1e293b`), consistent border radii, elegant focus states, smooth transitions, and distinct chat/workbench separation without heavy box-shadow noise.
+
+## 2. Scope
+### In Scope
+- Unification and expansion of design tokens (`tokens-clean.css`) with advanced OpenWebUI palette variables (deep background surfaces, subtle borders, focused accent highlights).
+- Refinement of the App Shell layout (`app-sidebar`, header, main viewport, collapsible panels) for seamless multi-tab workflow and focus mode.
+- Enhancement of chat threads, tool call cards, workspace panels, and terminal PTY tabs with clean border-subtle styling and streamlined padding.
+- Modernization of modals, dropdowns, buttons, and form inputs to eliminate heavy shadows and apply uniform radius (`--harness-radius-md`).
+- Polishing typography, line heights, and status badges across Board, Cockpit, FinOps, and Agents views.
+
+### Out of Scope
+- Backend domain model changes or database schema alterations.
+- Rewriting underlying Blazor component logic or state management architectures.
+- Changes to GitHub Actions workflows or CI/CD pipelines.
+
+## 3. Technical Context
+- **Where the change happens**: `src/Taskboard.Client/wwwroot/css/tokens-clean.css`, `src/Taskboard.Client/wwwroot/css/site.css`, and localized component CSS files in `src/Taskboard.Blazor/Components/`.
+- **Files to read**:
+  - `src/Taskboard.Client/wwwroot/css/tokens-clean.css`
+  - `src/Taskboard.Client/wwwroot/css/site.css`
+  - `src/Taskboard.Blazor/Components/AiChat/ConversationWorkspacePanel.razor.css`
+  - `src/Taskboard.Blazor/Components/BoardView.razor`
+- **Files to create/modify**:
+  - `src/Taskboard.Client/wwwroot/css/tokens-clean.css` (modify)
+  - `src/Taskboard.Client/wwwroot/css/site.css` (modify)
+  - Selected component `.razor.css` files for consistent padding and card styling.
+
+## 4. Requirements
+### RF-001: OpenWebUI Design Token Alignment
+- **Description**: Standardize color tokens, surface elevations, and borders in `tokens-clean.css` to match OpenWebUI's deep slate palette (`#0f172a`, `#1e293b`, `#334155`) with precise contrast ratios.
+- **Rules**:
+  - Replace mixed dark backgrounds with unified OpenWebUI slate/zinc tokens.
+  - Ensure all borders use `--harness-border-subtle` rather than harsh black borders.
+- **Input → Output**:
+  - Input: Legacy dark theme variables.
+  - Output: Harmonized OpenWebUI-inspired design tokens across all UI components.
+
+### RF-002: App Shell and Sidebar Refinement
+- **Description**: Streamline the layout of the sidebar and header to mirror OpenWebUI's sleek navigation rail.
+- **Rules**:
+  - Sidebar background must use deep neutral surface (`--harness-bg-sidebar`).
+  - Navigation links must feature subtle hover pill backgrounds and clean active indicators without heavy drop shadows.
+- **Input → Output**:
+  - Input: Current sidebar layout.
+  - Output: Polished navigation shell with smooth transitions.
+
+### RF-003: Component and Card Cleanliness
+- **Description**: Strip heavy Bootstrap box-shadows and rounded gradients from cards, modals, and tool call panes, replacing them with sharp, flat IDE-grade borders.
+- **Rules**:
+  - Cards and dialogs use `--harness-radius-md` (4px–6px) and thin subtle borders.
+  - Hover states on interactive cards should highlight border color rather than elevation.
+- **Input → Output**:
+  - Input: Default Bootstrap cards with heavy shadows.
+  - Output: Clean, flat, high-density IDE-style panels.
+
+## 5. API Contract
+*N/A — This is a pure frontend layout and design tokens enhancement.*
+
+## 6. Acceptance Criteria
+### BDD Scenarios
+- **Given** the Harness application is loaded in the browser, **When** the user navigates between Board, AI Chat, Cockpit, and Settings, **Then** all surfaces must render with consistent OpenWebUI-inspired slate backgrounds, precise typography, and subtle borders without visual jarring.
+- **Given** an AI chat conversation with tool call cards, **When** the user views the conversation and workspace panel, **Then** the panels must exhibit clean spacing, flat borders, and crisp focus states aligned with OpenWebUI design standards.
+
+### Edge Cases Table
+| Scenario | Input | Expected Behavior |
+|---|---|---|
+| High density viewport (mobile/narrow) | Viewport width < 768px | Sidebar collapses gracefully into mobile drawer with smooth slide-in transition |
+| Focus mode in terminal / AI Chat | User toggles focus mode | Chrome and top/side navigation hide cleanly, leaving full viewport shell with compact tab strip |
+
+## 7. Task Plan
+- **T1 (Discovery & Analysis)**: Review existing `tokens-clean.css` and `site.css` against OpenWebUI layout patterns (`afonsoft/openwebuicode`).
+- **T2 (Token Enhancement)**: Update `tokens-clean.css` with refined OpenWebUI slate color scales and typography variables.
+- **T3 (Stylesheet Refinement)**: Refine `site.css` rules for app-shell, sidebar, cards, modals, and input fields.
+- **T4 (Verification & Build)**: Run `dotnet build` and test UI rendering across views.
+
+## 8. Organization Guardrails
+- Never commit/push directly to `main`, `master`, or `develop`.
+- Do not modify `/.github/workflows/**` without explicit human approval.
+- No secrets, `.env`, or credentials in code or commits.
+- Respect ABP N-Layer and separation of concerns (frontend styles isolated in client assets).
+
+## 9. Definition of Done
+- [ ] Design tokens updated in `tokens-clean.css`.
+- [ ] Global stylesheet rules refined in `site.css`.
+- [ ] `dotnet build` succeeds without warnings or errors (`TreatWarningsAsErrors`).
+- [ ] Visual consistency verified across main views (Board, AI Chat, Cockpit, FinOps, Settings).
+
+## Open Questions / Pending Ambiguity
+- *None.* The scope focuses strictly on layout and design token alignment inspired by OpenWebUI.
