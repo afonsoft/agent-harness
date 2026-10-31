@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| Status | **Approved** |
+| Status | **Completed** |
 | Owner | @afonsoft |
 | Ticket | GAP-operation-repo-hygiene |
 | Área | GitHub Issues, branches remotas |
