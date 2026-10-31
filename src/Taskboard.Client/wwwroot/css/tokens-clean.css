@@ -1,35 +1,36 @@
-/* 
- * DESIGN TOKENS: Engineering Workspace (OpenWebUI Style)
- * Ref: SPEC-20250522-layout-unification-openwebui
+/*
+ * DESIGN TOKENS: Engineering Workspace & OpenWebUI Unification
+ * Ref: SPEC-20261023-openwebui-layout-enhancement
  */
 
 :root {
-    /* Colors - Neutral & Deep Dark */
-    --harness-bg-main: #0d1117;
-    --harness-bg-sidebar: #161b22;
-    --harness-bg-surface: #21262d;
-    --harness-bg-tertiary: #30363d;
-    
+    /* Colors - OpenWebUI Slate / Zinc Refined Palette */
+    --harness-bg-main: #0f172a;
+    --harness-bg-sidebar: #1e293b;
+    --harness-bg-surface: #1e293b;
+    --harness-bg-tertiary: #334155;
+    --harness-bg-hover: rgba(51, 65, 85, 0.5);
+
     /* Borders - Subtle & Sharp */
-    --harness-border-subtle: #30363d;
-    --harness-border-strong: #484f58;
-    
-    /* Accent */
-    --harness-accent-primary: #2f81f7;
-    --harness-accent-hover: #58a6ff;
-    
-    /* Status - Indicator only (no heavy backgrounds) */
-    --status-not-started: #8b949e;
-    --status-in-progress: #388bfd;
-    --status-delayed: #d29922;
-    --status-on-hold: #8b949e;
-    --status-completed: #3fb950;
-    --status-archived: #484f58;
+    --harness-border-subtle: #334155;
+    --harness-border-strong: #475569;
+
+    /* Accent - OpenWebUI Blue / Indigo Vibe */
+    --harness-accent-primary: #3b82f6;
+    --harness-accent-hover: #60a5fa;
+
+    /* Status - Indicator only */
+    --status-not-started: #94a3b8;
+    --status-in-progress: #3b82f6;
+    --status-delayed: #f59e0b;
+    --status-on-hold: #64748b;
+    --status-completed: #10b981;
+    --status-archived: #475569;
 
     /* Shape - Technical/IDE */
-    --harness-radius-sm: 2px;
-    --harness-radius-md: 4px;
-    --harness-radius-lg: 6px;
+    --harness-radius-sm: 4px;
+    --harness-radius-md: 6px;
+    --harness-radius-lg: 8px;
 
     /* Typography & Density */
     --harness-font-size-base: 13px;
@@ -38,22 +39,30 @@
     --harness-spacing-normal: 0.75rem;
 }
 
-/* Global Overrides for Cleanliness */
+/* Global Overrides for OpenWebUI Cleanliness */
 body {
     background-color: var(--harness-bg-main) !important;
-    color: #c9d1d9 !important;
+    color: #f1f5f9 !important;
     font-size: var(--harness-font-size-base) !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
 }
 
 .app-shell {
     background-color: var(--harness-bg-main);
 }
 
-/* Removing heavy shadows and rounded corners from legacy components */
-.card, .modal-content, .dropdown-menu, .nav-pills .nav-link {
+/* Removing heavy shadows and rounded corners from legacy components, standardizing with flat IDE styling */
+.card, .modal-content, .dropdown-menu, .nav-pills .nav-link, .form-control, .form-select {
     border-radius: var(--harness-radius-md) !important;
     box-shadow: none !important;
+    background-color: var(--harness-bg-surface) !important;
     border: 1px solid var(--harness-border-subtle) !important;
+    color: #f1f5f9 !important;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--harness-accent-primary) !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
 }
 
 /* High Density utility */
