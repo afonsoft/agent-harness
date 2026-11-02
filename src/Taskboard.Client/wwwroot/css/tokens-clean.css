@@ -1,31 +1,43 @@
 /*
- * DESIGN TOKENS: Engineering Workspace & OpenWebUI Unification
+ * DESIGN TOKENS: Engineering Workspace & OpenWebUI Unification (light)
  * Ref: SPEC-20261023-openwebui-layout-enhancement
+ *      SPEC-20261102-light-theme-openwebui
+ *
+ * Light palette mirrors OpenWebUiCode (src/OpenWebUI.Client):
+ * bg-white surfaces, oklch gray ramp for text/borders/hover,
+ * sidebar bg-white + border-gray-50, text-gray-700 body.
  */
 
 :root {
-    /* Colors - OpenWebUI Slate / Zinc Refined Palette */
-    --harness-bg-main: #0f172a;
-    --harness-bg-sidebar: #1e293b;
-    --harness-bg-surface: #1e293b;
-    --harness-bg-tertiary: #334155;
-    --harness-bg-hover: rgba(51, 65, 85, 0.5);
+    color-scheme: light;
+
+    /* Colors - OpenWebUI Light (bg-white + gray ramp) */
+    --harness-bg-main: #ffffff;
+    --harness-bg-sidebar: #ffffff;
+    --harness-bg-surface: #ffffff;
+    --harness-bg-tertiary: oklch(0.98 0 0); /* gray-50  */
+    --harness-bg-hover: oklch(0.96 0 0);    /* gray-100 */
 
     /* Borders - Subtle & Sharp */
-    --harness-border-subtle: #334155;
-    --harness-border-strong: #475569;
+    --harness-border-subtle: oklch(0.9 0 0);  /* gray-200 */
+    --harness-border-strong: oklch(0.86 0 0); /* gray-300 */
 
-    /* Accent - OpenWebUI Blue / Indigo Vibe */
+    /* Text ramp */
+    --harness-text-body: oklch(0.37 0 0);    /* gray-700 */
+    --harness-text-muted: oklch(0.55 0 0);   /* gray-500 */
+    --harness-text-emphasis: oklch(0.2 0 0); /* gray-900 */
+
+    /* Accent - OpenWebUI Blue */
     --harness-accent-primary: #3b82f6;
-    --harness-accent-hover: #60a5fa;
+    --harness-accent-hover: #2563eb;
 
     /* Status - Indicator only */
-    --status-not-started: #94a3b8;
+    --status-not-started: oklch(0.55 0 0);
     --status-in-progress: #3b82f6;
     --status-delayed: #f59e0b;
-    --status-on-hold: #64748b;
+    --status-on-hold: oklch(0.44 0 0);
     --status-completed: #10b981;
-    --status-archived: #475569;
+    --status-archived: oklch(0.7 0 0);
 
     /* Shape - Technical/IDE */
     --harness-radius-sm: 4px;
@@ -42,22 +54,30 @@
 /* Global Overrides for OpenWebUI Cleanliness */
 body {
     background-color: var(--harness-bg-main) !important;
-    color: #f1f5f9 !important;
+    color: var(--harness-text-body) !important;
     font-size: var(--harness-font-size-base) !important;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    letter-spacing: -0.011em;
 }
 
 .app-shell {
     background-color: var(--harness-bg-main);
 }
 
-/* Removing heavy shadows and rounded corners from legacy components, standardizing with flat IDE styling */
-.card, .modal-content, .dropdown-menu, .nav-pills .nav-link, .form-control, .form-select {
+/* Removing heavy shadows and rounded corners from legacy components, standardizing with flat IDE styling.
+   .nav-pills .nav-link intentionally excluded from the bg/color !important bundle:
+   the sidebar active state (.app-sidebar .nav-link.active → primary-bg-subtle)
+   must stay visible for navigation legibility. */
+.card, .modal-content, .dropdown-menu, .form-control, .form-select {
     border-radius: var(--harness-radius-md) !important;
     box-shadow: none !important;
     background-color: var(--harness-bg-surface) !important;
     border: 1px solid var(--harness-border-subtle) !important;
-    color: #f1f5f9 !important;
+    color: var(--harness-text-body) !important;
+}
+
+.nav-pills .nav-link {
+    border-radius: var(--harness-radius-md) !important;
 }
 
 .form-control:focus, .form-select:focus {
