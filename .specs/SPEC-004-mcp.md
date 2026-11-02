@@ -1,5 +1,9 @@
 # SPEC-004: MCP Server
 
+> **Nota (2026-11-01):** a lista de tools evoluiu após SPEC-20260918-projects-removal.
+> Superfície atual: 12 tools — ver tabela em
+> `.claude/skills/manage-taskboard/SKILL.md` e `src/Taskboard.Mcp/Tools/TaskboardTools.cs`.
+
 ## 0. SPEC Metadata
 
 | Field | Value |

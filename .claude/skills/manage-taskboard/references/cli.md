@@ -37,9 +37,30 @@ taskctl ghissue:comment owner/name <issueNumber> "<body>" [--json]
 For a shared cloud board, keep `taskctl` pointed at the **loopback companion** and configure the upstream HTTPS origin through it:
 
 ```bash
-taskctl cloud:login --url HTTPS_ORIGIN --actor-name NAME [--json]
+taskctl cloud:login <https-origin> [--json]
 taskctl cloud:status [--json]
 taskctl cloud:logout [--json]
 ```
 
-`cloud:login` reads the shared password from a private `Shared key:` prompt. The actor name is the display attribution sent through Basic Authentication. The local companion stores its configuration with mode `0600`.
+`cloud:login` saves the upstream origin in the local CLI config (`cloudUrl`, file mode `0600`) and marks the companion's cloud session as connected via `PUT /api/local/cloud-session`. `cloud:logout` marks it disconnected. The `<https-origin>` is a positional argument — `--url` is the global option that overrides the local API base (`HARNESS_URL`).
+
+## Local backup/restore
+
+Local SQLite maintenance (SPEC-20261003-sqlite-backup):
+
+```bash
+taskctl backup <destDir> [--keep N] [--db PATH] [--json]
+taskctl restore <backupFile> [--db PATH] [--force] [--json]
+```
+
+## Doctor and runs
+
+```bash
+taskctl doctor [--json]
+taskctl run <prompt> --repo owner/name [--branch main] [--issue ID] [--spec PATH]
+            [--template ID] [--agent NAME] [--tier T] [--max-budget USD]
+            [--single-agent] [--skip-verification] [--dry-run] [--json]
+```
+
+- `doctor` runs preflight checks on the environment (agent CLIs installed/authenticated, worktree root, MCP, chat providers) — the same report used before dispatching a run.
+- `run` dispatches an agent run; `--repo` (owner/name) is required. With `--dry-run` it only resolves config + preflights server-side — nothing persists, nothing spawns.

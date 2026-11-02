@@ -61,10 +61,18 @@ taskctl ghissue:comments owner/name <issueNumber> [--take 50] --json
 # Publicar comentário na issue no GitHub (handoff para o próximo agente/etapa)
 taskctl ghissue:comment owner/name <issueNumber> "<body>" --json
 
-# Sessão cloud
-taskctl cloud:login --url HTTPS_ORIGIN --actor-name NAME
+# Sessão cloud (aponta o companion local para a origem HTTPS upstream)
+taskctl cloud:login <https-origin>
 taskctl cloud:status --json
 taskctl cloud:logout
+
+# Manutenção local (SQLite do harness)
+taskctl backup <destDir> [--keep N] [--db PATH] --json
+taskctl restore <backupFile> [--db PATH] [--force] --json
+
+# Diagnóstico e execução de runs de agente
+taskctl doctor --json
+taskctl run "<prompt>" --repo owner/name [--branch main] [--issue ID] [--spec PATH] [--agent NAME] [--tier T] [--max-budget USD] [--single-agent] [--skip-verification] [--dry-run] --json
 ```
 
 **Convenção de handoff**: comentários na issue do GitHub são o canal de passagem de contexto entre agentes e etapas. Ao **assumir** uma issue, leia o histórico (`ghissue:history`) e os comentários (`ghissue:comments`) — o prompt gerado pela UI já injeta os comentários automaticamente na seção `Comments:`. Ao **concluir uma etapa**, publique um comentário (`ghissue:comment`) resumindo o que foi feito, decisões tomadas e o estado atual, para que o próximo agente ou etapa continue sem perda de contexto.
@@ -78,7 +86,7 @@ cd src/Taskboard.Mcp
 HARNESS_URL=http://127.0.0.1:47823 dotnet run
 ```
 
-O servidor usa transporte STDIO e expõe 4 tools:
+O servidor usa transporte STDIO e expõe 12 tools:
 
 | Tool | Propósito |
 |---|---|
@@ -86,6 +94,14 @@ O servidor usa transporte STDIO e expõe 4 tools:
 | `list_github_issue_comments` | Comentários da issue no GitHub, em ordem cronológica |
 | `add_github_issue_comment` | Publica comentário na issue do GitHub (handoff) |
 | `cloud_status` | Status da conexão com a nuvem |
+| `list_issues` | Lista issues do board de um repo (`owner`/`repo`) com coluna, prioridade e labels |
+| `get_issue` | Detalhe de uma issue do board (título, corpo, coluna, labels, prioridade) |
+| `move_issue` | Move issue entre colunas (`backlog`…`done`); `old_column` valida origem (conflito → erro estruturado) |
+| `list_specs` | Lista SPECs vivos (`.specs/*.md`), filtro opcional por status/texto/repo |
+| `get_spec` | Lê conteúdo e metadados de um SPEC pelo id |
+| `list_jobs` | Lista jobs agendados do harness (nome, estado, última/próxima execução) |
+| `list_runs` | Lista execuções de pipeline/agente (mais recentes primeiro) |
+| `get_run_status` | Estado detalhado de uma execução pelo `run_id` |
 
 ### Registrar no Claude Desktop
 
