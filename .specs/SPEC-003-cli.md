@@ -1,5 +1,12 @@
 # SPEC-003: CLI `taskctl`
 
+> **Superseded** por SPEC-20260918-projects-removal (2026-09-18): os comandos
+> `project:*`, `issue:*`, `comment:*` e `attachment:*` foram removidos — o board
+> usa GitHub como fonte de verdade. Superfície atual: `context:current`,
+> `ghissue:*`, `cloud:*`, `backup`, `restore`, `doctor`, `run` — ver
+> `.claude/skills/manage-taskboard/references/cli.md`. Este documento permanece
+> como registro histórico da migração Node→.NET.
+
 ## 0. SPEC Metadata
 
 | Field | Value |
