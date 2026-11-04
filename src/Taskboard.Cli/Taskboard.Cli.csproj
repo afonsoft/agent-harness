@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Taskboard.Tests.Unit" />
+    <EmbeddedResource Include="Resources\agent-manual.md" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="Spectre.Console.Cli" />
