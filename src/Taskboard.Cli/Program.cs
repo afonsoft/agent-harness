@@ -11,8 +11,16 @@ namespace Taskboard.Cli;
 
 internal static class Program
 {
-    static async Task<int> Main(string[] args)
+    internal static async Task<int> Main(string[] args)
     {
+        // SPEC-20261104-cli-agent-manual: `taskctl --skill [--json]` prints the
+        // embedded agent manual — handled before the command tree so it works
+        // fully offline and is never shadowed by command parsing.
+        if (AgentManual.IsSkillInvocation(args))
+        {
+            return AgentManual.Run(args);
+        }
+
         var app = new CommandApp<AppRootCommand>();
         app.Configure(ConfigureCommands);
 
@@ -47,6 +55,9 @@ internal static class Program
         // Run preflight doctor + dry-run dispatch (SPEC-20261023-p0-agent-hardening RF-C02/C03)
         config.AddCommand<DoctorCommand>("doctor");
         config.AddCommand<RunCommand>("run");
+
+        // Embedded agent manual (SPEC-20261104-cli-agent-manual)
+        config.AddCommand<SkillCommand>("skill");
     }
 
     internal static string ResolveBaseUrl(string? urlArg)
@@ -204,6 +215,21 @@ internal static class Program
 
 public class EmptySettings : CommandSettings
 {
+}
+
+public class SkillSettings : GlobalSettings
+{
+}
+
+/// <summary>
+/// SPEC-20261104-cli-agent-manual: <c>taskctl skill [--json]</c> — the
+/// discoverable command form of <c>--skill</c>; prints the embedded agent
+/// manual (or its JSON manifest) without touching the server.
+/// </summary>
+public class SkillCommand : Command<SkillSettings>
+{
+    public override int Execute(CommandContext context, SkillSettings settings, CancellationToken cancellationToken)
+        => AgentManual.Run(settings.Json ? ["--skill", "--json"] : ["--skill"]);
 }
 
 public class GlobalSettings : CommandSettings
