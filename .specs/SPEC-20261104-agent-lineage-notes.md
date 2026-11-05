@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/agent-lineage-notes` |
 | Technical owner | afonsoft |
-| Status | `Draft` |
+| Status | `Partial — Phase A implemented` |
 | Date | 2026-11-04 |
 | Depends on | SPEC-20261104-run-terminal-runtime (live sessions to notify); contract-v2 Run/Dispatch/Delivery |
 | Related SPECs | SPEC-20261022-mailbox-wake (implemented), SPEC-20261005-delegation-dag-mailbox |
@@ -101,6 +101,27 @@ with the dispatch that spawned them, so —
   kind first, never `note`/`worker_done`; overflow emits feed warning).
 - Cascade is best-effort idempotent — child already finished is skipped; cascade
   runs inside the settle transaction's post-commit step.
+
+## 2.1 Phase A — implemented (feat/agent-lineage-notes)
+
+- `Dispatch.ParentDispatchId`, `DelegationTask.{ParentDispatchId, OutliveParent,
+  NotifyParent}` + migration `AddAgentLineageNotes`; DTOs expose the fields.
+- `delegate_task` params `parent` / `outlive_parent` / `no_notify`; service
+  resolves dispatch-or-task ids, enforces depth ≤ 4 and cycle rejection.
+- Cascade in `FinishRunAsync`/`CancelTaskAsync`: open children → dispatch
+  `Abandoned` + task `Cancelled` reason `parent_finished` (OutliveParent skipped).
+- `note` mailbox kind: settle/cancel posts JSON payload to
+  `disp:{parentDispatchId}` — suppressed by `NotifyParent=false`.
+- `AgentOutboxEntry` entity + EF config created (table + index).
+
+## 2.2 Phase B — pending (blocked on run-terminal merge)
+
+- Note push into the parent's live terminal input + `<harness …>` envelope.
+- Outbox flush on resume/attach through Delivery machinery; hibernation hook.
+- `delegate_status --tree`, `GET …/tasks/{id}` children[], feed
+  `AgentNoteReceived`, run-terminal kill of cascaded children.
+- RF-001 note: `parent` defaults to explicit param — the "auto-parent from
+  run-terminal context" needs dispatch context on the tool path (phase B).
 
 ## 3. Architecture
 
