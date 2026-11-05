@@ -60,6 +60,51 @@ public class DelegationEndpointsTests : IClassFixture<TaskboardWebApplicationFac
         (await response.Content.ReadAsStringAsync()).ShouldContain("messages");
     }
 
+    // ---- SPEC-20261104-agent-lineage-notes RF-006: GET tasks/{id} + children ----
+
+    [Fact]
+    public async Task Dado_SemCredenciais_Quando_GetTask_Entao_401()
+    {
+        var response = await _client.GetAsync("/api/local/delegation/tasks/task-x");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Dado_TaskInexistente_Quando_GetTask_Entao_404()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/local/delegation/tasks/task-x");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Dado_TaskComFilho_Quando_GetTask_Entao_Children()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var scope = $"itest-lineage-{Guid.NewGuid():N}";
+        await using var diScope = _factory.Services.GetService<IServiceScopeFactory>()!
+            .CreateAsyncScope();
+        var delegation = diScope.ServiceProvider.GetRequiredService<IDelegationService>();
+        await delegation.EnsureRunAsync(scope, "obj");
+        var parent = await delegation.CreateTaskAsync(
+            new CreateDelegationTaskRequest("p", "codex", scope, "/ws"));
+        var begun = await delegation.BeginRunAsync(parent.Id, DateTime.UtcNow);
+        begun!.ActiveDispatchId.ShouldNotBeNull();
+        var child = await delegation.CreateTaskAsync(
+            new CreateDelegationTaskRequest(
+                "c", "claude", scope, "/ws", ParentDispatchId: begun.ActiveDispatchId));
+
+        var response = await client.GetAsync($"/api/local/delegation/tasks/{parent.Id}");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ShouldContain(child.Id);
+        body.ShouldContain("children");
+    }
+
     // ---- SPEC-20261007 RF-001: reply/dismiss ----
 
     [Fact]

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Agents;
 using Taskboard.Application.Contracts.Agents;
+using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Domain.Entities;
 using Taskboard.Repositories;
 
@@ -183,6 +184,26 @@ public sealed class AgentHibernationService : IAgentHibernationService
 
         await records.MarkResumedAsync(sessionKey, auto, ct).ConfigureAwait(false);
         _index.Invalidate();
+        // SPEC-20261104-agent-lineage-notes RF-005: flush the session outbox —
+        // queued entries clear, the mailbox messages deliver through the
+        // normal CheckDeliveries/ack flow (at-least-once preserved).
+        try
+        {
+            var flushed = await scope.ServiceProvider
+                .GetRequiredService<IAgentOutboxRepository>()
+                .FlushAsync(sessionKey, ct).ConfigureAwait(false);
+            if (flushed > 0)
+            {
+                _logger.LogInformation(
+                    "Session {SessionKey} resumed — flushed {Count} outbox entries.",
+                    sessionKey, flushed);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Outbox flush skipped for {SessionKey}.", sessionKey);
+        }
+
         await PublishSignalAsync(sessionKey, record.Cli,
             AgentAttentionState.Working, "lifecycle:resumed", ct).ConfigureAwait(false);
         await ProduceFeedAsync(scope.ServiceProvider, userId, AgentFeedKind.SessionResumed,

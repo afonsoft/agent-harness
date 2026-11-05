@@ -139,6 +139,13 @@ public interface IRunTerminalService
     Task<RunTerminalOpResult> InterruptAsync(string target, string? scope = null, CancellationToken ct = default);
 
     /// <summary>
+    /// SPEC-20261104-agent-lineage-notes RF-002: kills the PTY behind a live
+    /// terminal (lineage cascade). Refused for human-controlled terminals —
+    /// they reparent instead of dying with the parent.
+    /// </summary>
+    Task<RunTerminalOpResult> KillAsync(string target, string? scope = null, CancellationToken ct = default);
+
+    /// <summary>
     /// RF-002: records the first-message delivery on the bound dispatch —
     /// durable, inspectable after restart; idempotent (first record wins).
     /// </summary>

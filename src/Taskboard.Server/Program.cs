@@ -526,6 +526,7 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddScoped<IDelegationRunRepository, EfCoreDelegationRunRepository>();
     builder.Services.AddScoped<IDispatchRepository, EfCoreDispatchRepository>();
     builder.Services.AddScoped<IDeliveryRepository, EfCoreDeliveryRepository>();
+    builder.Services.AddScoped<IAgentOutboxRepository, EfCoreAgentOutboxRepository>();
     // SPEC-20261020-v2 P2: worker questions + task-bound gates.
     builder.Services.AddScoped<IPendingQuestionRepository, EfCorePendingQuestionRepository>();
     builder.Services.AddScoped<IDelegationGateRepository, EfCoreDelegationGateRepository>();
@@ -2707,6 +2708,39 @@ void MapSettingsAndChatEndpoints()
             tasks = await tasks.ListByScopeAsync(
                 string.IsNullOrWhiteSpace(scope) ? defaultScope : scope, take: 100, ct),
         }));
+
+    // SPEC-20261104-agent-lineage-notes RF-006: single task + lineage children[].
+    api.MapGet("local/delegation/tasks/{id}", async (
+        string id, IDelegationTaskRepository tasks, IDispatchRepository dispatches,
+        CancellationToken ct) =>
+    {
+        var task = await tasks.GetAsync(id, ct);
+        if (task is null)
+        {
+            return Results.NotFound(new { error = $"task {id} not found" });
+        }
+
+        // Lineage edge lives on the child's ParentDispatchId (durable, set at
+        // create) — covers children never dispatched, not only live dispatch
+        // rows. Any dispatch id of this task qualifies as a parent link.
+        var parentDispatchIds = (await dispatches.ListByTaskAsync(task.Id, ct))
+            .Select(d => d.Id).ToHashSet(StringComparer.Ordinal);
+        var children = parentDispatchIds.Count == 0
+            ? []
+            : (await tasks.ListByScopeAsync(task.Scope, take: 500, ct))
+                .Where(t => t.ParentDispatchId is { } p && parentDispatchIds.Contains(p))
+                .ToList();
+        return Results.Ok(new
+        {
+            task,
+            children = children.Select(c => new
+            {
+                taskId = c.Id,
+                c.ParentDispatchId,
+                status = c.Status.ToString(),
+            }),
+        });
+    });
 
     api.MapGet("local/delegation/mailbox", async (
         string? scope, string? to, IAgentMailboxRepository mailbox, CancellationToken ct) =>

@@ -245,6 +245,66 @@ public class DelegationDagToolsTests
         result.Json.ShouldNotContain("task-2");
     }
 
+    [Fact]
+    public async Task Dado_Linhagem_Quando_StatusTree_Entao_FlorestaAninhada()
+    {
+        var service = Substitute.For<IDelegationService>();
+        var dispatches = Substitute.For<IDispatchRepository>();
+        var parent = TaskDto("t-parent") with { ActiveDispatchId = "disp-p" };
+        var child = TaskDto("t-child") with
+        {
+            ActiveDispatchId = "disp-c",
+            ParentDispatchId = "disp-p",
+        };
+        service.ListTasksAsync("conv-1", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([parent, child]);
+        dispatches.GetAsync("disp-p", Arg.Any<CancellationToken>())
+            .Returns(new DispatchDto(
+                "disp-p", "t-parent", "run-1", "codex", 1,
+                DispatchState.Dispatched, "{}", null, null, null,
+                DateTime.UtcNow, DateTime.UtcNow, null, null));
+        var tool = new DelegateStatusTool(ScopeWith(c =>
+        {
+            c.AddSingleton(service);
+            c.AddSingleton(dispatches);
+        }));
+
+        var result = await tool.ExecuteAsync(Args("""{"tree":true}"""), Ctx(), CancellationToken.None);
+
+        result.Json.ShouldContain("\"forest\"");
+        // t-child renders nested inside t-parent's children.
+        result.Json.ShouldContain("\"taskId\":\"t-parent\"");
+        result.Json.ShouldContain("\"children\":[{\"taskId\":\"t-child\"");
+    }
+
+    [Fact]
+    public async Task Dado_PaiForaDoEscopo_Quando_StatusTree_Entao_DetachedParent()
+    {
+        var service = Substitute.For<IDelegationService>();
+        var dispatches = Substitute.For<IDispatchRepository>();
+        var orphan = TaskDto("t-child") with
+        {
+            ActiveDispatchId = "disp-c",
+            ParentDispatchId = "disp-outside",
+        };
+        service.ListTasksAsync("conv-1", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([orphan]);
+        dispatches.GetAsync("disp-outside", Arg.Any<CancellationToken>())
+            .Returns(new DispatchDto(
+                "disp-outside", "t-outside", "run-9", "codex", 1,
+                DispatchState.Settled, "{}", null, null, null,
+                DateTime.UtcNow, DateTime.UtcNow, null, null));
+        var tool = new DelegateStatusTool(ScopeWith(c =>
+        {
+            c.AddSingleton(service);
+            c.AddSingleton(dispatches);
+        }));
+
+        var result = await tool.ExecuteAsync(Args("""{"tree":true}"""), Ctx(), CancellationToken.None);
+
+        result.Json.ShouldContain("\"detachedParent\":\"disp-outside\"");
+    }
+
     // ---- delegate_compare ----
 
     [Fact]

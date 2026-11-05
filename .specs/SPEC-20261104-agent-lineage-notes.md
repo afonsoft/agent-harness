@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/agent-lineage-notes` |
 | Technical owner | afonsoft |
-| Status | `InImplementation — Phase A implemented` |
+| Status | `Implemented` |
 | Date | 2026-11-04 |
 | Depends on | SPEC-20261104-run-terminal-runtime (live sessions to notify); contract-v2 Run/Dispatch/Delivery |
 | Related SPECs | SPEC-20261022-mailbox-wake (implemented), SPEC-20261005-delegation-dag-mailbox |
@@ -114,14 +114,32 @@ with the dispatch that spawned them, so —
   `disp:{parentDispatchId}` — suppressed by `NotifyParent=false`.
 - `AgentOutboxEntry` entity + EF config created (table + index).
 
-## 2.2 Phase B — pending (blocked on run-terminal merge)
+## 2.2 Phase B — implemented (feat/agent-lineage-notes-b)
 
-- Note push into the parent's live terminal input + `<harness …>` envelope.
-- Outbox flush on resume/attach through Delivery machinery; hibernation hook.
-- `delegate_status --tree`, `GET …/tasks/{id}` children[], feed
-  `AgentNoteReceived`, run-terminal kill of cascaded children.
-- RF-001 note: `parent` defaults to explicit param — the "auto-parent from
-  run-terminal context" needs dispatch context on the tool path (phase B).
+- `MailboxEnvelopeFormatter.Wrap` — `<harness from="cli task" scope="s"
+  reach="taskctl agent:send \"<reply>\"">` envelope; `ISecretRedactor` applied
+  before wrapping; documented in `agent-manual.md` + dispatch preamble.
+- `EmitParentNoteAsync` pushes the envelope into the parent's live run
+  terminal (`SendAsync force:true`); dead/finished/human-driven/failed push
+  falls back to the outbox (`term:{ptySessionId}` or `disp:{parentDispatchId}`),
+  cap 500, `note`/`worker_done` protected, `OutboxOverflow` feed on drops.
+- `IAgentOutboxRepository` + EF impl + `RemoveAsync`; run-terminal spawn/ensure
+  re-injects queued messages as envelopes into the PTY then removes delivered
+  rows (mailbox stays the durable at-least-once path); hibernation resume
+  flushes the session-keyed index.
+- `IRunTerminalService.KillAsync` — refuses `not_found`/`status_mismatch`
+  (human-owned, reparent instead); manager-killed sessions never fire the
+  exit hook so the service finishes the row itself; cascade calls it per
+  non-outliving child.
+- `delegate_status --tree` renders the dispatch forest (detached parents
+  surface as roots with `detachedParent`); `GET local/delegation/tasks/{id}`
+  returns `children[]` resolved via the durable task `ParentDispatchId` edge
+  (covers never-dispatched children).
+- Feed kinds `AgentNoteReceived` + `OutboxOverflow`; feed writes advisory.
+- Deviation: `children[]` resolves by task edge (any dispatch id of the
+  parent), not only `dispatches.ListByParentAsync` — undispatched children
+  are visible. `parent` stays explicit — auto-parent from tool context was
+  not added (tool path has no dispatch identity).
 
 ## 3. Architecture
 
