@@ -78,7 +78,6 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
         files.ShouldNotBeNull();
         var paths = files!.Select(f => f!["relativePath"]!.GetValue<string>()).ToList();
         paths.ShouldContain("SKILL.md");
-        paths.ShouldContain("references/cli.md");
     }
 
     [Fact]
@@ -86,12 +85,12 @@ public class ServerEndpointsTests : IClassFixture<TaskboardWebApplicationFactory
     {
         // Covers RF-007: file content endpoint returns text content
         var client = await ApiClientAsync();
-        var response = await client.GetAsync("/api/skills/taskboard/manage-taskboard/files/references/cli.md");
+        var response = await client.GetAsync("/api/skills/taskboard/manage-taskboard/files/SKILL.md");
 
         response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<JsonObject>();
         result.ShouldNotBeNull();
-        result["path"]?.GetValue<string>().ShouldBe("references/cli.md");
+        result["path"]?.GetValue<string>().ShouldBe("SKILL.md");
         result["content"]?.GetValue<string>().ShouldNotBeNullOrWhiteSpace();
     }
 

@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/agent-lineage-notes` |
 | Technical owner | afonsoft |
-| Status | `Partial — Phase A implemented` |
+| Status | `InImplementation — Phase A implemented` |
 | Date | 2026-11-04 |
 | Depends on | SPEC-20261104-run-terminal-runtime (live sessions to notify); contract-v2 Run/Dispatch/Delivery |
 | Related SPECs | SPEC-20261022-mailbox-wake (implemented), SPEC-20261005-delegation-dag-mailbox |
