@@ -45,7 +45,13 @@ public sealed record DelegationTaskDto(
     /// <summary>RF-G01: completion verdict — null = no contract/not evaluated.</summary>
     bool? SchemaValid = null,
     /// <summary>SPEC-20261024-p1-agent-reliability RF-T9: card attached on failed/cancelled tasks.</summary>
-    RunDiagnosticsDto? Diagnostics = null);
+    RunDiagnosticsDto? Diagnostics = null,
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001.</summary>
+    bool OutliveParent = false,
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-003.</summary>
+    bool NotifyParent = true,
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001.</summary>
+    string? ParentDispatchId = null);
 
 /// <summary>SPEC-20261020-v2 RF-001: wire shape of a coordination run.</summary>
 public sealed record DelegationRunDto(
@@ -68,6 +74,8 @@ public sealed record DispatchDto(
     string PreambleJson,
     string? TerminalHandle,
     string? ArchivedOutput,
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001.</summary>
+    string? ParentDispatchId,
     DateTime CreatedAtUtc,
     DateTime? DispatchedAtUtc,
     DateTime? SettledAtUtc,
@@ -204,7 +212,14 @@ public sealed record CreateDelegationTaskRequest(
     string? Role = null,
     /// <summary>SPEC-20261024-p1-agent-reliability RF-G01: JSON Schema
     /// string for the worker's final output (≤ 8192 chars).</summary>
-    string? OutputSchema = null);
+    string? OutputSchema = null,
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001: parent dispatch id
+    /// (or task id — resolved to its active dispatch at create).</summary>
+    string? ParentDispatchId = null,
+    /// <summary>RF-001: child keeps running when the parent settles.</summary>
+    bool OutliveParent = false,
+    /// <summary>RF-003: transitions emit notes to the parent session.</summary>
+    bool NotifyParent = true);
 
 /// <summary>SPEC-20261020-v2 RF-008: resolved launch preferences (requested → effective).</summary>
 public sealed record LaunchResolution(
@@ -222,7 +237,9 @@ public sealed record CreateDispatchRequest(
     string WorkerKey,
     int Attempt,
     string PreambleJson,
-    string? Id = null);
+    string? Id = null,
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001.</summary>
+    string? ParentDispatchId = null);
 
 /// <summary>SPEC-20261009 RF-002: one row of the merged delegation activity feed.</summary>
 public sealed record DelegationEventDto(

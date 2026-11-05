@@ -32,6 +32,7 @@ public sealed class DelegationTaskConfiguration : IEntityTypeConfiguration<Deleg
         builder.Property(t => t.WorkspacePath).IsRequired().HasMaxLength(512);
         builder.Property(t => t.RepositoryPath).HasMaxLength(512);
         builder.Property(t => t.BaseCommitSha).HasMaxLength(64);
+        builder.Property(t => t.ParentDispatchId).HasMaxLength(96);
 
         builder.Property(t => t.Status)
             .IsRequired()

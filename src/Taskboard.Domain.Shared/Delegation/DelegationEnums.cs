@@ -58,6 +58,10 @@ public static class AgentMailboxKinds
     /// <summary>SPEC-20261020-v2 RF-004: coordinator → worker answer.</summary>
     public const string Answer = "answer";
 
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-003: child transition
+    /// pushed to the parent session.</summary>
+    public const string Note = "note";
+
     /// <summary>Kinds a chat tool may write — system kinds are dispatcher-only.</summary>
     public static readonly IReadOnlySet<string> AgentWritable =
         new HashSet<string>(StringComparer.Ordinal) { Text };

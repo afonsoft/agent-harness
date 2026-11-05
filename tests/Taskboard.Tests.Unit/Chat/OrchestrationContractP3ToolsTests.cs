@@ -23,7 +23,7 @@ public class OrchestrationContractP3ToolsTests
 
     private static DispatchDto Dispatch(
         string id = "disp-1", DispatchState state = DispatchState.Settled) =>
-        new(id, "task-1", "run-1", "codex", 1, state, "{}", null, null,
+        new(id, "task-1", "run-1", "codex", 1, state, "{}", null, null, null,
             DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow, null);
 
     [Fact]

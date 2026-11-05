@@ -40,6 +40,9 @@ public sealed class DelegateTaskTool(
           "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"},
           "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this task (default: server config Taskboard:Delegation:PromptRefinement)"},
           "role":{"type":"string","enum":["orchestrator","leaf"],"description":"Contract role: orchestrator may produce child tasks; leaf cannot delegate further (default: leaf; coordinate tasks are always orchestrators)"},
+          "parent":{"type":"string","description":"Parent dispatch id (or task id bound to its active dispatch) — the task becomes a child; cancelled when the parent settles unless outlive_parent"},
+          "outlive_parent":{"type":"boolean","description":"Keep running when the parent dispatch settles (default: false)"},
+          "no_notify":{"type":"boolean","description":"Suppress transition notes pushed to the parent session (default: notes on)"},
           "output_schema":{"type":"string","description":"JSON Schema string the worker's final reply must satisfy — the completion result is annotated schema_valid (false keeps the full child output)"},
           "dry_run":{"type":"boolean","description":"Resolve the effective config and run preflight checks without persisting the task or dispatching (returns resolved + verdict + checks)"}
         },"required":["prompt"]}
@@ -216,7 +219,10 @@ public sealed class DelegateTaskTool(
                     retryOf, FanoutGroupId: null, useWorktree,
                     repoPath, baseSha, Kind: null, RunId: null, model, effort,
                     ExtraArgs: null, Autonomy: autonomy, Refine: refine,
-                    Role: role, OutputSchema: outputSchema),
+                    Role: role, OutputSchema: outputSchema,
+                    ParentDispatchId: ReadString(arguments, "parent"),
+                    OutliveParent: ReadBool(arguments, "outlive_parent"),
+                    NotifyParent: !ReadBool(arguments, "no_notify")),
                 cancellationToken).ConfigureAwait(false);
 
             if (useWorktree)

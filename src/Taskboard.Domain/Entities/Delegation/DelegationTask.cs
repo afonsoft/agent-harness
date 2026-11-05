@@ -78,6 +78,28 @@ public sealed class DelegationTask : AggregateRoot<string>
     /// <summary>Scrubbed tail of the setup log (≤4KB) for the preamble.</summary>
     public string? SetupLogTail { get; private set; }
 
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001: when true, the task
+    /// keeps running after its parent dispatch settles.</summary>
+    public bool OutliveParent { get; private set; }
+
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-003: notes about this
+    /// task's transitions go to the parent session (default on).</summary>
+    public bool NotifyParent { get; private set; } = true;
+
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001: dispatch that
+    /// spawned this task — null for roots.</summary>
+    public string? ParentDispatchId { get; private set; }
+
+    /// <summary>Sets the lineage flags at create time.</summary>
+    public void SetLineageFlags(
+        bool outliveParent, bool notifyParent, string? parentDispatchId = null)
+    {
+        OutliveParent = outliveParent;
+        NotifyParent = notifyParent;
+        ParentDispatchId = string.IsNullOrWhiteSpace(parentDispatchId)
+            ? null : parentDispatchId.Trim();
+    }
+
     public string WorkspacePath { get; private set; } = string.Empty;
     public string? RepositoryPath { get; private set; }
 

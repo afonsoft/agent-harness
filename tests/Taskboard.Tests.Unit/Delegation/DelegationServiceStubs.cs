@@ -41,6 +41,6 @@ internal sealed class DelegationServiceStubs
     public static DispatchDto DispatchDto(
         string id = "disp-1", DispatchState state = DispatchState.Settled,
         string taskId = "task-1", int attempt = 1, string? output = null) =>
-        new(id, taskId, "run-1", "codex", attempt, state, "{}", null, output,
+        new(id, taskId, "run-1", "codex", attempt, state, "{}", null, output, null,
             DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow, null);
 }

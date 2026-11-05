@@ -50,7 +50,7 @@ public class OrchestrationContractServiceTests
         string id = "disp-1", string taskId = "task-1", int attempt = 1,
         DispatchState state = DispatchState.Dispatched) =>
         new(id, taskId, "run-1", "codex", attempt, state, "{}",
-            null, null, DateTime.UtcNow, DateTime.UtcNow, null, null);
+            null, null, null, DateTime.UtcNow, DateTime.UtcNow, null, null);
 
     private static MailboxMessageDto MsgDto(
         string id, string scope = "conv-1", string toAgent = "@all",

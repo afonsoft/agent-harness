@@ -50,7 +50,7 @@ public class OrchestrationContractToolsTests
 
     private static DispatchDto Dispatch(string id = "disp-2", int attempt = 2) =>
         new(id, "task-1", "run-1", "codex", attempt, DispatchState.Pending, "{}",
-            null, null, DateTime.UtcNow, null, null, null);
+            null, null, null, DateTime.UtcNow, null, null, null);
 
     // ---- agent_check ----
 
