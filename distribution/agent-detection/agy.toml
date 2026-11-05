@@ -1,0 +1,48 @@
+id = "agy"
+version = "2026.11.05.1"
+min_engine_version = 1
+updated_at = "2026-11-05T00:00:00Z"
+aliases = ["antigravity"]
+
+[[rules]]
+id = "apply_change_prompt"
+state = "blocked"
+priority = 850
+region = "bottom_non_empty_lines(10)"
+visible_blocker = true
+any = [
+  { contains = ["apply this change"] },
+  { contains = ["apply changes"] },
+  { contains = ["allow execution"] },
+]
+
+[[rules]]
+id = "enter_select_footer"
+state = "blocked"
+priority = 780
+region = "bottom_non_empty_lines(8)"
+visible_blocker = true
+contains = ["esc to cancel"]
+any = [
+  { contains = ["enter to select"] },
+  { contains = ["enter to confirm"] },
+]
+
+[[rules]]
+id = "yn_choice_footer"
+state = "blocked"
+priority = 700
+region = "prompt_box_body"
+visible_blocker = true
+line_regex = ['\((?:y(?:es)?|Y)/(?:n(?:o)?|N)\)\s*$', '\[(?:y|Y)/(?:n|N)\]\s*$']
+
+[[rules]]
+id = "spinner_working"
+state = "working"
+priority = 600
+region = "bottom_non_empty_lines(8)"
+visible_working = true
+any = [
+  { contains = ["esc to cancel"] },
+  { line_regex = ['^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s'] },
+]

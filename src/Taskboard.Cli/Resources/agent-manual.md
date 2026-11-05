@@ -108,6 +108,21 @@ taskctl skill [--json]
 Prints this manual (embedded in the binary — always version-matched) or its
 JSON manifest.
 
+### agent:explain / agent:reload-manifests
+
+```bash
+taskctl agent:explain <sessionKey> [--json]
+taskctl agent:reload-manifests [--json]
+```
+
+- `agent:explain` — returns the detection decision for a live agent session:
+  matched rule id, per-rule `failedGate`, flags and snapshot hash. Use it to
+  debug why attention state did (not) transition.
+- `agent:reload-manifests` — hot-reloads the agent-detection catalog: bundled
+  manifests plus overrides from `{dataDir}/agent-detection/*.toml`. Atomic
+  swap; a broken override falls back to bundled rules with a warning, never
+  an empty catalog.
+
 ## Exit codes
 
 | Code | Meaning |

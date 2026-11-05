@@ -546,6 +546,17 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<IAgentOutputAttentionSink>(sp => sp.GetRequiredService<AgentOutputAttentionService>());
     builder.Services.AddSingleton<IAgentHookTokenService, AgentHookTokenService>();
     builder.Services.AddSingleton<IAgentHookInstaller, AgentHookInstaller>();
+    // SPEC-20261104-agent-attention-manifests: TOML detection catalog — bundled
+    // manifests shadowed by {dataDir}/agent-detection overrides; hot reload.
+    builder.Services.AddSingleton(sp => new Taskboard.Integrations.Agents.Attention.AgentDetectionManifestLoader(
+        sp.GetService<IConfiguration>()?["Taskboard:Agents:DetectionDir"]
+            ?? Path.Combine(environment.GetDataDir(), "agent-detection"),
+        sp.GetService<ILogger<Taskboard.Integrations.Agents.Attention.AgentDetectionManifestLoader>>()));
+    builder.Services.AddSingleton<Taskboard.Application.Contracts.Agents.IAgentDetectionEngine>(sp =>
+        new Taskboard.Integrations.Agents.Attention.AgentDetectionEngine(
+            sp.GetRequiredService<Taskboard.Integrations.Agents.Attention.AgentDetectionManifestLoader>()));
+    builder.Services.AddSingleton<Taskboard.Application.Contracts.Agents.IAgentDetectionExplainStore,
+        Taskboard.Integrations.Agents.Attention.AgentDetectionExplainStore>();
     builder.Services.AddHostedService<AgentAttentionSweepService>();
     // SPEC-20261104-run-terminal-runtime: persistent PTY control plane for
     // delegated runs — row persistence is scoped (EF), the service is a
@@ -2722,6 +2733,36 @@ void MapSettingsAndChatEndpoints()
                 ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return Results.Ok(new { states = await attention.SnapshotAsync(parsed, ct) });
     });
+
+    // SPEC-20261104-agent-attention-manifests RF-006: hot reload — rescans the
+    // bundled + {dataDir}/agent-detection override catalogs and swaps the
+    // engine's manifest set atomically. Feed event records the reload.
+    api.MapPost("agents/detection/reload", async (
+        HttpContext context,
+        Taskboard.Application.Contracts.Agents.IAgentDetectionEngine detection,
+        Taskboard.Application.Contracts.Agents.IAgentFeedService feed,
+        CancellationToken ct) =>
+    {
+        var result = detection.Reload();
+        _ = await feed.ProduceAsync(new FeedItemRequest(
+            AgentFeedKind.DetectionReloaded,
+            "Agent detection manifests reloaded",
+            $"{result.CliCount} manifests, {result.OverrideCount} local overrides" +
+                (result.Warnings.Count > 0 ? $" — {result.Warnings.Count} warnings" : ""),
+            "/settings#agents", null, null, null, false,
+            BoardUserId(context)), ct).ConfigureAwait(false);
+        return Results.Ok(result);
+    });
+
+    // SPEC-20261104-agent-attention-manifests RF-007: explain the last
+    // detection verdict for a session — matched rule, failed gates, manifest
+    // source, evidence flags, snapshot hash.
+    api.MapGet("agents/{sessionKey}/attention/explain", (
+        string sessionKey,
+        Taskboard.Application.Contracts.Agents.IAgentDetectionExplainStore explains) =>
+        explains.Get(Uri.UnescapeDataString(sessionKey)) is { } explain
+            ? Results.Ok(explain)
+            : Results.NotFound(new { error = "no detection verdict recorded for this session" }));
 
     // SPEC-20261020-agent-attention-model RF-003: managed CLI hooks POST
     // here with a per-session Bearer token (HARNESS_AGENT_HOOK_TOKEN).

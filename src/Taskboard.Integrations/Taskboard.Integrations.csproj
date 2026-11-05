@@ -15,4 +15,11 @@
     <!-- SPEC-20261024-p1-agent-reliability RF-G01: delegate_task output_schema validation. -->
     <PackageReference Include="JsonSchema.Net" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- SPEC-20261104-agent-attention-manifests: bundled detection catalog at
+         repo root, embedded with stable resource names for the loader. -->
+    <EmbeddedResource Include="..\..\distribution\agent-detection\*.toml">
+      <LogicalName>Taskboard.Detection.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>
