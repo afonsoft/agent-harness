@@ -41,4 +41,7 @@ public enum AgentFeedKind
 
     /// <summary>Scheduled automation fired or skipped (SPEC-20261021-agent-automations RF-008).</summary>
     AutomationRun,
+
+    /// <summary>Detection manifest set hot-reloaded (SPEC-20261104-agent-attention-manifests RF-006).</summary>
+    DetectionReloaded,
 }

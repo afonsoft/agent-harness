@@ -1,0 +1,58 @@
+id = "codex"
+version = "2026.11.05.1"
+min_engine_version = 1
+updated_at = "2026-11-05T00:00:00Z"
+
+[[rules]]
+id = "approval_dialog"
+state = "blocked"
+priority = 900
+region = "after_last_prompt_marker"
+visible_blocker = true
+any = [
+  { contains = ["press enter to confirm"] },
+  { contains = ["enter to submit"] },
+  { contains = ["allow command?"] },
+  { contains = ["approval required"] },
+]
+
+[[rules]]
+id = "allow_yn_choice"
+state = "blocked"
+priority = 850
+region = "bottom_non_empty_lines(6)"
+visible_blocker = true
+line_regex = ['(?i)allow .+\?']
+any = [
+  { contains = ["[y/n]"] },
+  { contains = ["(y/n)"] },
+  { line_regex = ['(?i)^\s*(?:yes|no)\b'] },
+]
+
+[[rules]]
+id = "yn_choice_footer"
+state = "blocked"
+priority = 800
+region = "prompt_box_body"
+visible_blocker = true
+line_regex = ['\[(?:y|Y)/(?:n|N)\]\s*$', '\((?:y|Y)/(?:n|N)\)\s*$']
+
+[[rules]]
+id = "elapsed_timer_working"
+state = "working"
+priority = 700
+region = "bottom_non_empty_lines(6)"
+visible_working = true
+any = [
+  { contains = ["to interrupt)"] },
+  { contains = ["esc to interrupt"] },
+]
+line_regex = ['\(\d+[smh]']
+
+[[rules]]
+id = "input_prompt_idle"
+state = "idle"
+priority = 500
+region = "prompt_box_body"
+visible_idle = true
+line_regex = ['^\s*›']

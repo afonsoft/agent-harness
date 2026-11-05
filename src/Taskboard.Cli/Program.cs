@@ -47,6 +47,10 @@ internal static class Program
         // Run preflight doctor + dry-run dispatch (SPEC-20261023-p0-agent-hardening RF-C02/C03)
         config.AddCommand<DoctorCommand>("doctor");
         config.AddCommand<RunCommand>("run");
+
+        // Detection diagnostics + hot reload (SPEC-20261104-agent-attention-manifests RF-006/RF-007)
+        config.AddCommand<AgentExplainCommand>("agent:explain");
+        config.AddCommand<AgentReloadManifestsCommand>("agent:reload-manifests");
     }
 
     internal static string ResolveBaseUrl(string? urlArg)
@@ -606,4 +610,38 @@ public class RunCommand : AsyncCommand<RunSettings>
             ? parsed
             : throw new CliException(2, $"{option} inválido: '{value}'.");
     }
+}
+
+// ---- Detection explain + manifest reload (SPEC-20261104-agent-attention-manifests) ----
+
+public class AgentExplainSettings : GlobalSettings
+{
+    [CommandArgument(0, "<sessionKey>")]
+    public string SessionKey { get; set; } = default!;
+}
+
+public class AgentExplainCommand : AsyncCommand<AgentExplainSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentExplainSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (client, ct) =>
+        {
+            var result = await client.GetAsync(
+                $"/api/local/agents/{Uri.EscapeDataString(settings.SessionKey)}/attention/explain", ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
+}
+
+public class AgentReloadManifestsSettings : GlobalSettings
+{
+    public override string ToString() => "agent reload-manifests";
+}
+
+public class AgentReloadManifestsCommand : AsyncCommand<AgentReloadManifestsSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentReloadManifestsSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (client, ct) =>
+        {
+            var result = await client.PostAsync("/api/local/agents/detection/reload", null, ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
 }
