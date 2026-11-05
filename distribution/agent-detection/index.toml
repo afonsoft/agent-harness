@@ -1,0 +1,29 @@
+schema_version = 1
+
+[[agents]]
+id = "shell"
+path = "shell.toml"
+
+[[agents]]
+id = "claude"
+path = "claude.toml"
+
+[[agents]]
+id = "codex"
+path = "codex.toml"
+
+[[agents]]
+id = "opencode"
+path = "opencode.toml"
+
+[[agents]]
+id = "devin"
+path = "devin.toml"
+
+[[agents]]
+id = "agy"
+path = "agy.toml"
+
+[[agents]]
+id = "gemini"
+path = "gemini.toml"

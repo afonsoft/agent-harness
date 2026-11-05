@@ -136,6 +136,21 @@ Outside a managed run these commands exit `no_context`.
   command, model, effort, interactive). Usable without agent context —
   `taskctl run --template <name>` consumes them.
 
+### agent:explain / agent:reload-manifests
+
+```bash
+taskctl agent:explain <sessionKey> [--json]
+taskctl agent:reload-manifests [--json]
+```
+
+- `agent:explain` — returns the detection decision for a live agent session:
+  matched rule id, per-rule `failedGate`, flags and snapshot hash. Use it to
+  debug why attention state did (not) transition.
+- `agent:reload-manifests` — hot-reloads the agent-detection catalog: bundled
+  manifests plus overrides from `{dataDir}/agent-detection/*.toml`. Atomic
+  swap; a broken override falls back to bundled rules with a warning, never
+  an empty catalog.
+
 ## Exit codes
 
 | Code | Meaning |

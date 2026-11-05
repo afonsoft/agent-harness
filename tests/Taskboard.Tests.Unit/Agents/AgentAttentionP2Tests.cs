@@ -4,54 +4,40 @@ using Taskboard.Agents;
 using Taskboard.Application.Agents;
 using Taskboard.Application.Contracts.Agents;
 using Taskboard.Integrations.Agents;
+using Taskboard.Integrations.Agents.Attention;
 using Xunit;
 
 namespace Taskboard.Tests.Unit.Agents;
 
 /// <summary>
-/// SPEC-20261020-agent-attention-model P2: pattern table match, OSC/matcher
-/// debounce, hook installer merge/uninstall, hook token rotation.
+/// SPEC-20261020-agent-attention-model P2 + SPEC-20261104-agent-attention-manifests:
+/// sink over the detection engine (debounce, verdict → weak signal), hook
+/// installer merge/uninstall, hook token rotation.
 /// </summary>
 public class AgentAttentionP2Tests
 {
-    // ---------- RF-005: pattern table ----------
-
-    [Fact]
-    public void Dado_PromptPermissaoClaude_Quando_Match_Entao_Permission()
-    {
-        var match = AgentCliAttentionPatterns.Match(
-            AgentCliKind.Claude, "Do you want to proceed?\n");
-
-        match.ShouldNotBeNull();
-        match.Kind.ShouldBe(AgentOutputPatternKind.Permission);
-    }
-
-    [Fact]
-    public void Dado_ApprovalCodex_Quando_Match_Entao_Permission()
-    {
-        var match = AgentCliAttentionPatterns.Match(
-            AgentCliKind.Codex, "allow command \"rm -rf x\"? [y/n]");
-
-        match.ShouldNotBeNull();
-        match.Kind.ShouldBe(AgentOutputPatternKind.Permission);
-    }
-
-    [Fact]
-    public void Dado_SaidaComum_Quando_MatchGenerico_Entao_NuloOuQuestion()
-    {
-        AgentCliAttentionPatterns.Match(AgentCliKind.Aider, "building files...")
-            .ShouldBeNull();
-    }
-
-    [Fact]
-    public void Dado_BinarioConhecido_Quando_KindForBinary_Entao_Resolve()
-    {
-        AgentCliAttentionPatterns.KindForBinary("/usr/local/bin/claude")
-            .ShouldBe(AgentCliKind.Claude);
-        AgentCliAttentionPatterns.KindForBinary("codex.exe")
-            .ShouldBe(AgentCliKind.Codex);
-        AgentCliAttentionPatterns.KindForBinary("bash").ShouldBeNull();
-    }
+    /// <summary>Engine with a tiny shell fallback manifest covering the old generic patterns.</summary>
+    private static AgentDetectionEngine TestEngine() => new(
+        new AgentDetectionManifestLoader(new Dictionary<string, string>
+        {
+            ["shell.toml"] = """
+                id = "shell"
+                [[rules]]
+                id = "permission_ask"
+                state = "blocked"
+                priority = 60
+                region = "bottom_non_empty_lines(6)"
+                visible_blocker = true
+                contains = ["do you want to proceed"]
+                [[rules]]
+                id = "input_prompt_idle"
+                state = "idle"
+                priority = 10
+                region = "prompt_box_body"
+                visible_idle = true
+                line_regex = ['^\s*[>❯$#]\s*$']
+                """,
+        }, overrideDir: null));
 
     // ---------- RF-005/RF-006: output sink ----------
 
@@ -59,7 +45,7 @@ public class AgentAttentionP2Tests
     public async Task Dado_TailComPergunta_Quando_Observe_Entao_PublicaWaitingYou()
     {
         var attention = Substitute.For<IAgentAttentionService>();
-        var sink = new AgentOutputAttentionService(attention);
+        var sink = new AgentOutputAttentionService(attention, TestEngine());
 
         sink.ObserveOutput("term:s1", "claude",
             "working…\nDo you want to proceed?\n");
@@ -76,7 +62,7 @@ public class AgentAttentionP2Tests
     public async Task Dado_BurstDeChunks_Quando_Observe_Entao_DebounceUmaPublicacao()
     {
         var attention = Substitute.For<IAgentAttentionService>();
-        var sink = new AgentOutputAttentionService(attention);
+        var sink = new AgentOutputAttentionService(attention, TestEngine());
 
         for (var i = 0; i < 5; i++)
         {

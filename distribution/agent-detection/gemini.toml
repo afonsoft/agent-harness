@@ -1,0 +1,35 @@
+id = "gemini"
+version = "2026.11.05.1"
+min_engine_version = 1
+updated_at = "2026-11-05T00:00:00Z"
+
+[[rules]]
+id = "allow_execution"
+state = "blocked"
+priority = 850
+region = "bottom_non_empty_lines(10)"
+visible_blocker = true
+any = [
+  { contains = ["allow execution"] },
+  { contains = ["yes, allow"] },
+  { contains = ["apply this change"] },
+]
+
+[[rules]]
+id = "yn_choice_footer"
+state = "blocked"
+priority = 700
+region = "prompt_box_body"
+visible_blocker = true
+line_regex = ['\((?:y(?:es)?|Y)/(?:n(?:o)?|N)\)\s*$', '\[(?:y|Y)/(?:n|N)\]\s*$']
+
+[[rules]]
+id = "spinner_working"
+state = "working"
+priority = 600
+region = "bottom_non_empty_lines(8)"
+visible_working = true
+any = [
+  { contains = ["esc to cancel"] },
+  { line_regex = ['^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s'] },
+]

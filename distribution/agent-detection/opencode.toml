@@ -1,0 +1,54 @@
+id = "opencode"
+version = "2026.11.05.1"
+min_engine_version = 1
+updated_at = "2026-11-05T00:00:00Z"
+
+[[rules]]
+id = "permission_dialog"
+state = "blocked"
+priority = 800
+region = "bottom_non_empty_lines(10)"
+visible_blocker = true
+any = [
+  { contains = ["permission required"] },
+  { contains = ["permission to"] },
+  { contains = ["allow once"] },
+]
+not = [
+  { contains = ["esc to interrupt"] },
+]
+
+[[rules]]
+id = "enter_select_footer"
+state = "blocked"
+priority = 780
+region = "bottom_non_empty_lines(8)"
+visible_blocker = true
+contains = ["esc to cancel"]
+any = [
+  { contains = ["enter to select"] },
+  { contains = ["enter to confirm"] },
+]
+
+[[rules]]
+id = "spinner_working"
+state = "working"
+priority = 700
+region = "bottom_non_empty_lines(8)"
+visible_working = true
+any = [
+  { contains = ["esc to interrupt"] },
+  { line_regex = ['^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s'] },
+]
+
+[[rules]]
+id = "input_prompt_idle"
+state = "idle"
+priority = 500
+region = "prompt_box_body"
+visible_idle = true
+line_regex = ['^\s*[>❯]']
+not = [
+  { contains = ["enter to select"] },
+  { contains = ["esc to cancel"] },
+]

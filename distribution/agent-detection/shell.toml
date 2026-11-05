@@ -1,0 +1,41 @@
+id = "shell"
+version = "2026.11.05.1"
+min_engine_version = 1
+updated_at = "2026-11-05T00:00:00Z"
+
+# Generic fallback — the old hardcoded AgentCliAttentionPatterns.Generic set,
+# expressed as data. Used for CLIs without their own manifest.
+
+[[rules]]
+id = "explicit_permission_ask"
+state = "blocked"
+priority = 60
+region = "bottom_non_empty_lines(6)"
+visible_blocker = true
+any = [
+  { contains = ["do you want to proceed"] },
+  { contains = ["do you want to continue"] },
+  { contains = ["approve?"] },
+  { contains = ["press enter to confirm"] },
+  { contains = ["press enter to continue"] },
+  { contains = ["waiting for permission"] },
+]
+
+[[rules]]
+id = "yn_choice_footer"
+state = "blocked"
+priority = 50
+region = "prompt_box_body"
+visible_blocker = true
+line_regex = ['\((?:y(?:es)?|Y)/(?:n(?:o)?|N)\)\s*$', '\[(?:y|Y)/(?:n|N)\]\s*$']
+
+[[rules]]
+id = "question_tail"
+state = "blocked"
+priority = 10
+region = "prompt_box_body"
+visible_blocker = true
+line_regex = ['\?\s*$']
+not = [
+  { line_regex = ['^\s*[›❯#>]\s*$'] },
+]
