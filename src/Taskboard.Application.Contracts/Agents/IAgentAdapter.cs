@@ -28,4 +28,15 @@ public interface IAgentAdapter
     /// </summary>
     AgentCommand BuildSessionCommand(AgentType agentType, string workdir, Sandbox sandbox, string? modelName = null)
         => throw new NotSupportedException($"Interactive session is not supported for agent {agentType}.");
+
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-002: launch argv for the CLI's
+    /// native interactive TUI (never a one-shot print form) — the run
+    /// terminal's first input carries the task text. Returns null when the
+    /// CLI has no interactive mode (keeps the streaming path, RF-008).
+    /// </summary>
+    AgentCommand? BuildInteractiveCommand(
+        AgentType agentType, string workdir, string? modelName = null,
+        AgentAutonomy autonomy = AgentAutonomy.Edit)
+        => null;
 }
