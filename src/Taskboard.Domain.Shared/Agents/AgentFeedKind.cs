@@ -44,4 +44,10 @@ public enum AgentFeedKind
 
     /// <summary>Detection manifest set hot-reloaded (SPEC-20261104-agent-attention-manifests RF-006).</summary>
     DetectionReloaded,
+
+    /// <summary>Child→parent lineage note emitted (SPEC-20261104-agent-lineage-notes RF-006).</summary>
+    AgentNoteReceived,
+
+    /// <summary>Session outbox dropped entries on overflow (SPEC-20261104-agent-lineage-notes RF-005).</summary>
+    OutboxOverflow,
 }

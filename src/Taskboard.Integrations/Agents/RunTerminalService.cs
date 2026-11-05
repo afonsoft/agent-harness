@@ -160,7 +160,77 @@ public sealed class RunTerminalService : IRunTerminalService
             request with { Environment = null },
             $"rt-{Guid.NewGuid():N}", sessionId, ct))
             .ConfigureAwait(false);
+        await FlushOutboxAsync(sessionId, request.DispatchId, ct).ConfigureAwait(false);
         return dto;
+    }
+
+    /// <summary>
+    /// SPEC-20261104-agent-lineage-notes RF-005: the session is (back) online —
+    /// re-injects queued mailbox messages into the PTY, wrapped in the
+    /// <c>&lt;harness&gt;</c> provenance envelope, then drops their outbox
+    /// rows. Entries whose message is gone drop too; a terminal that stops
+    /// accepting input keeps the rest queued for the next attach. The mailbox
+    /// remains the durable path either way (at-least-once).
+    /// </summary>
+    private async Task FlushOutboxAsync(
+        string sessionId, string? dispatchId, CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var sp = scope.ServiceProvider;
+            var outbox = sp.GetService<IAgentOutboxRepository>();
+            if (outbox is null)
+            {
+                return;
+            }
+
+            var keys = dispatchId is null
+                ? (IReadOnlyList<string>)[$"term:{sessionId}"]
+                : [$"term:{sessionId}", $"disp:{dispatchId}"];
+            var mailbox = sp.GetService<IAgentMailboxRepository>();
+            var secrets = sp.GetService<ISecretRedactor>();
+
+            foreach (var key in keys)
+            {
+                var pending = await outbox.ListPendingAsync(key, ct: ct).ConfigureAwait(false);
+                if (pending.Count == 0)
+                {
+                    continue;
+                }
+
+                var done = new List<string>(pending.Count);
+                foreach (var entry in pending)
+                {
+                    var message = mailbox is null
+                        ? null
+                        : await mailbox.GetAsync(entry.MessageId, ct).ConfigureAwait(false);
+                    if (message is null)
+                    {
+                        // Orphan — the message already left the mailbox.
+                        done.Add(entry.Id);
+                        continue;
+                    }
+
+                    var envelope = MailboxEnvelopeFormatter.Wrap(
+                        message.FromAgent, message.DispatchId ?? message.Id,
+                        message.Scope, message.Payload, secrets);
+                    if (!await _terminals.InjectAsync(sessionId, envelope + "\r")
+                            .ConfigureAwait(false))
+                    {
+                        break;
+                    }
+
+                    done.Add(entry.Id);
+                }
+
+                await outbox.RemoveAsync(done, ct).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Outbox flush skipped for {SessionId}.", sessionId);
+        }
     }
 
     /// <inheritdoc />
@@ -215,7 +285,7 @@ public sealed class RunTerminalService : IRunTerminalService
                 "run_read the screen, resolve the prompt, or retry with force: true"));
         }
 
-        var payload = text.EndsWith('\n') ? text : text + "\r";
+        var payload = text.EndsWith('\n') || text.EndsWith('\r') ? text : text + "\r";
         if (!await _terminals.InjectAsync(dto.PtySessionId, payload).ConfigureAwait(false))
         {
             return new(false, dto, new(RunTerminalErrorKinds.Finished,
@@ -419,6 +489,45 @@ public sealed class RunTerminalService : IRunTerminalService
         }
 
         return new(true, dto);
+    }
+
+    /// <inheritdoc />
+    public async Task<RunTerminalOpResult> KillAsync(string target, string? scope = null, CancellationToken ct = default)
+    {
+        var dto = await GetAsync(target, scope, ct).ConfigureAwait(false);
+        if (dto is null)
+        {
+            return new(false, null, new(RunTerminalErrorKinds.NotFound, $"no run terminal for '{target}'"));
+        }
+
+        if (dto.State == RunTerminalState.Finished)
+        {
+            return new(true, dto);
+        }
+
+        // SPEC-20261104-agent-lineage-notes RF-002/§4: human-attached children
+        // are never killed by a cascade — they reparent their notes instead.
+        if (dto.ControlOwner == RunTerminalControlOwner.Human)
+        {
+            return new(false, dto, new(RunTerminalErrorKinds.StatusMismatch,
+                "a person is driving this terminal — reparent instead of killing"));
+        }
+
+        // Manager-killed sessions never fire the exit hook — finish the row
+        // ourselves whether the PTY was live or already gone (server restart).
+        if (await _terminals.KillAsync(dto.PtySessionId).ConfigureAwait(false))
+        {
+            var killed = await RepoCall(r => r.FinishAsync(
+                dto.Id, null, null, _time.GetUtcNow().UtcDateTime, ct)).ConfigureAwait(false);
+            ResolveWaits(dto.PtySessionId, new RunWaitResult(
+                RunWaitReason.Exited, null, null, killed ?? dto));
+            _hookTokens?.Revoke(AttentionKeyFor(dto.TaskId));
+            return new(true, killed ?? dto);
+        }
+
+        var finished = await RepoCall(r => r.FinishAsync(
+            dto.Id, null, null, _time.GetUtcNow().UtcDateTime, ct)).ConfigureAwait(false);
+        return new(finished is not null, finished ?? dto);
     }
 
     /// <inheritdoc />

@@ -1,4 +1,5 @@
 using NSubstitute;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Delegation;
 using Taskboard.Delegation;
@@ -19,13 +20,29 @@ internal sealed class DelegationServiceStubs
     public IDeliveryRepository Deliveries { get; } = Substitute.For<IDeliveryRepository>();
     public IPendingQuestionRepository Questions { get; } = Substitute.For<IPendingQuestionRepository>();
     public IDelegationGateRepository Gates { get; } = Substitute.For<IDelegationGateRepository>();
+    public IRunTerminalService RunTerminals { get; } = Substitute.For<IRunTerminalService>();
+    public IAgentOutboxRepository Outbox { get; } = Substitute.For<IAgentOutboxRepository>();
+    public IAgentFeedService Feed { get; } = Substitute.For<IAgentFeedService>();
+
+    public DelegationServiceStubs()
+    {
+        Outbox.EnqueueAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new AgentOutboxEntryDto(
+                "ob-x", ci.ArgAt<string>(0), ci.ArgAt<string>(1),
+                ci.ArgAt<string>(2), DateTime.UtcNow));
+    }
 
     public DelegationService Service => new(
         Tasks, Mailbox, Runs, Dispatches, Deliveries,
         Questions, Gates,
             TaskPromptRefinerTestSupport.ConfigOff(),
             Substitute.For<ITaskPromptRefiner>(),
-            TimeProvider.System);
+            TimeProvider.System,
+            runTerminals: RunTerminals,
+            outbox: Outbox,
+            feed: Feed);
 
     public static DelegationRunDto RunDto(string scope = "conv-1") =>
         new("run-1", scope, "obj", "assistant", DelegationRunStatus.Open, DateTime.UtcNow, null);

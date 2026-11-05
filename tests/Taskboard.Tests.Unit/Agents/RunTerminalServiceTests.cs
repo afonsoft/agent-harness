@@ -119,6 +119,7 @@ public class RunTerminalServiceTests
         public IDelegationTaskRepository Tasks { get; } = Substitute.For<IDelegationTaskRepository>();
         public IDispatchRepository Dispatches { get; } = Substitute.For<IDispatchRepository>();
         public IAgentMailboxRepository Mailbox { get; } = Substitute.For<IAgentMailboxRepository>();
+        public IAgentOutboxRepository Outbox { get; } = Substitute.For<IAgentOutboxRepository>();
         public IAgentAttentionService Attention { get; } = Substitute.For<IAgentAttentionService>();
         public IAgentHookTokenService Tokens { get; } = Substitute.For<IAgentHookTokenService>();
         public RunTerminalService Service { get; }
@@ -142,10 +143,14 @@ public class RunTerminalServiceTests
                 .AddSingleton(Tasks)
                 .AddSingleton(Dispatches)
                 .AddSingleton(Mailbox)
+                .AddSingleton(Outbox)
                 .BuildServiceProvider();
 
             Mailbox.ListByScopeAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
                 .Returns(Array.Empty<MailboxMessageDto>());
+            Outbox.ListPendingAsync(
+                    Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns(Array.Empty<AgentOutboxEntryDto>());
             Attention.SnapshotAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
                 .Returns(Array.Empty<AgentSessionStateDto>());
             Tokens.Issue(Arg.Any<string>()).Returns("hook-token");
@@ -508,5 +513,122 @@ public class RunTerminalServiceTests
 
         var result = await wait;
         result.Reason.ShouldBe(RunWaitReason.Exited);
+    }
+
+    [Fact]
+    public async Task Dado_TerminalOperador_Quando_Kill_Entao_FinalizaRowEPtyMorre()
+    {
+        await using var h = new Harness();
+        var (dto, pty) = await h.SpawnAsync();
+
+        var result = await h.Service.KillAsync(dto.Id);
+
+        result.Delivered.ShouldBeTrue();
+        result.Error.ShouldBeNull();
+        pty.IsRunning.ShouldBeFalse();
+        h.Manager.IsAlive(dto.PtySessionId).ShouldBeFalse();
+        (await h.Repo.GetAsync(dto.Id))!.State.ShouldBe(RunTerminalState.Finished);
+    }
+
+    [Fact]
+    public async Task Dado_TerminalHumano_Quando_Kill_Entao_StatusMismatchESobrevive()
+    {
+        await using var h = new Harness();
+        var (dto, pty) = await h.SpawnAsync();
+        h.Manager.AttachViewer("u1", "conn-v", dto.PtySessionId, (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask);
+        await h.Manager.InputAsync("u1", "conn-v", dto.PtySessionId, "x");
+        await Harness.Until(async () =>
+            (await h.Service.GetAsync(dto.Id))!.ControlOwner == RunTerminalControlOwner.Human);
+
+        var result = await h.Service.KillAsync(dto.Id);
+
+        result.Delivered.ShouldBeFalse();
+        result.Error!.Kind.ShouldBe(RunTerminalErrorKinds.StatusMismatch);
+        pty.IsRunning.ShouldBeTrue();
+        (await h.Repo.GetAsync(dto.Id))!.State.ShouldBe(RunTerminalState.Live);
+    }
+
+    [Fact]
+    public async Task Dado_TerminalFinalizado_Quando_Kill_Entao_SucessoIdempotente()
+    {
+        await using var h = new Harness();
+        var (dto, pty) = await h.SpawnAsync();
+        pty.EmitExit(0);
+        await Harness.Until(async () =>
+            (await h.Service.GetAsync(dto.Id))!.State == RunTerminalState.Finished);
+
+        var result = await h.Service.KillAsync(dto.Id);
+
+        result.Delivered.ShouldBeTrue();
+        result.Error.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Dado_RowLiveSemPty_Quando_Kill_Entao_FinalizaRow()
+    {
+        await using var h = new Harness();
+        // Server restart: the row is still Live but the PTY is gone.
+        var stale = await h.Repo.AddAsync(
+            new EnsureRunTerminalRequest("task-1", "disp-1", "claude", ["claude"], "/ws", null, "conv-1"),
+            "rt-stale", "run-task-1");
+
+        var result = await h.Service.KillAsync(stale.Id);
+
+        result.Delivered.ShouldBeTrue();
+        (await h.Repo.GetAsync(stale.Id))!.State.ShouldBe(RunTerminalState.Finished);
+    }
+
+    [Fact]
+    public async Task Dado_TargetInexistente_Quando_Kill_Entao_NotFound()
+    {
+        await using var h = new Harness();
+
+        var result = await h.Service.KillAsync("nope");
+
+        result.Delivered.ShouldBeFalse();
+        result.Error!.Kind.ShouldBe(RunTerminalErrorKinds.NotFound);
+    }
+
+    [Fact]
+    public async Task Dado_OutboxPendente_Quando_Ensure_Entao_ReinjetaEnvelope()
+    {
+        await using var h = new Harness();
+        var entry = new AgentOutboxEntryDto(
+            "ob-1", "term:run-task-1", "m1", "note", DateTime.UtcNow);
+        h.Outbox.ListPendingAsync("term:run-task-1", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([entry]);
+        h.Mailbox.GetAsync("m1", Arg.Any<CancellationToken>())
+            .Returns(new MailboxMessageDto(
+                "m1", "conv-1", "codex", "disp:disp-1", "note",
+                "{\"childTaskId\":\"t-child\"}", DateTime.UtcNow, null,
+                DispatchId: "disp-1"));
+
+        var (_, pty) = await h.SpawnAsync();
+
+        pty.Written.ShouldHaveSingleItem()
+            .ShouldContain("<harness from=\"codex disp-1\" scope=\"conv-1\"");
+        pty.Written[0].ShouldContain("childTaskId");
+        await h.Outbox.Received(1).RemoveAsync(
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("ob-1")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Dado_OutboxOrfao_Quando_Ensure_Entao_RemoveSemInjetar()
+    {
+        await using var h = new Harness();
+        var entry = new AgentOutboxEntryDto(
+            "ob-1", "term:run-task-1", "m-gone", "note", DateTime.UtcNow);
+        h.Outbox.ListPendingAsync("term:run-task-1", Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([entry]);
+        h.Mailbox.GetAsync("m-gone", Arg.Any<CancellationToken>())
+            .Returns((MailboxMessageDto?)null);
+
+        var (_, pty) = await h.SpawnAsync();
+
+        pty.Written.ShouldBeEmpty();
+        await h.Outbox.Received(1).RemoveAsync(
+            Arg.Is<IReadOnlyCollection<string>>(ids => ids.Contains("ob-1")),
+            Arg.Any<CancellationToken>());
     }
 }

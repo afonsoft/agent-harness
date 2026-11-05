@@ -22,6 +22,7 @@ public sealed class DelegateStatusTool(IServiceScopeFactory scopeFactory) : ICha
           "task_id":{"type":"string","description":"One task id"},
           "group_id":{"type":"string","description":"Fan-out group id"},
           "status":{"type":"string","description":"Filter by status (pending|ready|running|done|failed|stale|cancelled)"},
+          "tree":{"type":"boolean","description":"Render the dispatch forest: parent→children lineage with states"},
           "take":{"type":"integer","description":"Max tasks to return (default 50)"}
         }}
         """;
@@ -58,6 +59,14 @@ public sealed class DelegateStatusTool(IServiceScopeFactory scopeFactory) : ICha
                 string.Equals(x.Status.ToString(), status, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
+        if (arguments.TryGetProperty("tree", out var tr)
+            && tr.ValueKind == JsonValueKind.True)
+        {
+            var forest = await BuildForestAsync(
+                diScope.ServiceProvider, tasks, cancellationToken).ConfigureAwait(false);
+            return DelegationToolSupport.Ok(new { scope, forest });
+        }
+
         return DelegationToolSupport.Ok(new
         {
             scope,
@@ -78,6 +87,65 @@ public sealed class DelegateStatusTool(IServiceScopeFactory scopeFactory) : ICha
                 x.LastHeartbeatAt,
             }),
         });
+    }
+
+    /// <summary>
+    /// SPEC-20261104-agent-lineage-notes RF-006: renders the parent/child
+    /// forest — each task carries <c>children[]</c> resolved through its
+    /// active dispatch's <c>ParentDispatchId</c> links.
+    /// </summary>
+    private static async Task<IReadOnlyList<object>> BuildForestAsync(
+        IServiceProvider sp, IReadOnlyList<DelegationTaskDto> tasks, CancellationToken ct)
+    {
+        var dispatches = sp.GetRequiredService<IDispatchRepository>();
+        var nodeByTask = new Dictionary<string, Node>(StringComparer.Ordinal);
+        foreach (var task in tasks)
+        {
+            nodeByTask[task.Id] = new Node(task);
+        }
+
+        var roots = new List<Node>();
+        foreach (var node in nodeByTask.Values)
+        {
+            var parentDispatchId = node.Task.ParentDispatchId;
+            if (parentDispatchId is null)
+            {
+                roots.Add(node);
+                continue;
+            }
+
+            var parentDispatch = await dispatches.GetAsync(parentDispatchId, ct)
+                .ConfigureAwait(false);
+            if (parentDispatch is not null
+                && nodeByTask.TryGetValue(parentDispatch.TaskId, out var parent))
+            {
+                parent.Children.Add(node);
+            }
+            else
+            {
+                // Parent outside this scope/filter — surface as a root with the link kept.
+                node.DetachedParent = parentDispatchId;
+                roots.Add(node);
+            }
+        }
+
+        static object Render(Node node) => new
+        {
+            taskId = node.Task.Id,
+            node.Task.CliName,
+            status = node.Task.Status.ToString().ToLowerInvariant(),
+            node.Task.ActiveDispatchId,
+            detachedParent = node.DetachedParent,
+            children = node.Children.Select(Render).ToList(),
+        };
+        return roots.OrderBy(r => r.Task.Id, StringComparer.Ordinal).Select(Render).ToList();
+    }
+
+    private sealed class Node(DelegationTaskDto task)
+    {
+        public DelegationTaskDto Task { get; } = task;
+        public List<Node> Children { get; } = [];
+        public string? DetachedParent { get; set; }
     }
 
     private static string? ReadString(JsonElement args, string name) =>
