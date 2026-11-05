@@ -454,6 +454,68 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("ProviderUsageWindows", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Agents.RunTerminal", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ArchivedOutput")
+                        .HasMaxLength(65536)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CliName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ControlOwner")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DispatchId")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("FinishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PtySessionId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DispatchId");
+
+                    b.HasIndex("PtySessionId");
+
+                    b.HasIndex("TaskId", "State");
+
+                    b.ToTable("RunTerminals", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Agents.SessionCliVisibility", b =>
                 {
                     b.Property<string>("Id")
@@ -2244,6 +2306,13 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("DispatchedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FirstMessageFailedReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FirstMessageSentAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PreambleJson")

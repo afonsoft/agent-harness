@@ -49,8 +49,41 @@ public sealed class DispatchConfiguration : IEntityTypeConfiguration<Dispatch>
             .HasConversion<string>()
             .HasMaxLength(16);
 
+        builder.Property(d => d.FirstMessageFailedReason).HasMaxLength(512);
+
         builder.HasIndex(d => new { d.TaskId, d.Attempt });
         builder.HasIndex(d => new { d.RunId, d.State });
+    }
+}
+
+/// <summary>SPEC-20261104-run-terminal-runtime RF-001.</summary>
+public sealed class RunTerminalConfiguration : IEntityTypeConfiguration<Taskboard.Domain.Agents.RunTerminal>
+{
+    public void Configure(EntityTypeBuilder<Taskboard.Domain.Agents.RunTerminal> builder)
+    {
+        builder.ToTable("RunTerminals");
+
+        builder.Property(r => r.Id).HasMaxLength(96);
+        builder.HasKey(r => r.Id);
+
+        builder.Property(r => r.TaskId).IsRequired().HasMaxLength(96);
+        builder.Property(r => r.DispatchId).HasMaxLength(96);
+        builder.Property(r => r.PtySessionId).IsRequired().HasMaxLength(96);
+        builder.Property(r => r.CliName).IsRequired().HasMaxLength(64);
+        builder.Property(r => r.ArchivedOutput).HasMaxLength(65536);
+
+        builder.Property(r => r.State)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(16);
+        builder.Property(r => r.ControlOwner)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(16);
+
+        builder.HasIndex(r => new { r.TaskId, r.State });
+        builder.HasIndex(r => r.DispatchId);
+        builder.HasIndex(r => r.PtySessionId);
     }
 }
 
