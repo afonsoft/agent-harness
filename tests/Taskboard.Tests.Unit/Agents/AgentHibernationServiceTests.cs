@@ -314,7 +314,7 @@ public class AgentHibernationServiceTests
             .Returns(h.IndexRow("native-1"));
         h.Dispatches.ListOpenForSessionAsync(Key, Arg.Any<CancellationToken>())
             .Returns([new DispatchDto("d1", "t1", "r1", "w", 1,
-                DispatchState.Dispatched, "{}", Key, null, Now, null, null, null)]);
+                DispatchState.Dispatched, "{}", Key, null, null, Now, null, null, null)]);
 
         var outcome = await h.Service.HibernateAsync("local", Key);
 

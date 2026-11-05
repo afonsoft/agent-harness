@@ -81,7 +81,7 @@ public class DelegationServiceTests
             .Returns(ci => new DispatchDto(
                 "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
                 ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
-                null, null, DateTime.UtcNow, null, null, null));
+                null, null, null, DateTime.UtcNow, null, null, null));
         _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
 
@@ -105,7 +105,7 @@ public class DelegationServiceTests
             .Returns(ci => new DispatchDto(
                 "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
                 ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
-                null, null, DateTime.UtcNow, null, null, null));
+                null, null, null, DateTime.UtcNow, null, null, null));
         _tasks.ReactivateForRetryAsync("task-1", "gpt-5.6", Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
 
@@ -128,7 +128,7 @@ public class DelegationServiceTests
             .Returns(ci => new DispatchDto(
                 "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
                 ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
-                null, null, DateTime.UtcNow, null, null, null));
+                null, null, null, DateTime.UtcNow, null, null, null));
         _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
 
@@ -148,7 +148,7 @@ public class DelegationServiceTests
             .Returns(ci => new DispatchDto(
                 "disp-2", ((CreateDispatchRequest)ci[0]).TaskId, "run-1", "codex",
                 ((CreateDispatchRequest)ci[0]).Attempt, DispatchState.Pending, "{}",
-                null, null, DateTime.UtcNow, null, null, null));
+                null, null, null, DateTime.UtcNow, null, null, null));
         _tasks.ReactivateForRetryAsync("task-1", Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(TaskDto("task-1", status: DelegationTaskStatus.Pending) with { RunId = "run-1" });
 

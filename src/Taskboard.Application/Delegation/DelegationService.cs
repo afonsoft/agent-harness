@@ -131,8 +131,11 @@ public sealed class DelegationService : IDelegationService
         }
 
         var run = await EnsureRunAsync(scope, request.Prompt, null, ct).ConfigureAwait(false);
+        var parent = await ResolveParentDispatchAsync(request.ParentDispatchId, ct)
+            .ConfigureAwait(false);
         var (refinedRequest, refineResult) = await RefineAsync(
-            request with { Scope = scope, RunId = run.Id }, ct).ConfigureAwait(false);
+            request with { Scope = scope, RunId = run.Id, ParentDispatchId = parent },
+            ct).ConfigureAwait(false);
         var task = await _tasks.AddAsync(refinedRequest, ct).ConfigureAwait(false);
         await EmitRefinedEventAsync(scope, task.Id, request.Prompt, refineResult, ct)
             .ConfigureAwait(false);
@@ -320,7 +323,7 @@ public sealed class DelegationService : IDelegationService
             new CreateDispatchRequest(
                 taskId, runId, reactivated.CliName, attempt,
                 BuildPreamble(reactivated, dispatchId, runId, attempt),
-                dispatchId),
+                dispatchId, reactivated.ParentDispatchId),
             ct).ConfigureAwait(false);
         return new RetryTaskResult(reactivated, dispatch);
     }
@@ -491,7 +494,7 @@ public sealed class DelegationService : IDelegationService
                 new CreateDispatchRequest(
                     id, runId, task.CliName, attempt,
                     BuildPreamble(task, dispatchId, runId, attempt),
-                    dispatchId),
+                    dispatchId, task.ParentDispatchId),
                 ct).ConfigureAwait(false);
             dispatch = await _dispatches.TransitionAsync(
                 created.Id, DispatchState.Dispatched, null, now, ct).ConfigureAwait(false) ?? created;
@@ -560,7 +563,154 @@ public sealed class DelegationService : IDelegationService
             AttentionSignalKind.Lifecycle,
             succeeded ? "worker_done" : $"failed: {Truncate(detail, 200)}",
             null, CancellationToken.None).ConfigureAwait(false);
+        await EmitParentNoteAsync(
+            task, activeDispatch,
+            succeeded ? "exited" : "error",
+            succeeded ? "done" : "error", detail, CancellationToken.None)
+            .ConfigureAwait(false);
+        await CascadeChildrenAsync(activeDispatch, CancellationToken.None)
+            .ConfigureAwait(false);
         return task;
+    }
+
+    /// <summary>
+    /// SPEC-20261104-agent-lineage-notes RF-003: a child transition pushes a
+    /// <c>note</c> message to the parent dispatch session address — no polling.
+    /// Suppressed by <see cref="DelegationTask.NotifyParent"/> or when the task
+    /// is a root.
+    /// </summary>
+    private async Task EmitParentNoteAsync(
+        DelegationTaskDto task, string? childDispatchId,
+        string evt, string state, string? detail, CancellationToken ct)
+    {
+        if (!task.NotifyParent || task.ParentDispatchId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                childTaskId = task.Id,
+                childDispatchId,
+                @event = evt,
+                state,
+                snippet = Truncate(detail, 2000),
+            });
+            await _mailbox.AddAsync(
+                new PostMailboxMessageRequest(
+                    task.Scope, task.CliName,
+                    $"disp:{task.ParentDispatchId}", payload,
+                    AgentMailboxKinds.Note,
+                    TaskId: task.Id, DispatchId: childDispatchId),
+                ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Notes are advisory — never break the settle path on a note failure.
+            _logger?.LogWarning(ex, "parent note failed for {TaskId}", task.Id);
+        }
+    }
+
+    /// <summary>
+    /// SPEC-20261104-agent-lineage-notes RF-002: when a dispatch settles, its
+    /// non-outliving children are cancelled (<c>parent_finished</c>). Idempotent
+    /// — already-terminal tasks finalize to null and are skipped.
+    /// </summary>
+    private async Task CascadeChildrenAsync(string? parentDispatchId, CancellationToken ct)
+    {
+        if (parentDispatchId is null)
+        {
+            return;
+        }
+
+        var children = await _dispatches.ListByParentAsync(parentDispatchId, ct)
+            .ConfigureAwait(false);
+        foreach (var child in children.Where(c =>
+            c.State is DispatchState.Pending or DispatchState.Dispatched))
+        {
+            var task = await _tasks.GetAsync(child.TaskId, ct).ConfigureAwait(false);
+            if (task is null || task.OutliveParent)
+            {
+                continue;
+            }
+
+            try
+            {
+                await _dispatches.TransitionAsync(
+                    child.Id, DispatchState.Abandoned, null,
+                    _time.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
+            }
+            catch (DomainException)
+            {
+                // already terminal — finalize still runs below, idempotently.
+            }
+
+            await _tasks.AttachDispatchAsync(child.TaskId, null, ct).ConfigureAwait(false);
+            await _tasks.FinalizeAsync(
+                child.TaskId, DelegationTaskStatus.Cancelled, "parent_finished",
+                _time.GetUtcNow().UtcDateTime, ct: ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// SPEC-20261104-agent-lineage-notes RF-001: resolves a <c>--parent</c>
+    /// value — a dispatch id, or a task id bound to its active dispatch —
+    /// and enforces the cycle bound (chain depth ≤ 4).
+    /// </summary>
+    private async Task<string?> ResolveParentDispatchAsync(string? parent, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(parent))
+        {
+            return null;
+        }
+
+        var resolved = await _dispatches.GetAsync(parent.Trim(), ct).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            var parentTask = await _tasks.GetAsync(parent.Trim(), ct).ConfigureAwait(false);
+            resolved = parentTask?.ActiveDispatchId is { } active
+                ? await _dispatches.GetAsync(active, ct).ConfigureAwait(false)
+                : null;
+        }
+
+        if (resolved is null)
+        {
+            throw new DomainException(
+                TaskboardDomainErrorCodes.InvalidValue,
+                $"parent not found: {parent} (expected a dispatch id or a task with an active dispatch)");
+        }
+
+        var depth = 1;
+        var cursor = resolved;
+        while (cursor.ParentDispatchId is { } next)
+        {
+            depth++;
+            if (depth > 4)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    $"parent chain exceeds depth 4 at {next}");
+            }
+
+            var ancestor = await _dispatches.GetAsync(next, ct).ConfigureAwait(false);
+            if (ancestor is null)
+            {
+                break;
+            }
+
+            if (ancestor.Id == resolved.Id)
+            {
+                throw new DomainException(
+                    TaskboardDomainErrorCodes.InvalidValue,
+                    "parent chain contains a cycle");
+            }
+
+            cursor = ancestor;
+        }
+
+        return resolved.Id;
     }
 
     public async Task<DelegationTaskDto?> MarkStaleAsync(string id, string reason, CancellationToken ct = default)
@@ -590,6 +740,10 @@ public sealed class DelegationService : IDelegationService
                 $"task:{task.Id}", task.CliName, AgentAttentionState.Exited,
                 AttentionSignalKind.Lifecycle, $"cancelled: {Truncate(reason, 200)}",
                 null, ct).ConfigureAwait(false);
+            await EmitParentNoteAsync(
+                task, task.ActiveDispatchId, "exited", "cancelled", reason, ct)
+                .ConfigureAwait(false);
+            await CascadeChildrenAsync(task.ActiveDispatchId, ct).ConfigureAwait(false);
         }
 
         return task;

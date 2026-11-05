@@ -147,7 +147,7 @@ public sealed class TaskPromptRefinerServiceTests
                 var r = (CreateDispatchRequest)ci[0];
                 return new DispatchDto(
                     "disp-2", r.TaskId, r.RunId, "codex", r.Attempt,
-                    DispatchState.Pending, "{}", null, null,
+                    DispatchState.Pending, "{}", null, null, null,
                     DateTime.UtcNow, null, null, null);
             });
         f.Tasks.ApplyRefinementAsync(
@@ -183,7 +183,7 @@ public sealed class TaskPromptRefinerServiceTests
                 var r = (CreateDispatchRequest)ci[0];
                 return new DispatchDto(
                     "disp-2", r.TaskId, r.RunId, "codex", r.Attempt,
-                    DispatchState.Pending, "{}", null, null,
+                    DispatchState.Pending, "{}", null, null, null,
                     DateTime.UtcNow, null, null, null);
             });
 

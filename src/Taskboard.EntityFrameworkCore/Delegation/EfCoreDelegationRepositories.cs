@@ -79,6 +79,8 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             request.Role,
             request.OutputSchema);
         entity.SetExtraArgs(request.ExtraArgs);
+        entity.SetLineageFlags(
+            request.OutliveParent, request.NotifyParent, request.ParentDispatchId);
         if (request.PromptRefined is not null && request.PromptRefinement is not null)
         {
             entity.ApplyRefinement(
@@ -210,7 +212,7 @@ public sealed class EfCoreDelegationTaskRepository : IDelegationTaskRepository
             t.RunId, t.ActiveDispatchId, t.Model, t.Effort, t.SharedPathsApplied,
             t.SetupState, t.SetupLogTail, t.ExtraArgs, t.Autonomy,
             t.PromptRefined, t.PromptRefinement, t.Role, t.OutputSchema, t.SchemaValid,
-            BuildDiagnostics(t));
+            BuildDiagnostics(t), t.OutliveParent, t.NotifyParent, t.ParentDispatchId);
 
     /// <summary>
     /// SPEC-20261024-p1-agent-reliability RF-T9: diagnostics card for
