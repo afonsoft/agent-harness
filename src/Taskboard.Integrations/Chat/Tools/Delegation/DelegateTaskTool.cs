@@ -40,6 +40,7 @@ public sealed class DelegateTaskTool(
           "autonomy":{"type":"string","enum":["plan","edit","full"],"description":"Permission envelope: plan=read-only, edit=workspace writes (default), full=unrestricted — full requires a worktree + server opt-in"},
           "refine":{"type":"string","enum":["off","template","llm"],"description":"Prompt-refinement override for this task (default: server config Taskboard:Delegation:PromptRefinement)"},
           "role":{"type":"string","enum":["orchestrator","leaf"],"description":"Contract role: orchestrator may produce child tasks; leaf cannot delegate further (default: leaf; coordinate tasks are always orchestrators)"},
+          "template":{"type":"string","description":"Named task template (~/.agent-harness/templates/<name>.md) — its body precedes the prompt as standing instructions"},
           "output_schema":{"type":"string","description":"JSON Schema string the worker's final reply must satisfy — the completion result is annotated schema_valid (false keeps the full child output)"},
           "dry_run":{"type":"boolean","description":"Resolve the effective config and run preflight checks without persisting the task or dispatching (returns resolved + verdict + checks)"}
         },"required":["prompt"]}
@@ -123,6 +124,29 @@ public sealed class DelegateTaskTool(
         }
 
         var scope = DelegationToolSupport.ScopeOf(context);
+
+        // SPEC-20261104-agent-context-templates RF-003: named template —
+        // body + prompt compose the task brief; unknown/invalid template is
+        // refused with the validation error.
+        var templateName = ReadString(arguments, "template");
+        if (templateName is not null)
+        {
+            await using var templateScope = scopeFactory.CreateAsyncScope();
+            var catalog = templateScope.ServiceProvider
+                .GetRequiredService<Taskboard.Application.Contracts.Agents.IAgentTemplateCatalog>();
+            var template = await catalog.GetAsync(templateName.Trim(), cancellationToken)
+                .ConfigureAwait(false);
+            if (template is null)
+            {
+                return DelegationToolSupport.Error(
+                    $"template '{templateName}' not found or invalid", "template refused");
+            }
+
+            prompt = $"{template.Body}\n\n{prompt}";
+            model ??= template.Model;
+            effort ??= template.Effort;
+            cli = ReadString(arguments, "cli") ?? template.Cli ?? cli;
+        }
 
         // SPEC-20261020-v2 RF-008: resolve launch prefs up-front — unknown
         // capability is an explicit error, never silently dropped.

@@ -28,6 +28,7 @@ public sealed partial class SecretScrubber : Taskboard.Agents.ISecretRedactor
         result = AwsKeyRegex().Replace(result, Redacted);
         result = BearerTokenRegex().Replace(result, $"Bearer {Redacted}");
         result = PrivateKeyRegex().Replace(result, Redacted);
+        result = AgentCallbackTokenRegex().Replace(result, Redacted);
         return result;
     }
 
@@ -54,4 +55,9 @@ public sealed partial class SecretScrubber : Taskboard.Agents.ISecretRedactor
     // PEM private key headers.
     [GeneratedRegex(@"-----BEGIN [A-Z ]*PRIVATE KEY-----", RegexOptions.Compiled)]
     private static partial Regex PrivateKeyRegex();
+
+    // SPEC-20261104-agent-context-templates: HARNESS_AGENT_TOKEN wire shape
+    // (v1.<b64url payload>.<b64url sig>) — never echoed into logs/output.
+    [GeneratedRegex(@"v1\.[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{30,}", RegexOptions.Compiled)]
+    private static partial Regex AgentCallbackTokenRegex();
 }

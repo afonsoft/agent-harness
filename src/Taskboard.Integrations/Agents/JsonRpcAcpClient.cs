@@ -13,6 +13,7 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
     private readonly IEnumerable<IAgentAdapter> _adapters;
     private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
     private readonly Taskboard.Application.Contracts.Agents.IAgentHookTokenService? _hookTokens;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentCallbackTokenService? _callbackTokens;
     private readonly Taskboard.Application.Contracts.Agents.IAgentAttentionService? _attention;
     private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
     private readonly Taskboard.Integrations.Execution.IProcessIsolator _isolator;
@@ -23,11 +24,13 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         Taskboard.Application.Contracts.Agents.IAgentHookTokenService? hookTokens = null,
         Taskboard.Application.Contracts.Agents.IAgentAttentionService? attention = null,
         Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
-        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null)
+        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null,
+        Taskboard.Application.Contracts.Agents.IAgentCallbackTokenService? callbackTokens = null)
     {
         _adapters = adapters;
         _outputSink = outputSink;
         _hookTokens = hookTokens;
+        _callbackTokens = callbackTokens;
         _attention = attention;
         _configuration = configuration;
         _isolator = isolator ?? Taskboard.Integrations.Execution.NoopProcessIsolator.Instance;
@@ -69,8 +72,13 @@ public sealed class JsonRpcAcpClient : IAgentAcpClient
         // SPEC-20261020-agent-attention-model RF-003: hook env after the
         // harness-env scrub — managed hooks call back to /api/agent-hooks.
         var sessionKey = $"issue:{request.IssueId}";
-        AgentHookEnv.ApplyTo(
-            startInfo.Environment, _hookTokens, _configuration, sessionKey);
+        Taskboard.Integrations.Agents.Context.AgentContextEnv.ApplyTo(
+            startInfo.Environment, _callbackTokens, _hookTokens, _configuration,
+            sessionKey,
+            request.Scope ?? request.IssueId,
+            request.IssueId.StartsWith("task:", StringComparison.Ordinal) ? request.IssueId[5..] : null,
+            dispatchId: null,
+            request.AgentType.ToString());
 
         using var process = Process.Start(_isolator.Isolate(startInfo, "acp-exec"));
         if (process is null)
