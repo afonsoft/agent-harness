@@ -177,6 +177,17 @@
                                                         </Button>
                                                     </span>
                                                 }
+                                                @if (card.Kind == "task")
+                                                {
+                                                    @* SPEC-20261104-run-terminal-runtime RF-007: viewer attach —
+                                                       the Terminal page attaches to the task's live run PTY. *@
+                                                    <span @onclick:stopPropagation="true">
+                                                        <a class="btn btn-link btn-sm p-0" title="Attach to the run terminal"
+                                                           href="/terminal?run=@Uri.EscapeDataString(RunTargetOf(card))">
+                                                            <Icon Name="IconName.Terminal" class="me-1" />Terminal
+                                                        </a>
+                                                    </span>
+                                                }
                                                 @if (card.Kind == "task" && IsRetryable(card))
                                                 {
                                                     @* RF-007: retry com troca de modelo — schema-budget/quota do
@@ -1415,6 +1426,11 @@
 
     private static bool IsRetryable(AgentBoardCard card) =>
         card.State is AgentAttentionState.Blocked or AgentAttentionState.Exited;
+
+    /// <summary>Board ids are namespaced (<c>task:{id}</c>) — the run-terminal
+    /// resolver takes the bare task id.</summary>
+    private static string RunTargetOf(AgentBoardCard card) =>
+        card.Id.StartsWith("task:", StringComparison.Ordinal) ? card.Id[5..] : card.Id;
 
     private async Task OpenRetryModalAsync(AgentBoardCard card)
     {

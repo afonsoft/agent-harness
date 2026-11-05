@@ -135,10 +135,18 @@
         public string? CloseReason { get; set; }
         public string? PendingCmd { get; set; }
         public bool JsReady { get; set; }
+        /// <summary>RF-007: viewer tab over a delegated run terminal (attach, never owns the PTY).</summary>
+        public bool IsRunTerminal { get; init; }
+        public string? RunTarget { get; init; }
     }
 
     [SupplyParameterFromQuery(Name = "cmd")]
     public string? Cmd { get; set; }
+
+    /// <summary>SPEC-20261104-run-terminal-runtime RF-007: ?run={target} attaches
+    /// a viewer tab to a live run terminal (task id, dispatch id or terminal id).</summary>
+    [SupplyParameterFromQuery(Name = "run")]
+    public string? Run { get; set; }
 
     private readonly List<TerminalTab> _tabs = new();
     private TerminalTab? _activeTab;
@@ -164,7 +172,14 @@
         _selfRef = DotNetObjectReference.Create(this);
         await RepoService.EnsureLoadedAsync();
         await ConnectHubAsync();
-        await OpenTabAsync(_cmdConsumed ? null : Cmd);
+        if (!string.IsNullOrWhiteSpace(Run))
+        {
+            await OpenTabAsync(Run, isRunTerminal: true);
+        }
+        else
+        {
+            await OpenTabAsync(_cmdConsumed ? null : Cmd);
+        }
         _cmdConsumed = true;
     }
 
@@ -234,8 +249,12 @@
             var reattached = false;
             try
             {
-                reattached = _hub is not null
-                    && await _hub.InvokeAsync<bool>("Reattach", tab.SessionId);
+                // RF-007: run-terminal tabs reattach as viewers — the runtime
+                // owns the PTY, never this connection.
+                reattached = _hub is not null && (tab.IsRunTerminal
+                    ? (tab.SessionId = await _hub.InvokeAsync<string>(
+                        "AttachRunTerminal", tab.RunTarget)) is not null
+                    : await _hub.InvokeAsync<bool>("Reattach", tab.SessionId));
             }
             catch
             {
@@ -254,7 +273,7 @@
         }
     }
 
-    private async Task OpenTabAsync(string? cmd)
+    private async Task OpenTabAsync(string? cmd, bool isRunTerminal = false)
     {
         if (_tabs.Count >= MaxTabs)
         {
@@ -266,8 +285,10 @@
         {
             Key = key,
             ElementId = $"terminal-host-{key}",
-            Title = $"Terminal {++_tabCounter}",
-            PendingCmd = cmd
+            Title = isRunTerminal ? $"run {cmd}" : $"Terminal {++_tabCounter}",
+            PendingCmd = isRunTerminal ? null : cmd,
+            IsRunTerminal = isRunTerminal,
+            RunTarget = isRunTerminal ? cmd : null
         };
         _tabs.Add(tab);
         _activeTab = tab;
@@ -302,7 +323,9 @@
         {
             tab.State = TabState.Connecting;
             StateHasChanged();
-            tab.SessionId = await _hub.InvokeAsync<string>("Open", RepoService.Selected);
+            tab.SessionId = tab.IsRunTerminal
+                ? await _hub.InvokeAsync<string>("AttachRunTerminal", tab.RunTarget)
+                : await _hub.InvokeAsync<string>("Open", RepoService.Selected);
             tab.State = TabState.Open;
             tab.CloseReason = null;
 
