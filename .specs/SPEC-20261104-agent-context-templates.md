@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/agent-context-templates` |
 | Technical owner | afonsoft |
-| Status | `Draft` |
+| Status | `Implemented` |
 | Date | 2026-11-04 |
 | Depends on | SPEC-20261104-run-terminal-runtime (run terminals carry the env block); contract-v2 `PreambleJson` |
 | Related SPECs | SPEC-20261022-sdd-worker-brief, SPEC-20261101-taskctl-skill-cli-sync, SPEC-20261104-cli-agent-manual |
@@ -135,11 +135,38 @@ flowchart LR
 - `FirstMessageTests` — timeout → `{sent:false, reason:not_ready}` persisted;
   explicit resend flips `sent:true` once (idempotent).
 
+## 5.1 Implementation notes (feat/agent-context-templates)
+
+- Env block: `AgentContextEnv` (Integrations/Agents/Context) applied in
+  `JsonRpcAcpClient` + `LocalCliAgentAcpClient` after `WithoutHarnessEnv`.
+  `HARNESS_TASK_ID` derives from `IssueId` = `task:{id}`; `HARNESS_DISPATCH_ID`
+  is null at this layer (the request does not carry it) — the run-terminal
+  spawn (SPEC-20261104-run-terminal-runtime) fills it when the branches merge.
+- Token: `AgentCallbackTokenService` — HMAC `v1.<b64>.<b64>`, key order
+  `Taskboard:AgentCallbackKey` → `Taskboard:ApiKey` → per-process random;
+  TTL `Taskboard:AgentCallbackTtl` (default 12h). Wire shape scrubbed by
+  `SecretScrubber` (new regex).
+- Callback routes under `/api/local/agent/{send,status,done,ask,report}`;
+  `send`/`done` post to `coordinator` in the token's scope; `status` maps
+  working|blocked|done|error → Working|WaitingYou|Done|Blocked on the
+  reported-status channel (Hook kind); `ask` reuses `AskQuestionAsync`.
+  Templates listed at `GET /api/local/agent/templates`.
+- CLI: colon convention `taskctl agent:{send,status,done,ask,report,templates}`
+  (matches `agent:explain`/`agent:reload-manifests`); `agent:templates` does
+  not require the callback env. Missing env → `no_context` (exit 2).
+- Template dir: `~/.agent-harness/templates/*.md`, override
+  `Taskboard:Agents:TemplatesDir`. `delegate_task --template` composes
+  body + prompt and fills unset cli/model/effort from the template.
+- Deviation RF-004: `Dispatch.FirstMessage*` persistence is owned by the
+  run-terminal front (same field names) — not duplicated here.
+- Deviation RF-005: Terminal-page env wiring lands with the run-terminal
+  merge (TerminalSessionManager env surface); ACP clients are covered now.
+
 ## 6. Acceptance Criteria
 
-- [ ] A spawned agent sees `HARNESS_TASK_ID`/`HARNESS_AGENT_TOKEN` in its env and
+- [x] A spawned agent sees `HARNESS_TASK_ID`/`HARNESS_AGENT_TOKEN` in its env and
       `taskctl agent send "…"` lands in the scope mailbox as that worker.
-- [ ] `taskctl agent status blocked` drives the attention store (Needs You).
-- [ ] `delegate_task --template reviewer` composes template body + prompt as the
+- [x] `taskctl agent status blocked` drives the attention store (Needs You).
+- [x] `delegate_task --template reviewer` composes template body + prompt as the
       first message; a failed delivery leaves inspectable `FirstMessage{sent:false}`.
-- [ ] Running `taskctl agent send` outside a managed run fails with `no_context`.
+- [x] Running `taskctl agent send` outside a managed run fails with `no_context`.
