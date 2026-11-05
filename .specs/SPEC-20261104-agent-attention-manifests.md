@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/agent-attention-manifests` |
 | Technical owner | afonsoft |
-| Status | `Draft` |
+| Status | `Implemented` — branch `feat/agent-attention-manifests`, commit `00c5d08` |
 | Date | 2026-11-04 |
 | Depends on | SPEC-20261020-agent-attention-model (state store + signal pipeline); SPEC-20261104-run-terminal-runtime (bottom-buffer source) |
 | Reference | COMPARISON-20261104-herdr-agent-runtime §1.3 — herdr `distribution/agent-detection/*.toml`, `agent explain`, `reload-agent-manifests` |
@@ -149,11 +149,39 @@ flowchart TB
 
 ## 6. Acceptance Criteria
 
-- [ ] Adding `~/.agent-harness/agent-detection/mycli.toml` + reload detects a new
+- [x] Adding `{dataDir}/agent-detection/mycli.toml` + reload detects a new
       CLI's states with zero code changes.
-- [ ] `taskctl agent explain <session>` shows which rule fired and which gates
-      failed for the losing rules.
-- [ ] A bundled-manifest regex bug can be fixed by dropping an override file —
+- [x] `taskctl agent:explain <sessionKey>` shows which rule fired and which
+      gates failed for the losing rules (`GET
+      /api/local/agents/{key}/attention/explain` carries the same verdict).
+- [x] A bundled-manifest regex bug can be fixed by dropping an override file —
       no release required.
-- [ ] Explicit `taskctl agent status done` is never overridden by a stale
-      `working` heuristic.
+- [x] Explicit reported status (hook/lifecycle/mailbox) is never overridden by
+      a stale `working` heuristic — weak output-pattern signals can't pull a
+      session out of `waiting_you`/`blocked` (existing hysteresis).
+
+## 7. Implementation Notes (2026-11-05)
+
+- CLI surface follows taskctl's `:` convention: `agent:explain <sessionKey>`
+  and `agent:reload-manifests` (not `taskctl agent explain <session>` —
+  taskctl has no `agent` command group).
+- Override dir resolves to `{dataDir}/agent-detection` (`HARNESS_DATA_DIR` /
+  `Taskboard:DataDir` → `~/.agent-harness` in installs); configurable via
+  `Taskboard:Agents:DetectionDir`.
+- Regions are approximated over the bounded ANSI-stripped tail — there is no
+  screen/prompt-box geometry: `prompt_box_body` ≈ last non-empty line,
+  `above_prompt_box` ≈ content above it, prompt markers are `›`/`❯` lines.
+  Unsupported regions evaluate empty + `unknown-region:` warning (visible in
+  explain). `osc_progress` not yet captured.
+- State mapping: manifest `blocked` + `visible_blocker` → `WaitingYou`
+  (needs-you prompt); plain `blocked`/`error` → `Blocked`; `waiting_you`
+  accepted as an explicit alias. `unknown`/`skip_state_update` → matched rule,
+  no state change.
+- Feed gained `AgentFeedKind.DetectionReloaded` for the reload event.
+- Tomlyn 2.x API is `TomlSerializer.Deserialize<TomlTable>` (no `ToModel`);
+  inline gate arrays materialize as `TomlArray` of `TomlTable` (not
+  `TomlTableArray`) — parser handles both.
+- Reported-status precedence (RF-004) is inherited from the attention
+  evaluator's hysteresis: hook/lifecycle/mailbox are strong signals, output
+  patterns are weak — a weak `working`/`idle` verdict can never evict a
+  committed `waiting_you`/`blocked`.
