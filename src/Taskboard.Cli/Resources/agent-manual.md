@@ -108,6 +108,34 @@ taskctl skill [--json]
 Prints this manual (embedded in the binary — always version-matched) or its
 JSON manifest.
 
+### agent:send / agent:status / agent:done / agent:ask / agent:report / agent:templates
+
+```bash
+taskctl agent:send "<text>" [--json]
+taskctl agent:status <working|blocked|done|error> [note] [--json]
+taskctl agent:done "<summary>" [--json]
+taskctl agent:ask "<question>" [--option "<text>"]... [--timeout <seconds>] [--json]
+taskctl agent:report [--json]
+taskctl agent:templates [--json]
+```
+
+Callback surface for managed agents — authenticated by the scoped
+`HARNESS_AGENT_TOKEN` injected into the run environment (see *Environment*).
+Outside a managed run these commands exit `no_context`.
+
+- `agent:send` — posts a mailbox message to the coordinator/parent.
+- `agent:status` — reports lifecycle state; `note` adds context (e.g. the
+  blocker when `blocked`).
+- `agent:done` — settles the run with a completion summary.
+- `agent:ask` — raises a blocking question to the operator; `--option`
+  enumerates allowed replies, `--timeout` bounds the wait.
+- `agent:report` — prints the token claims: session, scope, task, dispatch,
+  agent name, capabilities, expiration.
+- `agent:templates` — lists named run templates from
+  `~/.agent-harness/templates/*.md` (frontmatter: name, description, cli,
+  command, model, effort, interactive). Usable without agent context —
+  `taskctl run --template <name>` consumes them.
+
 ### agent:explain / agent:reload-manifests
 
 ```bash

@@ -62,6 +62,7 @@ using Taskboard.Harness;
 using Taskboard.Harness.FinOps;
 using Taskboard.Application.Configuration;
 using Taskboard.Integrations.Agents;
+using Taskboard.Integrations.Agents.Context;
 using Taskboard.Integrations.Delegation;
 using Taskboard.Integrations.CliDb;
 using Taskboard.Integrations.CliDb.Extractors;
@@ -435,7 +436,8 @@ void RegisterAcpAndAgentServices()
             sp.GetService<IAgentHookTokenService>(),
             sp.GetService<IAgentAttentionService>(),
             sp.GetService<IConfiguration>(),
-            sp.GetService<Taskboard.Integrations.Execution.IProcessIsolator>());
+            sp.GetService<Taskboard.Integrations.Execution.IProcessIsolator>(),
+            sp.GetService<IAgentCallbackTokenService>());
         return sp.GetRequiredService<IConfiguration>().GetValue("Taskboard:Acp:SessionRuns", false)
             ? new AcpSessionRunClient(sp.GetRequiredService<AcpSessionClient>(), fallback)
             : (IAgentAcpClient)fallback;
@@ -545,6 +547,10 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<AgentOutputAttentionService>();
     builder.Services.AddSingleton<IAgentOutputAttentionSink>(sp => sp.GetRequiredService<AgentOutputAttentionService>());
     builder.Services.AddSingleton<IAgentHookTokenService, AgentHookTokenService>();
+    // SPEC-20261104-agent-context-templates RF-001/003: scoped callback
+    // tokens (HARNESS_AGENT_TOKEN) + named task templates.
+    builder.Services.AddSingleton<IAgentCallbackTokenService, AgentCallbackTokenService>();
+    builder.Services.AddSingleton<IAgentTemplateCatalog, AgentTemplateCatalog>();
     builder.Services.AddSingleton<IAgentHookInstaller, AgentHookInstaller>();
     // SPEC-20261104-agent-attention-manifests: TOML detection catalog — bundled
     // manifests shadowed by {dataDir}/agent-detection overrides; hot reload.
@@ -2794,6 +2800,128 @@ void MapSettingsAndChatEndpoints()
             SanitizeHookPayload(evt.Payload)), ct).ConfigureAwait(false);
         return Results.Ok();
     });
+
+    // SPEC-20261104-agent-context-templates RF-002: callback surface for
+    // managed agents — `taskctl agent:*` posts here with the scoped
+    // HARNESS_AGENT_TOKEN (mailbox capability gates writes).
+    static AgentCallbackClaims? CallbackAuth(HttpContext context, IAgentCallbackTokenService tokens)
+    {
+        var auth = context.Request.Headers.Authorization.ToString();
+        var token = auth.StartsWith("Bearer ", StringComparison.Ordinal) ? auth[7..] : null;
+        return token is null ? null : tokens.Validate(token);
+    }
+
+    api.MapPost("agent/send", async (
+        AgentSendRequest req, HttpContext context,
+        IAgentCallbackTokenService tokens, IDelegationService delegation,
+        CancellationToken ct) =>
+    {
+        var claims = CallbackAuth(context, tokens);
+        if (claims is null || !claims.Capabilities.Contains(AgentCallbackCapabilities.Mailbox))
+        {
+            return Results.Unauthorized();
+        }
+
+        var message = await delegation.PostAsync(new PostMailboxMessageRequest(
+            claims.Scope, claims.AgentName, "coordinator", req.Text,
+            AgentMailboxKinds.Text, claims.TaskId, claims.DispatchId), ct).ConfigureAwait(false);
+        return Results.Ok(new { message.Id, message.ToAgent });
+    });
+
+    api.MapPost("agent/status", async (
+        AgentStatusRequest req, HttpContext context,
+        IAgentCallbackTokenService tokens, IAgentAttentionService attention,
+        CancellationToken ct) =>
+    {
+        var claims = CallbackAuth(context, tokens);
+        if (claims is null || !claims.Capabilities.Contains(AgentCallbackCapabilities.Status))
+        {
+            return Results.Unauthorized();
+        }
+
+        var state = req.State switch
+        {
+            "working" => AgentAttentionState.Working,
+            "blocked" => AgentAttentionState.WaitingYou,
+            "done" => AgentAttentionState.Done,
+            "error" => AgentAttentionState.Blocked,
+            _ => (AgentAttentionState?)null,
+        };
+        if (state is null)
+        {
+            return Results.BadRequest(new { error = "invalid_state", allowed = new[] { "working", "blocked", "done", "error" } });
+        }
+
+        await attention.PublishAsync(new AttentionSignal(
+            claims.SessionKey, claims.AgentName, AttentionSignalKind.Hook, state.Value,
+            "callback-status", req.Note is { Length: > 200 } n ? n[..200] : req.Note), ct).ConfigureAwait(false);
+        return Results.Ok();
+    });
+
+    api.MapPost("agent/done", async (
+        AgentDoneRequest req, HttpContext context,
+        IAgentCallbackTokenService tokens, IDelegationService delegation,
+        CancellationToken ct) =>
+    {
+        var claims = CallbackAuth(context, tokens);
+        if (claims is null || !claims.Capabilities.Contains(AgentCallbackCapabilities.Mailbox))
+        {
+            return Results.Unauthorized();
+        }
+
+        var message = await delegation.PostAsync(new PostMailboxMessageRequest(
+            claims.Scope, claims.AgentName, "coordinator", req.Summary,
+            AgentMailboxKinds.WorkerDone, claims.TaskId, claims.DispatchId), ct).ConfigureAwait(false);
+        return Results.Ok(new { message.Id });
+    });
+
+    api.MapPost("agent/ask", async (
+        AgentAskRequest req, HttpContext context,
+        IAgentCallbackTokenService tokens, IDelegationService delegation,
+        CancellationToken ct) =>
+    {
+        var claims = CallbackAuth(context, tokens);
+        if (claims is null || !claims.Capabilities.Contains(AgentCallbackCapabilities.Mailbox))
+        {
+            return Results.Unauthorized();
+        }
+
+        var result = await delegation.AskQuestionAsync(new AskQuestionRequest(
+            claims.Scope, claims.AgentName, req.Question, req.Options,
+            req.TimeoutSeconds is { } t ? TimeSpan.FromSeconds(t) : null), ct).ConfigureAwait(false);
+        return Results.Ok(new
+        {
+            result.MessageId,
+            questionId = result.Id,
+            status = result.Status.ToString().ToLowerInvariant(),
+            result.Answer,
+        });
+    });
+
+    api.MapGet("agent/report", (HttpContext context, IAgentCallbackTokenService tokens) =>
+    {
+        var claims = CallbackAuth(context, tokens);
+        if (claims is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        return Results.Ok(new
+        {
+            claims.SessionKey,
+            claims.Scope,
+            claims.TaskId,
+            claims.DispatchId,
+            claims.AgentName,
+            claims.Capabilities,
+            claims.ExpiresAtUtc,
+        });
+    });
+
+    // SPEC-20261104-agent-context-templates RF-003: named template catalog —
+    // bad files surface with an error marker, never break the listing.
+    api.MapGet("agent/templates", async (IAgentTemplateCatalog catalog, CancellationToken ct) =>
+        Results.Ok(new { templates = await catalog.ListAsync(ct) }));
 
     // SPEC-20261020-agent-board-v2 RF-001: kanban cards (needs_you/working/
     // done/idle) + per-user unread + deep-links.

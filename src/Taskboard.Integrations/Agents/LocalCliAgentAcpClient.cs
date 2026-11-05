@@ -12,6 +12,7 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
     private readonly IEnumerable<IAgentAdapter> _adapters;
     private readonly Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? _outputSink;
     private readonly Taskboard.Application.Contracts.Agents.IAgentHookTokenService? _hookTokens;
+    private readonly Taskboard.Application.Contracts.Agents.IAgentCallbackTokenService? _callbackTokens;
     private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
     private readonly Taskboard.Integrations.Execution.IProcessIsolator _isolator;
 
@@ -20,11 +21,13 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
         Taskboard.Application.Contracts.Agents.IAgentOutputAttentionSink? outputSink = null,
         Taskboard.Application.Contracts.Agents.IAgentHookTokenService? hookTokens = null,
         Microsoft.Extensions.Configuration.IConfiguration? configuration = null,
-        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null)
+        Taskboard.Integrations.Execution.IProcessIsolator? isolator = null,
+        Taskboard.Application.Contracts.Agents.IAgentCallbackTokenService? callbackTokens = null)
     {
         _adapters = adapters;
         _outputSink = outputSink;
         _hookTokens = hookTokens;
+        _callbackTokens = callbackTokens;
         _configuration = configuration;
         // SPEC-20261020-agent-process-isolation RF-003: agent runs get their
         // own cgroup scope; noop fallback keeps spawns working.
@@ -81,8 +84,13 @@ public sealed class LocalCliAgentAcpClient : IAgentAcpClient
         // SPEC-20261020-agent-attention-model RF-003: hook env injected after
         // the harness-env scrub so managed hooks can call /api/agent-hooks.
         var sessionKey = $"issue:{request.IssueId}";
-        AgentHookEnv.ApplyTo(
-            startInfo.Environment, _hookTokens, _configuration, sessionKey);
+        Taskboard.Integrations.Agents.Context.AgentContextEnv.ApplyTo(
+            startInfo.Environment, _callbackTokens, _hookTokens, _configuration,
+            sessionKey,
+            request.Scope ?? request.IssueId,
+            request.IssueId.StartsWith("task:", StringComparison.Ordinal) ? request.IssueId[5..] : null,
+            dispatchId: null,
+            request.AgentType.ToString());
 
         using var process = Process.Start(_isolator.Isolate(startInfo, "agent-run"));
         if (process is null)

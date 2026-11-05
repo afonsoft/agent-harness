@@ -56,6 +56,16 @@ internal static class Program
         config.AddCommand<DoctorCommand>("doctor");
         config.AddCommand<RunCommand>("run");
 
+        // In-agent callback surface — reads HARNESS_API_URL/HARNESS_AGENT_TOKEN
+        // (SPEC-20261104-agent-context-templates RF-002); templates list works
+        // outside a managed run too.
+        config.AddCommand<AgentSendCommand>("agent:send");
+        config.AddCommand<AgentStatusCommand>("agent:status");
+        config.AddCommand<AgentDoneCommand>("agent:done");
+        config.AddCommand<AgentAskCommand>("agent:ask");
+        config.AddCommand<AgentReportCommand>("agent:report");
+        config.AddCommand<AgentTemplatesCommand>("agent:templates");
+
         // Detection diagnostics + hot reload (SPEC-20261104-agent-attention-manifests RF-006/RF-007)
         config.AddCommand<AgentExplainCommand>("agent:explain");
         config.AddCommand<AgentReloadManifestsCommand>("agent:reload-manifests");
@@ -636,6 +646,137 @@ public class RunCommand : AsyncCommand<RunSettings>
             ? parsed
             : throw new CliException(2, $"{option} inválido: '{value}'.");
     }
+}
+
+// ---- Agent callback surface (SPEC-20261104-agent-context-templates RF-002) ----
+// Runs inside a managed agent's process env: HARNESS_API_URL +
+// HARNESS_AGENT_TOKEN are injected by the harness spawn. Outside a managed
+// run the commands fail with `no_context` — never hit the API.
+
+public class AgentCallbackSettings : GlobalSettings
+{
+    internal CliTaskboardApiClient CallbackClient()
+    {
+        var apiUrl = Environment.GetEnvironmentVariable("HARNESS_API_URL");
+        var token = Environment.GetEnvironmentVariable("HARNESS_AGENT_TOKEN");
+        if (string.IsNullOrWhiteSpace(apiUrl) || string.IsNullOrWhiteSpace(token))
+        {
+            throw new CliException(2,
+                "no_context: HARNESS_API_URL/HARNESS_AGENT_TOKEN não definidos — "
+                + "rode `taskctl agent:*` dentro de um run gerenciado pelo harness.");
+        }
+
+        return new CliTaskboardApiClient(apiUrl, token);
+    }
+}
+
+public class AgentSendSettings : AgentCallbackSettings
+{
+    [CommandArgument(0, "<text>")]
+    public string Text { get; set; } = default!;
+}
+
+public class AgentSendCommand : AsyncCommand<AgentSendSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentSendSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (unused, ct) =>
+        {
+            var result = await settings.CallbackClient().PostAsync(
+                "/api/local/agent/send", new { text = settings.Text }, ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
+}
+
+public class AgentStatusSettings : AgentCallbackSettings
+{
+    [CommandArgument(0, "<state>")]
+    public string State { get; set; } = default!;
+
+    [CommandArgument(1, "[note]")]
+    public string? Note { get; set; }
+}
+
+public class AgentStatusCommand : AsyncCommand<AgentStatusSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentStatusSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (unused, ct) =>
+        {
+            var state = settings.State.Trim().ToLowerInvariant();
+            if (state is not ("working" or "blocked" or "done" or "error"))
+            {
+                throw new CliException(2, "state inválido: working|blocked|done|error.");
+            }
+
+            var result = await settings.CallbackClient().PostAsync(
+                "/api/local/agent/status", new { state, note = settings.Note }, ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
+}
+
+public class AgentDoneSettings : AgentCallbackSettings
+{
+    [CommandArgument(0, "<summary>")]
+    public string Summary { get; set; } = default!;
+}
+
+public class AgentDoneCommand : AsyncCommand<AgentDoneSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentDoneSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (unused, ct) =>
+        {
+            var result = await settings.CallbackClient().PostAsync(
+                "/api/local/agent/done", new { summary = settings.Summary }, ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
+}
+
+public class AgentAskSettings : AgentCallbackSettings
+{
+    [CommandArgument(0, "<question>")]
+    public string Question { get; set; } = default!;
+
+    [CommandOption("--option <text>")]
+    public string[]? Options { get; set; }
+
+    [CommandOption("--timeout <seconds>")]
+    public int? TimeoutSeconds { get; set; }
+}
+
+public class AgentAskCommand : AsyncCommand<AgentAskSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentAskSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (unused, ct) =>
+        {
+            var result = await settings.CallbackClient().PostAsync(
+                "/api/local/agent/ask",
+                new
+                {
+                    question = settings.Question,
+                    options = settings.Options is { Length: > 0 } o ? o : null,
+                    timeoutSeconds = settings.TimeoutSeconds,
+                }, ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
+}
+
+public class AgentReportCommand : AsyncCommand<AgentCallbackSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentCallbackSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (unused, ct) =>
+        {
+            var result = await settings.CallbackClient().GetAsync("/api/local/agent/report", ct);
+            return await Program.WriteOutputAsync(settings.Json, result);
+        }, cancellationToken);
+}
+
+public class AgentTemplatesCommand : AsyncCommand<AgentCallbackSettings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, AgentCallbackSettings settings, CancellationToken cancellationToken)
+        => await Program.RunAsync(settings, async (client, ct) =>
+        {
+            var result = await client.GetAsync("/api/local/agent/templates", ct);
+            return await Program.WriteOutputAsync(settings.Json, result, "templates");
+        }, cancellationToken);
 }
 
 // ---- Detection explain + manifest reload (SPEC-20261104-agent-attention-manifests) ----
