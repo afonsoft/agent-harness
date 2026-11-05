@@ -153,6 +153,20 @@ public interface IDispatchRepository
         string id, DispatchState state, string? archivedOutput, DateTime now,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-001: binds the dispatch to its
+    /// run-terminal session key (<c>run:&lt;taskId&gt;</c>) — the hibernate
+    /// guard and run inspection see the attachment.
+    /// </summary>
+    Task<DispatchDto?> AttachTerminalAsync(string id, string handle, CancellationToken ct = default);
+
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-002: first-message delivery
+    /// record — idempotent, the first record wins.
+    /// </summary>
+    Task<DispatchDto?> RecordFirstMessageAsync(
+        string id, bool sent, string? reason, DateTime now, CancellationToken ct = default);
+
     /// <summary>SPEC-20261020-v2 RF-010: delegate_reset --tasks — all dispatches of a run.</summary>
     Task<int> DeleteByRunAsync(string runId, CancellationToken ct = default);
 }
