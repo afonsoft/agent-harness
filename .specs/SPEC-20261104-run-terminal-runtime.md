@@ -11,7 +11,7 @@
 | Repository | afonsoft/agent-harness |
 | Suggested branch | `feat/run-terminal-runtime` |
 | Technical owner | afonsoft |
-| Status | `Draft` |
+| Status | `Implemented` — branch `feat/run-terminal-runtime`, commit `d451529` |
 | Date | 2026-11-04 |
 | Depends on | SPEC-20261005-delegation-dag-mailbox (Done); PTY infra (`PtySession`, `TerminalSessionManager`) |
 | Related SPECs | SPEC-20261020-orchestration-contract-v2 (Dispatch lifecycle), SPEC-20261020-agent-attention-model, SPEC-20261104-agent-attention-manifests, SPEC-20261104-agent-lineage-notes |
@@ -39,7 +39,7 @@ cancel/kill. Consequences:
 
 Introduce **RunTerminal**: every dispatch executes inside a persistent PTY session owned
 by the runtime (reusing `PtySession`/`TerminalSessionManager` infra), keyed by
-`run:<taskId>`/dispatchId. Add chat/MCP tools `run_send`, `run_read`, `run_wait`,
+PTY session `run-{taskId}` / dispatchId — attention key `run:{taskId}`. Add chat/MCP tools `run_send`, `run_read`, `run_wait`,
 `run_interrupt`; keep `StreamingProcessRunner` as a compatibility path for CLIs/defs
 marked non-interactive. Human attach = existing Terminal page session attach + a
 control-ownership flag (`Operator|Human`) so the UI can type without breaking the
@@ -125,7 +125,7 @@ orchestrator's authority model.
 
 ```mermaid
 flowchart TB
-  Dispatcher -->|interactive| RT[RunTerminal\nPtySession + key run:taskId]
+  Dispatcher -->|interactive| RT[RunTerminal\nPTY run-taskId + attention run:taskId]
   Dispatcher -->|non-interactive| SPR[StreamingProcessRunner\nlegacy path]
   RT --> Store[AgentSessionStateStore\nattention states]
   Tools[run_send/read/wait/interrupt] --> RT
@@ -133,17 +133,22 @@ flowchart TB
   RT --> Feed[agent feed events]
 ```
 
-- `src/Taskboard.Domain/Agents/RunTerminal.cs` (+ `RunTerminalStatus`,
-  `ControlOwner`, `FirstMessage` VO).
-- `src/Taskboard.Application.Contracts/Agents/IRunTerminalService.cs` — attach,
-  send, read, wait registration, interrupt, ownership.
+- `src/Taskboard.Domain/Agents/RunTerminal.cs` (+ `RunTerminalState`,
+  `RunTerminalControlOwner`); `Status` is derived from attention snapshots, not
+  stored. `FirstMessage` lands as `Dispatch.FirstMessageSentAtUtc` +
+  `Dispatch.FirstMessageFailedReason` (first record wins).
+- `src/Taskboard.Application.Contracts/Agents/RunTerminalContracts.cs` —
+  `IRunTerminalService`, `IRunTerminalRepository`, DTOs, error kinds.
 - `src/Taskboard.Integrations/Agents/RunTerminalService.cs` — bridges
   `TerminalSessionManager`/`PtySession`; wait registry (regex + state predicate);
   integrates `IAgentAttentionService` for state matching.
-- `src/Taskboard.Integrations/Chat/Tools/Runs/` — `run_send`, `run_read`, `run_wait`,
-  `run_interrupt` tools with shared target resolution (`DelegationToolSupport`).
-- Dispatcher: `IAgentAdapter.BuildInteractiveCommand(request)` next to
-  `BuildCommand`; `CliCapabilities.Interactive` flag on cli map/defs.
+- `src/Taskboard.Integrations/Chat/Tools/Delegation/RunTerminalTools.cs` —
+  `run_send`, `run_read`, `run_wait`, `run_interrupt` tools with shared target
+  resolution (`DelegationToolSupport`).
+- Dispatcher: `IAgentAdapter.BuildInteractiveCommand(agentType, workdir, model,
+  autonomy)` next to `BuildSessionCommand`; the interactive CLI set is config
+  (`Taskboard:Agents:InteractiveClis`, default `claude,codex,opencode,devin,agy`,
+  `*` = all builtins, empty = streaming path).
 
 ## 4. Security
 
@@ -168,12 +173,34 @@ flowchart TB
 
 ## 6. Acceptance Criteria
 
-- [ ] A delegated task runs an interactive agent session visible in `delegate_status`
+- [x] A delegated task runs an interactive agent session visible in `delegate_status`
       with a `terminal` handle.
-- [ ] `run_send` mid-run text reaches the agent; a blocked agent refuses send
+- [x] `run_send` mid-run text reaches the agent; a blocked agent refuses send
       without `force`.
-- [ ] `run_wait --output "ready"` resolves on post-wait output; timeout returns a
+- [x] `run_wait --output "ready"` resolves on post-wait output; timeout returns a
       check-in, not a failure.
-- [ ] A human can attach the run terminal, type, detach; orchestrator sees the
-      ownership flip in status/feed.
-- [ ] After the run finishes, `run_read` still returns archived output.
+- [x] A human can attach the run terminal, type, detach; orchestrator sees the
+      ownership flip in status/feed. (Surface: `TerminalHub.AttachRunTerminal` +
+      `GET /api/local/runs/{id}/terminal`; Blazor Terminal-page wiring is a
+      follow-up.)
+- [x] After the run finishes, `run_read` still returns archived output.
+
+## 7. Implementation Notes (2026-11-05)
+
+- Interactive set is config-driven: `Taskboard:Agents:InteractiveClis`
+  (default `claude,codex,opencode,devin,agy`; `*` all builtins; empty keeps the
+  streaming path). `BuildInteractiveCommand` returns `null` for CLIs without a
+  native TUI argv → streaming fallback.
+- First message: dispatcher waits ≤60s for the TUI to report an idle-ish attention
+  state, then injects the task text regardless (TUIs buffer input); outcome is
+  persisted on the dispatch, first record wins.
+- Completion authority stays the mailbox `worker_done`; a PTY exit before
+  `worker_done` fails the run unless the dispatch was already
+  settled/released/retained externally.
+- Restart recovery: `EnsureAsync` treats a persisted `Live` row whose in-memory
+  PTY is gone as stale — finishes it and spawns a replacement (no PTY adoption
+  yet; that is the hibernation/`keep` follow-up).
+- Deviations from the original text: PTY session id is `run-{taskId}` (the
+  attention key keeps `run:{taskId}`); `Status` is derived per-read from
+  `IAgentAttentionService.SnapshotAsync` (normalized `waiting_you`), not a stored
+  column; `FirstMessage` is two columns on `Dispatch`, not a VO on RunTerminal.
