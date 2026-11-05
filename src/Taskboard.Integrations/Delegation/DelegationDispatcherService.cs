@@ -9,6 +9,7 @@ using Taskboard.Application.Contracts.Delegation;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Delegation;
 using Taskboard.Dtos;
+using Taskboard.Integrations.Agents;
 using Taskboard.Integrations.Chat.Tools;
 using Taskboard.Integrations.Harness;
 
@@ -42,6 +43,10 @@ public sealed class DelegationDispatcherService : BackgroundService
     private readonly Taskboard.Integrations.Execution.MemoryPressureGate? _pressureGate;
     private readonly AgentAutonomy _defaultAutonomy;
     private readonly bool _allowFullAutonomy;
+    private readonly IRunTerminalService? _runTerminals;
+    private readonly IConfiguration _configuration;
+    private readonly HashSet<string> _interactiveClis;
+    private readonly IReadOnlyList<IAgentAdapter> _adapters;
 
     public DelegationDispatcherService(
         IServiceScopeFactory scopeFactory,
@@ -51,7 +56,9 @@ public sealed class DelegationDispatcherService : BackgroundService
         IConfiguration configuration,
         ILogger<DelegationDispatcherService> logger,
         TimeProvider? timeProvider = null,
-        Taskboard.Integrations.Execution.MemoryPressureGate? pressureGate = null)
+        Taskboard.Integrations.Execution.MemoryPressureGate? pressureGate = null,
+        IRunTerminalService? runTerminals = null,
+        IEnumerable<IAgentAdapter>? adapters = null)
     {
         _scopeFactory = scopeFactory;
         _orchestration = orchestration;
@@ -74,6 +81,17 @@ public sealed class DelegationDispatcherService : BackgroundService
         _allowFullAutonomy = string.Equals(
             configuration["Taskboard:Agents:AllowFullAutonomy"], "true",
             StringComparison.OrdinalIgnoreCase);
+        _runTerminals = runTerminals;
+        _configuration = configuration;
+        // SPEC-20261104-run-terminal-runtime RF-002: builtin CLIs dispatched
+        // as interactive run terminals — "claude,codex,opencode,devin,agy" by
+        // default; "*" for every builtin, empty to keep the streaming path.
+        _interactiveClis = new HashSet<string>(
+            (configuration[$"{ConfigSection}:InteractiveClis"]
+                ?? "claude,codex,opencode,devin,agy")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            StringComparer.OrdinalIgnoreCase);
+        _adapters = adapters?.ToList() ?? [];
     }
 
     /// <summary>Inflight count exposed for tests and the inspection endpoint.</summary>
@@ -200,7 +218,14 @@ public sealed class DelegationDispatcherService : BackgroundService
             }
             else if (agentType is { } builtin)
             {
-                await ExecuteBuiltinAsync(task, builtin, ct).ConfigureAwait(false);
+                if (IsInteractiveCli(builtin))
+                {
+                    await ExecuteInteractiveAsync(task, builtin, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await ExecuteBuiltinAsync(task, builtin, ct).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -263,6 +288,219 @@ public sealed class DelegationDispatcherService : BackgroundService
             await FinishAsync(task.Id, ok: false, $"run {run.Id} {run.State}").ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-002: interactive dispatch —
+    /// the task runs inside a persistent PTY terminal instead of the
+    /// streaming queue, so it stays steerable/attachable after the turn.
+    /// Completion authority is the worker's <c>worker_done</c> mailbox post;
+    /// the terminal dying first is a failure. Falls back to the streaming
+    /// path when the CLI has no interactive command or the terminal can't
+    /// spawn.
+    /// </summary>
+    private async Task ExecuteInteractiveAsync(
+        DelegationTaskDto task, AgentType agentType, CancellationToken ct)
+    {
+        var exeName = AgentCliInvocation.ExecutableName(agentType)!;
+        var workdir = await ResolveWorkdirAsync(task, ct).ConfigureAwait(false);
+        var autonomy = AgentAutonomyNames.TryParse(task.Autonomy, out var requested)
+            ? requested
+            : _defaultAutonomy;
+        var gateError = AgentCliAutonomy.GateError(
+            autonomy,
+            isIsolated: workdir.SessionRunId is not null || task.WorktreeRunId is not null,
+            allowFull: _allowFullAutonomy);
+        if (gateError is not null)
+        {
+            await FinishAsync(task.Id, ok: false, gateError).ConfigureAwait(false);
+            return;
+        }
+
+        var command = _adapters
+            .FirstOrDefault(a => a.CanHandle(agentType))
+            ?.BuildInteractiveCommand(agentType, workdir.Path, task.Model, autonomy);
+        if (command is null)
+        {
+            await ExecuteBuiltinAsync(task, agentType, ct).ConfigureAwait(false);
+            return;
+        }
+
+        // RF-002/RNF-002: the worker knows its own addresses — the hook URL
+        // and session id come from RunTerminalService (AgentHookEnv).
+        var env = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["HARNESS_TASK_ID"] = task.Id,
+            ["HARNESS_API_URL"] =
+                _configuration["Taskboard:BaseUrl"] ?? AgentHookEnv.DefaultBaseUrl,
+        };
+        if (task.ActiveDispatchId is { } dispatchId)
+        {
+            env["HARNESS_DISPATCH_ID"] = dispatchId;
+        }
+        // Same key the ApiKeyAuthenticationHandler validates — the worker's
+        // mailbox/agent-hooks REST callbacks authenticate with it.
+        if (_configuration["Taskboard:ApiKey"] is { Length: > 0 } apiKey)
+        {
+            env["HARNESS_API_KEY"] = apiKey;
+        }
+
+        RunTerminalDto terminal;
+        try
+        {
+            terminal = await _runTerminals!.EnsureAsync(
+                new EnsureRunTerminalRequest(
+                    task.Id,
+                    task.ActiveDispatchId,
+                    exeName,
+                    [command.ExecutablePath, .. command.Arguments],
+                    command.WorkingDirectory,
+                    env,
+                    task.Scope),
+                ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex, "run terminal unavailable for task {TaskId} — streaming dispatch fallback", task.Id);
+            await ExecuteBuiltinAsync(task, agentType, ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Bind the dispatch to its terminal — the hibernate guard and run
+        // inspection see the PTY session key.
+        if (task.ActiveDispatchId is { } boundDispatch)
+        {
+            using (var bindScope = _scopeFactory.CreateScope())
+            {
+                await bindScope.ServiceProvider.GetRequiredService<IDispatchRepository>()
+                    .AttachTerminalAsync(boundDispatch, terminal.PtySessionId, ct)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        // First-message delivery (RF-002): wait for the TUI to draw its idle
+        // prompt (≤60s) then type the brief. Timeout still sends — late TUIs
+        // buffer typed input — but the dispatch records the degraded reason.
+        var ready = await WaitReadyAsync(task.Id, ct).ConfigureAwait(false);
+        var sent = await _runTerminals.SendAsync(
+            terminal.Id, WorkerBrief(task), force: true, ct: ct).ConfigureAwait(false);
+        var reason = sent.Delivered
+            ? (ready ? null : "readiness-timeout")
+            : sent.Error?.Message ?? "delivery-failed";
+        if (task.ActiveDispatchId is { } dispId)
+        {
+            await _runTerminals.RecordFirstMessageAsync(dispId, sent.Delivered, reason, ct)
+                .ConfigureAwait(false);
+        }
+        if (!sent.Delivered)
+        {
+            _logger.LogWarning(
+                "first message for task {TaskId} not delivered ({Reason}) — terminal {TerminalId} stays steerable",
+                task.Id, reason, terminal.Id);
+        }
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                using (var scope = _scopeFactory.CreateScope())
+                {
+                    var provider = scope.ServiceProvider;
+                    await provider.GetRequiredService<IDelegationService>()
+                        .HeartbeatAsync(task.Id, ct).ConfigureAwait(false);
+
+                    // worker_done mailbox post = the worker's done signal.
+                    var mailbox = provider.GetRequiredService<IAgentMailboxRepository>();
+                    var done = (await mailbox
+                            .ListByScopeAsync(task.Scope, take: 50, ct).ConfigureAwait(false))
+                        .FirstOrDefault(m =>
+                            m.Kind == AgentMailboxKinds.WorkerDone
+                            && m.DispatchId == task.ActiveDispatchId);
+                    if (done is not null)
+                    {
+                        var output = await _runTerminals.ReadAsync(
+                            terminal.Id, lines: 200, history: true, ct: ct).ConfigureAwait(false);
+                        var schemaValid = task.OutputSchema is null
+                            ? (bool?)null
+                            : OutputSchemaValidator.Evaluate(task.OutputSchema, output.Text);
+                        await FinishAsync(
+                                task.Id, ok: true, $"worker_done via terminal {terminal.Id}", schemaValid)
+                            .ConfigureAwait(false);
+                        return;
+                    }
+
+                    // Terminal died without worker_done → settle by dispatch
+                    // state (an external settle wins) else fail.
+                    var fresh = await _runTerminals.GetAsync(terminal.Id, ct: ct).ConfigureAwait(false);
+                    if (fresh is null || fresh.State != RunTerminalState.Live)
+                    {
+                        var disp = task.ActiveDispatchId is { } d
+                            ? await provider.GetRequiredService<IDispatchRepository>()
+                                .GetAsync(d, ct).ConfigureAwait(false)
+                            : null;
+                        if (disp?.State is DispatchState.Settled or DispatchState.Released or DispatchState.Retained)
+                        {
+                            await FinishAsync(task.Id, ok: true, $"terminal {terminal.Id} exited; dispatch settled")
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await FinishAsync(
+                                    task.Id, ok: false,
+                                    $"terminal {terminal.Id} exited (code {fresh?.ExitCode?.ToString() ?? "?"}) without worker_done")
+                                .ConfigureAwait(false);
+                        }
+                        return;
+                    }
+                }
+
+                await Task.Delay(RunPollInterval, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            // The run is over — return the PTY to normal lifecycle (the row
+            // already archived its tail if the process exited).
+            await _runTerminals.UnpinAsync(terminal.PtySessionId, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// RF-002 readiness: poll the attention store until the agent reports
+    /// idle (prompt drawn) — up to 60s. False on timeout; the caller still
+    /// sends, since TUI input queues until read.
+    /// </summary>
+    private async Task<bool> WaitReadyAsync(string taskId, CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var attention = scope.ServiceProvider.GetService<IAgentAttentionService>();
+        if (attention is null)
+        {
+            return false;
+        }
+
+        var key = $"run:{taskId}";
+        var deadline = _time.GetUtcNow() + TimeSpan.FromSeconds(60);
+        while (_time.GetUtcNow() < deadline && !ct.IsCancellationRequested)
+        {
+            var states = await attention.SnapshotAsync([key], ct).ConfigureAwait(false);
+            if (states.FirstOrDefault()?.State is AgentAttentionState.Idle)
+            {
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    /// <summary>RF-002: builtin CLIs that dispatch through run terminals.</summary>
+    private bool IsInteractiveCli(AgentType agentType) =>
+        _runTerminals is not null
+        && AgentCliInvocation.ExecutableName(agentType) is { } exe
+        && (_interactiveClis.Contains("*") || _interactiveClis.Contains(exe));
 
     /// <summary>RF-G01: builtin runs persist output as run logs — the tail
     /// (≤64KB) is the worker's reply material for schema evaluation.</summary>

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Taskboard.Application.Chat;
+using Taskboard.Application.Contracts.Agents;
 using Taskboard.Application.Contracts.Harness;
 using Taskboard.Harness;
 using Taskboard.Integrations.Terminal;
@@ -26,6 +27,7 @@ public sealed class TerminalHub : Hub
     private readonly IWorktreeSessionRepository _worktreeSessions;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IWorktreeYamlReader _yamlReader;
+    private readonly IRunTerminalService? _runTerminals;
 
     public TerminalHub(
         IConfiguration configuration,
@@ -35,7 +37,8 @@ public sealed class TerminalHub : Hub
         WorkspaceService workspace,
         IWorktreeSessionRepository worktreeSessions,
         IServiceScopeFactory scopeFactory,
-        IWorktreeYamlReader yamlReader)
+        IWorktreeYamlReader yamlReader,
+        IRunTerminalService? runTerminals = null)
     {
         _configuration = configuration;
         _logger = logger;
@@ -45,6 +48,7 @@ public sealed class TerminalHub : Hub
         _worktreeSessions = worktreeSessions;
         _scopeFactory = scopeFactory;
         _yamlReader = yamlReader;
+        _runTerminals = runTerminals;
     }
 
     public override async Task OnConnectedAsync()
@@ -219,6 +223,28 @@ public sealed class TerminalHub : Hub
         {
             throw new HubException(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-007: attaches this connection as
+    /// a viewer of a delegated run terminal (run id / task id / dispatch id).
+    /// The buffered scrollback replays as an "output" event; typing flips
+    /// control to the human; closing detaches the viewer — it never kills
+    /// the run. Returns the PTY session id for Input/Resize/Close calls.
+    /// </summary>
+    public async Task<string> AttachRunTerminal(string target)
+    {
+        var connectionId = Context.ConnectionId;
+        var sessionId = await _runTerminals!.AttachViewerAsync(
+            target,
+            connectionId,
+            UserKey,
+            (id, chunk) => _hubContext.Clients.Client(connectionId)
+                .SendAsync("output", id, chunk, CancellationToken.None),
+            (id, reason) => _hubContext.Clients.Client(connectionId)
+                .SendAsync("closed", id, reason, CancellationToken.None),
+            Context.ConnectionAborted).ConfigureAwait(false);
+        return sessionId ?? throw new HubException($"No live run terminal for '{target}'.");
     }
 
     /// <summary>Writes raw input to a session.</summary>
