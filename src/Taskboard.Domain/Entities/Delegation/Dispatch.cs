@@ -24,6 +24,10 @@ public sealed class Dispatch : AggregateRoot<string>
     public DispatchState State { get; private set; } = DispatchState.Pending;
     public string PreambleJson { get; private set; } = "{}";
 
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001: the dispatch that
+    /// spawned this one's task — null for root dispatches.</summary>
+    public string? ParentDispatchId { get; private set; }
+
     /// <summary>Terminal reuse handle (P3 — <c>delegate_task --terminal</c>).</summary>
     public string? TerminalHandle { get; private set; }
 
@@ -37,7 +41,8 @@ public sealed class Dispatch : AggregateRoot<string>
 
     public static Dispatch Create(
         string taskId, string runId, string workerKey, int attempt,
-        string preambleJson, DateTime? now = null, string? id = null)
+        string preambleJson, DateTime? now = null, string? id = null,
+        string? parentDispatchId = null)
     {
         if (attempt < 1)
         {
@@ -59,6 +64,8 @@ public sealed class Dispatch : AggregateRoot<string>
             Attempt = attempt,
             PreambleJson = string.IsNullOrWhiteSpace(preambleJson) ? "{}" : preambleJson,
             CreatedAtUtc = now ?? DateTime.UtcNow,
+            ParentDispatchId = string.IsNullOrWhiteSpace(parentDispatchId)
+                ? null : parentDispatchId.Trim(),
         };
     }
 

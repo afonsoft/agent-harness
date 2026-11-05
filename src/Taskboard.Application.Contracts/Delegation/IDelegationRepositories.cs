@@ -139,6 +139,11 @@ public interface IDispatchRepository
     /// <summary>Non-terminal dispatches of a run (pending/dispatched).</summary>
     Task<IReadOnlyList<DispatchDto>> ListOpenByRunAsync(string runId, CancellationToken ct = default);
 
+    /// <summary>SPEC-20261104-agent-lineage-notes RF-001/002: child dispatches
+    /// of a parent — used by the settle cascade and the lineage surface.</summary>
+    Task<IReadOnlyList<DispatchDto>> ListByParentAsync(
+        string parentDispatchId, CancellationToken ct = default);
+
     /// <summary>SPEC-20261020-agent-hibernation RF-003: open dispatches bound to a
     /// terminal/session key (TerminalHandle) — a non-empty list is a hibernate guard.</summary>
     Task<IReadOnlyList<DispatchDto>> ListOpenForSessionAsync(string sessionKey, CancellationToken ct = default);

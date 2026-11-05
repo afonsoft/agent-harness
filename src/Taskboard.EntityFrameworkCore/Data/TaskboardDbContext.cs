@@ -61,6 +61,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<Delivery> Deliveries => Set<Delivery>();
     public DbSet<PendingQuestion> PendingQuestions => Set<PendingQuestion>();
     public DbSet<DelegationGate> DelegationGates => Set<DelegationGate>();
+    public DbSet<AgentOutboxEntry> AgentOutboxEntries => Set<AgentOutboxEntry>();
     public DbSet<AgentSessionState> AgentSessionStates => Set<AgentSessionState>();
     public DbSet<AgentSessionStateTransition> AgentSessionStateTransitions => Set<AgentSessionStateTransition>();
     public DbSet<AgentBoardReadMarker> AgentBoardReadMarkers => Set<AgentBoardReadMarker>();

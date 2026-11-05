@@ -1947,6 +1947,40 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.ToTable("AgentMailboxMessages", (string)null);
                 });
 
+            modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.AgentOutboxEntry", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessageId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionKey", "CreatedAtUtc");
+
+                    b.ToTable("AgentOutboxEntries", (string)null);
+                });
+
             modelBuilder.Entity("Taskboard.Domain.Entities.Delegation.DelegationGate", b =>
                 {
                     b.Property<string>("Id")
@@ -2103,8 +2137,18 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("NotifyParent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("OutliveParent")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("OutputSchema")
                         .HasMaxLength(8192)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ParentDispatchId")
+                        .HasMaxLength(96)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Prompt")
@@ -2246,6 +2290,10 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                     b.Property<DateTime?>("DispatchedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ParentDispatchId")
+                        .HasMaxLength(96)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PreambleJson")
                         .IsRequired()
                         .HasMaxLength(16000)
@@ -2285,6 +2333,8 @@ namespace Taskboard.EntityFrameworkCore.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ParentDispatchId");
 
                     b.HasIndex("RunId", "State");
 

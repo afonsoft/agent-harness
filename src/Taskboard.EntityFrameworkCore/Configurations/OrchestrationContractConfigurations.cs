@@ -42,6 +42,8 @@ public sealed class DispatchConfiguration : IEntityTypeConfiguration<Dispatch>
         builder.Property(d => d.WorkerKey).IsRequired().HasMaxLength(128);
         builder.Property(d => d.PreambleJson).IsRequired().HasMaxLength(16000);
         builder.Property(d => d.TerminalHandle).HasMaxLength(256);
+        builder.Property(d => d.ParentDispatchId).HasMaxLength(96);
+        builder.HasIndex(d => d.ParentDispatchId);
         builder.Property(d => d.ArchivedOutput).HasMaxLength(32768);
 
         builder.Property(d => d.State)
@@ -123,5 +125,23 @@ public sealed class DelegationGateConfiguration : IEntityTypeConfiguration<Deleg
 
         builder.HasIndex(g => new { g.TaskId, g.Status });
         builder.HasIndex(g => new { g.Scope, g.Status });
+    }
+}
+
+/// <summary>SPEC-20261104-agent-lineage-notes RF-005.</summary>
+public sealed class AgentOutboxEntryConfiguration : IEntityTypeConfiguration<AgentOutboxEntry>
+{
+    public void Configure(EntityTypeBuilder<AgentOutboxEntry> builder)
+    {
+        builder.ToTable("AgentOutboxEntries");
+
+        builder.Property(e => e.Id).HasMaxLength(96);
+        builder.HasKey(e => e.Id);
+
+        builder.Property(e => e.SessionKey).IsRequired().HasMaxLength(128);
+        builder.Property(e => e.MessageId).IsRequired().HasMaxLength(96);
+        builder.Property(e => e.Kind).IsRequired().HasMaxLength(32);
+
+        builder.HasIndex(e => new { e.SessionKey, e.CreatedAtUtc });
     }
 }

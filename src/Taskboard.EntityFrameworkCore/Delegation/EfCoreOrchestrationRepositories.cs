@@ -92,6 +92,17 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
         .Select(ToDto)
         .ToList();
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<DispatchDto>> ListByParentAsync(
+        string parentDispatchId, CancellationToken ct = default) =>
+        (await _context.Dispatches
+            .Where(d => d.ParentDispatchId == parentDispatchId)
+            .OrderBy(d => d.CreatedAtUtc)
+            .ToListAsync(ct)
+            .ConfigureAwait(false))
+        .Select(ToDto)
+        .ToList();
+
     public async Task<IReadOnlyList<DispatchDto>> ListOpenByRunAsync(
         string runId, CancellationToken ct = default) =>
         (await _context.Dispatches
@@ -125,7 +136,8 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
     {
         var entity = Dispatch.Create(
             request.TaskId, request.RunId, request.WorkerKey,
-            request.Attempt, request.PreambleJson, id: request.Id);
+            request.Attempt, request.PreambleJson, id: request.Id,
+            parentDispatchId: request.ParentDispatchId);
         _context.Dispatches.Add(entity);
         await _context.SaveChangesAsync(ct).ConfigureAwait(false);
         return ToDto(entity);
@@ -181,7 +193,7 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
 
     private static DispatchDto ToDto(Dispatch d) =>
         new(d.Id, d.TaskId, d.RunId, d.WorkerKey, d.Attempt, d.State, d.PreambleJson,
-            d.TerminalHandle, d.ArchivedOutput,
+            d.TerminalHandle, d.ArchivedOutput, d.ParentDispatchId,
             d.CreatedAtUtc, d.DispatchedAtUtc, d.SettledAtUtc, d.ReleasedAtUtc);
 }
 
