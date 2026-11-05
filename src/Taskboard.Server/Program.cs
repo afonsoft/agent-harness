@@ -547,6 +547,11 @@ void RegisterAcpAndAgentServices()
     builder.Services.AddSingleton<IAgentHookTokenService, AgentHookTokenService>();
     builder.Services.AddSingleton<IAgentHookInstaller, AgentHookInstaller>();
     builder.Services.AddHostedService<AgentAttentionSweepService>();
+    // SPEC-20261104-run-terminal-runtime: persistent PTY control plane for
+    // delegated runs — row persistence is scoped (EF), the service is a
+    // singleton bridging TerminalSessionManager.
+    builder.Services.AddScoped<IRunTerminalRepository, EfCoreRunTerminalRepository>();
+    builder.Services.AddSingleton<IRunTerminalService, RunTerminalService>();
     // SPEC-20261020-agents-feed-notifications: global feed + unread markers.
     builder.Services.AddScoped<IAgentFeedRepository, EfCoreAgentFeedRepository>();
     builder.Services.AddScoped<IUserFeedReadRepository, EfCoreUserFeedReadRepository>();
@@ -866,6 +871,12 @@ void RegisterWorkspaceAndChatServices()
             new DelegateWorkerRetainTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateWorkerAbandonTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new DelegateResetTool(sp.GetRequiredService<IServiceScopeFactory>()),
+            // SPEC-20261104-run-terminal-runtime RF-003..RF-006: steer/observe
+            // delegated run terminals (send/read/wait/interrupt).
+            new RunSendTool(sp.GetRequiredService<IRunTerminalService>()),
+            new RunReadTool(sp.GetRequiredService<IRunTerminalService>()),
+            new RunWaitTool(sp.GetRequiredService<IRunTerminalService>()),
+            new RunInterruptTool(sp.GetRequiredService<IRunTerminalService>()),
             // SPEC-20261006 RF-004/RF-005: decision gate + worktree checkpoints.
             new AgentDecideTool(sp.GetRequiredService<IServiceScopeFactory>()),
             new WorktreeCheckpointTool(sp.GetRequiredService<IServiceScopeFactory>()),
@@ -2265,6 +2276,13 @@ void MapMiscEndpoints()
 
     api.MapGet("local/codex-thread-progress", () => Results.Ok(new { progress = (string?)null }));
     api.MapGet("local/host-runtime", () => Results.Ok(new { runtime = "dotnet", version = Environment.Version.ToString() }));
+    // SPEC-20261104-run-terminal-runtime RF-007: terminal facts of a run —
+    // the UI learns attachability/state before calling TerminalHub.AttachRunTerminal.
+    api.MapGet("local/runs/{id}/terminal", async (
+        string id, IRunTerminalService runs, CancellationToken ct) =>
+        await runs.GetAsync(id, ct: ct) is { } terminal
+            ? Results.Ok(terminal)
+            : Results.NotFound());
     api.MapGet("local/cloud-session", (CloudSessionService cloud) => Results.Ok(cloud.Get()));
     api.MapPut("local/cloud-session", (UpdateCloudSessionRequest request, CloudSessionService cloud) =>
     {

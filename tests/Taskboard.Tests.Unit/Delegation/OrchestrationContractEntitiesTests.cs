@@ -110,6 +110,44 @@ public class OrchestrationContractEntitiesTests
         Should.Throw<DomainException>(() => dispatch.Settle());
     }
 
+    // ---- SPEC-20261104-run-terminal-runtime RF-002: first-message record ----
+
+    [Fact]
+    public void Dado_Dispatch_Quando_RecordFirstMessage_Entao_SentaComTimestamp()
+    {
+        var dispatch = Dispatch.Create("task-1", "run-1", "claude", 1, "{}");
+        var now = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
+        dispatch.RecordFirstMessage(sent: true, reason: null, now);
+
+        dispatch.FirstMessageSentAtUtc.ShouldBe(now);
+        dispatch.FirstMessageFailedReason.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Dado_FirstMessageFalhou_Quando_Record_Entao_GravaReason()
+    {
+        var dispatch = Dispatch.Create("task-1", "run-1", "claude", 1, "{}");
+
+        dispatch.RecordFirstMessage(sent: false, reason: "delivery_failed");
+
+        dispatch.FirstMessageSentAtUtc.ShouldBeNull();
+        dispatch.FirstMessageFailedReason.ShouldBe("delivery_failed");
+    }
+
+    [Fact]
+    public void Dado_FirstMessageJaGravada_Quando_RecordDeNovo_Entao_PrimeiroVence()
+    {
+        var dispatch = Dispatch.Create("task-1", "run-1", "claude", 1, "{}");
+        var first = new DateTime(2026, 11, 4, 12, 0, 0, DateTimeKind.Utc);
+
+        dispatch.RecordFirstMessage(sent: true, reason: null, first);
+        dispatch.RecordFirstMessage(sent: false, reason: "later steering is not the first message", first.AddMinutes(1));
+
+        dispatch.FirstMessageSentAtUtc.ShouldBe(first);
+        dispatch.FirstMessageFailedReason.ShouldBeNull();
+    }
+
     // ---- Delivery (RF-003) ----
 
     [Fact]

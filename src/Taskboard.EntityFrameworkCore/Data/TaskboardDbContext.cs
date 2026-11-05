@@ -62,6 +62,7 @@ public sealed class TaskboardDbContext : DbContext
     public DbSet<PendingQuestion> PendingQuestions => Set<PendingQuestion>();
     public DbSet<DelegationGate> DelegationGates => Set<DelegationGate>();
     public DbSet<AgentOutboxEntry> AgentOutboxEntries => Set<AgentOutboxEntry>();
+    public DbSet<Taskboard.Domain.Agents.RunTerminal> RunTerminals => Set<Taskboard.Domain.Agents.RunTerminal>();
     public DbSet<AgentSessionState> AgentSessionStates => Set<AgentSessionState>();
     public DbSet<AgentSessionStateTransition> AgentSessionStateTransitions => Set<AgentSessionStateTransition>();
     public DbSet<AgentBoardReadMarker> AgentBoardReadMarkers => Set<AgentBoardReadMarker>();

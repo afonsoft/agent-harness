@@ -42,6 +42,41 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         /// live-join (SPEC-20261020-session-history-parity RF-003).</summary>
         public string? Cli { get; init; }
         public StringBuilder Scrollback { get; } = new();
+
+        /// <summary>
+        /// SPEC-20261104-run-terminal-runtime: runtime-owned PTY (delegated
+        /// run terminal) — exempt from the idle reaper while pinned; the
+        /// runtime is the completion authority, not inactivity.
+        /// </summary>
+        public bool RuntimeOwned { get; set; }
+
+        /// <summary>Extra output tap for the owning service (wait registry) — fire-and-forget.</summary>
+        public Func<string, string, Task>? OnChunk { get; init; }
+
+        /// <summary>
+        /// Process-exit hook invoked before teardown — receives the session
+        /// id, exit code and the buffered scrollback tail (for archival);
+        /// the session is already out of the registry when it runs.
+        /// </summary>
+        public Func<string, int, string, Task>? OnExited { get; init; }
+
+        /// <summary>First-person keystroke hook (RF-007 control-owner flip).</summary>
+        public Func<string, Task>? OnHumanInput { get; init; }
+
+        /// <summary>All viewers detached — the runtime regains exclusive control.</summary>
+        public Func<string, Task>? OnViewersEmpty { get; init; }
+
+        /// <summary>Read+type viewers attached to the session (human attach, RF-007).</summary>
+        public List<ViewerEntry> Viewers { get; } = [];
+    }
+
+    /// <summary>A non-owning viewer bound to a connection (multi-viewer attach).</summary>
+    internal sealed class ViewerEntry
+    {
+        public required string ConnectionId { get; init; }
+        public required string UserKey { get; init; }
+        public required Func<string, string, Task> OnOutput { get; set; }
+        public required Func<string, string, Task> OnClosed { get; set; }
     }
 
     /// <summary>
@@ -216,13 +251,8 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             // SPEC-20261020-agent-attention-model RF-005/RF-006: tail-match
             // interactive CLI output (OSC titles + permission/question patterns).
             var cliName = entry.Cli;
-            session.OutputReceived += chunk =>
-            {
-                AppendScrollback(entry, chunk);
-                _ = entry.OnOutput(sessionId, chunk);
-                _outputSink?.ObserveOutput($"term:{sessionId}", cliName, chunk);
-            };
-            session.Exited += code => { _ = NotifyClosedAsync(sessionId, "exited"); };
+            session.OutputReceived += chunk => FanOut(entry, sessionId, cliName, chunk);
+            session.Exited += code => { _ = NotifyClosedAsync(sessionId, "exited", code); };
 
             session.Start();
             _sessions[sessionId] = entry;
@@ -309,12 +339,38 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         }
     }
 
-    /// <summary>Writes input to a session owned by this connection; unknown/foreign ids are ignored.</summary>
+    /// <summary>
+    /// Writes input to a session owned by this connection — or viewed by it
+    /// (RF-007: viewer keystrokes flip the run terminal to human control via
+    /// the <c>OnHumanInput</c> hook). Unknown/foreign ids are ignored.
+    /// </summary>
     public async Task InputAsync(string userKey, string connectionId, string sessionId, string data)
     {
         if (TryGetOwned(userKey, connectionId, sessionId, out var entry))
         {
             await entry.Session.WriteAsync(data).ConfigureAwait(false);
+            return;
+        }
+
+        ViewerEntry? viewer = null;
+        SessionEntry? owned = null;
+        lock (_gate)
+        {
+            if (_sessions.TryGetValue(sessionId, out var found))
+            {
+                owned = found;
+                viewer = found.Viewers.FirstOrDefault(
+                    v => v.ConnectionId == connectionId && v.UserKey == userKey);
+            }
+        }
+
+        if (viewer is not null && owned is not null)
+        {
+            await owned.Session.WriteAsync(data).ConfigureAwait(false);
+            if (owned.OnHumanInput is { } hook)
+            {
+                _ = hook(sessionId);
+            }
         }
     }
 
@@ -362,7 +418,28 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         string sessionId,
         string? workdir,
         IReadOnlyList<string> command,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null) =>
+        OpenDetachedAsync(userKey, sessionId, workdir, command, environment);
+
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime: spawns a detached PTY with runtime
+    /// hooks — <paramref name="runtimeOwned"/> pins the session against the
+    /// idle reaper (the runtime is the lifecycle authority), and the hook
+    /// delegates receive output taps, the exit code, first-person input and
+    /// the viewers-empty signal.
+    /// </summary>
+    public Task<bool> OpenDetachedAsync(
+        string userKey,
+        string sessionId,
+        string? workdir,
+        IReadOnlyList<string> command,
+        IReadOnlyDictionary<string, string>? environment = null,
+        bool runtimeOwned = false,
+        Func<string, string, Task>? onChunk = null,
+        Func<string, int, string, Task>? onExited = null,
+        Func<string, Task>? onHumanInput = null,
+        Func<string, Task>? onViewersEmpty = null,
+        string? attentionKey = null)
     {
         lock (_gate)
         {
@@ -382,12 +459,17 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 _ = DisposeEntryAsync(stale);
             }
 
+            // Runtime-owned sessions are orchestrator infrastructure — the
+            // per-user tab cap does not apply to them.
             var count = 0;
-            foreach (var existing in _sessions.Values)
+            if (!runtimeOwned)
             {
-                if (existing.UserKey == userKey)
+                foreach (var existing in _sessions.Values)
                 {
-                    count++;
+                    if (existing.UserKey == userKey)
+                    {
+                        count++;
+                    }
                 }
             }
 
@@ -405,31 +487,174 @@ public sealed class TerminalSessionManager : IAsyncDisposable
                 OnOutput = (_, _) => Task.CompletedTask,
                 OnClosed = (_, _) => Task.CompletedTask,
                 Workdir = workdir,
-                AttentionKey = $"term:{id}",
+                AttentionKey = attentionKey ?? $"term:{id}",
                 Cli = command.Count > 0 ? command[0] : null,
+                RuntimeOwned = runtimeOwned,
+                OnChunk = onChunk,
+                OnExited = onExited,
+                OnHumanInput = onHumanInput,
+                OnViewersEmpty = onViewersEmpty,
             };
 
             var cliName = entry.Cli;
-            session.OutputReceived += chunk =>
-            {
-                AppendScrollback(entry, chunk);
-                _outputSink?.ObserveOutput($"term:{id}", cliName, chunk);
-            };
-            session.Exited += code => { _ = NotifyClosedAsync(id, "exited"); };
+            session.OutputReceived += chunk => FanOut(entry, id, cliName, chunk);
+            session.Exited += code => { _ = NotifyClosedAsync(id, "exited", code); };
 
             session.Start();
             _sessions[id] = entry;
             _logger.LogInformation(
-                "Terminal session {SessionId} respawned detached for {User}.", id, userKey);
+                "Terminal session {SessionId} spawned detached for {User} (runtime-owned: {RuntimeOwned}).",
+                id, userKey, runtimeOwned);
             return Task.FromResult(true);
         }
     }
 
-    /// <summary>Closes a session owned by this connection; idempotent.</summary>
+    /// <summary>Output fan-out: scrollback → owner → viewers → runtime tap → attention sink.</summary>
+    private void FanOut(SessionEntry entry, string sessionId, string? cliName, string chunk)
+    {
+        AppendScrollback(entry, chunk);
+        _ = entry.OnOutput(sessionId, chunk);
+        ViewerEntry[] viewers;
+        lock (_gate)
+        {
+            viewers = [.. entry.Viewers];
+        }
+
+        foreach (var viewer in viewers)
+        {
+            _ = viewer.OnOutput(sessionId, chunk);
+        }
+
+        if (entry.OnChunk is { } tap)
+        {
+            _ = tap(sessionId, chunk);
+        }
+
+        _outputSink?.ObserveOutput(entry.AttentionKey ?? $"term:{sessionId}", cliName, chunk);
+    }
+
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-003: orchestrator input —
+    /// bypasses the owning-connection check but only reaches runtime-owned
+    /// sessions (run terminals), never user tabs.
+    /// </summary>
+    public async Task<bool> InjectAsync(string sessionId, string data)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var entry) || !entry.RuntimeOwned)
+        {
+            return false;
+        }
+
+        await entry.Session.WriteAsync(data).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
+    /// RF-007: attaches a read+type viewer to a session (human attach on a run
+    /// terminal). Replays the buffered scrollback like a rebind. Returns
+    /// false when the session is gone.
+    /// </summary>
+    public bool AttachViewer(
+        string userKey,
+        string connectionId,
+        string sessionId,
+        Func<string, string, Task> onOutput,
+        Func<string, string, Task> onClosed)
+    {
+        string replay;
+        lock (_gate)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var entry) || !entry.Session.IsRunning)
+            {
+                return false;
+            }
+
+            var existing = entry.Viewers.FindIndex(v => v.ConnectionId == connectionId);
+            if (existing >= 0)
+            {
+                entry.Viewers[existing].OnOutput = onOutput;
+                entry.Viewers[existing].OnClosed = onClosed;
+            }
+            else
+            {
+                entry.Viewers.Add(new ViewerEntry
+                {
+                    ConnectionId = connectionId,
+                    UserKey = userKey,
+                    OnOutput = onOutput,
+                    OnClosed = onClosed,
+                });
+            }
+
+            replay = entry.Scrollback.ToString();
+        }
+
+        if (replay.Length > 0)
+        {
+            _ = onOutput(sessionId, replay);
+        }
+
+        _logger.LogInformation(
+            "Terminal session {SessionId} gained viewer on connection {ConnectionId}.",
+            sessionId, connectionId);
+        return true;
+    }
+
+    /// <summary>Detaches a viewer; fires the viewers-empty hook on the last one.</summary>
+    public void DetachViewer(string sessionId, string connectionId)
+    {
+        Func<string, Task>? hook = null;
+        lock (_gate)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var entry))
+            {
+                return;
+            }
+
+            entry.Viewers.RemoveAll(v => v.ConnectionId == connectionId);
+            if (entry.Viewers.Count == 0)
+            {
+                hook = entry.OnViewersEmpty;
+            }
+        }
+
+        if (hook is not null)
+        {
+            _ = hook(sessionId);
+        }
+    }
+
+    /// <summary>Viewer count of a session — used by the control-owner model.</summary>
+    public int ViewerCount(string sessionId)
+    {
+        lock (_gate)
+        {
+            return _sessions.TryGetValue(sessionId, out var entry) ? entry.Viewers.Count : 0;
+        }
+    }
+
+    /// <summary>Clears the runtime pin — idle reaping resumes for the session.</summary>
+    public void Unpin(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (_sessions.TryGetValue(sessionId, out var entry))
+            {
+                entry.RuntimeOwned = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Closes a session owned by this connection; for viewers it detaches
+    /// instead (RF-007 — closing an attached run-terminal tab must not kill
+    /// the run). Idempotent.
+    /// </summary>
     public async Task CloseAsync(string userKey, string connectionId, string sessionId)
     {
         if (!TryGetOwned(userKey, connectionId, sessionId, out _))
         {
+            DetachViewer(sessionId, connectionId);
             return;
         }
 
@@ -456,6 +681,13 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             _logger.LogInformation(
                 "Terminal session {SessionId} orphaned (connection {ConnectionId} ended).",
                 pair.Key, connectionId);
+        }
+
+        // RF-007: a dropped viewer connection detaches from every session it
+        // watched — the last viewer out returns control to the runtime.
+        foreach (var pair in _sessions.Where(pair => pair.Value.Viewers.Count > 0))
+        {
+            DetachViewer(pair.Key, connectionId);
         }
 
         return Task.CompletedTask;
@@ -500,7 +732,11 @@ public sealed class TerminalSessionManager : IAsyncDisposable
         {
             var orphanExpired = pair.Value.OrphanedAtUtc is { } orphanAt
                 && now - orphanAt > _orphanTimeout;
-            var idleExpired = now - pair.Value.Session.LastActivityUtc > _idleTimeout;
+            // Runtime-owned PTYs (run terminals) are exempt from the idle
+            // reaper while pinned — output activity, not input, is their
+            // heartbeat; the orchestrator owns the lifecycle.
+            var idleExpired = !pair.Value.RuntimeOwned
+                && now - pair.Value.Session.LastActivityUtc > _idleTimeout;
             if (!orphanExpired && !idleExpired)
             {
                 continue;
@@ -532,13 +768,52 @@ public sealed class TerminalSessionManager : IAsyncDisposable
             && entry.ConnectionId == connectionId;
     }
 
-    private async Task NotifyClosedAsync(string sessionId, string reason)
+    private async Task NotifyClosedAsync(string sessionId, string reason, int? exitCode = null)
     {
         if (_sessions.TryRemove(sessionId, out var entry))
         {
             _logger.LogInformation(
                 "Terminal session {SessionId} closed ({Reason}).", sessionId, reason);
+
+            // Run-terminal exit hook first — the row records finish while the
+            // scrollback tail is still intact for archival.
+            if (entry.OnExited is { } onExited)
+            {
+                string tail;
+                lock (_gate)
+                {
+                    tail = entry.Scrollback.ToString();
+                }
+
+                try
+                {
+                    await onExited(sessionId, exitCode ?? -1, tail).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Session {SessionId} exit hook failed.", sessionId);
+                }
+            }
+
             await NotifyAsync(entry, sessionId, reason).ConfigureAwait(false);
+            ViewerEntry[] viewers;
+            lock (_gate)
+            {
+                viewers = [.. entry.Viewers];
+                entry.Viewers.Clear();
+            }
+
+            foreach (var viewer in viewers)
+            {
+                try
+                {
+                    await viewer.OnClosed(sessionId, reason).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Viewer may be gone; closing still proceeds.
+                }
+            }
             // RF-007: process exit is a lifecycle signal — strong, commits
             // immediately as exited (never inferred from silence).
             if (reason == "exited" && _attention is not null && entry.AttentionKey is { } key)

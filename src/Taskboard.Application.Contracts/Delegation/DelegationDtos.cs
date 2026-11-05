@@ -79,7 +79,10 @@ public sealed record DispatchDto(
     DateTime CreatedAtUtc,
     DateTime? DispatchedAtUtc,
     DateTime? SettledAtUtc,
-    DateTime? ReleasedAtUtc);
+    DateTime? ReleasedAtUtc,
+    /// <summary>SPEC-20261104-run-terminal-runtime RF-002: first-message delivery stamp.</summary>
+    DateTime? FirstMessageSentAtUtc = null,
+    string? FirstMessageFailedReason = null);
 
 /// <summary>SPEC-20261020-v2 RF-003: wire shape of a mailbox delivery batch.</summary>
 public sealed record DeliveryDto(

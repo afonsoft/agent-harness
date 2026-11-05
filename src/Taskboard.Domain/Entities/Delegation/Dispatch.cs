@@ -31,6 +31,15 @@ public sealed class Dispatch : AggregateRoot<string>
     /// <summary>Terminal reuse handle (P3 — <c>delegate_task --terminal</c>).</summary>
     public string? TerminalHandle { get; private set; }
 
+    /// <summary>
+    /// SPEC-20261104-run-terminal-runtime RF-002: first-message delivery on an
+    /// interactive run terminal — set when the task text reached the PTY.
+    /// </summary>
+    public DateTime? FirstMessageSentAtUtc { get; private set; }
+
+    /// <summary>Why the first message was not (cleanly) delivered; null on clean send.</summary>
+    public string? FirstMessageFailedReason { get; private set; }
+
     /// <summary>Archived worker output — survives release (RF-006 read).</summary>
     public string? ArchivedOutput { get; private set; }
 
@@ -141,4 +150,25 @@ public sealed class Dispatch : AggregateRoot<string>
 
     public void AttachTerminal(string handle) =>
         TerminalHandle = string.IsNullOrWhiteSpace(handle) ? TerminalHandle : handle.Trim();
+
+    /// <summary>
+    /// RF-002: records the first-message outcome — <paramref name="sent"/>
+    /// stamps delivery time; <paramref name="reason"/> explains a dirty or
+    /// failed delivery (e.g. "readiness-timeout"). Idempotent: the first
+    /// record wins, later steering does not overwrite it.
+    /// </summary>
+    public void RecordFirstMessage(bool sent, string? reason, DateTime? now = null)
+    {
+        if (FirstMessageSentAtUtc is not null || FirstMessageFailedReason is not null)
+        {
+            return;
+        }
+
+        if (sent)
+        {
+            FirstMessageSentAtUtc = now ?? DateTime.UtcNow;
+        }
+
+        FirstMessageFailedReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+    }
 }

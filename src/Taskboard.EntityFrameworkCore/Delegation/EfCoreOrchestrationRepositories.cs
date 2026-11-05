@@ -177,6 +177,35 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
     }
 
     /// <inheritdoc/>
+    public async Task<DispatchDto?> AttachTerminalAsync(
+        string id, string handle, CancellationToken ct = default)
+    {
+        var entity = await _context.Dispatches.FindAsync([id], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        entity.AttachTerminal(handle);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    public async Task<DispatchDto?> RecordFirstMessageAsync(
+        string id, bool sent, string? reason, DateTime now, CancellationToken ct = default)
+    {
+        var entity = await _context.Dispatches.FindAsync([id], ct).ConfigureAwait(false);
+        if (entity is null)
+        {
+            return null;
+        }
+
+        entity.RecordFirstMessage(sent, reason, now);
+        await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        return ToDto(entity);
+    }
+
+    /// <inheritdoc/>
     public async Task<int> DeleteByRunAsync(string runId, CancellationToken ct = default)
     {
         var entities = await _context.Dispatches
@@ -194,7 +223,8 @@ public sealed class EfCoreDispatchRepository : IDispatchRepository
     private static DispatchDto ToDto(Dispatch d) =>
         new(d.Id, d.TaskId, d.RunId, d.WorkerKey, d.Attempt, d.State, d.PreambleJson,
             d.TerminalHandle, d.ArchivedOutput, d.ParentDispatchId,
-            d.CreatedAtUtc, d.DispatchedAtUtc, d.SettledAtUtc, d.ReleasedAtUtc);
+            d.CreatedAtUtc, d.DispatchedAtUtc, d.SettledAtUtc, d.ReleasedAtUtc,
+            d.FirstMessageSentAtUtc, d.FirstMessageFailedReason);
 }
 
 /// <summary>SPEC-20261020-v2 RF-003: FIFO delivery batches of the run inbox.</summary>

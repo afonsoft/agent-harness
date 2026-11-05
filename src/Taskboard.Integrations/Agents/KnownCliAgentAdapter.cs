@@ -61,6 +61,34 @@ public sealed class KnownCliAgentAdapter : IAgentAdapter
         return new AgentCommand(executablePath, arguments, workingDirectory);
     }
 
+    /// <inheritdoc />
+    public AgentCommand? BuildInteractiveCommand(
+        AgentType agentType, string workdir, string? modelName = null,
+        AgentAutonomy autonomy = AgentAutonomy.Edit)
+    {
+        var name = AgentCliInvocation.ExecutableName(agentType);
+        if (name is null)
+        {
+            return null;
+        }
+
+        // TUI launch: binary + autonomy flags + optional model — no prompt
+        // argv (the brief is typed into the session once it reaches idle).
+        var executablePath = PathSearch.FindExecutable(name) ?? name;
+        var modelFlag = AgentCliModels.ModelFlag(agentType);
+        var model = modelFlag is not null && !string.IsNullOrWhiteSpace(modelName)
+            ? new[] { modelFlag, modelName }
+            : [];
+        var workingDirectory = !string.IsNullOrWhiteSpace(workdir)
+            ? workdir
+            : _workspace?.EnsureRoot() ?? Environment.CurrentDirectory;
+
+        return new AgentCommand(
+            executablePath,
+            [.. AgentCliAutonomy.Flags(agentType, autonomy), .. model],
+            workingDirectory);
+    }
+
     private static IReadOnlyList<string> BuildSessionArguments(AgentType agentType, string? modelName)
     {
         // Explicit model only — sessions never inject the curated Normal model.
